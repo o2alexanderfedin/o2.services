@@ -36,6 +36,7 @@ import {
   canonicalCid,
   delegate,
   describeCoverage,
+  describeQuorum,
   guardModuleProvenance,
   publicNodes,
   signName,
@@ -2241,11 +2242,17 @@ function quorumReading(held: RungAttestation | NoJobToAttest): string | null {
   // follow: a reader tells *this rung produced no shard* from *this rung's quorum was not
   // composed* by the presence of the line, never by parsing a sentinel out of it.
   if (quorum === 'this-rung-returned-no-shard') return null
-  if (quorum.kind === 'composed') {
-    return `composed over ${String(quorum.operators.length)} operator(s): ${quorum.operators.join(', ')}`
-  }
-  if (quorum.kind === 'not-composed') return `not composed (${quorum.refusal}) — ${quorum.reason}`
-  return `not attempted — ${quorum.reason}`
+  // **`describeQuorum`, not a copy of it — and this line replaced a defect rather than a
+  // preference.** What stood here rendered the refusal arm as
+  // `not composed (${quorum.refusal})`, interpolating the refusal **object**, so every
+  // refusal this driver has ever printed read `not composed ([object Object])`. The kind is
+  // the one field {@link ShardQuorum}'s docblock says a caller must be able to read — *a
+  // caller that can read `insufficient-operators` or `shared-relay-dependency` can tell an
+  // over-concentrated fabric from any other degradation, and one that cannot, cannot* — and
+  // it was the field destroyed. Nothing caught it because `bench-attestation.node.test.ts`
+  // asserts only on the composed arm and on the *absence* of the words `not composed`, so
+  // the refusal arm's rendering had no reader at all.
+  return describeQuorum(quorum)
 }
 
 /**

@@ -991,6 +991,23 @@ const api: TabApi = {
       // this surface and the CLI have one source of the words and cannot come to describe
       // one result differently.
       attestation: result.job.attestation,
+      // VER-03, VER-04 — the composer's verdict, which until now was computed on every
+      // run of this page and thrown away.
+      //
+      // **Off the shards, never off `job.attestation`.** The receipt beside it carries a
+      // `sharedRelay` field that looks like it answers VER-03 and does not: it is derived
+      // from the certificates of whoever answered, so it reads the same on a fabric where
+      // `composeQuorum` was never called. This value cannot — `not-attempted` names which
+      // of the gate's three conditions failed, and the two refusal kinds are the composer's.
+      //
+      // Every cube above is `label: 'public'` and the composition is job-level, so all
+      // shards carry the identical verdict; the first is not a sample. The fallback is for
+      // a run that produced no shard at all, which is a truthful answer rather than a
+      // default — nothing was submitted, so nothing was composed.
+      quorum: result.job.shards[0]?.quorum ?? {
+        kind: 'not-attempted',
+        reason: 'this run produced no shard, so there was nothing to compose a quorum for',
+      },
     }
   },
 
@@ -1165,9 +1182,28 @@ const api: TabApi = {
       // unsigned layer left this tab's own replica unaccounted, so a self-included job
       // reported the named absence however well it had actually gone.
       ...(options.includeSelf === true ? [n.signingExecutor] : []),
-      // AUTH-03, same reasoning as `runColouring` above and equally permanent: every
-      // shard below is `label: 'public'`, so there is no owner, no root key, and
-      // nothing for a chain to say.
+      // AUTH-03. **The reason here is NOT `runColouring`'s, and this comment said it was
+      // until 2026-08-14.** It read *"every shard below is `label: 'public'`, so there is
+      // no owner, no root key, and nothing for a chain to say"* — which is true of
+      // `runColouring` and false of this function, thirty lines below which a
+      // `label: 'sovereign'` arm is built from the BYO form's own checkbox. Another
+      // sentence that was true when written and was not re-read when the code under it
+      // grew an arm.
+      //
+      // The correct reason is placement, and it is measured rather than argued.
+      // `attestedNodes` declares `ownerId: 'public'` on every descriptor this page builds,
+      // and `eligibleNodes` places a sovereign shard only on a node whose `ownerId`
+      // **equals** the shard's — so every sovereign dispatch from this surface is
+      // unplaceable and no remote executor is ever handed one.
+      // `demo-byo.e2e.test.ts`'s `[sovereign·unowned]` arm reads exactly that: nothing
+      // placed, nothing agreed, zero frames, zero bytes.
+      //
+      // **So this is a bound, not a proof, and the bound has a named edge.** A visitor who
+      // types the literal `public` into the owner-id box makes every peer eligible for a
+      // sovereign shard dispatched with no chain — `demo-byo.e2e.test.ts` names that
+      // literal `OWNER_THE_NODES_DECLARE` and asserts it is still there precisely so this
+      // arm reddens the day a tab is handed a real owner identity. Wire a chain here
+      // *before* that day, not after it.
       ...options.peerIds.map((id) => new RemoteExecutor(id, n.rpc, 'dispatches-unauthenticated')),
     ]
     // DET-03/DATA-08. Rebuilt field by field rather than spread, and that is not style:

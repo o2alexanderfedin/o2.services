@@ -69,6 +69,11 @@ export type {
 
 // Job submission — MR-01, DATA-01, DATA-03, DATA-04.
 export { submitJob } from './job/submit.ts'
+// VER-03, VER-04. The composer's verdict, in one set of words for every surface that
+// shows it. Exported here for the same reason `describeAttestation` is: a display site
+// outside this package that formats the value itself becomes a second author of the
+// sentence, and two authors of one sentence eventually describe one result two ways.
+export { describeQuorum } from './job/submit.ts'
 export type {
   JobResult,
   JobSpec,

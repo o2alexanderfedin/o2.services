@@ -572,6 +572,42 @@ export type ShardQuorum =
   /** No quorum was attempted. One of the gate's three conditions did not hold, and this says which. */
   | { readonly kind: 'not-attempted'; readonly reason: string }
 
+/**
+ * One sentence for a {@link ShardQuorum}, in the composer's own words — VER-03, VER-04.
+ *
+ * The same arrangement `describeAttestation` has and for the same reason: two formatters of
+ * one value are two things that can come to describe one result differently. Every surface
+ * that shows a quorum verdict — `bin/bench.ts`, the demo page — renders this string and
+ * composes none of its own.
+ *
+ * **The refusal kind is emitted verbatim and that is the load-bearing part.**
+ * {@link ShardQuorum}'s own docblock says a caller that can read `insufficient-operators`
+ * or `shared-relay-dependency` can tell an over-concentrated fabric from any other
+ * degradation, and one that cannot, cannot. A sentence that rendered only `reason` would
+ * be prose a reader has to parse; the kind is a fixed string a *test* can assert on, which is
+ * what makes "the fabric refused this quorum for shared reachability" a checkable claim
+ * rather than a phrase that happens to appear.
+ *
+ * **What this must never be derived from.** Not `redundancy`, not `agreeing.length`, and
+ * emphatically not `AttestationReceipt.sharedRelay` — that field is computed from the
+ * certificates of whoever answered and signed, so it reads identically on a fabric where
+ * this gate never ran. Only the composer knows what the composer decided.
+ */
+export function describeQuorum(quorum: ShardQuorum): string {
+  switch (quorum.kind) {
+    case 'composed':
+      return (
+        `composed across ${quorum.operators.length} ` +
+        `${quorum.operators.length === 1 ? 'operator' : 'operators'} ` +
+        `(${quorum.operators.join(', ')}) — no two members share an operator`
+      )
+    case 'not-composed':
+      return `not composed [${quorum.refusal.kind}] — ${quorum.reason}`
+    case 'not-attempted':
+      return `not attempted — ${quorum.reason}`
+  }
+}
+
 /** One shard's quorum decision, and what placement is handed because of it. */
 interface ShardGate {
   readonly quorum: ShardQuorum
