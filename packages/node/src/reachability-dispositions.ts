@@ -565,8 +565,23 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * invisible"* block, which measures the price of moving them here — **+7, read within one run on
  * 2026-08-11, not the +12 that had been projected** — and holds them out until an owner decides
  * otherwise.
+ *
+ * ## Lowered 29 → 27, measured 2026-08-14 — WIRING, and the second such lowering here
+ *
+ * `net/reduceSovereignJob` and `core/withCoverage` both leave the open population, and they leave
+ * it together for one reason: the arm was `withCoverage`'s only caller, so giving the arm a caller
+ * gave both a path. One wire, two symbols.
+ *
+ * The caller is `bin/bench.ts`'s `--sovereign` leg, which now dispatches **two** owner-pinned rows
+ * instead of one and aggregates them. Measured on a real run — *"1 combine(s) at 2 replicas,
+ * coverage 1/1 owners complete, 2 row(s) watched over 2 pinned"* at the two-worker rung, with the
+ * one-worker rung naming why it cannot carry an aggregation verified at two replicas — and the
+ * instrument re-read afterwards at 27 rather than derived by subtraction.
+ *
+ * **This lowering is only possible because the blocker recorded above was false**; see the
+ * retraction in the `37 → 38` note. Neither symbol was ever blocked on anything.
  */
-export const OPEN_FINDING_CEILING = 29
+export const OPEN_FINDING_CEILING = 27
 
 /**
  * How large the register may grow before something reddens.
