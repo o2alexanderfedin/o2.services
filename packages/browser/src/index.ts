@@ -75,6 +75,13 @@ export {
   CID_DEFECTS,
   cidDefect,
   CODE_CACHE_MIN_BYTES,
+  // The fifth precondition, exported beside the fourth on purpose. `CODE_CACHE_MIN_BYTES`
+  // alone is what a reader of this barrel used to see, and reading only it is how this
+  // package published a negative that turned out to be a fact about its own fixture:
+  // a module can clear the size bar and still never cache, because what V8 counts is
+  // top-tier code. Neither constant is checkable from inside a page; both are here so
+  // the list a consumer sees is the whole list.
+  CODE_CACHE_TOP_TIER_THRESHOLD_BYTES,
   DAG_CBOR_CODE,
   describeCacheVerdict,
   describeLoadFailure,
