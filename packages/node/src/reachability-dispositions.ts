@@ -44,6 +44,8 @@ export type DispositionCause =
   | 'global-object-hop'
   | 'benchmark-driver-only'
   | 'deferred-in-source'
+  | 'port-member-dispatch'
+  | 'proxy-trap-dispatch'
 
 /** One disposed symbol. */
 export interface Disposition {
@@ -122,6 +124,25 @@ export interface Disposition {
  * **The list is no longer trusted to be complete**: `reachability-guard.node.test.ts` re-derives
  * it on every run and reddens in both directions — an undisposed symbol that flips, and a
  * `global-object-hop` entry that does not.
+ *
+ * ## Grown 26 → 27, 2026-08-13 — and the guard named the entrant, nobody read it off
+ *
+ * `core/describeStartReport` joined when `reachability.ts` learned to resolve a name destructured
+ * from `await import(…)`. It is worth stating what changed and what did not. Its production caller
+ * — `main.ts#startReport`, a member of the `window.o2` literal — was there all along, but the
+ * graph had **no edge into the symbol at all**: `const { describeStartReport } = await
+ * import('@o2/core')` binds a local `BindingElement`, and the call below it landed on a node id
+ * inside `main.ts` that nothing declares. So this symbol was invisible to the closing condition
+ * this very docblock states: teaching the graph the `window.o2` assignment would not have rescued
+ * it, because an in-degree of zero does not care what is rooted. It was a **third mechanism**
+ * hiding a member of this class, and it read as *"no production code calls it"* in the open
+ * findings for as long as it existed.
+ *
+ * **Not read off the source — the derived case above failed and named it**, verbatim: *"these
+ * become reachable the moment the window.o2 assignment is traced … expected
+ * `[ 'core/describeStartReport' ]` to deeply equal `[]`"*. That is the G14 defence working the
+ * way it was built to: the class was re-derived, the register disagreed, and the register was
+ * wrong.
  */
 const GLOBAL_OBJECT_HOP: readonly string[] = [
   'browser/BrowserNode',
@@ -139,6 +160,7 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   'browser/probeEnvironment',
   'browser/readConsent',
   'browser/revokeConsent',
+  'core/describeStartReport',
   'core/startReportFromCounts',
   'demo/answerOf',
   'demo/buildPiInput',
@@ -162,6 +184,23 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
  * and the question was put and answered: the set stays at five, and these carry a stated reason
  * instead. Adding `bench-lifted.ts` as a root would close them, and that is the decision that was
  * declined rather than a gap that was missed.
+ *
+ * ## This cause is measurably INCOMPLETE as of 2026-08-13, and it is flagged rather than rewritten
+ *
+ * Rooting `packages/aot/src/wasi-executor.ts#execute` alone flips **five** `@o2/aot` symbols:
+ * `aot/describeWasiFailure`, disposed under {@link HIDDEN_BY_DISPATCH}, and all four below.
+ * Reading the source confirms the measurement — `shardArgv` at `wasi-executor.ts:818`, and
+ * `pinnedWasiImports`, `seededStream` and `taskSeed` at `:825`, all inside `run`, which `execute`
+ * calls at `:751` — and `WasiExecutor` is constructed in production at `fabric-node.ts:2248` and
+ * `browser-node.ts:1426`.
+ *
+ * So *"called only from `tools/aot/bench-lifted.ts`"* is **not true**: these four have a second
+ * caller, on the production dispatch path, hidden by the port-member mechanism. They are left on
+ * this cause on purpose. The owner ruling they record is about the **entry-point set**, which
+ * nothing in this repair touches, and re-causing four symbols is a decision to *put* rather than
+ * to take in passing. What is not left alone is the sentence: it is corrected here, with the
+ * measurement beside it, so the next reader is not misled by a cause that has stopped describing
+ * the tree.
  */
 const BENCHMARK_DRIVER_ONLY: readonly string[] = [
   'aot/pinnedWasiImports',
@@ -210,6 +249,114 @@ const DEFERRED_IN_SOURCE: readonly string[] = [
   'net/remoteDispatch',
 ]
 
+/**
+ * Reached only from a member **nothing in the tree ever names** — a port implementation invoked
+ * through its interface, or a `Proxy` handler invoked by the engine.
+ *
+ * ## Why this is a disposition and not a graph edge
+ *
+ * `attestResults` returns `{ nodeId, execute }` and `signResult` is called inside that `execute`.
+ * `attestResults` is **reached** — `fabric-node.ts:2319` and `browser-node.ts:1504` compose it on
+ * every node — and yet `attesting-executor.ts#execute` has an in-degree of **zero**, because every
+ * caller in the repository writes `executor.execute(task)` against the `Executor` port and the
+ * member edge lands on `packages/core/src/ports.ts#execute`. The interface member is reached; the
+ * implementation is not; and the checker cannot say which object is behind the reference, because
+ * that is a run-time fact.
+ *
+ * **Three graph edges were considered and each is over-connection**, which is why this is a
+ * register entry instead:
+ *
+ * 1. *"A member call on an interface member reaches every implementation of that member."* Every
+ *    `execute` in the tree becomes reached from any `.execute()` call anywhere — thirteen
+ *    implementations off one call site, whether or not anything composes them.
+ * 2. *"An object-literal method is reached when the declaration that evaluates the literal is."*
+ *    Measured, and it fails on the anchor: `demo/main.ts` writes `const api = { … }` at **module
+ *    scope**, so the evaluator is `main.ts#<module>`, which is a root. `demo/estimatePi` would
+ *    read reachable, `reachability-guard.node.test.ts`'s over-connection anchor would go green
+ *    when it must stay red, and all twenty-seven {@link GLOBAL_OBJECT_HOP} entries would have to
+ *    be deleted. Restricting the rule to a non-module evaluator saves the anchor and is not a
+ *    principle — it is a rule shaped to preserve a canary, which is how a guard stops guarding.
+ * 3. *"Root every declaration with no in-edges."* **Measured 2026-08-13: 71 of the 71 findings
+ *    flip.** The plant separates nothing, which is also why this class is **not derived** the way
+ *    `global-object-hop` is — no plant distinguishes it from the hop class or from genuinely dead
+ *    code. That is a real weakness of this register and it is written here rather than left to be
+ *    discovered: *this list is assembled by reading, and reading is what `G14` showed to be
+ *    incomplete.*
+ *
+ * ## What IS checked, per entry, rather than asserted
+ *
+ * Each row names the member the symbol is reached through, and
+ * `reachability-guard.node.test.ts` requires all three legs of the mechanism to hold on the real
+ * graph: the member exists and has **zero in-edges** (nothing names it), the interface member it
+ * implements is **reached** (the port really is dispatched in production), and rooting *that one
+ * member* makes *this one symbol* flip from unreachable to reachable. An entry whose mechanism
+ * stops describing the tree reddens, which is the whole contract of this file.
+ *
+ * `composedAt` is the production site where the object carrying the member is built. It is prose
+ * and it is cited, so a reader can check the claim that the symbol runs at all.
+ */
+export interface HiddenCaller {
+  /** `barrel/symbol`, the form the guard's verdict list uses. */
+  readonly key: string
+  /** The declaration node that calls it, which no call expression in the tree names. */
+  readonly through: string
+  readonly cause: 'port-member-dispatch' | 'proxy-trap-dispatch'
+  /** Where the object carrying {@link through} is composed in production. */
+  readonly composedAt: string
+}
+
+export const HIDDEN_BY_DISPATCH: readonly HiddenCaller[] = [
+  {
+    // `attesting-executor.ts:116`, inside the executor `attestResults` returns at `:85`.
+    key: 'core/signResult',
+    through: 'packages/core/src/executor/attesting-executor.ts#execute',
+    cause: 'port-member-dispatch',
+    composedAt: 'fabric-node.ts:2319, browser-node.ts:1504 — `attestResults(executor, attestor)`',
+  },
+  {
+    // `module-provenance.ts:133`, inside `const refuse = …` at `:129`, called from the executor
+    // `guardModuleProvenance` returns. Two hops, both inside the unnamed member.
+    key: 'core/describeModuleRefusal',
+    through: 'packages/core/src/executor/module-provenance.ts#execute',
+    cause: 'port-member-dispatch',
+    composedAt:
+      'fabric-node.ts:2183, browser-node.ts:1195, bin/bench.ts:545 — `guardModuleProvenance(inner, …)`',
+  },
+  {
+    // `wasi-executor.ts:752`, inside `WasiExecutor#execute`. A class member rather than an object
+    // literal's, and it makes no difference: the call site still writes the port.
+    key: 'aot/describeWasiFailure',
+    through: 'packages/aot/src/wasi-executor.ts#execute',
+    cause: 'port-member-dispatch',
+    // Written descriptively rather than as the constructor call it is, because
+    // `trust-anchors.node.test.ts` counts every construction of this class in the tree and a
+    // citation is not a construction — the same reason `packages/core/src/index.ts` names two
+    // departed exports by description instead of by identifier.
+    composedAt: 'fabric-node.ts:2248, browser-node.ts:1426 — the WASI executor is built there',
+  },
+  {
+    // `transport/memory.ts:87` and `:88`, inside `route`, whose only caller is
+    // `MemoryTransport#send` — the `Transport` port's member. `bin/bench.ts` IS an entry point, so
+    // this one is on a real published driver's dispatch path and not a test fixture's.
+    key: 'core/TransportError',
+    through: 'packages/core/src/transport/memory.ts#send',
+    cause: 'port-member-dispatch',
+    composedAt: 'bin/bench.ts:779 — `new MemoryNetwork()`, then `connect(nodeId)` per peer',
+  },
+  {
+    // `reservation-watch.ts:178`, inside `const observe = …`, whose callers are the `apply` and
+    // `get` traps of the `Proxy` that `get logger()` returns. **A different mechanism from the
+    // four above and it is not a variant of them**: there is no call expression anywhere, in this
+    // repository or in libp2p, that names these members — the JavaScript engine invokes them. The
+    // graph would have to model the `Proxy` meta-protocol to see it, and it does not.
+    key: 'node/classifyReservationFailure',
+    through: 'packages/node/src/reservation-watch.ts#get',
+    cause: 'proxy-trap-dispatch',
+    composedAt:
+      'bin/agent.ts:812 — `new ReservationWatcher()`, handed to libp2p at fabric-node.ts:1823',
+  },
+]
+
 /** The register: one entry per symbol, with its cause and its owner. */
 export const DISPOSITIONS: readonly Disposition[] = [
   ...GLOBAL_OBJECT_HOP.map((entry) => ({
@@ -229,6 +376,12 @@ export const DISPOSITIONS: readonly Disposition[] = [
     symbol: entry.split('/')[1] ?? '',
     cause: 'deferred-in-source' as const,
     owner: 'the module that would wire it states why it does not; reversing that is a phase decision',
+  })),
+  ...HIDDEN_BY_DISPATCH.map((entry) => ({
+    barrel: entry.key.split('/')[0] ?? '',
+    symbol: entry.key.split('/')[1] ?? '',
+    cause: entry.cause,
+    owner: `reached through ${entry.through}, composed at ${entry.composedAt}`,
   })),
 ]
 
@@ -351,6 +504,35 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * absent. 38 − 2 is also 36 and the agreement was not taken as the proof — the 49 → 47 note above
  * records why that coincidence is refused here as a matter of habit.
  *
+ * ## Lowered 36 → 29, measured 2026-08-13 — an INSTRUMENT repair, and it is neither of the above
+ *
+ * Every prior movement was a raise, a reclassification, or wiring. This one is a third kind:
+ * **nothing about the tree changed and nothing was reclassified by judgement** — the tracer was
+ * repaired, and seven symbols that had a production caller all along stopped being reported as
+ * having none. Six could not be seen by any plant, and one was seen only by a plant that had
+ * nothing to root:
+ *
+ * - `core/executeVerified` **leaves the findings entirely** and is not disposed. It is the
+ *   fabric's N-version comparison and runs on every shard dispatch; `submitJob` hands `runOn` — a
+ *   `const`-arrow at `submit.ts:2933` — to `dispatchUnderLease` at `:3006`, and the reference
+ *   filter dropped the edge because `classify` reads declaration flags and an arrow-initialised
+ *   `const` is a `Variable`. This is the only symbol in this repair that becomes **reachable**.
+ * - `core/describeStartReport` moves to {@link GLOBAL_OBJECT_HOP}; see that constant's `26 → 27`
+ *   note. It had an in-degree of zero, so the hop plant could not find it.
+ * - `core/signResult`, `core/describeModuleRefusal`, `aot/describeWasiFailure`,
+ *   `core/TransportError` and `node/classifyReservationFailure` move to
+ *   {@link HIDDEN_BY_DISPATCH}, where each carries the member it is reached through and three
+ *   measured legs holding that claim up.
+ *
+ * **Measured, not derived, and the trap this note names twice above was live a third time.** Both
+ * ceilings were set to 0 and the guard reported *"the guard found 71 unreachable callable barrel
+ * exports"* and *"29 unreachable callable barrel exports carry no disposition"*, naming all
+ * twenty-nine. 36 − 7 is also 29 and the agreement was not taken as the proof.
+ *
+ * **This does not touch the owner's ruling to hold the residue.** Nothing was worked down; a
+ * measuring instrument stopped mis-measuring, and the residue was smaller than reported for as
+ * long as the defect existed.
+ *
  * **This is where the count of the facades is NOT.** `packages/core/src/cert-lifecycle.ts`
  * publishes nothing to any barrel, so its four facades and three factories were never in this
  * population and no edit here can put them in one. They are ledgered by
@@ -359,7 +541,7 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * 2026-08-11, not the +12 that had been projected** — and holds them out until an owner decides
  * otherwise.
  */
-export const OPEN_FINDING_CEILING = 36
+export const OPEN_FINDING_CEILING = 29
 
 /**
  * How large the register may grow before something reddens.
@@ -382,8 +564,17 @@ export const OPEN_FINDING_CEILING = 36
  * test naming the symbol rather than needing a slot to land in quietly. Slack would only let a
  * `benchmark-driver-only` or `deferred-in-source` entry — the two causes that are still
  * judgement — appear without argument.
+ *
+ * **Raised 36 → 42, measured 2026-08-13.** One `global-object-hop` entrant the derived case named
+ * by itself, and five {@link HIDDEN_BY_DISPATCH} rows. The no-slack design above survives the
+ * raise on the same terms it was written under: `global-object-hop` is still derived and still
+ * reddens in both directions, and the five new rows are the *third* cause class whose membership
+ * is machine-checked rather than judged — each carries the member it is reached through, and
+ * `reachability-guard.node.test.ts` re-measures all three legs of that claim on every run. The
+ * ceiling is again exactly the register's size, deliberately. The guard printed it: *"the register
+ * holds 42 entries against a ceiling of 36"*.
  */
-export const DISPOSITION_CEILING = 36
+export const DISPOSITION_CEILING = 42
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {

@@ -549,7 +549,13 @@ describe('the signature check applies to most of the ledger, not to a corner of 
       // `CL1` is here because its plant reddens **four** cases at once and only one string
       // says which claim actually broke. Putting `export { Subject } from
       // './cert-lifecycle.ts'` on `@o2/core`'s barrel takes both ceilings in
-      // `reachability-guard.node.test.ts` over the edge (73 against 72, 37 against 36) as a
+      // `reachability-guard.node.test.ts` over the edge — **one over each**, which since
+      // 2026-08-13 reads 72 against 71 and 30 against 29; it read *"73 against 72, 37 against 36"*
+      // until the base under both ceilings moved (`reachability.ts` gained two edge classes, see
+      // `reachability-dispositions.ts`'s `36 → 29` note). The **shape** is what this entry rests
+      // on and it is unchanged; the two absolutes are the current ceilings plus one and were
+      // **not** re-measured by a fresh `CL1` plant, which is said here rather than left to look
+      // like a reading. Both ceilings move as a
       // side effect of the module ceasing to be import-orphaned — so a title-keyed signature
       // would match a red produced by *any* new dead export arriving anywhere in eight
       // packages, which is the one thing this entry must not be confused with. The observed
