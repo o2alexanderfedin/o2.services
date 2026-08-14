@@ -3,7 +3,10 @@ import { dirname, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   type Node,
+  SyntaxKind,
   isArrowFunction,
+  isAwaitExpression,
+  isBindingElement,
   isCallExpression,
   isClassDeclaration,
   isFunctionDeclaration,
@@ -14,6 +17,7 @@ import {
   isImportDeclaration,
   isMethodDeclaration,
   isNewExpression,
+  isObjectBindingPattern,
   isPropertyAccessExpression,
   isSetAccessorDeclaration,
   isStringLiteral,
@@ -21,7 +25,13 @@ import {
   isTypeReferenceNode,
   isVariableDeclaration,
 } from 'typescript/unstable/ast'
-import { API, SignatureKind, type Symbol as TsSymbol, SymbolFlags } from 'typescript/unstable/sync'
+import {
+  API,
+  type NodeHandle,
+  SignatureKind,
+  type Symbol as TsSymbol,
+  SymbolFlags,
+} from 'typescript/unstable/sync'
 
 /**
  * The instrument Phase 22 reads: what this repository publishes, and — from Task 2 — what
@@ -537,12 +547,91 @@ function declaredNameOf(node: Node): string | undefined {
   // A `const f = () => {}` owns its body too — the arrow is the declaration in all but name, and
   // `classify` already records that this repository writes callables in both forms.
   if (isVariableDeclaration(node)) {
-    const initializer = node.initializer
-    if (initializer === undefined) return undefined
-    if (!isArrowFunction(initializer) && !isFunctionExpression(initializer)) return undefined
+    if (!declaresAFunction(node)) return undefined
     return isIdentifier(node.name) ? node.name.text : undefined
   }
   return undefined
+}
+
+/**
+ * A variable declaration that **owns a function body** — `const f = () => {}` or
+ * `const f = function () {}`.
+ *
+ * Extracted from {@link declaredNameOf} on 2026-08-13 so the two sides of one relation cannot
+ * drift: the walk creates a node for exactly these, and the reference filter in
+ * {@link buildCallGraph} now creates an edge *into* exactly these. Before the extraction only the
+ * first half existed, and the consequence was not academic — `packages/core/src/job/submit.ts`
+ * hands `runOn`, an arrow declared at `:2933`, to `dispatchUnderLease` at `:3006`; the edge was
+ * dropped because {@link classify} reads declaration **flags** and a `const`-arrow carries
+ * `BlockScopedVariable`. `core/executeVerified`, the fabric's N-version comparison, therefore ran
+ * on every shard dispatch and read as dead code.
+ *
+ * **Narrow on purpose, and this is the whole design of the repair.** It asks what the initialiser
+ * *is*, not what the symbol's type *carries*: `const handler: Handler = somethingImported` has a
+ * call signature and declares no body, and widening to "the type is callable" — or worse, to
+ * constants generally — would rebuild the 54-answer that `buildCallGraph`'s reference filter
+ * exists to refuse. `refuses one to a plain const in the same body` in
+ * `reachability-guard.node.test.ts` reads both halves off one caller node so the separation is
+ * measured rather than asserted.
+ */
+export function declaresAFunction(node: Node): boolean {
+  if (!isVariableDeclaration(node)) return false
+  const initializer = node.initializer
+  if (initializer === undefined) return false
+  return isArrowFunction(initializer) || isFunctionExpression(initializer)
+}
+
+/**
+ * {@link declaresAFunction} over a declaration that may have failed to resolve.
+ *
+ * A handle that does not resolve answers **no**, deliberately: an unresolvable declaration is a
+ * declaration nobody has read, and manufacturing an edge from one would be the over-connection
+ * direction taken on the strength of a missing measurement.
+ */
+function initialisesAFunction(node: Node | undefined): boolean {
+  return node !== undefined && declaresAFunction(node)
+}
+
+/**
+ * The barrel export a name destructured from `await import('<specifier>')` actually names.
+ *
+ * `packages/browser/demo/main.ts:687` writes
+ * `const { StartOutcomeLedger, describeStartReport } = await import('@o2/core')` and calls
+ * `describeStartReport(report)` eight lines later. The identifier resolves to a **local
+ * BindingElement**, so the edge landed on a node id inside `main.ts` that nothing declares, and
+ * `packages/core/src/start-outcome.ts#describeStartReport` kept an in-degree of **zero** — not
+ * merely unrooted, which is why the `global-object-hop` class's stated closing condition would
+ * never have rescued it. A static `import { x } from '@o2/core'` has always resolved through the
+ * barrel because the identifier's symbol is an `Alias`; this teaches the dynamic form the same
+ * trick.
+ *
+ * Pure over its argument, and it answers `undefined` for every shape that is not this one:
+ * `const m = await import(…)` followed by `m.x` is a property access on a namespace and is
+ * deliberately not handled, because the member-expression class already resolves that through the
+ * checker.
+ */
+export function dynamicImportBinding(
+  node: Node,
+): { readonly specifier: string; readonly exportName: string } | undefined {
+  if (!isBindingElement(node)) return undefined
+  // `const { a: b } = …` names `a` in the module and `b` here; the module's name is the one that
+  // resolves. `propertyName` is absent for the shorthand, where the two coincide.
+  const named = node.propertyName ?? node.name
+  if (named === undefined || !isIdentifier(named)) return undefined
+  const pattern = node.parent
+  if (pattern === undefined || !isObjectBindingPattern(pattern)) return undefined
+  const declaration = pattern.parent
+  if (declaration === undefined || !isVariableDeclaration(declaration)) return undefined
+  const initializer = declaration.initializer
+  if (initializer === undefined) return undefined
+  // `await import(…)` and a bare `import(…)` — the second only appears under a `then`, but the
+  // shape costs one line to accept and refusing it would be a distinction without a reason.
+  const call = isAwaitExpression(initializer) ? initializer.expression : initializer
+  if (call === undefined || !isCallExpression(call)) return undefined
+  if (call.expression.kind !== SyntaxKind.ImportKeyword) return undefined
+  const first = call.arguments.at(0)
+  if (first === undefined || !isStringLiteral(first)) return undefined
+  return { specifier: first.text, exportName: named.text }
 }
 
 /** Every callee identifier in a subtree, paired with the declaration that wrote the call. */
@@ -688,6 +777,23 @@ export interface CallGraphOptions {
    * benchmark builds one on every run. The spec records what turning it off costs.
    */
   readonly referenceEdges?: boolean
+  /**
+   * Count a reference to a `const`-arrow as a reference to a callable. Default `true`.
+   *
+   * The **sixth** class, added 2026-08-13, and switchable for the same reason the five above are:
+   * so its cost can be planted off and measured rather than argued about. Turning it off drops
+   * `core/executeVerified` — see {@link declaresAFunction} for what that symbol is and why the
+   * repair is narrower than "the referenced constant has a call signature".
+   */
+  readonly callableConstReferences?: boolean
+  /**
+   * Resolve a name destructured from `await import(…)` to the module export it names.
+   * Default `true`.
+   *
+   * The **seventh**, added 2026-08-13. Turning it off restores the state in which
+   * `core/describeStartReport` had an in-degree of zero — see {@link dynamicImportBinding}.
+   */
+  readonly dynamicImportEdges?: boolean
 }
 
 /**
@@ -708,6 +814,8 @@ export function buildCallGraph(options: CallGraphOptions = {}): CallGraph {
   const wantMember = options.memberEdges ?? true
   const wantImports = options.importEdges ?? true
   const wantReferences = options.referenceEdges ?? true
+  const wantCallableConsts = options.callableConstReferences ?? true
+  const wantDynamicImports = options.dynamicImportEdges ?? true
 
   const files = sourceFilesUnder(root, sourceRoots)
   // Lower-cased index, for the reason {@link relativeTo} records: the API hands back lowercased
@@ -734,6 +842,36 @@ export function buildCallGraph(options: CallGraphOptions = {}): CallGraph {
       const set = map.get(from) ?? new Set<string>()
       set.add(to)
       map.set(from, set)
+    }
+
+    // A declaration handle resolved to its AST node, memoised. Two of the edge classes below have
+    // to read the declaration rather than the symbol's flags, and the same handle is asked about
+    // once per reference to the name — `runOn` alone is asked twice, and a shared helper is asked
+    // hundreds of times. Keyed on path + index because that pair IS the handle's identity.
+    const nodeCache = new Map<string, Node | undefined>()
+    const declarationNode = (handle: NodeHandle): Node | undefined => {
+      const key = `${handle.path}:${handle.index}`
+      if (nodeCache.has(key)) return nodeCache.get(key)
+      const resolved = handle.resolve()
+      nodeCache.set(key, resolved)
+      return resolved
+    }
+
+    // One module's export table, by name, memoised. Only ever built for a file some
+    // `await import(…)` actually names, so the eight barrels are the realistic population.
+    const exportTables = new Map<string, ReadonlyMap<string, TsSymbol> | undefined>()
+    const exportsOf = (relTarget: string): ReadonlyMap<string, TsSymbol> | undefined => {
+      const cached = exportTables.get(relTarget)
+      if (cached !== undefined || exportTables.has(relTarget)) return cached
+      const targetFile = project.program.getSourceFile(join(root, relTarget))
+      const moduleSymbol =
+        targetFile === undefined ? undefined : checker.getSymbolAtLocation(targetFile)
+      const table =
+        moduleSymbol === undefined
+          ? undefined
+          : new Map(checker.getExportsOfModule(moduleSymbol).map((entry) => [entry.name, entry]))
+      exportTables.set(relTarget, table)
+      return table
     }
 
     for (const relFile of files) {
@@ -794,12 +932,56 @@ export function buildCallGraph(options: CallGraphOptions = {}): CallGraph {
         // The member-expression edge class, switchable so it can be planted off on its own.
         if (site.member && !wantMember) continue
         if ((symbol.flags & SymbolFlags.Alias) !== 0) symbol = checker.getAliasedSymbol(symbol)
-        const declaration = symbol.declarations[0]
+        let declaration = symbol.declarations[0]
         if (declaration === undefined) continue
+        // `const { x } = await import('@o2/core')` — the identifier resolves to a local
+        // BindingElement, so without this hop the edge lands on a node id in the importing file
+        // that nothing declares, and the module's real declaration keeps an in-degree of ZERO.
+        // Redirected to the export before anything downstream reads the symbol, so the classify
+        // filter, the declaration path and the callee name all see the published declaration —
+        // which is exactly the state a static `import { x } from '@o2/core'` arrives in, by alias.
+        if (wantDynamicImports && declaration.kind === SyntaxKind.BindingElement) {
+          const bindingNode = declarationNode(declaration)
+          const binding = bindingNode === undefined ? undefined : dynamicImportBinding(bindingNode)
+          const specified =
+            binding === undefined
+              ? undefined
+              : resolveSpecifier(relativeTo(root, declaration.path), binding.specifier)
+          const targetFile = specified === undefined ? undefined : inCorpus(specified)
+          const entry =
+            targetFile === undefined || binding === undefined
+              ? undefined
+              : exportsOf(targetFile)?.get(binding.exportName)
+          if (entry !== undefined) {
+            const published =
+              (entry.flags & SymbolFlags.Alias) !== 0 ? checker.getAliasedSymbol(entry) : entry
+            const publishedDeclaration = published.declarations[0]
+            if (publishedDeclaration !== undefined) {
+              symbol = published
+              declaration = publishedDeclaration
+            }
+          }
+        }
         // A reference only counts when what it names can actually be called. Referencing a type
         // or a plain constant is not a path to anything, and counting it would rebuild the
         // 54-answer: "the name appears somewhere in a reachable module".
-        if (i >= callSites.length && classify({ barrel: '', name: symbol.name, flags: symbol.flags, declaredIn: '' }) !== 'callable') {
+        //
+        // **A `const`-arrow is the exception, and it is asked of the DECLARATION rather than of
+        // the flags.** `classify` reads `SymbolFlags`, where `const f = () => {}` is a
+        // `BlockScopedVariable` and classifies `other-value`; the arrow it initialises is a
+        // callable body all the same. {@link declaresAFunction} is the same predicate the walk
+        // uses to decide this declaration deserves a node at all, so the two halves of the
+        // relation cannot drift apart.
+        if (
+          i >= callSites.length &&
+          classify({ barrel: '', name: symbol.name, flags: symbol.flags, declaredIn: '' }) !==
+            'callable' &&
+          !(
+            wantCallableConsts &&
+            declaration.kind === SyntaxKind.VariableDeclaration &&
+            initialisesAFunction(declarationNode(declaration))
+          )
+        ) {
           continue
         }
         // Only edges into the walked corpus. A call into `node:fs` or a dependency is real and

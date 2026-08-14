@@ -10,11 +10,13 @@ import {
   buildCallGraph,
   describeUnreachable,
   nodeId,
+  reachableFrom,
   unreachableExports,
 } from './reachability.ts'
 import {
   DISPOSITIONS,
   DISPOSITION_CEILING,
+  HIDDEN_BY_DISPATCH,
   OPEN_FINDING_CEILING,
   disposedKeys,
 } from './reachability-dispositions.ts'
@@ -257,7 +259,18 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // here as a named symbol rather than as a count that moved. Commenting out any of their call
     // sites turns THIS case red — which is the first half of criterion 2.
     const reported = new Set(unreachableExports(corpus(), graph(), ROOT).map((one) => `${one.barrel}/${one.symbol}`))
-    for (const wired of ['aot/translationCid', 'node/FabricNode', 'core/submitJob', 'net/reduceJob', 'core/runTaskAndPost']) {
+    // `core/executeVerified` joined this list 2026-08-13. It is the fabric's N-version
+    // comparison and it runs on **every** shard dispatch — `submitJob` reaches it through
+    // `submit.ts#runOn`, a `const`-arrow — and it was reported unreachable until the reference
+    // filter learned that a variable initialised with an arrow is callable.
+    for (const wired of [
+      'aot/translationCid',
+      'node/FabricNode',
+      'core/submitJob',
+      'net/reduceJob',
+      'core/runTaskAndPost',
+      'core/executeVerified',
+    ]) {
       expect(reported.has(wired), `${wired} is wired and must not be reported unreachable`).toBe(false)
     }
   }, GRAPH_TIMEOUT_MS)
@@ -319,14 +332,22 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // seventy-two with the two symbols visibly absent. The assertion message below says a LOWER
     // reading means the ceiling comes down; this is that, taken rather than left as slack, and
     // 74 − 2 also being 72 was not accepted as the proof.
+    // **Lowered 72 → 71, measured 2026-08-13, and this one is neither wiring nor cleanup — the
+    // INSTRUMENT was wrong.** `core/executeVerified` is the fabric's N-version comparison and runs
+    // on every shard dispatch; it read as dead code because a reference to a `const`-arrow created
+    // no edge. Exactly one symbol leaves this population, because the other six the same repair
+    // recovered gain a caller without gaining a path and move into the register instead — see
+    // `reachability-dispositions.ts`'s `36 → 29` note, which names all seven.
+    // **Measured, not derived**: this ceiling was set to 0 and the guard reported *"the guard
+    // found 71 unreachable callable barrel exports"*. 72 − 1 is also 71 and that was not the proof.
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(
       found.length,
       `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-11 was 72. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
+        'on 2026-08-13 was 71. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(72)
+    ).toBeLessThanOrEqual(71)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
@@ -382,6 +403,182 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       expect.stringContaining('no production code calls it'),
     ])
   })
+})
+
+// ---------------------------------------------------------------------------
+// The three shapes a call flows along that the tracer used not to see
+// ---------------------------------------------------------------------------
+
+/**
+ * Three blind spots, found 2026-08-13 by reading the 36 open findings back against their source
+ * rather than by trusting the count.
+ *
+ * Each is a case where a symbol **runs in production on every dispatch** and the graph reported
+ * *"no production code calls it"*. They are three distinct mechanisms, not one bug with three
+ * faces, and each is repaired — or refused — separately below:
+ *
+ * 1. **A reference to a `const`-arrow was dropped.** `reachability.ts`'s reference filter kept an
+ *    edge only when the referenced symbol classified `callable`, and `classify` reads declaration
+ *    flags, so `const runOn = () => …` is a `Variable` and its edge went in the bin. The filter now
+ *    asks the **declaration** rather than the flags. Widened for exactly the arrow/function-
+ *    expression initialiser — a reference to a plain constant still creates nothing, which is the
+ *    assertion beside the positive one and the reason this is not the 54-answer coming back.
+ * 2. **A port implementation's member is reached only through the interface.** Refused as a graph
+ *    edge and disposed instead — see `port-member-dispatch` in `reachability-dispositions.ts` and
+ *    the case that holds its shape below.
+ * 3. **`await import()` destructuring created no edge at all.** Repaired, and the symbol it
+ *    rescues does **not** become reachable: it acquires its first in-edge and thereby joins the
+ *    derived `global-object-hop` class, which is a different and more honest place to be than the
+ *    open findings.
+ */
+describe('an edge is added where a call can flow, and only there', () => {
+  const SUBMIT = 'packages/core/src/job/submit.ts'
+  const VERIFY = 'packages/core/src/job/verify.ts'
+  const START_OUTCOME = 'packages/core/src/start-outcome.ts'
+
+  it('follows a reference to a const-arrow, and refuses one to a plain const in the same body', () => {
+    // Both halves are read off ONE caller node, which is what makes this a separation rather than
+    // two independent readings: `submitJob` names `runOn` (an arrow) and
+    // `DEFAULT_SPECULATION_WATCHDOG_MS` (a number) in the same function body, neither as a callee.
+    // A filter widened to "any referenced constant" would light up both and would be the
+    // 54-answer — *the name appears somewhere in a reachable module* — wearing a new coat.
+    //
+    // **Watched red twice, 2026-08-13, not reasoned about.** Once before the repair existed, and
+    // again with `callableConstReferences` planted to default `false`: this case failed
+    // `submitJob passes \`runOn\` to \`dispatchUnderLease\` … expected false to be true`, and three
+    // more went with it — `core/executeVerified is wired and must not be reported unreachable`,
+    // `the guard found 72 unreachable callable barrel exports … expected 72 to be less than or
+    // equal to 71`, and `30 unreachable callable barrel exports carry no disposition, against a
+    // ceiling of 29`. Restored by the surgical inverse of that one default; `cmp` exit 0.
+    const out = new Set(graph().calls.get(nodeId(SUBMIT, 'submitJob')) ?? [])
+    expect(
+      out.has(nodeId(SUBMIT, 'runOn')),
+      'submitJob passes `runOn` to `dispatchUnderLease`; a variable initialised with an arrow is ' +
+        'callable and holding a reference to it IS how it gets called later',
+    ).toBe(true)
+    expect(
+      out.has(nodeId(SUBMIT, 'DEFAULT_SPECULATION_WATCHDOG_MS')),
+      'a reference to a plain constant is not a call path — counting it would rebuild the 54-answer',
+    ).toBe(false)
+    // And the edge that was already there, so the case names the whole path rather than half of
+    // it: with the in-edge restored, the fabric's N-version comparison stops reading as dead code.
+    expect([...(graph().calls.get(nodeId(SUBMIT, 'runOn')) ?? [])]).toContain(
+      nodeId(VERIFY, 'executeVerified'),
+    )
+  }, GRAPH_TIMEOUT_MS)
+
+  it('resolves a name destructured from `await import(barrel)` to the export the barrel names', () => {
+    // `packages/browser/demo/main.ts:687` writes
+    // `const { StartOutcomeLedger, describeStartReport } = await import('@o2/core')`. The
+    // identifier then resolves to a local BindingElement, so the call below it landed on a node id
+    // inside `main.ts` that nothing declares — an edge to nowhere — while the real declaration in
+    // `@o2/core` kept an in-degree of zero. A static `import { x } from '@o2/core'` has always
+    // resolved through the barrel by alias; this makes the dynamic form do the same thing.
+    //
+    // **Watched red, 2026-08-13**, with `dynamicImportEdges` planted to default `false`: this case
+    // failed `the destructured name must resolve to the declaration @o2/core publishes: expected
+    // false to be true`, and the derived hop case failed beside it — `these carry a
+    // global-object-hop disposition but do NOT become reachable when the hop is traced … expected
+    // [ 'core/describeStartReport' ] to deeply equal []` — the two halves of one repair reddening
+    // together. Restored by the surgical inverse of that one default; `cmp` exit 0.
+    const out = new Set(graph().calls.get(nodeId(DEMO_MAIN, 'startReport')) ?? [])
+    expect(
+      out.has(nodeId(START_OUTCOME, 'describeStartReport')),
+      'the destructured name must resolve to the declaration @o2/core publishes',
+    ).toBe(true)
+    expect(
+      out.has(nodeId(DEMO_MAIN, 'describeStartReport')),
+      'and must stop pointing at the local binding, which declares nothing',
+    ).toBe(false)
+  }, GRAPH_TIMEOUT_MS)
+
+  /**
+   * The third blind spot, **refused as an edge and disposed instead** — and this case is what
+   * makes that refusal cost something.
+   *
+   * `HIDDEN_BY_DISPATCH`'s own docblock argues why each of the three candidate edges
+   * over-connects; an argument in a comment is exactly what this repository has retracted before.
+   * So every row's mechanism is re-measured here on the real graph, in three legs, and any row
+   * whose mechanism has stopped describing the tree reddens:
+   *
+   * - the member it names **exists and has zero in-edges** — that is what *"nothing in the tree
+   *   names it"* means, stated as a number rather than as a claim;
+   * - for a port row, the interface member it implements is **reached**, so the port really is
+   *   dispatched somewhere in production and the row is not excusing a dead object;
+   * - rooting **that one member** makes **that one symbol** flip. This is the leg that stops the
+   *   register from pointing at a plausible-looking member that does not actually account for the
+   *   finding — the failure `global-object-hop` had for two days when its list was read rather
+   *   than derived.
+   *
+   * **Watched red twice, 2026-08-13.** Once before the rows were wired into `DISPOSITIONS` —
+   * `core/signResult has a production caller behind port-member-dispatch and carries no
+   * disposition: expected false to be true` — and once with `core/signResult`'s `through` planted
+   * to `…attesting-executor.ts#attestResults`, a member the graph *can* see: this case failed
+   * `packages/core/src/executor/attesting-executor.ts#attestResults has a caller the graph CAN
+   * see, so "port-member-dispatch" is not what hides core/signResult — the row names the wrong
+   * mechanism: expected 2 to be +0`, and the case below it failed beside it with `nothing
+   * production reaches packages/core/src/ports.ts#attestResults`. Restored by the surgical
+   * inverse; `cmp` exit 0.
+   */
+  it('re-measures every hidden-caller row against the graph it claims to describe', () => {
+    const before = unreachableExports(corpus(), graph(), ROOT).map(
+      (one) => `${one.barrel}/${one.symbol}`,
+    )
+    const inDegree = new Map<string, number>()
+    for (const [, targets] of graph().calls) {
+      for (const target of targets) inDegree.set(target, (inDegree.get(target) ?? 0) + 1)
+    }
+    expect(HIDDEN_BY_DISPATCH.length).toBeGreaterThan(0)
+    for (const row of HIDDEN_BY_DISPATCH) {
+      expect(graph().nodes.has(row.through), `${row.through} is not a node at all`).toBe(true)
+      expect(
+        inDegree.get(row.through) ?? 0,
+        `${row.through} has a caller the graph CAN see, so "${row.cause}" is not what hides ` +
+          `${row.key} — the row names the wrong mechanism`,
+      ).toBe(0)
+
+      const taught = new Map(graph().calls)
+      const root = graph().roots[0] ?? ''
+      taught.set(root, new Set([...(graph().calls.get(root) ?? []), row.through]))
+      const after = new Set(
+        unreachableExports(corpus(), { ...graph(), calls: taught }, ROOT).map(
+          (one) => `${one.barrel}/${one.symbol}`,
+        ),
+      )
+      expect(
+        before.includes(row.key) && !after.has(row.key),
+        `${row.key} does not become reachable when ${row.through} is rooted, so that member does ` +
+          'not account for this finding',
+      ).toBe(true)
+
+      // And it must actually carry the disposition, or the measurement above is describing a
+      // symbol that still sits in the open findings claiming nothing calls it.
+      expect(
+        disposedKeys().has(row.key),
+        `${row.key} has a production caller behind ${row.cause} and carries no disposition`,
+      ).toBe(true)
+    }
+  }, GRAPH_TIMEOUT_MS)
+
+  it('grounds every port row on an interface member that IS dispatched in production', () => {
+    // The second leg, separated so it fails by itself. Without it a row could name a member of an
+    // object nobody composes and the flip test above would still pass — rooting a dead member
+    // reaches whatever it calls just as well as rooting a live one. `ports.ts#execute` and
+    // `ports.ts#send` carry 13 and 4 in-edges respectively, measured 2026-08-13, which is the fact
+    // that says the port is a real dispatch point rather than a shape.
+    const PORTS = 'packages/core/src/ports.ts'
+    const rows = HIDDEN_BY_DISPATCH.filter((one) => one.cause === 'port-member-dispatch')
+    expect(rows.length).toBeGreaterThan(0)
+    const reachedNodes = reachableFrom(graph().calls, graph().roots)
+    for (const row of rows) {
+      const member = row.through.slice(row.through.lastIndexOf('#') + 1)
+      expect(
+        reachedNodes.has(nodeId(PORTS, member)),
+        `${row.key} is disposed on port dispatch, but nothing production reaches ` +
+          `${nodeId(PORTS, member)} — there is no dispatch for it to hide behind`,
+      ).toBe(true)
+    }
+  }, GRAPH_TIMEOUT_MS)
 })
 
 // ---------------------------------------------------------------------------
@@ -683,6 +880,14 @@ describe('CRYPTO-03 — a module that reaches no barrel is counted, not invisibl
    * `core/Verifier`, `core/Directory`, `core/createSubject`, `core/createIssuer`,
    * `core/createVerifier`.
    *
+   * **Re-measured 2026-08-13 on a repaired tracer, by the identical plant: 71 → 78 and
+   * 29 → 36.** The base under it moved — `reachability.ts` gained two edge classes — so the
+   * figures above describe a population that no longer exists, and a price quoted against a stale
+   * base is the failure this whole docblock is a record of. **72 − 1 = 71 and 79 − 1 = 78, and the
+   * arithmetic agreeing was refused as the proof**; the numbers below are the ones the guard
+   * printed. The price itself is unchanged at +7 and names the same seven symbols, which is worth
+   * knowing: the repair recovered nothing in this module.
+   *
    * **+7 is a lower bound on the uncounted surface, and the two symbols that make it one were
    * measured too.** `signCertificate` and `deriveKeySeeds` are callable exports of the same
    * module that do **not** become findings, because the graph reports their in-module callers —
@@ -697,8 +902,8 @@ describe('CRYPTO-03 — a module that reaches no barrel is counted, not invisibl
   it('holds the certificate-lifecycle facades off the barrel, at a measured price', () => {
     expect(
       barrelExportsDeclaredIn(CERT_LIFECYCLE).map((one) => `${one.barrel}/${one.name}`).sort(),
-      'the certificate-lifecycle facades are on a barrel. Measured 2026-08-11, that costs +7 ' +
-        'unreachable callable exports (72 → 79) and +7 open findings (36 → 43), and it takes an ' +
+      'the certificate-lifecycle facades are on a barrel. Re-measured 2026-08-13, that costs +7 ' +
+        'unreachable callable exports (71 → 78) and +7 open findings (29 → 36), and it takes an ' +
         'owner non-decision by side effect. Both ceilings must move with it, and the reason goes ' +
         'in REQUIREMENTS.md CRYPTO-03 rather than here.',
     ).toEqual([])

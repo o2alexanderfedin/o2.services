@@ -424,8 +424,16 @@ export type {
 // non-decision (28-CONTEXT.md `<deferred>` §2), and adding them here would take it by
 // side effect.
 //
-// **The price is +7 callable exports, MEASURED 2026-08-11: 72 → 79 unreachable, and
-// OPEN_FINDING_CEILING 36 → 43.** Every figure in the two sentences that stood here was
+// **The price is +7 callable exports, RE-MEASURED 2026-08-13 against a repaired tracer:
+// 71 → 78 unreachable, and OPEN_FINDING_CEILING 29 → 36.** It read *"72 → 79 … 36 → 43"* until
+// then, measured 2026-08-11 and correct on that day's base. The base moved when
+// `packages/node/src/reachability.ts` learned two edge classes it had been dropping (see that
+// file's `36 → 29` note in `reachability-dispositions.ts`), and this figure was **re-measured
+// rather than re-derived**: the seven exports were added to the bottom of this file, both
+// ceilings set to 0, the guard run, and the line removed and `cmp`-verified against a snapshot
+// taken immediately before. 72 − 1 and 79 − 1 also give 71 and 78, and that agreement was not
+// taken as the proof. The **price is unchanged at +7** and the same seven symbols are named by
+// the guard. Every figure in the two sentences that stood here was
 // wrong, and the count itself was the largest error. It read *"12 callable exports … 73 → 85
 // … 37 → 49"*, and said in the same breath that the `+12` had never been re-measured because
 // checking it would take the decision this comment exists to avoid. It has now been checked
