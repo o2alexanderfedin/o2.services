@@ -674,8 +674,43 @@ function walkFile(
   declared: string[],
   urlEdges: string[],
 ): void {
+  /**
+   * Identifiers that are a `BindingElement`'s own bound name, which must not count as references.
+   *
+   * The seventh edge class resolves `const { x } = await import('@o2/core')` to the barrel's
+   * declaration. Without this set that resolution also fires on the **binding identifier itself**,
+   * because a destructuring `const` is a `VariableStatement` rather than an `ImportDeclaration` —
+   * so the exclusion the static form gets four lines below never applied to it, and merely
+   * NAMING an export in a destructure created an edge to it.
+   *
+   * That is the same defect this file already refuses in its own words for
+   * `import { X } from …`: *"NAMES a symbol without using it"*. It escalates rather than staying
+   * a miscount — a bound-and-unused name in `demo/main.ts` would flip when the derived hop case
+   * roots that module, and the register would then **require** the dead symbol be added to
+   * `GLOBAL_OBJECT_HOP`.
+   *
+   * **No count moved when this landed**, and that is the measurement rather than an excuse: both
+   * names bound at `demo/main.ts:687` and `:707` are also *called* (`new StartOutcomeLedger()` at
+   * `:688`, `describeStartReport(…)` at `:695`/`:728`), so the corpus holds no bound-and-unused
+   * name to distinguish the two rules today. The existing positive case staying green with this
+   * exclusion in place is what proves the rescue comes from the CALL and not from the binding —
+   * remove the calls and the edge goes with them.
+   *
+   * `propertyName` and the initialiser are still visited, so `const { a: b } = …` and any default
+   * value keep every edge their own contents create. Only the bound name itself is excluded.
+   */
+  const boundNames = new Set<Node>()
   const visit = (node: Node, caller: string, inSpecifierStatement: boolean): void => {
     let here = caller
+    // `node.name !== undefined` before `isIdentifier`, matching {@link dynamicImportBinding}'s own
+    // guard four hundred lines above. Under TypeScript 7's lazy AST a `BindingElement`'s `name` is
+    // not guaranteed present, and reading it unguarded threw
+    // `TypeError: Cannot read properties of undefined (reading 'kind')` out of `isIdentifier` —
+    // measured, not anticipated: 37 of 66 cases across both reachability specs died at once,
+    // every one of them a graph build rather than an assertion.
+    if (isBindingElement(node) && node.name !== undefined && isIdentifier(node.name)) {
+      boundNames.add(node.name)
+    }
     // An `import { X } from …` or `export { X } from …` NAMES a symbol without using it. Letting
     // those contribute reference edges would make a barrel a CALLER, which is the one thing this
     // repository has already settled: every statement in all eight barrels is `export … from`, so
@@ -718,7 +753,7 @@ function walkFile(
     // is an UNDER-connection, and under-connection is the dangerous direction for a guard that
     // gates commits: it manufactures findings that are not real, and a guard that cries wolf
     // gets deleted. Kept switchable so its cost is measured rather than assumed.
-    if (isIdentifier(node) && !specifierStatement) {
+    if (isIdentifier(node) && !specifierStatement && !boundNames.has(node)) {
       references.push({ caller: here, callee: node, member: false })
     }
 
