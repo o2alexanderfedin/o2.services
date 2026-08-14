@@ -201,4 +201,65 @@ describe('the disclosure says what a visitor needs to decide', () => {
     expect(prose).not.toContain('paid')
     expect(prose).not.toContain('currency')
   })
+
+  /**
+   * **The guard that was missing, and whose absence let a false disclosure stand for
+   * twelve days.**
+   *
+   * `BROW-01` is an **ordering** property — consent before compute — and it stayed
+   * legitimately green the whole time. Nothing anywhere asked whether the disclosed terms
+   * were still *true*. So when persistent identity landed on 2026-08-01, the sentence
+   * *"no identifiers beyond a peer key generated in this tab"* became false in both of its
+   * halves and no test noticed: the key is minted once per **origin** and reloaded by every
+   * later tab, and `browser-node.ts` says in its own words that the peer id *"survives a
+   * reload"*.
+   *
+   * **What this case couples, and why it is coupled this way.** The durable fact lives in
+   * `browser-node.ts`: it opens an identity store, loads a stored seed, and mints only when
+   * there is none. That is read here **from the source text of the module that does it**,
+   * not restated — so the day somebody removes persistence, the antecedent goes false and
+   * this case stops demanding the disclosure. It cannot rot into a rule that outlives its
+   * reason.
+   *
+   * The consequent is deliberately weak on wording and strong on substance: the text must
+   * say the key is *stored* and that it is *reused*, because those are the two facts a
+   * visitor needs and the two the old text denied. It does not pin phrasing — the copy is
+   * allowed to improve.
+   *
+   * **This does not check that the disclosure is true in general**, and no test can. It
+   * checks the one property whose violation has already happened once.
+   */
+  it('discloses the stored identity for as long as the node factory persists one', async () => {
+    // Read from source rather than by starting a node: this is a browser-project spec and
+    // `BrowserNode.start` opens IndexedDB, dials, and needs a relay. The subject is what the
+    // factory *does*, and its source is the honest record of that.
+    const factory = await import('./browser-node.ts?raw').then((m) => m.default)
+
+    // The antecedent: does the node factory persist an identity across sessions?
+    const persistsIdentity =
+      factory.includes('loadSeed()') && factory.includes('saveSeed(') && factory.includes('IdbIdentityStore')
+
+    // Stated as a check rather than assumed, so a reader learns which branch ran. If this
+    // is ever false the case below is vacuous, and a vacuous case that looks like a passing
+    // one is exactly what this file exists to prevent elsewhere.
+    expect(
+      persistsIdentity,
+      'browser-node.ts no longer looks like it persists an identity — if that is deliberate, ' +
+        'this case and the disclosure line it guards should both be revisited, not deleted',
+    ).toBe(true)
+
+    const prose = DISCLOSURE.lines
+      .flatMap((line) => [line.question, line.answer])
+      .join(' ')
+      .toLowerCase()
+
+    // It is kept somewhere.
+    expect(prose, 'the disclosure must say the key is stored').toMatch(/stored|storage|kept/)
+    // And it comes back — the half the old text actively denied by saying "in this tab".
+    expect(prose, 'the disclosure must say the key is reused across visits').toMatch(
+      /again|reused|returns?|next time|come back/,
+    )
+    // And the claim that made version 1 false must not reappear verbatim.
+    expect(prose).not.toContain('generated in this tab')
+  })
 })
