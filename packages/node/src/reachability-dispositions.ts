@@ -476,17 +476,42 @@ export const DISPOSITIONS: readonly Disposition[] = [
  *
  * **Raised 37 → 38, 2026-08-11, for `net/reduceSovereignJob` — one symbol, and it is reported
  * as an open finding rather than disposed.** MR-02's sovereign aggregation arm has no
- * production caller, and the blocker was measured rather than assumed: the arm needs a job whose
+ * production caller. **A disposition would be the wrong shape for that**: this file's own rule is
+ * that a disposition is granted on a *mechanism* the graph cannot see, and there is no mechanism
+ * here — the symbol is genuinely uncalled. It is measured, across real `bin/agent.ts` processes,
+ * by `sovereign-aggregation.node.test.ts`; measured is not wired, and this ceiling says so.
+ *
+ * ### The blocker written here on 2026-08-11 was FALSE, and it is retracted — 2026-08-14
+ *
+ * This entry read: *"the blocker was measured rather than assumed: the arm needs a job whose
  * shards are pinned to **two or more** owners, and no rig in this repository stands up two
- * owners. `bin/bench.ts` enrols every worker under one `BENCH_USER_SEED`, so its `--sovereign`
- * leg's one owner-pinned row would be promoted rather than combined and the arm refuses it by
- * name; `demo/main.ts`'s bring-your-own path submits every owner-pinned shard under the single
- * `options.sovereign.ownerId` the harness supplies. Giving either a second owner changes what a
- * published driver measures or what a visitor's page submits, which is an owner decision and not
- * a wiring fix. **A disposition would be the wrong shape for that**: this file's own rule is that
- * a disposition is granted on a *mechanism* the graph cannot see, and there is no mechanism here
- * — the symbol is genuinely uncalled. It is measured, across real `bin/agent.ts` processes, by
- * `sovereign-aggregation.node.test.ts`; measured is not wired, and this ceiling says so.
+ * owners … Giving either a second owner changes what a published driver measures or what a
+ * visitor's page submits, which is an **owner decision and not a wiring fix**."*
+ *
+ * **The arm does not require two owners. It requires two CONTRIBUTIONS, and one owner can
+ * supply both.** Measured by `reduce-sovereign.test.ts`'s case *"aggregates ONE owner's two
+ * distinct partials"*: one owner, two owner-pinned shards, two distinct outputs — the call
+ * returns `ok: true` with `tree.nodes: 1`, `minReplicas: 2`, and complete coverage at 1/1. The
+ * case was planted red before it was believed: inserting `if (new Set(pinned.values()).size < 2)
+ * return refuse(…)` into `reduce-sovereign.ts` reddened it with *"expected false to be true"*,
+ * and the plant was restored to a byte-identical file.
+ *
+ * **Why the false premise survived, stated so the next reader can spot the shape.** The three
+ * refusals between a job and an aggregate are each counted over a *different* population:
+ * `pinned.size === 0` over owner-pinned **shards**, `tree.nodes.length === 0` over
+ * **contributions** (*"a single contribution is promoted rather than combined"*), and
+ * `minReplicas < 2` over **combine executors**. None is over distinct owners. Every passing
+ * fixture in that spec happened to pin one shard per owner, so owners and contributions moved
+ * together in all of them, and the refusal case for the middle branch varied **both at once** —
+ * `specPinnedTo([ALICE.ownerId])` is one owner *and* one shard. Nothing in the suite separated
+ * them, so a reader checking "does this need a second owner?" found every fixture consistent
+ * with yes and none of them testing it.
+ *
+ * **What is actually true of `bin/bench.ts`.** Its `--sovereign` leg dispatches
+ * `shards: [{ … label: 'sovereign', ownerId: BENCH_OWNER_KEY }]` — a **one-element array**
+ * (`bin/bench.ts:1549`), and it prints *"of 1 sovereign shards agreed"* (`:1590`). So the leg is
+ * short of a *second row*, not short of a *second identity*. That is a wiring fix and not an
+ * owner decision, and the sentence above had it backwards.
  *
  * ## Lowered 38 → 36, measured 2026-08-11 — and this one is WIRING, not a reclassification
  *

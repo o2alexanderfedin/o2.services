@@ -2150,11 +2150,18 @@ function runnerOver(acquire: (nodes: number) => Promise<Fabric>, state: RunnerSt
         // and carried, never re-derived here. See {@link Fabric.combineIssuers}.
         trustedIssuers: fabric.combineIssuers,
         // MR-02 — the sweeps' shards are all `label: 'public'`, including on a
-        // `--sovereign` run: that leg submits its one owner-pinned row as a **separate**
+        // `--sovereign` run: that leg submits its owner-pinned rows as a **separate**
         // job above and this reduce never sees it. So each partial here is attributed to
         // its own partition index and to nothing else, which is the sentinel stated rather
-        // than a default. A leaf keyed on an owner is `reduceSovereignJob`'s, and this
-        // driver has no rig with two owners in it to call that with.
+        // than a default. A leaf keyed on an owner is `reduceSovereignJob`'s.
+        //
+        // **This comment ended `…and this driver has no rig with two owners in it to call
+        // that with` until 2026-08-14, and that reason was false.** `reduceSovereignJob`
+        // does not require two owners — it requires two *contributions*, which one owner
+        // supplies with two owner-pinned rows, and `reduce-sovereign.test.ts` measures
+        // exactly that. The sentence is corrected rather than deleted because it stood in
+        // three places at once (here, the disposition register, and MR-02's ledger row) and
+        // a reader who met one of the other two needs to find the retraction here too.
         contributors: 'attributes-each-shard-to-its-own-partition-index',
       })
       const reduceMs = performance.now() - reduceStarted
