@@ -103,8 +103,11 @@
     <ul>
       <li>The results the visitor's machine computes, which are small integers and bit arrays.</li>
       <li>
-        A peer key generated in the tab. It is not derived from anything about the
-        device and does not persist across origins.
+        A peer key. It is not derived from anything about the device, and it does not
+        persist across origins. It <em>does</em> persist across visits: it is stored in
+        the browser for this site, and loaded again next time rather than made afresh,
+        so two visits are the same node rather than two strangers. Nothing on this page
+        forgets it; clearing this site's data in the browser is what removes it.
       </li>
       <li>
         Optionally, and only if the visitor ticks the box: one line recording the
@@ -113,7 +116,12 @@
         an unexplained absence of participants. It is not a fingerprint — a family
         and an integer cannot distinguish visitors from one another.
       </li>
-      <li>Nothing else. No files, no browsing history, no cookies, no advertising identifiers.</li>
+      <li>
+        Nothing else. No files, no browsing history, no cookies, no advertising
+        identifiers. Note that "no cookies" is a statement about cookies and not about
+        storage in general: the peer key above is kept in this browser's own storage for
+        this site, and it is the one durable thing this page leaves behind.
+      </li>
     </ul>
 
     <h2>What this page is not</h2>
@@ -123,7 +131,11 @@
         and it never has. There is no payment, no settlement, no balance, and no
         wallet.
       </li>
-      <li>It sets no cookies and uses no third-party analytics.</li>
+      <li>
+        It sets no cookies and uses no third-party analytics. It does keep one value in
+        this browser's storage for this site — the peer key described above — which is
+        what lets a returning visitor be the same node rather than a new one.
+      </li>
       <li>
         It runs no server-side process. It is a static file. The only infrastructure
         it uses is a relay peer, which carries the connection handshake between
