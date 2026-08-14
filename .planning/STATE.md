@@ -131,8 +131,33 @@ stopped_at: >-
   BY THE PAUSE-WORK WRITER overnight - writer seven, a repeat of writer two, progress zeroed and
   the stopped_at block deleted, sitting UNSTAGED where nobody would see it; caught by git status
   on resume and reverted. This block was written BY HAND for that reason.
-last_updated: "2026-08-14T04:35:00.000Z"
-last_activity: 2026-08-13
+
+  SESSION OF 2026-08-14: 81 OF 102, UP FROM 79 - MR-02 AND VER-10 BOTH CLOSED, and the
+  Built-not-wired marker bucket is now EMPTY, which is the marker this milestone existed to
+  empty. Unwired capabilities 72/36 -> 66/24. Eight feature commits, all merged and pushed.
+  THE MOST REUSABLE FINDING IS A TEST FOR EVIDENCE: a reading that would be identical if the
+  mechanism never ran is not evidence of the mechanism. It appeared THREE TIMES this session -
+  VER-04's `independent (replicas 2, operators 2)`, which classifyAttestation computes from who
+  answered and signed and which prints identically on a fabric where the quorum gate never ran;
+  the comparison case in attestation-ui.e2e.test.ts, whose three screens made "claimed a
+  strength" and "was the solo run" COEXTENSIVE so its loop could not tell the two rules apart;
+  and VER-03's shared-relay line, which is derived from certificates rather than from the
+  composer and is STILL LIVE - do not close VER-03 on it. THE SECOND PATTERN IS PROSE BLOCKERS
+  NOBODY CHECKED AGAINST THE GUARD: three were retracted, each having stood for weeks. The
+  sovereign arm never needed two owners, it needed two CONTRIBUTIONS which one owner supplies;
+  a second owner could not move any published number because eligibleNodes returns every node
+  for a public request; and memoryConsentStore's claim that a storage-denied page used it was
+  false while that page was REFUSING VISITORS. Two of the three were the difference between
+  "owner decision" and "wiring". TWO USER-FACING DEFECTS FIXED: the demo page told visitors
+  their key was "generated in this tab" for twelve days after identity became persistent, and a
+  private-browsing visitor could press Allow and then be refused on Start. THE FLAG RULING NOW
+  GATES FOUR ROWS and its cost is measured rather than argued: VER-04's entire proposed change
+  landed in 705a716 and the box did not move, while VER-10 - same night, same kind of work, on
+  a surface with no flag - closed. AOT: glog was never the wall; a 2-line __wasi__ branch plus
+  ~7 lines fixing elfconv's own bugs gets 27/27 translation units compiling, and the real cost
+  is the LLVM cross-build, still unmeasured.
+last_updated: "2026-08-14T17:50:00.000Z"
+last_activity: 2026-08-14
 progress:
   total_phases: 15
   completed_phases: 12
