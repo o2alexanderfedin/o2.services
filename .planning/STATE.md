@@ -103,8 +103,35 @@ stopped_at: >-
   happens next is that THREE SCENARIOS AND SIX LEDGER ROWS ARE BLOCKED ON ONE MISSING THING -
   nothing a person can run issues a browser tab a certificate, so certificate stays null,
   trustedIssuers stays empty, and discoverExecutors excludes every provider. Two independent
-  analyses reached that from opposite directions, one over rows and one over scenarios.
-last_updated: "2026-08-13T19:40:00.000Z"
+  analyses reached that from opposite directions, one over rows and one over scenarios. THE
+  2026-08-13 SESSION CLOSED NO ROW AND THE LEDGER STAYS AT 79 OF 102, correctly - it was defect
+  repair and instrument repair. SIX DEFECTS FIXED, of which two matter beyond their size. FIRST,
+  A PROVIDER COULD RETURN A CERTIFICATE ABOUT SOMEBODY ELSE and both tiers persisted it unread,
+  while both ALREADY re-check what they load on reload - one sentence describes both ends and
+  only one was guarded. Fixed at enrolOverRpc, which is the one place holding both the request
+  and the answer and is shared by both tiers; it reads NO CLOCK deliberately, because
+  verifyCertificate refuses not-yet-valid on a strict issuedAt > now and a machine one second
+  slow would have had an honest certificate refused, fatally on the browser tier. SECOND, THE
+  UNWIRED COUNT WAS OVER-STATING THE GAP BY SIX AND NOTHING WAS WIRED TO CORRECT IT: 72/36 became
+  71/29 by teaching the call graph three kinds of edge it could not see. core/executeVerified -
+  the fabric's N-VERSION COMPARISON, running on EVERY shard dispatch from submit.ts:2971 - read
+  as dead code because its caller is a const-arrow and classify only accepted Function|Class|
+  Method. Four more are reached through the Executor port so the edge lands on ports.ts#execute,
+  one through a proxy trap, and core/describeStartReport is called TWICE INSIDE AN ENTRY POINT
+  through await-import destructuring with zero in-edges. THE BEST DECISION WAS A REFUSAL: the
+  port-member repair was available as a graph edge and was measured rather than argued - the
+  candidate rule reaches demo/estimatePi, the over-connection anchor that must stay red, because
+  demo/main.ts builds its api object at module scope. A rule shaped to preserve a canary is not a
+  principle, so dispositions with per-symbol machine-checked mechanisms were taken instead.
+  OVER-CONNECTION IS THE DANGEROUS DIRECTION HERE AND IT FAILS SILENTLY - every count just gets
+  smaller and reads as progress. THE VISITOR-ENROLMENT FEATURE IS NOT BUILT: three design rounds,
+  each returned FIX-FIRST by three independent adversarial reviews at 7, 6 and 10 blocking
+  defects, every spot-checked citation holding. The diagnosis is scope growth rather than bad
+  review, and ratification was the first piece of the decomposition. STATE.MD WAS CORRUPTED AGAIN
+  BY THE PAUSE-WORK WRITER overnight - writer seven, a repeat of writer two, progress zeroed and
+  the stopped_at block deleted, sitting UNSTAGED where nobody would see it; caught by git status
+  on resume and reverted. This block was written BY HAND for that reason.
+last_updated: "2026-08-14T04:35:00.000Z"
 last_activity: 2026-08-13
 progress:
   total_phases: 15
