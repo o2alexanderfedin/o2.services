@@ -386,6 +386,85 @@ describe('MR-02 — a sovereign aggregation admits an owner’s partial, or name
   })
 
   /**
+   * **What this arm requires is two CONTRIBUTIONS, not two OWNERS** — and until this case
+   * existed, nothing here could tell those apart.
+   *
+   * Every other passing fixture pins one shard per owner, so "two owners" and "two
+   * contributions" move together in all of them, and the refusal case that reads
+   * *"a single contribution is promoted rather than combined"* varies **both** at once:
+   * it passes `specPinnedTo([ALICE.ownerId])`, which is one owner **and** one shard. A
+   * reader checking whether the arm needs a second owner would find every fixture
+   * consistent with "yes" and none of them testing it.
+   *
+   * It cost a wrong verdict. `reachability-dispositions.ts` recorded this symbol as
+   * blocked because *"the arm needs a job whose shards are pinned to two or more owners,
+   * and no rig in this repository stands up two owners"*, and concluded that wiring it
+   * was **an owner decision rather than a wiring fix**. The premise is false, as this
+   * case measures: one owner's two distinct partials aggregate, and report complete
+   * coverage over the one owner they came from.
+   *
+   * The three refusals that actually stand between a job and an aggregate are counted
+   * over different things, which is why the conflation survived: `pinned.size === 0` is
+   * over owner-pinned **shards**, `tree.nodes.length === 0` is over **contributions**,
+   * and `minReplicas < 2` is over **combine executors**. None is over distinct owners.
+   */
+  it('aggregates ONE owner’s two distinct partials — the arm needs two contributions, not two owners', async () => {
+    const { fabric, options } = await passingCall()
+    try {
+      const result = await reduceSovereignJob(
+        // Two shards, one owner, and two DIFFERENT outputs — so the projection addresses
+        // them apart and they key two leaves. The same-output pair is a separate case
+        // above and refuses, which is what makes "distinct" the load-bearing word here
+        // rather than "two".
+        jobWith([
+          agreedShard(0, partitionOutput(0), receiptOver([ALICE.certificate])),
+          agreedShard(1, partitionOutput(1), receiptOver([ALICE.certificate])),
+        ]),
+        specPinnedTo([ALICE.ownerId, ALICE.ownerId]),
+        { ...options, egress: [manifestWatching(2)] },
+      )
+
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      const { value, coverage } = result.aggregate
+
+      // The aggregation ran, and it ran at the redundancy the claim is carried at. This
+      // is the whole finding: a single-owner job reaches a verified aggregate.
+      expect(value.outcome.ok).toBe(true)
+      expect(value.tree.nodes).toHaveLength(1)
+      expect(value.outcome.minReplicas).toBe(MIN_SOVEREIGN_COMBINE_REPLICAS)
+      expect(value.outcome.disagreements).toEqual([])
+
+      // Both leaves key on the one owner, and there are two of them — which is what
+      // distinguishes this from the promoted-single-contribution refusal. A tree keyed
+      // on (contributor, cid) can hold two leaves for one contributor.
+      expect(value.tree.leaves).toHaveLength(2)
+      expect(new Set(value.tree.leaves.map((leaf) => leaf.id.split('\u0000')[0]))).toStrictEqual(
+        new Set([ALICE.ownerId]),
+      )
+      expect(value.contributions.map((c) => c.ownerId)).toStrictEqual([ALICE.ownerId, ALICE.ownerId])
+
+      // Coverage is over DISTINCT owners, so one owner contributing twice is 1/1 and
+      // complete — not 2/2, and not partial. Asserted because it is the reading a caller
+      // would use to decide the aggregate is trustworthy, and an off-by-one here would
+      // make a complete single-owner job look like it had lost a contributor.
+      expect(coverage.total).toBe(1)
+      expect(coverage.covered).toBe(1)
+      expect(coverage.complete).toBe(true)
+      expect(coverage.missing).toEqual([])
+      expect(coverage.unexpected).toEqual([])
+
+      // Two rows pinned and two watched, so the egress reading is over the shards rather
+      // than over the owners — the same distinction, in the half that carries the
+      // sovereignty claim.
+      expect(value.egress.pinnedShards).toBe(2)
+      expect(value.egress.registeredSovereign).toBe(2)
+    } finally {
+      fabric.close()
+    }
+  })
+
+  /**
    * An owner whose shard did not agree is a hole in the dataset, not a refusal.
    *
    * This is the one case where the arm is *supposed* to keep going, and it is the reason

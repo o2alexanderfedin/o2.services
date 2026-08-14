@@ -762,8 +762,21 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * ceiling follows the measurement down rather than keeping the slack the departure opened.
  * That is `OPEN_FINDING_CEILING`'s stated rule — *a ceiling with slack in it stops binding*
  * — applied on day one rather than the next time somebody notices.
+ *
+ * **Raised 14 → 15 on 2026-08-14 for `MR-02`, and the reason is the uncomfortable one.** A
+ * raise here is supposed to be rare and is supposed to be justified, so: MR-02 left this
+ * register on 2026-08-11 because its row had acquired the checkable claim *"`reduceSovereignJob`
+ * has no production caller"*. Wiring the arm made that claim **false**, so the row lost its
+ * checkability *by having its claim satisfied* — a direction this register had no prior
+ * instance of, and one that a rule reading "rows only ever become more checkable" does not
+ * anticipate.
+ *
+ * The residual gap is genuinely unphraseable as a symbol claim: MR-02 says *each **owner***,
+ * every entry point runs one owner, and no exported symbol names "two owners". So the
+ * exemption is the correct device rather than a way of dodging the check — and the honest
+ * cost of using it is this +1, taken visibly instead of by finding some symbol to point at.
  */
-const REREAD_REGISTER_CEILING = 14
+const REREAD_REGISTER_CEILING = 15
 
 /**
  * ## The rule this list encodes
@@ -1071,11 +1084,50 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // the clearest example in the "argument value" bucket: `eligibleNodes` was called by both
   // placers and the open leg was that nothing ever passed `label: 'sovereign'`. Phase 23
   // passed it.
-  // `MR-02` was here until 2026-08-11 and is now REMOVED, which is the direction this
+  // `MR-02` was here until 2026-08-11 and was REMOVED, which is the direction this
   // list is supposed to move in: its row used to say only that Phase 16 had run the
-  // aggregation over public shards, which names no symbol this file can resolve. It now
-  // names one — `reduceSovereignJob` has no production caller — so the claim is checkable
-  // and is checked, and the row can no longer go stale silently.
+  // aggregation over public shards, which names no symbol this file can resolve. It then
+  // named one — `reduceSovereignJob` has no production caller — so the claim was checkable
+  // and was checked, and the row could no longer go stale silently.
+  //
+  // **RE-ADDED 2026-08-14, and the round trip is the honest record rather than an
+  // embarrassment.** The claim that took it off this list was *"`reduceSovereignJob` has no
+  // production caller"*, and that claim is now **false**: `bin/bench.ts`'s `--sovereign` leg
+  // calls it. So the row lost its checkable claim by the claim being *satisfied*, which is
+  // the one way out of checkability this register did not previously have an example of.
+  //
+  // What remains open cannot be phrased as a symbol claim, and that is why it is here
+  // rather than reworded. MR-02 reads *"**each owner** computes a local partial over its
+  // own data"*, and every entry point in this repository runs **one** owner: bench enrols
+  // every worker under a single `BENCH_USER_SEED`, and the demo submits under the single
+  // `options.sovereign.ownerId` its harness supplies. The multi-owner reading — two owners,
+  // two operating-system processes, neither store ever holding the other's row — is real
+  // and is measured, but it is measured by a spec. No symbol names "two owners", so
+  // `parseRows` has nothing to resolve and the exemption is the correct device.
+  //
+  // **Note what did NOT happen: the gap was not widened to fit the wiring.** Wiring the
+  // aggregation on one owner is progress and is recorded as such in the row; it does not
+  // make "each owner" true, and the row stays unticked on exactly the leg it always had.
+  {
+    id: 'MR-02',
+    because: 'entry-point-not-driven',
+    reread: '2026-08-14',
+    witnesses: [
+      // The aggregate is bit-identical to a single-node reference. Shared with MR-03 and
+      // it is the weakest of the four for this row's purpose — it says nothing about
+      // owners — but the register's rule is that the list is what the corpus says *now*,
+      // not a curated subset, so it is listed.
+      'packages/core/src/reduce.test.ts',
+      // The arm's own refusals, including the case proving one owner's two contributions
+      // aggregate — which is what let the single-owner wiring exist at all.
+      'packages/net/src/reduce-sovereign.test.ts',
+      // The multi-owner reading, across real `bin/agent.ts` processes — the thing no entry
+      // point drives, and therefore the one this exemption is really about.
+      'packages/node/src/sovereign-aggregation.node.test.ts',
+      // The wiring itself, read off a spawned driver's stdout.
+      'packages/node/src/sovereign-arm.node.test.ts',
+    ],
+  },
   {
     id: 'MR-03',
     because: 'entry-point-not-driven',

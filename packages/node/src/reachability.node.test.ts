@@ -604,14 +604,40 @@ describe('each edge class is load-bearing — one ablation per class', () => {
   it('measures what member-expression is worth when references are not there to cover it', () => {
     // Measured, and it corrects the plan. 22-01 attributes most of the naive tracer's 102 false
     // findings to this one missing class — true of a tracer with NO reference edges, and false
-    // of this one: with references present, dropping member edges changes **no** barrel verdict,
-    // because a class named in `X.y()` is already referenced by name. The class holds its place
+    // of this one: with references present, dropping member edges changed **no** barrel verdict,
+    // because a class named in `X.y()` is already referenced by name. The class held its place
     // on the METHOD edge above and on this comparison, not on the headline count.
     const withoutReferences = unreachedCount(buildCallGraph({ referenceEdges: false }))
     const withoutEither = unreachedCount(buildCallGraph({ referenceEdges: false, memberEdges: false }))
     expect(withoutEither).toBeGreaterThan(withoutReferences + 40)
-    // And the honest other half of that sentence, asserted so it cannot rot into folklore:
-    expect(unreachedCount(buildCallGraph({ memberEdges: false }))).toBe(unreachedCount(graph()))
+
+    // ## That last sentence STOPPED being true on 2026-08-14, and this is the correction
+    //
+    // This line read `.toBe(unreachedCount(graph()))` — the claim that dropping member edges
+    // costs no barrel verdict at all. It is false now, and it is false because the member class
+    // grew: a bare property **read** (`X.y`, no call) now contributes the `.name` half, where
+    // before only a call or a `new` did.
+    //
+    // **The two verdicts it costs are exactly the ones the reference class cannot cover, which
+    // is what makes this a sharper reading of the class than the equality it replaces.** A
+    // getter read as `seed.joinUrl` puts `joinUrl` in the MEMBER class by this file's own split
+    // (see the comment at `reachability.ts`'s property-access branch); the reference class sees
+    // only the object half, `seed`, which is a `let` of no interest. So there is no second path
+    // to these two, and dropping member edges loses them.
+    //
+    // Asserted as the *difference* and by *identity* rather than as two totals, because a bare
+    // inequality would be satisfied by any regression that happened to cost two verdicts.
+    const off = buildCallGraph({ memberEdges: false })
+    const reachedOff = reachableFrom(off.calls, off.roots)
+    const on = graph()
+    const reachedOn = reachableFrom(on.calls, on.roots)
+    const lost: string[] = []
+    for (const one of corpus()) {
+      if (one.kind !== 'callable') continue
+      const id = nodeId(relativeToRoot(one.declaredIn), one.name)
+      if (reachedOn.has(id) && !reachedOff.has(id)) lost.push(`${one.barrel}/${one.name}`)
+    }
+    expect(lost.toSorted()).toStrictEqual(['node/lanAddresses', 'node/localHostname'])
   }, ABLATION_TIMEOUT_MS)
 
   it('Vite ?worker: the browser worker module goes unreachable and nothing else does', () => {

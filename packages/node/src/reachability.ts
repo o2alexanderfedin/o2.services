@@ -776,7 +776,34 @@ function walkFile(
     // as a bare reference made the member ablation change nothing at all, so a class the plan
     // calls load-bearing could not be shown to be. The object half (`FabricNode`) IS a genuine
     // reference and keeps its own edge, which is why the two ablations flip different anchors.
+    //
+    // **The member edge is pushed for a bare READ since 2026-08-14, not only for a call.** The
+    // sentence above always said the `.name` half belongs to the member class; the code only
+    // put it there when the access was the callee of a call or a `new` (see the branch above),
+    // so a property *read* dropped it entirely and visited the object half alone.
+    //
+    // That gap made live code read as dead, which is this instrument's dangerous direction.
+    // `bin/seed.ts` is an entry point and reads `seed.joinUrl` (`:364`, `:368`) and
+    // `seed.joinUrlsByIp` (`:365`) — **getters** (`seed-server.ts:510`, `:515`), so the reads
+    // are property accesses and not calls. Both run on every `o2 seed` invocation, and both
+    // reported as unwired capabilities. The object half resolves to a `let seed: SeedServer |
+    // undefined`, which is not callable, so no reference edge covered them either.
+    //
+    // **The over-connection risk was measured before this was taken, not argued.** The whole
+    // instrument's failure mode is connecting too much, because that direction fails silently —
+    // every count just gets smaller and reads as progress. Candidate rule measured against
+    // `demo/estimatePi`, the anchor `reachability-guard.node.test.ts` requires to stay
+    // unreachable: **the anchor holds**, and the total moves 69 → 67. Two symbols, both of them
+    // the getters named above. A rule that connected broadly would have shown up as a large
+    // drop and been refused, exactly as the object-literal-method rule was.
+    //
+    // `member: true` so the edge is governed by the existing `memberEdges` switch rather than
+    // becoming a sixth class with no ablation. `reachability.node.test.ts`'s member ablation now
+    // reads these two by name — the equality it used to assert (*"dropping member edges changes
+    // no barrel verdict"*) was true of the old rule and is false of this one, and it is
+    // corrected there rather than left to rot.
     if (isPropertyAccessExpression(node)) {
+      if (isIdentifier(node.name)) calls.push({ caller: here, callee: node.name, member: true })
       visit(node.expression, here, specifierStatement)
       return
     }
