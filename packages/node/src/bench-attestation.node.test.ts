@@ -175,6 +175,15 @@ const HEADING = /^(memory|real) transport, (\d+) node\(s\)…$/
  * receipt.
  */
 const ATTESTATION = /^map attestation \(([^)]+)\): (.+)$/
+/**
+ * VER-04's line — what the quorum came to, distinct from the strength it produced.
+ *
+ * Deliberately does NOT anchor on the arm word: all three arms (`composed over`,
+ * `not composed`, `not attempted`) are read through one pattern, so a driver that stopped
+ * printing one of them fails on a missing rung rather than on a regex that silently never
+ * matched.
+ */
+const QUORUM = /^quorum \(([^)]+)\): (.+)$/
 /** A strength, its counts, and the kernel's sentence. */
 const STRENGTH = /^(owner-attested|owner-domain|independent) \(replicas (\d+), operators (\d+)\) — (.+)$/
 /** The named absence, with the two counts that decide what to do about it. */
@@ -201,6 +210,9 @@ let child: BenchProcess | null = null
 let collected: readonly RungReading[] = []
 /** The headings in the order they were printed — the sweep's shape, as the driver reports it. */
 let headings: readonly string[] = []
+
+/** VER-04 — the quorum sentence each rung printed, keyed as {@link keyOf} writes them. */
+let quorums: ReadonlyMap<string, string> = new Map()
 
 /** The repository's own view of itself, which this run may not move. */
 function repoStatus(): string {
@@ -238,6 +250,8 @@ async function stopBench(): Promise<void> {
 async function spawnAndRead(): Promise<{
   readings: readonly RungReading[]
   headings: readonly string[]
+  /** VER-04 — one quorum sentence per rung key, keyed as {@link keyOf} writes them. */
+  quorums: ReadonlyMap<string, string>
 }> {
   const spawned: BenchProcess = spawn(process.execPath, [BENCH, '--quick', '--discover'], {
     cwd: workdir,
@@ -247,12 +261,16 @@ async function spawnAndRead(): Promise<{
 
   const gathered: RungReading[] = []
   const seenHeadings: string[] = []
+  /** VER-04 — one quorum sentence per rung key, in the driver's own words. */
+  const quorums = new Map<string, string>()
 
   await new Promise<void>((resolve, reject) => {
     let stdout = ''
     let stderr = ''
     let consumed = 0
     let pending: { transport: 'memory' | 'real'; nodes: number } | null = null
+    /** The rung the last map-attestation line named — what a quorum line belongs to. */
+    let lastRung: string | null = null
 
     const timer = setTimeout(
       () =>
@@ -289,6 +307,27 @@ async function spawnAndRead(): Promise<{
           pending = { transport, nodes }
           continue
         }
+        // VER-04's line arrives AFTER the map attestation for the same rung, so it is
+        // matched against the rung the last attestation named rather than against
+        // `pending` — which that line has already cleared. Recorded before the resolve
+        // check below, and the check now waits for it: a promise that resolved on the
+        // attestation alone would return before this rung's quorum line was ever read,
+        // which is the shape of bug that makes a case pass by never seeing its subject.
+        const quorumLine = QUORUM.exec(line)
+        if (quorumLine !== null && lastRung !== null) {
+          quorums.set(lastRung, quorumLine[2] ?? '')
+          if (
+            AWAITED.every(
+              (key) =>
+                gathered.some((r) => keyOf(r.transport, r.nodes) === key) && quorums.has(key),
+            )
+          ) {
+            clearTimeout(timer)
+            resolve()
+            return
+          }
+          continue
+        }
         const attested = ATTESTATION.exec(line)
         if (attested === null || pending === null) continue
         gathered.push({
@@ -297,12 +336,8 @@ async function spawnAndRead(): Promise<{
           population: attested[1] ?? '',
           reading: attested[2] ?? '',
         })
+        lastRung = keyOf(pending.transport, pending.nodes)
         pending = null
-        if (AWAITED.every((key) => gathered.some((r) => keyOf(r.transport, r.nodes) === key))) {
-          clearTimeout(timer)
-          resolve()
-          return
-        }
       }
     })
 
@@ -315,7 +350,7 @@ async function spawnAndRead(): Promise<{
     })
   })
 
-  return { readings: gathered, headings: seenHeadings }
+  return { readings: gathered, headings: seenHeadings, quorums }
 }
 
 /**
@@ -343,6 +378,7 @@ async function readAttestationLines(): Promise<void> {
       const outcome = await spawnAndRead()
       collected = outcome.readings
       headings = outcome.headings
+      quorums = outcome.quorums
       attemptLog.push(
         `attempt ${String(attempt)}: ` +
           outcome.readings
@@ -487,6 +523,65 @@ describe('the driver says how strongly each rung was attested', () => {
     // to be.
     expect([strengthOf('real', 1).strength, two.strength]).toEqual(['owner-attested', 'independent'])
     expect(describeAttestation('owner-attested')).not.toBe(describeAttestation('independent'))
+  }, SPAWN_TIMEOUT_MS)
+
+  /**
+   * **VER-04 — and the reason it needed its own line is that the case above cannot carry it.**
+   *
+   * `independent (replicas 2, operators 2)` is computed by `classifyAttestation` from who
+   * **answered and signed**. It would print identically on a fabric where the quorum gate
+   * never ran at all — two operators happening to be asked reads exactly like two operators
+   * selected under anti-affinity. So every assertion in this file, before this one, was
+   * satisfied by a driver that composed no quorum whatever.
+   *
+   * VER-04's claim is about **composition**: one operator cannot supply a whole quorum. The
+   * line read here is the composer's own verdict, and `ShardQuorum`'s docblock argues the
+   * separation this depends on — *"`operators` here are the operators that were **asked**;
+   * `ShardAttestation` reports who **answered and signed**"*, and reading a strength off the
+   * gate *"would be the exact conflation this phase exists to end"*.
+   *
+   * **What this case does NOT establish**, said plainly because the gap is narrow and easy
+   * to overstate: this rig gives every worker a distinct `operatorId`, so the gate's refusal
+   * arm — `insufficient-operators`, the arm that fires when one operator would supply the
+   * whole quorum — is never reached here. That arm is carried by `quorum-agents.node.test.ts`
+   * against a fabric built for it. What is established is that the gate **ran, composed, and
+   * named the operators it composed over** on a real entry point, which is what was missing.
+   */
+  it('VER-04 — reads the composed quorum, which the strength beside it cannot evidence', async () => {
+    await readings()
+
+    const composed = quorums.get('real/2')
+    expect(
+      composed,
+      `no quorum line for real/2. Lines seen: ${JSON.stringify([...quorums])}\n${attemptLog.join('\n')}`,
+    ).toBeDefined()
+
+    // The gate ran and composed. Asserted before the operator names so a driver that
+    // printed a refusal fails here, naming the arm, rather than at a `toContain` that
+    // reads like a missing worker.
+    expect(composed).toContain('composed over 2 operator(s)')
+    expect(composed).not.toContain('not composed')
+    expect(composed).not.toContain('not attempted')
+
+    // **The identities, which are what make the claim checkable.** A count would be the
+    // same fact `operators 2` already carries one line up; the names are what could show
+    // one operator supplying both members if it ever happened. Derived from the rig's own
+    // construction — `operatorId: \`bench-worker-${i}\`` — rather than transcribed.
+    for (const i of [0, 1]) expect(composed).toContain(`bench-worker-${String(i)}`)
+
+    // And the rung that cannot compose says so, with a reason rather than by silence.
+    // `redundancy: Math.min(2, nodes)` is 1 at one node, so there is nothing to verify —
+    // the gate's own first condition. This is the pair that makes the line a distinction
+    // rather than a constant, exactly as the strength cases above are asserted in pairs.
+    const one = quorums.get('real/1')
+    expect(one, `no quorum line for real/1\n${attemptLog.join('\n')}`).toBeDefined()
+    expect(one).toContain('not attempted')
+    expect(one).not.toContain('composed over')
+
+    // Both readings came off runs that completed, so neither is a statement about a
+    // failed run.
+    expect(rung('real', 2).population, attemptLog.join('\n')).toBe(COMPLETED_RUN)
+    expect(rung('real', 1).population, attemptLog.join('\n')).toBe(COMPLETED_RUN)
   }, SPAWN_TIMEOUT_MS)
 
   it('did not move the sweep, and wrote nothing into the repository', async () => {
