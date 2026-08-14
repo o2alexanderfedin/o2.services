@@ -165,10 +165,17 @@ const ATTESTATION_LINE = /^--sovereign attestation: (.+)$/
  * its own would have to reproduce the kernel's sentence exactly in order to pass.
  *
  * The two counts are literals and are the honest ones for this leg, not a transcription
- * either: the leg submits one owner-pinned shard at `redundancy: 1` — stated in
+ * either: the leg submits its owner-pinned shards at `redundancy: 1` — stated in
  * `bin/bench.ts` as the honest figure, because every worker in the rig enrols under one
  * user key and pinning data to one owner removes the second independent executor — and the
  * requestor holds a certificate for exactly the one node it placed on.
+ *
+ * **The counts are per-SHARD and did not move when the leg went from one row to two on
+ * 2026-08-14.** A strength is computed for each shard on its own, so a second owner-pinned
+ * row alongside the first changes neither `replicas 1` nor `operators 1`; the driver still
+ * prints the strength of shard 0. Said explicitly because "the leg now submits two" and
+ * "the receipt still reads one replica" look contradictory until the per-shard scope is
+ * named — and a reader who assumed otherwise would 'fix' this constant and break it.
  */
 const EXPECTED_RECEIPT = `owner-attested (replicas 1, operators 1) — ${describeAttestation('owner-attested')}`
 
@@ -306,6 +313,61 @@ async function readLegLine(): Promise<LegReading> {
   })
 }
 
+/** The aggregation half's line, one per rung of `REAL_LADDER`. */
+const AGGREGATION_LINE = /^--sovereign aggregation: (.+)$/
+
+/**
+ * Run the driver **to completion** and return every aggregation line it printed.
+ *
+ * Separate from {@link readLegLine}, which resolves on the *first* leg line and kills the
+ * child — and the first rung is exactly the one that cannot aggregate. `REAL_LADDER` under
+ * `--quick` is `[1, 2]`: the one-worker rung has a single combine executor, below the two a
+ * sovereign aggregation is verified at, so a reader that stopped there would witness only
+ * the refusal and could never see the arm run. Reading to exit is what makes the passing
+ * rung observable at all.
+ */
+async function readAggregationLines(): Promise<readonly string[]> {
+  const spawned: BenchProcess = spawn(
+    process.execPath,
+    [BENCH, '--quick', '--discover', '--sovereign'],
+    { cwd: workdir, stdio: ['pipe', 'pipe', 'pipe'] },
+  )
+  child = spawned
+
+  return new Promise<readonly string[]>((resolve, reject) => {
+    let stdout = ''
+    let stderr = ''
+    const timer = setTimeout(
+      () => reject(new Error(`driver did not exit within budget.\nstdout:\n${stdout}`)),
+      ARM_BUDGET_MS,
+    )
+    spawned.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString()
+    })
+    spawned.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString()
+    })
+    spawned.on('exit', (code) => {
+      clearTimeout(timer)
+      // A non-zero exit is reported rather than parsed past. The lines this function
+      // returns are only evidence about a run that finished; harvesting them from a driver
+      // that died would report the aggregation of a job that was cut short.
+      if (code !== 0) {
+        reject(
+          new Error(`bench exited with ${String(code)}.\nstdout:\n${stdout}\nstderr:\n${stderr}`),
+        )
+        return
+      }
+      const lines: string[] = []
+      for (const line of stdout.split('\n')) {
+        const hit = AGGREGATION_LINE.exec(line.trim())
+        if (hit !== null && hit[1] !== undefined) lines.push(hit[1])
+      }
+      resolve(lines)
+    })
+  })
+}
+
 describe('the --sovereign leg runs, and says what it dispatched', () => {
   it(
     'mints a chain rooted at the enrolled owner key and gets one owner-labelled shard agreed',
@@ -326,10 +388,18 @@ describe('the --sovereign leg runs, and says what it dispatched', () => {
       // nothing whatever it says.
       expect(leg.discovered).toBe(true)
 
-      // One submitted, and the denominator is asserted rather than read past: the leg is
-      // designed around exactly one owner-labelled shard, and a run that labelled every
+      // **Two submitted, and the denominator is asserted rather than read past**: the leg is
+      // designed around exactly two owner-labelled shards, and a run that labelled every
       // shard sovereign would be measuring a different job.
-      expect(leg.submitted).toBe(1)
+      //
+      // **This read `toBe(1)` until 2026-08-14, and the count moved for a reason worth
+      // stating here rather than only in the driver.** One contribution is *promoted rather
+      // than combined*, so a one-shard leg could never reach `reduceSovereignJob` at all —
+      // MR-02's aggregation half ran nowhere in production. Two is the smallest count at
+      // which the leg demonstrates what MR-02 is about. Both shards are still pinned to the
+      // **same** owner: the arm needs two contributions, not two owners, so no second
+      // identity was enrolled and `BENCH_USER_SEED` is untouched.
+      expect(leg.submitted).toBe(2)
       // At least one agreed. Parsed out of the line rather than matched as a fixed string,
       // so a leg reporting `0 of 1` fails here rather than passing on the presence of a
       // line — which is the whole difference between this file and a source-text count.
@@ -400,6 +470,62 @@ describe('the --sovereign leg runs, and says what it dispatched', () => {
       // *memory* rung reads exactly that — so a sovereign leg printing it would mean the
       // chain, the certificate or the issuer pin had gone, not that the label was weak.
       expect(receipt).not.toContain('none established')
+    },
+    TEST_TIMEOUT_MS,
+  )
+
+  /**
+   * **MR-02's aggregation half, which had no production caller until 2026-08-14.**
+   *
+   * Everything above this case reads the *map* half: a partial computed by the node holding
+   * the owner's row, which `PROJECT.md` calls **owner-attested** rather than verified. The
+   * half that carries the verification claim for owner-pinned data is the aggregation
+   * **over** those partials, and `reduceSovereignJob` ran nowhere outside
+   * `sovereign-aggregation.node.test.ts` — so the driver could print a full sovereign leg
+   * while the verified half of the claim was never exercised by anything an operator runs.
+   *
+   * This case is what makes that observable from outside the process.
+   */
+  it(
+    'MR-02 — a rung with two combine executors aggregates the owner-pinned partials, and the rung without one says so',
+    async () => {
+      expect(workdir.startsWith(tmpdir())).toBe(true)
+      const before = publishedStatus()
+
+      const lines = await readAggregationLines()
+
+      // One per rung of `REAL_LADDER`, which is `[1, 2]` under `--quick`. Asserted as an
+      // equality rather than a lower bound: a driver that printed the line once would pass
+      // a `>= 1` while having silently stopped attempting the arm on one of its rungs.
+      expect(lines, `aggregation lines: ${JSON.stringify(lines)}`).toHaveLength(2)
+
+      // **The one-worker rung names its own limit rather than skipping.** A rung that
+      // printed nothing is indistinguishable from a leg that was never wired — the same
+      // rule the driver's zero-refusal is built on.
+      const [first, second] = lines
+      expect(first).toContain('not attempted')
+      expect(first).toContain('combine executor(s)')
+
+      // **The reading this whole case exists for.** The two-worker rung ran the arm: a real
+      // combine, at the two replicas a sovereign aggregation is verified at, over partials
+      // whose coverage is complete, with the egress guard having watched at least as many
+      // rows as the job pinned.
+      //
+      // Asserted against the *fabric's* numbers rather than a fixed string, so a driver
+      // that kept the wording and lost the arm fails here: `at 2 replicas` is
+      // `MIN_SOVEREIGN_COMBINE_REPLICAS` achieved and not merely asked for, and `1/1 owners
+      // complete` is coverage derived from the partials that were admitted.
+      expect(second, `second rung's aggregation line: ${String(second)}`).not.toContain(
+        'not attempted',
+      )
+      expect(second).not.toContain('refused')
+      expect(second).toMatch(/^\d+ combine\(s\) at 2 replicas, coverage 1\/1 owners complete,/)
+      expect(second).toContain('2 row(s) watched over 2 pinned')
+
+      // Written where it was told to, and nowhere else — the same guard every case here
+      // carries, because this one runs the driver to completion rather than killing it
+      // early and so has the most opportunity to write.
+      expect(publishedStatus()).toBe(before)
     },
     TEST_TIMEOUT_MS,
   )

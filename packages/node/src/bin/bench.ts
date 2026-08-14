@@ -60,11 +60,13 @@ import type { CID } from 'multiformats/cid'
 import {
   EgressGuard,
   FetchingBlockstore,
+  MIN_SOVEREIGN_COMBINE_REPLICAS,
   RemoteExecutor,
   RpcBlockSource,
   RpcEndpoint,
   discoverCandidates,
   reduceJob,
+  reduceSovereignJob,
   rpcAdmission,
   serveAgent,
   submitJobWithEgress,
@@ -1523,30 +1525,60 @@ async function realFabric(
         // follow must fetch their own inputs exactly as they always have, and a row seeded
         // into the workers below that happened to be one of theirs would remove a fetch from
         // the measured path.
-        const row: CanonicalValue = { partition: 0, payload: new Uint8Array(16).fill(0x5e) }
-        const encoded = await canonicalCid(row)
-        if (!encoded.ok) {
-          throw new Error(`--sovereign: the owner-labelled row would not encode: ${encoded.error}`)
+        //
+        // **TWO rows since 2026-08-14, and the second one is what gives `reduceSovereignJob`
+        // a caller.** The leg dispatched exactly one until then, on a comment reading *"the
+        // count is the point rather than a sample size … answered as completely by one shard
+        // as by sixteen"*. That was true of the *map* half and it silently decided the
+        // aggregation half: one contribution is **promoted rather than combined**, so the
+        // sovereign arm refused this leg by name and MR-02's aggregation never ran anywhere
+        // outside a spec. Two is therefore the smallest count at which the leg demonstrates
+        // the thing MR-02 is about, and it is still not a sample size.
+        //
+        // **Both rows belong to the SAME owner, and that is not a compromise.** The register
+        // that recorded this symbol as blocked claimed the arm "needs a job whose shards are
+        // pinned to two or more owners"; it does not — it needs two *contributions*, which
+        // one owner supplies with two rows. `reduce-sovereign.test.ts` measures exactly that
+        // case. So no second identity is enrolled here and `BENCH_USER_SEED` is untouched.
+        //
+        // The payload bytes differ so the two partials address apart. They would anyway —
+        // `MODULE_WRITES_PARTITION` emits the partition index, so the outputs differ by
+        // position — but a leg whose distinctness rests on the fixture's choice of output
+        // would collapse to one leaf the day that fixture changed, and `deriveReduceTree`
+        // dedupes on (contributor, cid). Distinct inputs make it independent of that.
+        const rows: readonly CanonicalValue[] = [
+          { partition: 0, payload: new Uint8Array(16).fill(0x5e) },
+          { partition: 1, payload: new Uint8Array(16).fill(0x5f) },
+        ]
+        const encodedRows: Uint8Array<ArrayBuffer>[] = []
+        for (const row of rows) {
+          const encoded = await canonicalCid(row)
+          if (!encoded.ok) {
+            throw new Error(`--sovereign: the owner-labelled row would not encode: ${encoded.error}`)
+          }
+          encodedRows.push(encoded.bytes)
         }
 
-        // **The row is resident on the owner's own node before anything is dispatched**,
+        // **The rows are resident on the owner's own node before anything is dispatched**,
         // which is what "sovereign" means in this fabric and what `sovereign-egress.ts`
         // states as its premise. It is also what makes the dispatch possible at all — see
         // fact 2 above — and what lets the worker take its own hold on the row while it
         // executes over it.
-        for (const node of started) await node.store.put(encoded.bytes)
+        for (const node of started) {
+          for (const bytes of encodedRows) await node.store.put(bytes)
+        }
 
         const legStarted = performance.now()
+        const sovereignShards = rows.map((value) => ({
+          value,
+          label: 'sovereign' as const,
+          ownerId: BENCH_OWNER_KEY,
+        }))
         const dispatched = await submitJobWithEgress(
           {
             moduleCid,
             moduleRecord,
-            // Exactly one, and the count is the point rather than a sample size. This leg
-            // exists to give `delegate` a caller, not to change what the fixture measures,
-            // and the reading it produces — did a real chain, verified by a real node
-            // against a pinned key, admit a real dispatch — is answered as completely by one
-            // shard as by sixteen.
-            shards: [{ value: row, label: 'sovereign' as const, ownerId: BENCH_OWNER_KEY }],
+            shards: sovereignShards,
             executors,
             nodes: descriptors,
             // 1, and it is the honest figure rather than a weakened one: every worker in
@@ -1564,7 +1596,12 @@ async function realFabric(
         const legMs = performance.now() - legStarted
 
         const shard = dispatched.ok ? dispatched.job.shards[0] : undefined
-        const agreed = shard?.verification.status === 'agreed' ? 1 : 0
+        // Counted over every owner-labelled shard rather than read off the first, now that
+        // there is more than one. The attestation line below still reads shard 0 — a
+        // strength is per-shard and printing one of them is what VER-09 asked for.
+        const agreed = dispatched.ok
+          ? dispatched.job.shards.filter((one) => one.verification.status === 'agreed').length
+          : 0
 
         // **VER-09's display half, taken on the sovereign path — the reading that row was
         // held open for.** The three surfaces that render a strength today (this driver's
@@ -1587,10 +1624,94 @@ async function realFabric(
         )
 
         process.stdout.write(
-          `--sovereign: ${String(agreed)} of 1 sovereign shards agreed,` +
+          `--sovereign: ${String(agreed)} of ${String(sovereignShards.length)} sovereign shards agreed,` +
             ` chain rooted at ${BENCH_OWNER_KEY.slice(0, 8)},` +
             ` audience ${shard === undefined || shard.attempted.length === 0 ? 'nobody' : shard.attempted.join('/')}\n`,
         )
+
+        // ── MR-02's aggregation half, given a caller ────────────────────────────────────
+        //
+        // **This is the only production call to `reduceSovereignJob` in the repository.**
+        // Everything above is the *map* half: each partial was computed by the node holding
+        // the owner's row, and `PROJECT.md` says that half is *owner-attested* rather than
+        // verified. What carries the verification claim for owner-pinned data is the
+        // aggregation **over** those partials, and until this call existed it ran nowhere
+        // outside `sovereign-aggregation.node.test.ts`.
+        //
+        // **Two redundancies, on two different axes, and conflating them is what kept this
+        // unwired.** The dispatch above is `redundancy: 1` because a sovereign shard runs on
+        // the one node holding its owner's row — pinning removes the second independent
+        // executor. A *combine* reads only content-addressed partials, so it is runnable
+        // anywhere and is redundant at `MIN_SOVEREIGN_COMBINE_REPLICAS`. The map cannot be
+        // redundant and the aggregation must be; that is the whole of the split.
+        //
+        // **Attempted only where the rig can carry it, and it says so when it cannot.** The
+        // arm refuses below two combine executors by name, and `REAL_LADDER`'s first rung
+        // has one worker — so at rung 1 there is no second executor to combine on and the
+        // honest line is that this rung could not run it. Printing the refusal rather than
+        // skipping silently is the same rule as the zero-refusal below: a leg that prints
+        // nothing is indistinguishable from one that was never wired.
+        const combineExecutors = executors.map((executor) => executor.nodeId)
+        if (!dispatched.ok) {
+          process.stdout.write(
+            '--sovereign aggregation: not attempted — the dispatch above did not return a job\n',
+          )
+        } else if (combineExecutors.length < MIN_SOVEREIGN_COMBINE_REPLICAS) {
+          process.stdout.write(
+            `--sovereign aggregation: not attempted — this rung has ${String(combineExecutors.length)}` +
+              ` combine executor(s) and a sovereign aggregation is verified at` +
+              ` ${String(MIN_SOVEREIGN_COMBINE_REPLICAS)}\n`,
+          )
+        } else {
+          const reduced = await reduceSovereignJob(
+            dispatched.job,
+            {
+              moduleCid,
+              moduleRecord,
+              shards: sovereignShards,
+              executors,
+              nodes: descriptors,
+              redundancy: 1,
+              onQuorumShortfall: 'runs-at-available-redundancy',
+            },
+            {
+              rpc: requestor.rpc,
+              executors: combineExecutors,
+              // The requestor's own store: it is what this rig's `serveAgent` answers block
+              // requests from, so it is where the combine nodes fetch the leaves and where
+              // each combine's result returns.
+              blockstore: requestor.store,
+              project,
+              // Stated rather than defaulted. No agent in this rig is configured to sign a
+              // combine, so the honest statement is that this requestor checks no combine
+              // signature; the aggregation's verification here is redundancy and agreement,
+              // which is what `minReplicas` and `disagreements` read.
+              trustedIssuers: 'checks-no-combine-signatures',
+              // EGR-01's evidence, carried from the dispatch rather than rebuilt: the arm
+              // refuses unless the weakest guard registered at least as many sovereign rows
+              // as the job pinned.
+              egress: dispatched.manifests,
+              redundancy: MIN_SOVEREIGN_COMBINE_REPLICAS,
+            },
+          )
+
+          // **The coverage cannot be dropped on the way to the number.** `CoveredAggregate`
+          // has no `.value` shortcut for exactly this reason, and printing the aggregate
+          // without its denominator is the failure that type exists to prevent — so the
+          // line carries both or it carries the refusal.
+          process.stdout.write(
+            `--sovereign aggregation: ${
+              reduced.ok
+                ? `${String(reduced.aggregate.value.outcome.combines)} combine(s) at` +
+                  ` ${String(reduced.aggregate.value.outcome.minReplicas)} replicas,` +
+                  ` coverage ${String(reduced.aggregate.coverage.covered)}/${String(reduced.aggregate.coverage.total)} owners` +
+                  `${reduced.aggregate.coverage.complete ? ' complete' : ' PARTIAL'},` +
+                  ` ${String(reduced.aggregate.value.egress.registeredSovereign)} row(s) watched` +
+                  ` over ${String(reduced.aggregate.value.egress.pinnedShards)} pinned`
+                : `refused — ${reduced.reason}`
+            }\n`,
+          )
+        }
 
         // **A throw and never a reported zero**, and the reason is the failure mode this
         // whole criterion is about: a leg printing `0 of 1` is indistinguishable from a leg
@@ -2150,11 +2271,18 @@ function runnerOver(acquire: (nodes: number) => Promise<Fabric>, state: RunnerSt
         // and carried, never re-derived here. See {@link Fabric.combineIssuers}.
         trustedIssuers: fabric.combineIssuers,
         // MR-02 — the sweeps' shards are all `label: 'public'`, including on a
-        // `--sovereign` run: that leg submits its one owner-pinned row as a **separate**
+        // `--sovereign` run: that leg submits its owner-pinned rows as a **separate**
         // job above and this reduce never sees it. So each partial here is attributed to
         // its own partition index and to nothing else, which is the sentinel stated rather
-        // than a default. A leaf keyed on an owner is `reduceSovereignJob`'s, and this
-        // driver has no rig with two owners in it to call that with.
+        // than a default. A leaf keyed on an owner is `reduceSovereignJob`'s.
+        //
+        // **This comment ended `…and this driver has no rig with two owners in it to call
+        // that with` until 2026-08-14, and that reason was false.** `reduceSovereignJob`
+        // does not require two owners — it requires two *contributions*, which one owner
+        // supplies with two owner-pinned rows, and `reduce-sovereign.test.ts` measures
+        // exactly that. The sentence is corrected rather than deleted because it stood in
+        // three places at once (here, the disposition register, and MR-02's ledger row) and
+        // a reader who met one of the other two needs to find the retraction here too.
         contributors: 'attributes-each-shard-to-its-own-partition-index',
       })
       const reduceMs = performance.now() - reduceStarted
