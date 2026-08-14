@@ -49,6 +49,24 @@ export {
 export { ADMITS_ANY_PEER, admitsAnyPeer } from './relay-admission.ts'
 export type { RelayAdmission } from './relay-admission.ts'
 
+// AUTH-02 — one named verdict per peer, computed offline against pinned issuer keys.
+//
+// Here for the reason stated directly above, one symbol later, and the sibling comment is
+// why this one is short: `PeerVerifier` reads `@libp2p/interface`'s `Libp2p` and `PeerId`,
+// which `purity.node.test.ts` forbids in `@o2/core` and `@o2/net` outright, and both
+// `@o2/node` and `@o2/browser` depend on this package. It sat in `@o2/node` from Plan
+// 17-04 until 2026-08-14, which is exactly why `browser-node.ts` could not construct one
+// and the browser tier reached no verdict about any peer — AUTH-02's remaining leg, and
+// `DEFICIENCIES.md` D09. `@o2/node` re-exports both lines so no existing importer moves.
+//
+// `DEFAULT_VERDICT_RETRY_FLOOR_MS` is exported alongside them and was **not** on `@o2/node`'s
+// barrel, because the spec that reads it (`packages/node/src/peer-verifier.node.test.ts`)
+// used to sit beside the module and import it relatively. The spec stays where it is — it
+// is named by three `mutation-ledger.ts` rows and by `AUTH-02`'s witness list — so the
+// constant has to be reachable by package specifier or the retry-floor cases cannot see it.
+export { DEFAULT_VERDICT_RETRY_FLOOR_MS, PeerVerifier } from './peer-verifier.ts'
+export type { PeerFailure, PeerVerdict, PeerVerifierOptions } from './peer-verifier.ts'
+
 // AUTH-01 — one on-device seed, read in two namespaces.
 export {
   SEED_BYTES,

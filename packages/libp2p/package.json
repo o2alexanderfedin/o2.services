@@ -12,6 +12,7 @@
     "@libp2p/peer-id": "6.0.12",
     "@noble/curves": "2.2.0",
     "@o2/core": "*",
+    "@o2/net": "*",
     "libp2p": "3.3.6"
   }
 }
