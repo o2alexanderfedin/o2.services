@@ -259,7 +259,14 @@ export function localConsentStore(): ConsentStore {
   }
 }
 
-/** An in-memory store. Used by tests, and by a page whose storage is denied. */
+/**
+ * An in-memory store. Used by tests, and by a page whose storage is denied.
+ *
+ * **The second half of that sentence became true on 2026-08-14 and was false before it.**
+ * Nothing outside this module and its spec called this function; a page whose storage is
+ * denied got {@link localConsentStore}, whose writes are silently dropped. See
+ * {@link pageConsentStore}, which is what makes the claim good.
+ */
 export function memoryConsentStore(): ConsentStore {
   const map = new Map<string, string>()
   return {
@@ -271,4 +278,60 @@ export function memoryConsentStore(): ConsentStore {
       map.delete(key)
     },
   }
+}
+
+/**
+ * The store a **page** should use: {@link localConsentStore} where it works,
+ * {@link memoryConsentStore} where it does not.
+ *
+ * ## The defect this closes, which was a real refusal and not an untidy comment
+ *
+ * `demo/main.ts` bound `localConsentStore()` unconditionally, and that store's writes are
+ * a **silent no-op** when storage is unusable — by design, and the design is right for a
+ * store whose job is persistence. What made it a defect is the layer above:
+ * `requireConsent()` does not use the value `grantConsent` returned, it **re-reads the
+ * store**. So on a page whose storage is denied a visitor pressed *Allow*, the write went
+ * nowhere, and pressing *Start* threw `no consent` — the grant and the check disagreed
+ * because they consulted different things.
+ *
+ * That outcome is one this module had already ruled out in writing. `consent.test.ts`'s
+ * *"a denied store does not deny the visitor"* states it: *"Refusing to run because a
+ * preference could not be **remembered** would punish the most privacy-conservative
+ * visitors for being privacy-conservative."* The rule was honoured here and defeated one
+ * call up, which is why no test caught it — each layer was correct alone.
+ *
+ * ## Why the probe is a round trip and not a capability check
+ *
+ * `localConsentStore` already refuses a global that is absent, throws, or lacks the three
+ * methods. **None of those is the case that bites.** A store that accepts `setItem` and
+ * forgets it passes every one of those checks — it is the shape Safari private browsing
+ * and a storage-blocked third-party frame present, and it is exactly the shape that
+ * produced the refusal above. Only writing something and reading it back separates a store
+ * that persists from one that merely accepts.
+ *
+ * The probe key is distinct from {@link CONSENT_KEY} and is cleared immediately, so this
+ * neither reads nor disturbs a stored consent.
+ *
+ * ## What falling back does and does not buy
+ *
+ * The visitor can grant and then run, which is the whole point. Their consent lasts as long
+ * as the page does and **no longer** — a reload shows the gate again, because nothing was
+ * persisted and this function will not pretend otherwise. That is the honest outcome for a
+ * visitor who has asked their browser not to remember them, and it is strictly better than
+ * being unable to start at all.
+ */
+export function pageConsentStore(): ConsentStore {
+  const local = localConsentStore()
+  const probe = `${CONSENT_KEY}:probe`
+  try {
+    local.write(probe, '1')
+    const echoed = local.read(probe)
+    local.clear(probe)
+    if (echoed === '1') return local
+  } catch {
+    // A store that throws on any leg of the round trip is not one a consent can be kept
+    // in. Collapsed to the same answer as a store that silently forgot, because the
+    // visitor's experience of the two is identical and so is the correct response.
+  }
+  return memoryConsentStore()
 }

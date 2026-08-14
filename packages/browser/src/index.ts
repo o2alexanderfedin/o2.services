@@ -49,6 +49,7 @@ export {
   grantConsent,
   localConsentStore,
   memoryConsentStore,
+  pageConsentStore,
   readConsent,
   revokeConsent,
 } from './consent.ts'

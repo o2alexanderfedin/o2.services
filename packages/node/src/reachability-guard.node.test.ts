@@ -373,14 +373,20 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     //
     // The rule was measured against the over-connection anchor **before** it was taken:
     // `demo/estimatePi` stays unreachable and the total moves by exactly two.
+    //
+    // **Lowered 67 → 66 later the same day, and that one IS wiring.**
+    // `browser/memoryConsentStore` has a production caller: `pageConsentStore`, which
+    // `demo/main.ts` binds. It was reached by fixing a defect rather than by moving a
+    // number — a page whose storage silently forgets writes could not read back a consent
+    // it had just granted, so a private-browsing visitor was refused after agreeing.
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(
       found.length,
       `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-14 was 67. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
+        'on 2026-08-14 was 66. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(67)
+    ).toBeLessThanOrEqual(66)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
