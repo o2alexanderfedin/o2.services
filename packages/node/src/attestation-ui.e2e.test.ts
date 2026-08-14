@@ -453,6 +453,99 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
     expect(report).toContain('registered no sovereign data')
   }, 900_000)
 
+  /**
+   * **VER-10 — `owner-domain` on a screen, for the first time anywhere.**
+   *
+   * Until today `OWNER_DOMAIN` appeared in this file **only inside `not.toContain`**, three
+   * times, plus once in a membership list. `classifyAttestation` could produce the label and
+   * `attestationLines` could render it, and no fixture in the repository had ever built a
+   * fabric that made one. A label nothing can produce is indistinguishable from a label
+   * nothing *would* produce, and VER-10's whole sentence is that the middle claim is
+   * reported **as a distinct, weaker one** — which cannot be checked against a screen that
+   * has never shown it.
+   *
+   * ## The fabric, and why it is the smallest one that produces the label
+   *
+   * `classifyAttestation` (`quorum.ts:285-291`) reads exactly two things: how many replicas
+   * agreed, and how many distinct `operatorId`s they carry. `>= 2` replicas and `>= 2`
+   * operators is `independent`; `<= 1` replica is `owner-attested`; two or more replicas
+   * under **one** operator is `owner-domain` — its own comment calls that *"replicated
+   * across the owner's own machines"*.
+   *
+   * So this case is case 1 plus one peer, with the peer enrolled at **the same provider**
+   * under **the same owner key and operator id** as the tab. Same provider is what makes
+   * both certificates verifiable — the case below shows what a stranger's provider costs,
+   * and the reading collapses to the absence. Same operator is what makes it two machines
+   * of one owner rather than two owners.
+   *
+   * The peer enrols **before** `startEnrolled` stops the provider, which is the one
+   * ordering constraint in the fixture.
+   *
+   * ## What this establishes, stated narrowly
+   *
+   * That the page renders the middle label, distinctly, for a run whose topology yields exactly it —
+   * and, in the same breath, that it does **not** print `independent` for that run. The
+   * second half is the one VER-10 actually asks for: *the stronger guarantee is never
+   * implied by the weaker one*. Asserted as a pair on one screen rather than across two
+   * runs, because two runs of the same page differing in the label is a comparison, and one
+   * run showing the weaker label while withholding the stronger is the property.
+   */
+  it('VER-10 — reads owner-domain for two machines of one owner, and withholds independent', async () => {
+    const provider = await startProvider('provider-domain')
+
+    // The owner's second machine: a different node, the **same** owner key and operator id
+    // the tab enrols under. Enrolled at the tab's own provider, so the tab can account for
+    // its replica — an unaccounted one collapses the whole receipt to the named absence,
+    // which is what the two cases below measure.
+    const sibling = await startPeer('peer-owner-domain', {
+      // The same 32 bytes as {@link TAB_USER_KEY}, as a `Uint8Array` rather than the number
+      // array that constant is — it is declared spread because it crosses `page.evaluate`,
+      // which structured-clones, and a `FabricNode` takes the typed form. Derived from that
+      // constant instead of written out again, so the two identities cannot drift apart and
+      // silently make this a two-owner fixture reading `independent`.
+      userPrivateKey: new Uint8Array(TAB_USER_KEY),
+      operatorId: TAB_OPERATOR,
+      providerAddr: provider.addr,
+    })
+
+    const page = await openPage('owner-domain')
+    const submitterId = await startEnrolled(page, 'o2-attestation-owner-domain', provider)
+    const dialedId = await page.evaluate(async (address) => window.o2.dial(address), sibling.addr)
+    expect(dialedId).toBe(sibling.node.peerId)
+
+    const report = await runTheLadder(page, 600_000)
+    readings.push(readingOf('owner-domain', report))
+    process.stderr.write(`[owner-domain] peer ${sibling.node.peerId}\n${report}\n`)
+
+    // The population, said on the page. The demo runs at `redundancy = min(2, 1 + peers)`,
+    // so two computing nodes is what puts two replicas on a cube — without this the label
+    // could have come from a run that quietly lost the peer, which reads `owner-attested`
+    // and would pass a naive "not independent" check.
+    expect(await page.textContent('#peers')).toContain('2 node(s) computing')
+
+    // **The label, in the kernel's words rather than transcribed** — the same rule the
+    // three cases around this one follow, so the page cannot drift into describing one
+    // result differently from the fabric that produced it.
+    expect(report).toContain(OWNER_DOMAIN)
+    expect(report).toContain('2 replicas')
+    expect(report).toContain('1 operator')
+
+    // **VER-10's actual sentence.** Two replicas agreed, both certificates check out, and
+    // everything `classifyAttestation` needs for `independent` is present EXCEPT a second
+    // operator. The page must not round up.
+    expect(report).not.toContain(INDEPENDENT)
+    // Nor down: `owner-attested` is the one-replica claim and this run placed two.
+    expect(report).not.toContain(OWNER_ATTESTED)
+
+    // Both replicas accounted for, named individually. A receipt that could not account for
+    // one of them reports the absence instead of any strength, so this is what separates
+    // "the label is owner-domain" from "the label is owner-domain because the peer went
+    // missing".
+    expect(report).not.toContain(`${sibling.node.peerId}: this requestor holds no certificate for it`)
+    expect(report).not.toContain(`${submitterId}: this requestor holds no certificate for it`)
+    expect(report).not.toContain(THE_OLD_CLAIM)
+  }, 900_000)
+
   it('states the absence, naming the peer, when nobody enrolled that peer', async () => {
     const provider = await startProvider('provider-unenrolled')
     const peer = await startPeer('peer-unenrolled')
@@ -530,25 +623,38 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
   }, 900_000)
 
   /**
-   * The comparison the three cases exist to support, and the one defect #34 turns on.
+   * The comparison the cases above exist to support, and the one defect #34 turns on.
    *
    * Each case above asks whether one screen said the right thing. This asks the question
    * a visitor's trust actually rests on: **does a strength appear exactly where nothing
    * went unaccounted?** It reads no absolute — no count, no threshold, no wall clock —
-   * only three screens against each other, all three produced by the same page, the same
-   * built bundle and the same ladder, differing in one variable each.
+   * only the screens against each other, all produced by the same page, the same built
+   * bundle and the same ladder, differing in one variable each.
    *
    * It can fail, which is the point. A page printing a strength beside an unaccounted
    * replica breaks it — plants P3 and P5 both did — and so does a page reporting the
    * absence for a run in which everything checked out, which is exactly what the demo did
    * before this plan, when a self-included job dispatched through the unsigned executor
    * and the tab could not account for its own replica.
+   *
+   * ## Four screens since 2026-08-14, and the fourth is what makes the loop mean something
+   *
+   * This read *"three screens"* and expected `['solo']` as the one strength-claiming run.
+   * With three, **"claimed a strength" and "was the solo run" were coextensive** — so the
+   * loop below could not distinguish *strength iff nothing unaccounted* from *strength iff
+   * solo*, and a page implementing the second would have passed. The `owner-domain` run
+   * separates them: it is not solo, it has a peer, and it claims a strength because both
+   * replicas were accounted for. The relation being tested is now the only one that fits.
+   *
+   * That is a strengthening and not a widening: the loop's rule is unchanged, and what
+   * moved is the population it holds over.
    */
-  it('claims a strength in exactly the run where no replica went unaccounted', () => {
-    // All three ran. Without this, a suite that skipped two cases would satisfy every
+  it('claims a strength in exactly the runs where no replica went unaccounted', () => {
+    // All four ran, in order. Without this, a suite that skipped cases would satisfy every
     // comparison below trivially.
     expect(readings.map((reading) => reading.label)).toEqual([
       'solo',
+      'owner-domain',
       'unenrolled peer',
       'stranger’s provider',
     ])
@@ -560,11 +666,13 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
       })
     }
 
-    // And the split is the one the topologies predict rather than any split at all: the
-    // solo run is the one that claimed a strength, both peer runs are the ones that did
-    // not. A page with the relation inverted would satisfy the loop above.
+    // And the split is the one the topologies predict rather than any split at all: the two
+    // runs whose every replica carried a checkable certificate claimed a strength, and both
+    // runs holding a peer nobody this tab pins did not. A page with the relation inverted
+    // would satisfy the loop above.
     expect(readings.filter((reading) => reading.strength).map((reading) => reading.label)).toEqual([
       'solo',
+      'owner-domain',
     ])
   })
 })
