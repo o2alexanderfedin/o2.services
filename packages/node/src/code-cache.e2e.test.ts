@@ -96,12 +96,20 @@ import { ARTIFACT_SIZED, CHAINED_HOT, syntheticArtifact } from '../../browser/sr
  * Measured on this machine, all chained, all heated well past tier-up, all served
  * identically:
  *
- * | shape | module | outcome |
- * |---|---|---|
- * | 2000 x 100 | 621,623 B | writes on visit 1 |
- * | 1000 x 150 | 460,473 B | writes on visit 2 |
- * | 500 x 400 | 604,223 B | never writes |
- * | 250 x 250 | 189,423 B | never writes |
+ * | shape | module | outcome | entry |
+ * |---|---|---|---|
+ * | 2000 x 100 | 621,623 B | writes on visit 1 | 61,478 B |
+ * | 1000 x 150 | 460,473 B | writes — visit 1 or 2 depending on the run | 30,690 B |
+ * | 500 x 400 | 604,223 B | never writes | — |
+ * | 250 x 250 | 189,423 B | never writes | — |
+ *
+ * The four module sizes are exact and reproduce. The *outcomes* were re-measured on a
+ * second occasion, and one of them moved: 1000 x 150 was first recorded as writing on
+ * visit 2 and was then observed writing on visit 1. Nothing else changed, so the row
+ * is stated as the range it actually occupies rather than as the first reading —
+ * `--wasm-caching-timeout-ms=2000` makes "which visit" a race between the settle and a
+ * timer, and a row that names one visit is claiming a precision this has not got. The
+ * two never-writes rows and the committed shape's write were identical both times.
  *
  * 500 x 400 and 2000 x 100 have near-identical module sizes and identical total
  * operation counts, and they behave differently — so module size alone does not
