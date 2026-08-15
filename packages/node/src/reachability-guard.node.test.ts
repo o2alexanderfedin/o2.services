@@ -17,7 +17,6 @@ import {
   DISPOSITIONS,
   DISPOSITION_CEILING,
   HIDDEN_BY_DISPATCH,
-  OPEN_FINDING_CEILING,
   disposedKeys,
 } from './reachability-dispositions.ts'
 
@@ -279,6 +278,21 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // The anti-vacuity ceiling, and it is the second half of criterion 2: a NEW
     // exported-but-uncalled function is a defect that no known-TRUE anchor can catch, because it
     // adds a finding rather than removing a path.
+    //
+    // ## THIS CEILING NO LONGER CARRIES THAT CLAIM — 2026-08-14, WIRE-02
+    //
+    // It is kept, and it is now the weaker of two checks over the same population. The block
+    // *"WIRE-02 — every unreachable export is named by a register, in both directions"* at the
+    // bottom of this file asserts set equality between this walk and
+    // `DISPOSITIONS ∪ OPEN_FINDINGS`, so the count below is pinned exactly at 66 by two named
+    // registers and a bound of 66 can no longer bind. **A ceiling is green about any twenty-four
+    // undisposed symbols, not only these twenty-four**, which is the defect the register fixes
+    // and the reason this comment says so rather than letting the number look load-bearing.
+    //
+    // It stays because it is free, because it fails on a *different* wording (a count a reader
+    // can compare against the history below), and because deleting a measurement to make room
+    // for a better one is how a history stops being auditable. The paragraphs below are that
+    // history and they are unchanged.
     //
     // Sited at **75**, measured 2026-08-09 (Plan 25-02). It was 73 from the same day
     // (Plan 25-04), which itself was 67 from 2026-08-08 with Phases 20, 21, 23 and 24
@@ -762,36 +776,6 @@ describe('the disposition register describes the tree, or it reddens', () => {
     expect(new Set(disposedKeys()).size).toBe(DISPOSITIONS.length)
   }, GRAPH_TIMEOUT_MS)
 
-  it('reports the residue as open findings and holds it still', () => {
-    // **Criterion 1 does not pass clean on this tree, and this case is where that is said.**
-    // 37 callable barrel exports have no production caller at all, in a milestone named "Wire
-    // What Was Built". They are not disposed — the owner ruled on 2026-08-08 that only symbols
-    // with a stated cause get an entry — so they sit here, counted, named on demand, and unable
-    // to grow while nobody is looking. Lowering this number is the work.
-    //
-    // This figure has now drifted twice and the history is kept because a ceiling nobody can
-    // audit is a ceiling nobody will lower. It said "47" written against a residue of 47, went
-    // stale when Plan 25-02 raised `OPEN_FINDING_CEILING` to 49, said nothing because it is a
-    // comment, and then read true again by coincidence when Phase 28's merge measured the
-    // residue back to 47 — see `reachability-dispositions.ts`'s 49 → 47 note for why that
-    // agreement was refused as evidence.
-    //
-    // **47 → 37, measured 2026-08-10, and this one is a reclassification rather than a
-    // lowering**: the ten symbols the derived `global-object-hop` case above recovered have real
-    // production callers behind the `window.o2` hop, so counting them as "no production caller
-    // at all" over-reported the residue. Nothing was wired. The owner's ruling to hold the
-    // residue is untouched — what the count is *of* changed, not how hard it is held.
-    const disposed = disposedKeys()
-    const open = unreachableExports(corpus(), graph(), ROOT)
-      .map((one) => `${one.barrel}/${one.symbol}`)
-      .filter((key) => !disposed.has(key))
-    expect(
-      open.length,
-      `${open.length} unreachable callable barrel exports carry no disposition, against a ` +
-        `ceiling of ${OPEN_FINDING_CEILING}. A HIGHER number means a new one arrived: ${open.join(', ')}`,
-    ).toBeLessThanOrEqual(OPEN_FINDING_CEILING)
-  }, GRAPH_TIMEOUT_MS)
-
   it('renders an open finding as a sentence naming the symbol and the barrel', () => {
     // The register does not change the message contract — an open finding reads exactly like any
     // other, so a reader picking one up gets the same sentence whether or not a sibling is disposed.
@@ -805,6 +789,824 @@ describe('the disposition register describes the tree, or it reddens', () => {
     if (first === undefined || line === undefined) return
     expect(line).toContain(first.symbol)
     expect(line).toContain(`@o2/${first.barrel}`)
+  }, GRAPH_TIMEOUT_MS)
+})
+
+// ---------------------------------------------------------------------------
+// WIRE-02 — the residue held BY NAME, and both directions of the set equality
+// ---------------------------------------------------------------------------
+
+/**
+ * What the graph found about a symbol's callers, as the register has to state it.
+ *
+ * The two need **different work** and that is why they are not one flag: `'none'` is a capability
+ * nothing anywhere invokes, `'unreachable-only'` is one whose callers exist and are themselves
+ * stranded — usually a small island of two or three symbols where wiring the head wires the rest.
+ * `describeUnreachable` already renders the distinction; the register commits to it per row so the
+ * guard can re-measure it.
+ */
+type OpenFindingCallers = 'none' | 'unreachable-only'
+
+/** One callable barrel export with no call path and no disposition — named, not counted. */
+interface OpenFinding {
+  /** `barrel/symbol`, the form the guard's verdict list uses. */
+  readonly key: string
+  /** Repo-relative file the declaration lives in. Re-measured against the walk. */
+  readonly declaredIn: string
+  /** What the graph says about its in-edges. Re-measured against the walk. */
+  readonly callers: OpenFindingCallers
+  /**
+   * Why it is unwired, in enough detail that a reader can check the claim without the guard.
+   *
+   * A row is allowed to say *"nobody has wired this and nobody has decided to"*. It is not allowed
+   * to invent a justification: either it cites the source sentence that declines the wiring, or it
+   * says plainly that no decision exists.
+   */
+  readonly reason: string
+}
+
+/**
+ * The **undisposed residue, named one symbol at a time** — WIRE-02.
+ *
+ * Every callable barrel export that has no traced path from an entry point *and* no
+ * {@link Disposition}. Not an excuse list and not a second dispositions register: a disposition
+ * is granted on a mechanism the tracer cannot see, and **nothing here has one**. These are
+ * genuinely uncalled, they are the *"Wire What Was Built"* residue, and lowering the list is the
+ * work.
+ *
+ * ## This replaced a ceiling on 2026-08-14, and the replacement is strictly stronger
+ *
+ * Until today the residue was held by `OPEN_FINDING_CEILING`, a number — the guard asserted
+ * `open.length <= 24` and was green about all twenty-four without naming one of them. **A ceiling
+ * permits any new unreachable export up to N; a register permits only the ones somebody wrote
+ * down.** So symbol #25 arrives red and named, and — the direction a ceiling can never check — a
+ * symbol registered here that has since gained a call path is *also* red, because the guard reads
+ * set equality in both directions. That is the shape `one-crypto-implementation.node.test.ts`
+ * already runs for `ACCEPTED_SIGNATURE_COMPARISONS` and `requirements-ledger.node.test.ts` runs
+ * for `WITHOUT_A_CHECKABLE_CLAIM`; it is not new here, it is applied here.
+ *
+ * The owner's 2026-08-08 ruling to **hold** this residue rather than work it down is untouched.
+ * Twenty-four were open under the ceiling and twenty-four are named below; not one symbol was
+ * re-caused into {@link DISPOSITIONS} on the way, deliberately — see `node/relayAddrForHost`,
+ * which has a live production caller behind a mechanism {@link HIDDEN_BY_DISPATCH} already
+ * describes and is **still listed here**, because re-causing a symbol is a decision to put and
+ * not one to take in passing. That is this file's own precedent, set for
+ * {@link BENCHMARK_DRIVER_ONLY}'s four symbols on 2026-08-13.
+ *
+ * ## What each field costs, so no row is a shrug
+ *
+ * - `declaredIn` is **re-measured** against the walk. A symbol that moved file invalidates its row.
+ * - `callers` is **re-measured**: `'none'` means nothing in the tree calls it, `'unreachable-only'`
+ *   means it is called and every caller is itself unreachable. These need different work, and an
+ *   entry claiming `'none'` that has gained an in-edge reddens *before* the symbol becomes
+ *   reachable — the halfway-wired state a reachability check alone cannot see.
+ * - `reason` is prose, and it is allowed to say *"nobody has wired this and nobody has decided
+ *   to"* — that is the honest reading for several rows and it is written as such. What it may not
+ *   do is invent a justification: every row either cites the source sentence that declines the
+ *   wiring, or says plainly that no decision exists.
+ *
+ * ## Why this register is in the spec and `DISPOSITIONS` is not — measured, not stylistic
+ *
+ * A register has to **spell the symbol names it registers**, and four source-scanning guards in
+ * this repository read `packages/` and `tools/` for exactly such names. Both collisions below
+ * were watched red on 2026-08-14 with the register sitting in `reachability-dispositions.ts`,
+ * which is production source:
+ *
+ * 1. `requirements-ledger.node.test.ts` counts `NAME(` over **comment-stripped** production
+ *    source as a call site. Quoting `ed25519-backend.ts`'s own sentence about `initEd25519()`
+ *    put that call form in a **string literal**, which the stripper leaves standing, and
+ *    CRYPTO-01 reddened: *"initEd25519 is called by
+ *    packages/node/src/reachability-dispositions.ts"*. A citation read as a caller.
+ * 2. `demo-primes.e2e.test.ts` greps the same two trees for the five G4 primes symbols and
+ *    reddens on any file outside the module and the barrel naming one **on a code line**. Three
+ *    rows below are `demo/buildPrimesInput`, `demo/projectPrimeCount` and `demo/readPrimeCount`,
+ *    and a `key:` line is a code line. **That guard is correct and must not be widened** — its
+ *    own words are *"a third entry here is Option A having landed"*, so admitting a citation
+ *    would destroy the sentence that makes it worth having.
+ *
+ * Both scans exclude `*.test.ts` by construction, because a spec is where symbol names get
+ * spelled. So the register moved here rather than the guards being loosened, and
+ * `ACCEPTED_SIGNATURE_COMPARISONS` — the register whose both-directions shape this one copies —
+ * already lives inside its own spec for the same reason. `DISPOSITIONS` stays in the module: no
+ * guard in this tree watches the symbols it happens to name, which is luck rather than design
+ * and is written down so the next register does not rediscover it.
+ *
+ * ## The history of this population, kept because a residue nobody can audit is one nobody lowers
+ *
+ * ## Ratcheted 42 → 40, measured 2026-08-08
+ *
+ * G7's pair moved from open to disposed, so the open count genuinely fell. **Measured, not
+ * derived**: `OPEN_FINDING_CEILING` was temporarily set to 0 and the guard's own verdict read
+ * *"40 unreachable callable barrel exports carry no disposition"*, naming all forty. The ceiling
+ * follows the measurement down, because a ceiling with slack in it stops binding — a regression
+ * of two would have passed silently against 42.
+ *
+ * **The owner ruled 2026-08-08 to hold this residue rather than work it down.** That governs the
+ * *backlog*, not the guard: holding the count still and letting the ceiling drift above it are
+ * different things, and only the first was asked for.
+ *
+ * ## Raised 40 → 47, measured 2026-08-09 (Plan 25-04)
+ *
+ * Seven new callable barrel exports arrived at once: `core/createLibsodiumSyncVerifier`,
+ * `core/createNobleSyncVerifier`, `core/createSubtleAsyncVerifier`,
+ * `core/Ed25519NotInitializedError`, `core/getAsyncVerifier`, `core/getSyncVerifier`,
+ * `core/initEd25519` — the Ed25519 dual-port verifier `packages/core/src/ed25519-backend.ts`
+ * exports from `@o2/core`'s barrel. Not disposed: the module's own docblock already states why
+ * it has no production caller yet (a bootstrap-ordering decision across three runtime entry
+ * points, not a `deferred-in-source` one-line deferral this register's shape fits), and that
+ * statement is this plan's own deliverable rather than something to duplicate here as a second
+ * copy that can drift from the first. This is a raise, not a lowering — the residue is larger,
+ * honestly, until a future phase wires the port or a disposition is written for it.
+ *
+ * ## Raised 47 → 49, measured 2026-08-09 (Plan 25-02)
+ *
+ * `core/decodeX509Certificate` and `core/describeX509Failure` arrived when Plan 25-02
+ * barrel-exported `packages/core/src/x509.ts` for the first time. Not disposed, for the
+ * same shape of reason as the ed25519-backend.ts raise immediately above: this phase's
+ * X.509 profile is fully implemented and tested but has no production caller this
+ * phase by design (`.planning/REQUIREMENTS.md`'s X509-01…07 rows state it explicitly —
+ * this phase does not wire the decoder into enrollment, issuance, or the demo; that is
+ * out of its named scope, and only its bundle cost is measured, in Plan 25-03). Two
+ * exports moved the count by exactly two, not five, because
+ * `MAX_CERTIFICATE_BYTES`/`MAX_EXTENSION_BYTES`/`MAX_EXTENSION_COUNT` are `const` value
+ * exports rather than functions/classes and never entered the "callable" corpus this
+ * guard walks.
+ *
+ * ## Lowered 49 → 47, measured 2026-08-10 (Phase 28, Plan 28-01)
+ *
+ * `core/createLibsodiumSyncVerifier` and `core/createSubtleAsyncVerifier` left the barrel when
+ * Plan 28-01 merged `packages/core`'s two Ed25519 selection paths into one. Both were undisposed
+ * findings, so the residue falls by exactly two and nothing arrived to offset it. The five
+ * remaining `ed25519-backend.ts` findings — `core/createNobleSyncVerifier`,
+ * `core/Ed25519NotInitializedError`, `core/getAsyncVerifier`, `core/getSyncVerifier`,
+ * `core/initEd25519` — stay open and stay undisposed for the reason the 40 → 47 note above
+ * already gives: the port still has no production caller, and the merge did not change that.
+ * The merge is behaviour-neutral in production; it removed a duplication from the package, not a
+ * hazard from a trust path, and this lowering should be read as exactly that much.
+ *
+ * **Measured, not derived, and the arithmetic here is a trap worth naming.** The ceiling was set
+ * to 0 before the merge and the guard reported *"49 unreachable callable barrel exports carry no
+ * disposition"*, and again after and it reported *"47"*, naming all forty-seven with the two
+ * departed symbols visibly absent — a within-run pair, so the difference is the merge. 49 − 2 is
+ * also 47, and `reachability-guard.node.test.ts:350` and `.planning/REQUIREMENTS.md:790` have
+ * both *said* "47" since before this phase, staled against the 47 → 49 raise above and describing
+ * a different population. **Agreement with a stale comment is not confirmation and was not taken
+ * as any**; the number here is the one the guard printed.
+ *
+ * ## Lowered 47 → 37, measured 2026-08-10 — a RECLASSIFICATION, not wiring
+ *
+ * **Nothing was wired and nothing became reachable.** Ten symbols moved from the open list into
+ * {@link GLOBAL_OBJECT_HOP} because they were always members of that class and the class had
+ * never been derived; see that constant's `16 → 26` note for the method and the per-symbol
+ * chains. The residue this ceiling holds is *"callable barrel exports with no production caller
+ * at all"*, and all ten have one — so counting them here was reporting the gap as **larger than
+ * it is**, which is the direction the 2026-08-08 re-audit named about itself and the direction
+ * `G14` was raised in.
+ *
+ * **This does not touch the owner's 2026-08-08 ruling to hold the residue rather than work it
+ * down.** Holding a count still and correcting what the count is *of* are different acts, and
+ * only the second happened here. The 37 that remain are undisposed on the same terms as before.
+ *
+ * **Measured, not derived, and the trap named in the note above was live again here.** This
+ * ceiling was set to 0 before the ten were added and the guard reported *"47 unreachable callable
+ * barrel exports carry no disposition"*, and again after and it reported *"37"*, naming all
+ * thirty-seven with the ten visibly absent — a within-run pair, so the difference is the
+ * reclassification. 47 − 10 is also 37, and the agreement was not taken as the proof.
+ *
+ * **Raised 37 → 38, 2026-08-11, for `net/reduceSovereignJob` — one symbol, and it is reported
+ * as an open finding rather than disposed.** MR-02's sovereign aggregation arm has no
+ * production caller. **A disposition would be the wrong shape for that**: this file's own rule is
+ * that a disposition is granted on a *mechanism* the graph cannot see, and there is no mechanism
+ * here — the symbol is genuinely uncalled. It is measured, across real `bin/agent.ts` processes,
+ * by `sovereign-aggregation.node.test.ts`; measured is not wired, and this ceiling says so.
+ *
+ * ### The blocker written here on 2026-08-11 was FALSE, and it is retracted — 2026-08-14
+ *
+ * This entry read: *"the blocker was measured rather than assumed: the arm needs a job whose
+ * shards are pinned to **two or more** owners, and no rig in this repository stands up two
+ * owners … Giving either a second owner changes what a published driver measures or what a
+ * visitor's page submits, which is an **owner decision and not a wiring fix**."*
+ *
+ * **The arm does not require two owners. It requires two CONTRIBUTIONS, and one owner can
+ * supply both.** Measured by `reduce-sovereign.test.ts`'s case *"aggregates ONE owner's two
+ * distinct partials"*: one owner, two owner-pinned shards, two distinct outputs — the call
+ * returns `ok: true` with `tree.nodes: 1`, `minReplicas: 2`, and complete coverage at 1/1. The
+ * case was planted red before it was believed: inserting `if (new Set(pinned.values()).size < 2)
+ * return refuse(…)` into `reduce-sovereign.ts` reddened it with *"expected false to be true"*,
+ * and the plant was restored to a byte-identical file.
+ *
+ * **Why the false premise survived, stated so the next reader can spot the shape.** The three
+ * refusals between a job and an aggregate are each counted over a *different* population:
+ * `pinned.size === 0` over owner-pinned **shards**, `tree.nodes.length === 0` over
+ * **contributions** (*"a single contribution is promoted rather than combined"*), and
+ * `minReplicas < 2` over **combine executors**. None is over distinct owners. Every passing
+ * fixture in that spec happened to pin one shard per owner, so owners and contributions moved
+ * together in all of them, and the refusal case for the middle branch varied **both at once** —
+ * `specPinnedTo([ALICE.ownerId])` is one owner *and* one shard. Nothing in the suite separated
+ * them, so a reader checking "does this need a second owner?" found every fixture consistent
+ * with yes and none of them testing it.
+ *
+ * **What is actually true of `bin/bench.ts`.** Its `--sovereign` leg dispatches
+ * `shards: [{ … label: 'sovereign', ownerId: BENCH_OWNER_KEY }]` — a **one-element array**
+ * (`bin/bench.ts:1549`), and it prints *"of 1 sovereign shards agreed"* (`:1590`). So the leg is
+ * short of a *second row*, not short of a *second identity*. That is a wiring fix and not an
+ * owner decision, and the sentence above had it backwards.
+ *
+ * ## Lowered 38 → 36, measured 2026-08-11 — and this one is WIRING, not a reclassification
+ *
+ * Every prior movement in this note was a raise, a removal, or a correction of what the count was
+ * *of*. This is the first that is the work itself. `core/decodeX509Certificate` and
+ * `core/describeX509Failure` were raised into this residue by the 47 → 49 note above, on the
+ * explicit ground that *"this phase does not wire the decoder into enrollment, issuance, or the
+ * demo"*. It is wired now: `checkX509Form` in `packages/core/src/enrollment.ts` calls both — the
+ * decoder to parse a presented certificate and the describer to name its refusal — fail-closed,
+ * on the trust path. Both symbols leave the open list because they have a production caller, not
+ * because anything about them was reclassified.
+ *
+ * **Measured, not derived.** This ceiling was set to 0 and the guard reported *"36 unreachable
+ * callable barrel exports carry no disposition"*, naming all thirty-six with the two visibly
+ * absent. 38 − 2 is also 36 and the agreement was not taken as the proof — the 49 → 47 note above
+ * records why that coincidence is refused here as a matter of habit.
+ *
+ * ## Lowered 36 → 29, measured 2026-08-13 — an INSTRUMENT repair, and it is neither of the above
+ *
+ * Every prior movement was a raise, a reclassification, or wiring. This one is a third kind:
+ * **nothing about the tree changed and nothing was reclassified by judgement** — the tracer was
+ * repaired, and seven symbols that had a production caller all along stopped being reported as
+ * having none. Six could not be seen by any plant, and one was seen only by a plant that had
+ * nothing to root:
+ *
+ * - `core/executeVerified` **leaves the findings entirely** and is not disposed. It is the
+ *   fabric's N-version comparison and runs on every shard dispatch; `submitJob` hands `runOn` — a
+ *   `const`-arrow at `submit.ts:2933` — to `dispatchUnderLease` at `:3006`, and the reference
+ *   filter dropped the edge because `classify` reads declaration flags and an arrow-initialised
+ *   `const` is a `Variable`. This is the only symbol in this repair that becomes **reachable**.
+ * - `core/describeStartReport` moves to {@link GLOBAL_OBJECT_HOP}; see that constant's `26 → 27`
+ *   note. It had an in-degree of zero, so the hop plant could not find it.
+ * - `core/signResult`, `core/describeModuleRefusal`, `aot/describeWasiFailure`,
+ *   `core/TransportError` and `node/classifyReservationFailure` move to
+ *   {@link HIDDEN_BY_DISPATCH}, where each carries the member it is reached through and three
+ *   measured legs holding that claim up.
+ *
+ * **Measured, not derived, and the trap this note names twice above was live a third time.** Both
+ * ceilings were set to 0 and the guard reported *"the guard found 71 unreachable callable barrel
+ * exports"* and *"29 unreachable callable barrel exports carry no disposition"*, naming all
+ * twenty-nine. 36 − 7 is also 29 and the agreement was not taken as the proof.
+ *
+ * **This does not touch the owner's ruling to hold the residue.** Nothing was worked down; a
+ * measuring instrument stopped mis-measuring, and the residue was smaller than reported for as
+ * long as the defect existed.
+ *
+ * **This is where the count of the facades is NOT.** `packages/core/src/cert-lifecycle.ts`
+ * publishes nothing to any barrel, so its four facades and three factories were never in this
+ * population and no edit here can put them in one. They are ledgered by
+ * `reachability-guard.node.test.ts`'s *"a module that reaches no barrel is counted, not
+ * invisible"* block, which measures the price of moving them here — **+7, read within one run on
+ * 2026-08-11, not the +12 that had been projected** — and holds them out until an owner decides
+ * otherwise.
+ *
+ * ## Lowered 29 → 27, measured 2026-08-14 — WIRING, and the second such lowering here
+ *
+ * `net/reduceSovereignJob` and `core/withCoverage` both leave the open population, and they leave
+ * it together for one reason: the arm was `withCoverage`'s only caller, so giving the arm a caller
+ * gave both a path. One wire, two symbols.
+ *
+ * The caller is `bin/bench.ts`'s `--sovereign` leg, which now dispatches **two** owner-pinned rows
+ * instead of one and aggregates them. Measured on a real run — *"1 combine(s) at 2 replicas,
+ * coverage 1/1 owners complete, 2 row(s) watched over 2 pinned"* at the two-worker rung, with the
+ * one-worker rung naming why it cannot carry an aggregation verified at two replicas — and the
+ * instrument re-read afterwards at 27 rather than derived by subtraction.
+ *
+ * **This lowering is only possible because the blocker recorded above was false**; see the
+ * retraction in the `37 → 38` note. Neither symbol was ever blocked on anything.
+ *
+ * ## Lowered 27 → 25, measured 2026-08-14 — an INSTRUMENT REPAIR, and nothing was wired
+ *
+ * `node/lanAddresses` and `node/localHostname` were never unwired. Both run on **every `o2 seed`
+ * invocation**: `bin/seed.ts` is an entry point and reads `seed.joinUrl` (`:364`, `:368`) and
+ * `seed.joinUrlsByIp` (`:365`), which are **getters** — so the reads are property accesses, not
+ * calls, and the tracer dropped the `.name` half of a bare read while keeping it for a call.
+ * `reachability.ts`'s property-access branch now pushes the member edge for a read too, and the
+ * branch carries the measurement.
+ *
+ * **This is the second time in two days that this count was over-stating the gap, and the shape
+ * was identical both times**: live production code reported as an unwired capability because the
+ * graph could not see one kind of edge. Yesterday it was `core/executeVerified` — the fabric's
+ * N-version comparison, running on every shard dispatch — hidden behind a `const`-arrow. The
+ * standing lesson is unchanged and is worth restating where the number lives: **do not treat a
+ * reachability finding as a gap without reading the symbol's call sites first.**
+ *
+ * The over-connection risk was measured before the rule was taken. `demo/estimatePi` — the anchor
+ * that must stay unreachable — **still does**, and the total moved 69 → 67, i.e. the rule connects
+ * exactly the two getters and nothing else. A rule that connected broadly would have shown as a
+ * large drop and been refused, as the object-literal-method rule was.
+ *
+ * ## Lowered 25 → 24, measured 2026-08-14 — WIRING, and it closed a real refusal
+ *
+ * `browser/memoryConsentStore` has a production caller. Its own docblock had claimed for
+ * months that it was used *"by a page whose storage is denied"*, and that was false —
+ * `demo/main.ts` bound `localConsentStore()` unconditionally, whose writes are a silent
+ * no-op when storage is unusable. **The unwired symbol and a user-visible defect were the
+ * same fact**: `requireConsent()` re-reads the store rather than using what `grantConsent`
+ * returned, so a visitor in private browsing pressed *Allow* and then got `no consent` on
+ * *Start*. `pageConsentStore` round-trips a probe and falls back to memory; the demo binds
+ * it; the symbol is reached because the bug is fixed, not to make a number smaller.
+ *
+ * ## Held by name rather than by a count, 2026-08-14 — WIRE-02
+ *
+ * The twenty-four the ceiling was holding are the twenty-four below. Nothing was wired, nothing
+ * was re-caused, and the count did not move: what changed is that each of them now has to be
+ * written down, and symbol #25 arrives red and named instead of arriving under a bound.
+ */
+const OPEN_FINDINGS: readonly OpenFinding[] = [
+  {
+    key: 'aot/describeRefusal',
+    declaredIn: 'packages/aot/src/elf.ts',
+    callers: 'none',
+    reason:
+      'The one production consumer of a screening refusal never asks for the sentence. ' +
+      '`tools/aot/lift.ts:997` calls `screenElf` and packages a refusal as ' +
+      '`{ kind: "refused-by-screen", reason }`, and `describeLiftFailure` at `:1182` renders that ' +
+      'as "the pre-screen refused this input (${failure.reason.kind})" — the discriminant alone. ' +
+      'So the whole point of this function, "one sentence naming the property that was found and ' +
+      'the thing to do about it", reaches nobody outside `elf.test.ts`. Nobody has decided whether ' +
+      'the lift driver should print it, and nothing in the source declines to.',
+  },
+  {
+    key: 'browser/cacheVerdict',
+    declaredIn: 'packages/browser/src/streaming-load.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Called from `measureRepeatLoad` (`streaming-load.ts:486`), which is itself in this ' +
+      "register. See `browser/loadArtifact` for the one fact all seven of this module's rows " +
+      'rest on: nothing in production imports `streaming-load.ts`.',
+  },
+  {
+    key: 'browser/cidDefect',
+    declaredIn: 'packages/browser/src/streaming-load.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Called from `loadArtifact` (`streaming-load.ts:282`), which is itself in this register. ' +
+      'See `browser/loadArtifact` for the module-level fact that keeps the whole file uncalled.',
+  },
+  {
+    key: 'browser/describeCacheVerdict',
+    declaredIn: 'packages/browser/src/streaming-load.ts',
+    callers: 'none',
+    reason:
+      'The renderer for a verdict nothing in production computes. No page displays a code-cache ' +
+      'verdict, because no page loads an artifact — see `browser/loadArtifact` for why not.',
+  },
+  {
+    key: 'browser/describeLoadFailure',
+    declaredIn: 'packages/browser/src/streaming-load.ts',
+    callers: 'none',
+    reason:
+      'The renderer for a failure nothing in production produces. Same module-level fact as ' +
+      '`browser/loadArtifact`: the loader has never been on a production path, so neither has its ' +
+      'failure sentence.',
+  },
+  {
+    key: 'browser/gatewayUrl',
+    declaredIn: 'packages/browser/src/streaming-load.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Called from `loadArtifact` (`streaming-load.ts:290`), which is itself in this register. ' +
+      'See `browser/loadArtifact` for the module-level fact that keeps the whole file uncalled.',
+  },
+  {
+    key: 'browser/loadArtifact',
+    declaredIn: 'packages/browser/src/streaming-load.ts',
+    callers: 'unreachable-only',
+    reason:
+      "AOT-05's gateway loader has no production importer at all. Every reference to " +
+      '`streaming-load.ts` outside the module itself is `packages/browser/src/index.ts` (the ' +
+      'barrel, which is a conduit and never a caller), `streaming-load.browser.test.ts`, and ' +
+      '`code-cache.e2e.test.ts`, which imports it into a real page over Vite. **No page fetches ' +
+      'an artifact**: the demo puts bundled kernel bytes straight into its own blockstore — ' +
+      '`piKernelBytes` at `demo/main.ts:787` and `kernelBytes` at `:869`. ' +
+      "`requirements-ledger.node.test.ts` closed AOT-05's re-read row on exactly this reading, in " +
+      'its own words: *"the demo loads its kernel from `primes-bytes.ts`/`pi-bytes.ts` and ' +
+      '`loadArtifact` has no production caller at all"*. Nobody has wired a gateway fetch into a ' +
+      'page and nobody has decided to.',
+  },
+  {
+    key: 'browser/measureRepeatLoad',
+    declaredIn: 'packages/browser/src/streaming-load.ts',
+    callers: 'none',
+    reason:
+      'The two-visit cache measurement. It is driven by `code-cache.e2e.test.ts` as a measurement ' +
+      'and by nothing in production, for the reason `browser/loadArtifact` gives — and measured ' +
+      'is not wired.',
+  },
+  {
+    key: 'core/checkLease',
+    declaredIn: 'packages/core/src/lease.ts',
+    callers: 'none',
+    reason:
+      'The worker-side reading of a lease, and no worker in this tree reads its own. Its sibling ' +
+      '`shouldRenew`, sixteen lines below it in the same file, IS wired — `submit.ts:2026` — so ' +
+      "this is a dead half of a live module. `lease.ts`'s own docblock states what the missing " +
+      'half would buy: *"the reason to stop is **cost**, not correctness"* — a worker computing ' +
+      "past its deadline spends a volunteer's battery on an answer the coordinator's `complete` " +
+      'would refuse anyway. Nobody has wired self-termination into an executor and nobody has ' +
+      'decided to.',
+  },
+  {
+    key: 'core/checkpointChain',
+    declaredIn: 'packages/core/src/checkpoint.ts',
+    callers: 'none',
+    reason:
+      "CHURN-03's audit walk — *\"how did the job get here\"*, as distinct from recovery's *\"what " +
+      'is the newest state I can act on"*. `submit.ts:1312` cites it as the thing the serialised ' +
+      "checkpoint write order protects (*\"`checkpointChain`'s audit walk would then follow one " +
+      'branch and report a history that omits half the job"*), so the constraint it imposes on ' +
+      "other code is live while the function is not called. Nothing in the tree reads a job's " +
+      'lineage: no binary, no surface, no tool. Nobody has built the audit view and nobody has ' +
+      'decided to.',
+  },
+  {
+    key: 'core/createNobleSyncVerifier',
+    declaredIn: 'packages/core/src/ed25519-backend.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Called from `initEd25519` (`ed25519-backend.ts:322`), which is itself in this register. ' +
+      'See `core/initEd25519` for the trust-path ruling that has not been taken.',
+  },
+  {
+    key: 'core/Ed25519NotInitializedError',
+    declaredIn: 'packages/core/src/ed25519-backend.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Thrown by `getSyncVerifier` (`ed25519-backend.ts:333`) and `getAsyncVerifier` (`:339`), ' +
+      'both of which are themselves in this register. See `core/initEd25519`.',
+  },
+  {
+    key: 'core/getAsyncVerifier',
+    declaredIn: 'packages/core/src/ed25519-backend.ts',
+    callers: 'none',
+    reason:
+      'The asynchronous half of the unwired dual port, and it has no caller of any kind. See ' +
+      '`core/initEd25519` for the ruling that blocks all five of these rows.',
+  },
+  {
+    key: 'core/getSyncVerifier',
+    declaredIn: 'packages/core/src/ed25519-backend.ts',
+    callers: 'none',
+    reason:
+      'The synchronous half of the unwired dual port, and it has no caller of any kind. See ' +
+      '`core/initEd25519` for the ruling that blocks all five of these rows.',
+  },
+  {
+    key: 'core/initEd25519',
+    declaredIn: 'packages/core/src/ed25519-backend.ts',
+    callers: 'none',
+    reason:
+      'The module says this about itself, in its own words at `ed25519-backend.ts:32`: *"Nothing ' +
+      'in production calls `initEd25519`, `getSyncVerifier`, `getAsyncVerifier` or ' +
+      '`createCryptoBackend`. Production Ed25519 verification calls `@noble/curves` **directly**, ' +
+      'at six sites … and routes through no selection layer at all."* What blocks the wiring is ' +
+      'named there too, and it is a trust-path ruling nobody has taken: *"where each of three ' +
+      'runtime entry points calls `initEd25519()` before first use, and what a verification ' +
+      'arriving before that promise resolves should do — block, fail closed, or fail open."* An ' +
+      'open decision, not a decision against wiring.',
+  },
+  {
+    key: 'core/isComplete',
+    declaredIn: 'packages/core/src/checkpoint.ts',
+    callers: 'none',
+    reason:
+      'The boolean over `remainingWork`, and the dispatch path asks neither. `submit.ts:2873` ' +
+      'states why, in the source: *"`remainingWork` is not called here and does not need to be — ' +
+      'it enumerates the complement of `completed`, and iterating every partition and skipping ' +
+      'the carried ones **is** that complement, computed once instead of built into a list and ' +
+      'then searched."* Nothing else asks whether a whole job is done, because a resume branches ' +
+      'per partition rather than on a total.',
+  },
+  {
+    key: 'core/localDispatch',
+    declaredIn: 'packages/core/src/reduce.ts',
+    callers: 'none',
+    reason:
+      'The local sibling of `net/remoteCombineDispatch`, which IS on the production reduce path — ' +
+      "`reduce-job.ts:510` composes the remote one and wraps it at `:516`. A requestor's own " +
+      'combines go out over RPC like everyone else\'s, so nothing composes the "local blockstore ' +
+      'plus pure combiner" form. `net/combine.ts:4` names the pair and draws the contrast; it ' +
+      'does not decline the wiring. Nobody has built a local-only combine path and nobody has ' +
+      'decided to.',
+  },
+  {
+    key: 'core/remainingWork',
+    declaredIn: 'packages/core/src/checkpoint.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Called from `isComplete` (`checkpoint.ts:219`), which is itself in this register. The ' +
+      'source sentence that declines its use on the dispatch path is quoted under ' +
+      '`core/isComplete`, and it is a deliberate deferral rather than an oversight.',
+  },
+  {
+    key: 'core/settleRace',
+    declaredIn: 'packages/core/src/speculation.ts',
+    callers: 'none',
+    reason:
+      'The one site that looks like its caller declines it **in writing**, on a correctness ' +
+      'ground rather than a preference. `submit.ts:2161`: *"Compared directly rather than through ' +
+      '`settleRace`, and the reason is written down because that function looks like the right ' +
+      'tool. It re-derives the winner from arrival instants and ties break on node id — so on a ' +
+      'clock that reports the same instant for both, it could name the **loser** as the winner, ' +
+      'overturning a decision this module has already taken and already closed a lease against."* ' +
+      'Wiring it there would be a regression; wiring it anywhere else is a path nobody has built.',
+  },
+  {
+    key: 'core/startReport',
+    declaredIn: 'packages/core/src/start-outcome.ts',
+    callers: 'none',
+    reason:
+      'Production folds **counts**, never a list of outcomes. `StartOutcomeLedger#report()` ' +
+      '(`start-outcome.ts:449`) calls `startReportFromCounts` directly, and both node getters — ' +
+      '`fabric-node.ts:1535` and `browser-node.ts:1049` — read that ledger. Nothing in the tree ' +
+      'ever holds a `readonly StartOutcome[]` to hand this overload, which is exactly why its own ' +
+      'callee is wired (disposed under `global-object-hop`) while it is not. Nobody has decided ' +
+      'the ledger should keep outcomes rather than counts.',
+  },
+  {
+    key: 'demo/buildPrimesInput',
+    declaredIn: 'packages/demo/src/primes.ts',
+    callers: 'none',
+    reason:
+      "The v1.1 audit's **G4**, primes half. `packages/browser/demo/surfaces/primes.ts:31` states " +
+      'it: *"`buildPrimesInput`, `primesKernelBytes`, `projectPrimeCount`, `readPrimeCount` and ' +
+      '`PRIME_COUNT_KEY` have **zero production callers**"*, and names the three blockers — no ' +
+      'signed record vouches for the prime kernel, `runJob` cannot carry the input shape, and ' +
+      're-signing needs a **new trust anchor** because `scripts/sign-kernel.ts` discards the ' +
+      'private half of every key it mints. `packages/node/src/demo-primes.e2e.test.ts` ' +
+      '**measures** the absence with a grep built to go red the day somebody wires it. Closing it ' +
+      "is UI-SPEC section 10's Option A, an owner decision that is open.",
+  },
+  {
+    key: 'demo/projectPrimeCount',
+    declaredIn: 'packages/demo/src/primes.ts',
+    callers: 'none',
+    reason:
+      'G4, primes half. See `demo/buildPrimesInput` for the three measured blockers and the owner ' +
+      'decision that would close them.',
+  },
+  {
+    key: 'demo/readPrimeCount',
+    declaredIn: 'packages/demo/src/primes.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Called from `projectPrimeCount` (`primes.ts:146`), which is itself in this register. G4, ' +
+      'primes half — see `demo/buildPrimesInput`.',
+  },
+  {
+    key: 'node/relayAddrForHost',
+    declaredIn: 'packages/node/src/seed-server.ts',
+    callers: 'unreachable-only',
+    reason:
+      '**This one runs in production and is listed here anyway.** It is called by ' +
+      '`bootstrapInfoFor` (`seed-server.ts:272`) on every `/bootstrap.json` request, and that ' +
+      'call sits at `:469` inside `configureServer` — a method of the Vite plugin object literal ' +
+      'at `:462` which Vite invokes and which nothing in this tree names. That is the same ' +
+      "mechanism as `HIDDEN_BY_DISPATCH`'s `proxy-trap-dispatch` row. **Measured 2026-08-14 " +
+      'rather than read**: `packages/node/src/seed-server.ts#configureServer` is a graph node ' +
+      'with in-degree 0, and rooting it flips exactly one symbol — this one. So it would qualify ' +
+      'for a disposition. It is left open because re-causing a symbol is a decision to **put** ' +
+      "rather than to take in passing: this file's own precedent, set for " +
+      "`BENCHMARK_DRIVER_ONLY`'s four symbols on 2026-08-13, whose stated cause has been " +
+      'measurably incomplete since then and was flagged rather than rewritten. Moving this row ' +
+      "would lower the residue by one on nobody's ruling.",
+  },
+]
+
+/**
+ * `barrel/symbol` for every open finding — the form the guard's verdict list uses.
+ *
+ * Derived rather than kept as a second array, for the reason `WITHOUT_A_CHECKABLE_CLAIM` derives
+ * its own ids: a second hand-maintained list of the same keys is the defect this whole file is
+ * about, one level up.
+ */
+function openFindingKeys(register: readonly OpenFinding[] = OPEN_FINDINGS): Set<string> {
+  return new Set(register.map((one) => one.key))
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * The guard fails **per symbol** rather than per population count — 2026-08-14.
+ *
+ * ## What was wrong with the thing this replaces
+ *
+ * Until today the undisposed residue was held by `expect(open.length).toBeLessThanOrEqual(24)`.
+ * That assertion is green about twenty-four unwired capabilities without naming one of them, and
+ * — the part that matters — it is **equally green about any other twenty-four**. Swap a symbol
+ * out and a different one in and nothing moves. WIRE-02's row asks that *"a guard test fails when
+ * a capability exported from a package barrel has no call path from any runnable entry point"*,
+ * and a bound on the size of a set is not a claim about its members.
+ *
+ * **The owner's decision, 2026-08-14: per-symbol, backed by the register rather than a ceiling.**
+ * A ceiling permits any new unreachable export up to N; a named register permits only the ones
+ * somebody wrote down. So symbol #25 arrives red and named.
+ *
+ * ## Both directions, because either alone rots in the direction it does not look
+ *
+ * This is the shape `one-crypto-implementation.node.test.ts` already runs over
+ * `ACCEPTED_SIGNATURE_COMPARISONS`, and it is copied deliberately rather than reinvented — that
+ * file watched both of its directions red on 2026-08-10 and records the verbatim text of each.
+ *
+ * - **Unregistered.** A callable barrel export with no traced path and no entry in either
+ *   register is a finding, and it is named.
+ * - **Stale.** A registered symbol that has since gained a call path is *also* a finding. It is
+ *   the direction a ceiling can never check, and the one that lets a register go decorative: an
+ *   entry excusing something that no longer needs excusing is a permission for nothing.
+ *
+ * And **two weaker re-measurements per row**, which catch a rotting entry before the reachability
+ * verdict does:
+ *
+ * - the file it says the symbol is declared in, so a moved declaration invalidates its row;
+ * - whether *anything at all* calls it. A row claiming `'none'` that has gained an in-edge is
+ *   half-wired — the symbol is still unreachable, so neither direction of the set equality moves,
+ *   and the register has quietly stopped describing the tree.
+ *
+ * ## The anchor is untouched, and that is checked rather than asserted
+ *
+ * `demo/estimatePi` must stay unreachable, and it sits in {@link DISPOSITIONS} under
+ * `global-object-hop` rather than in {@link OPEN_FINDINGS}. Nothing here is shaped to preserve
+ * it: the union below would be satisfied by that symbol living in either register, or by its
+ * being reachable and in neither. The anchor keeps its own case, above.
+ *
+ * ## Three plants, each watched red — 2026-08-14, `--project node`, exit 1 read directly
+ *
+ * Each was restored by the surgical inverse of its own edit and `cmp`-verified byte-identical
+ * against a snapshot taken immediately before it; all three `cmp`s exited 0 and the `shasum -a
+ * 256` of each file matched its pre-plant value.
+ *
+ * **All three were then taken a second time, after the register moved out of
+ * `reachability-dispositions.ts` and into this file**, and produced the same failures with the
+ * same text. That re-take is the one that describes the code as committed: a proof taken before
+ * a move is a proof about a file that no longer exists.
+ *
+ * ### Plant A — a NEW unwired barrel export. `packages/demo/src/index.ts`, +4 lines:
+ * `export function plantedUnwiredCapability(): number { return 25 }`. **3 failed | 32 passed**,
+ * and the one that names it:
+ *
+ * ```
+ * AssertionError: these callable barrel exports have no call path from any of the five entry
+ * points and are in neither register. Wire them, or add a row to OPEN_FINDINGS with a reason a
+ * reader can check — a count no longer covers for them: expected
+ * [ 'demo/plantedUnwiredCapability' ] to deeply equal []
+ * ```
+ *
+ * The set-equality case reddened beside it, and so did the old count ceiling — *"the guard found
+ * 67 unreachable callable barrel exports … expected 67 to be less than or equal to 66"*. **That
+ * is the one thing the ceiling could still catch, and it catches it as a number**: 67 against 66,
+ * with no symbol named. The register printed the name.
+ *
+ * ### Plant B — a registered symbol GAINS a call path. `packages/node/src/bin/seed.ts`, an entry
+ * point: `buildPrimesInput` added to its existing `@o2/demo` import and referenced at module
+ * scope. **2 failed | 33 passed**:
+ *
+ * ```
+ * AssertionError: these are registered as having no call path and the guard now reaches them —
+ * that is wiring landing, so delete the rows rather than leaving a permission for nothing:
+ * expected [ 'demo/buildPrimesInput' ] to deeply equal []
+ * ```
+ *
+ * **The count ceiling stayed green under this plant** — 66 became 65, which is still `<= 66`.
+ * That is the direction a ceiling structurally cannot see, and it is why this block exists.
+ *
+ * ### Plant C — a row goes HALF-WIRED. `void isComplete` inserted into `checkpointChain`, one
+ * line, same file, no import: `core/isComplete` gains an in-edge from something itself
+ * unreachable, so it stays a finding and **both directions of the set equality stay green**.
+ * **1 failed | 34 passed**, and only the re-measurement moved:
+ *
+ * ```
+ * AssertionError: these rows disagree with the graph about whether anything calls the symbol —
+ * "none" and "unreachable-only" need different work, and a row that has drifted is describing a
+ * tree that is not this one: expected [ Array(1) ] to deeply equal []
+ * + "core/isComplete: registered \"none\", walked \"unreachable-only\"",
+ * ```
+ *
+ * That plant is the argument for the `callers` column being in the register at all: set equality
+ * alone is green about it, and so is the ceiling.
+ */
+describe('WIRE-02 — every unreachable export is named by a register, in both directions', () => {
+  /** `barrel/symbol` for every callable barrel export the walk cannot reach. */
+  function reportedKeys(): string[] {
+    return unreachableExports(corpus(), graph(), ROOT)
+      .map((one) => `${one.barrel}/${one.symbol}`)
+      .sort()
+  }
+
+  /** The two registers together — every symbol somebody wrote down, whatever the reason. */
+  function registeredKeys(): string[] {
+    return [...new Set([...disposedKeys(), ...openFindingKeys()])].sort()
+  }
+
+  it('names every unreachable export in one of the two registers', () => {
+    // Direction 1, and the half WIRE-02's row is literally about: a NEW exported-but-uncalled
+    // capability. It adds a finding rather than removing a path, so no known-TRUE anchor can
+    // catch it — only this can.
+    const registered = new Set(registeredKeys())
+    const unregistered = reportedKeys().filter((key) => !registered.has(key))
+    expect(
+      unregistered,
+      'these callable barrel exports have no call path from any of the five entry points and are ' +
+        'in neither register. Wire them, or add a row to OPEN_FINDINGS with a reason a reader ' +
+        'can check — a count no longer covers for them',
+    ).toEqual([])
+  }, GRAPH_TIMEOUT_MS)
+
+  it('holds no stale open finding — a registered symbol that gained a call path fails too', () => {
+    // Direction 2, for {@link OPEN_FINDINGS}. Its twin for {@link DISPOSITIONS} is
+    // `holds no entry for a symbol that has become reachable`, above; both exist because a
+    // register that only ever grows is an allow-list wearing a different hat.
+    const reported = new Set(reportedKeys())
+    const stale = [...openFindingKeys()].filter((key) => !reported.has(key)).sort()
+    expect(
+      stale,
+      'these are registered as having no call path and the guard now reaches them — that is ' +
+        'wiring landing, so delete the rows rather than leaving a permission for nothing',
+    ).toEqual([])
+  }, GRAPH_TIMEOUT_MS)
+
+  it('the reported set and the two registers are the same set', () => {
+    // Stated once as an equality as well as twice as a difference, following
+    // `one-crypto-implementation.node.test.ts`. It is redundant with the two cases above by
+    // construction and it is kept for the same reason that file keeps its own: a failure here
+    // prints both sides, which is what a reader picking this up actually needs.
+    expect(reportedKeys()).toEqual(registeredKeys())
+  }, GRAPH_TIMEOUT_MS)
+
+  it('keeps the two registers disjoint, so neither can borrow the other\'s coverage', () => {
+    // Without this, a symbol in both would let the union above pass while one of the two
+    // registers said something false about it — and the DISPOSITIONS cases, which walk only
+    // their own rows, would never look.
+    const disposed = disposedKeys()
+    const both = [...openFindingKeys()].filter((key) => disposed.has(key)).sort()
+    expect(
+      both,
+      'a symbol cannot both be reached through a mechanism the tracer misses AND have no caller ' +
+        'at all — one of its two rows is wrong',
+    ).toEqual([])
+  }, GRAPH_TIMEOUT_MS)
+
+  it('re-measures where each open finding is declared', () => {
+    // The cheap leg, and it is not decoration: a symbol that moved file keeps its name, so the
+    // set equality above stays green while the row points at a file that no longer declares it —
+    // and the reason, which cites line numbers in that file, silently stops applying.
+    const declaredIn = new Map(
+      unreachableExports(corpus(), graph(), ROOT).map((one) => [
+        `${one.barrel}/${one.symbol}`,
+        one.declaredIn,
+      ]),
+    )
+    const wrong = OPEN_FINDINGS.filter(
+      (row) => declaredIn.get(row.key) !== undefined && declaredIn.get(row.key) !== row.declaredIn,
+    ).map((row) => `${row.key}: registered ${row.declaredIn}, walked ${declaredIn.get(row.key)}`)
+    expect(wrong, 'these rows name a file that no longer declares the symbol').toEqual([])
+  }, GRAPH_TIMEOUT_MS)
+
+  it('re-measures whether anything at all calls each open finding', () => {
+    // The leg that fires BEFORE reachability does. A symbol registered `'none'` that acquires an
+    // in-edge from somewhere itself unreachable is half-wired: it is still a finding, so neither
+    // direction of the set equality moves, and the register has stopped describing the tree
+    // without anything saying so. `describeUnreachable` renders the same distinction, so a row
+    // that is wrong here also makes the guard's own sentence wrong.
+    const callers = new Map(
+      unreachableExports(corpus(), graph(), ROOT).map((one) => [
+        `${one.barrel}/${one.symbol}`,
+        one.callers.length === 0 ? 'none' : 'unreachable-only',
+      ]),
+    )
+    const wrong = OPEN_FINDINGS.filter(
+      (row) => callers.get(row.key) !== undefined && callers.get(row.key) !== row.callers,
+    ).map((row) => `${row.key}: registered "${row.callers}", walked "${callers.get(row.key)}"`)
+    expect(
+      wrong,
+      'these rows disagree with the graph about whether anything calls the symbol — "none" and ' +
+        '"unreachable-only" need different work, and a row that has drifted is describing a tree ' +
+        'that is not this one',
+    ).toEqual([])
+
+    // Anti-vacuity: both values must actually occur, or the field is a constant and the case
+    // above is comparing a column against itself. Measured 2026-08-14 — 14 `none`, 10
+    // `unreachable-only`.
+    const values = new Set(OPEN_FINDINGS.map((row) => row.callers))
+    expect(values.has('none')).toBe(true)
+    expect(values.has('unreachable-only')).toBe(true)
+  }, GRAPH_TIMEOUT_MS)
+
+  it('gives every open finding a reason and a unique key', () => {
+    // A register whose rows say nothing is a ceiling with more typing. The floor is the same 80
+    // characters `one-crypto-implementation.node.test.ts` uses for its own reasons — long enough
+    // that "unwired" and "TODO" do not pass, short enough that a genuine one-line cross-reference
+    // to a sibling row does.
+    for (const row of OPEN_FINDINGS) {
+      expect(row.reason.length, `${row.key} needs a reason, not a note`).toBeGreaterThan(80)
+      expect(row.key, `${row.key} is not in barrel/symbol form`).toMatch(/^[a-z]+\/\S+$/)
+    }
+    expect(openFindingKeys().size, 'a duplicated key hides a row').toBe(OPEN_FINDINGS.length)
   }, GRAPH_TIMEOUT_MS)
 })
 

@@ -13,7 +13,19 @@
  * - a **stale entry is a defect**: if a disposed symbol becomes reachable, the guard reddens
  *   rather than letting the entry sit unnoticed;
  * - an entry naming a symbol that is no longer a callable barrel export also reddens;
- * - the register **cannot grow silently** — it carries a ceiling, and so does the open list.
+ * - the register **cannot grow silently** — it carries a ceiling, and the undisposed residue
+ *   carries a per-symbol register of its own: see the note where `OPEN_FINDING_CEILING` used
+ *   to stand, below.
+ *
+ * ## Two registers, and the second one is WIRE-02's — added 2026-08-14
+ *
+ * {@link DISPOSITIONS} says *why the guard cannot reach a symbol that production does reach*.
+ * `OPEN_FINDINGS`, in `reachability-guard.node.test.ts`, says the opposite thing about a
+ * disjoint population: those have **no call path at all**, they are named one by one, and the
+ * guard requires set equality against the walk. Between them the two registers account for
+ * **every** unreachable callable barrel export by name, which is what WIRE-02's row asks for
+ * and what a ceiling could never give. Why the second one is not in this file is measured, not
+ * stylistic — see the note below.
  *
  * ## The criterion this register is written under
  *
@@ -31,7 +43,7 @@
  *    fabric is entered. Those four are disposed under {@link BENCHMARK_DRIVER_ONLY} with the
  *    driver named.
  * 2. **Only symbols with a stated cause are disposed.** Everything else stays an **open
- *    finding**. That is why {@link OPEN_FINDING_CEILING} exists and is large: criterion 1 does
+ *    finding**. That is why `OPEN_FINDINGS` exists and is large: criterion 1 does
  *    **not** pass clean on this tree, and this file does not pretend otherwise. **Thirty-seven**
  *    callable barrel exports have no production caller at all (re-derived 2026-08-10; it read
  *    *"forty-seven"* until the `global-object-hop` class was measured rather than listed), in a
@@ -385,235 +397,43 @@ export const DISPOSITIONS: readonly Disposition[] = [
   })),
 ]
 
-/**
- * How many findings may remain **undisposed** before the guard refuses.
- *
- * Sited at **47**, measured 2026-08-08 at `a5fa2bd`: 67 unreachable callable barrel exports, 20
- * of them disposed above. This is not a target and it is not a pass — it is the size of the
- * *"Wire What Was Built"* residue, held still so it cannot grow while nobody is looking.
- *
- * **Lowering it is the work.** Raising it needs a reason written next to it.
- *
- * ## Ratcheted 42 → 40, measured 2026-08-08
- *
- * G7's pair moved from open to disposed, so the open count genuinely fell. **Measured, not
- * derived**: `OPEN_FINDING_CEILING` was temporarily set to 0 and the guard's own verdict read
- * *"40 unreachable callable barrel exports carry no disposition"*, naming all forty. The ceiling
- * follows the measurement down, because a ceiling with slack in it stops binding — a regression
- * of two would have passed silently against 42.
- *
- * **The owner ruled 2026-08-08 to hold this residue rather than work it down.** That governs the
- * *backlog*, not the guard: holding the count still and letting the ceiling drift above it are
- * different things, and only the first was asked for.
- *
- * ## Raised 40 → 47, measured 2026-08-09 (Plan 25-04)
- *
- * Seven new callable barrel exports arrived at once: `core/createLibsodiumSyncVerifier`,
- * `core/createNobleSyncVerifier`, `core/createSubtleAsyncVerifier`,
- * `core/Ed25519NotInitializedError`, `core/getAsyncVerifier`, `core/getSyncVerifier`,
- * `core/initEd25519` — the Ed25519 dual-port verifier `packages/core/src/ed25519-backend.ts`
- * exports from `@o2/core`'s barrel. Not disposed: the module's own docblock already states why
- * it has no production caller yet (a bootstrap-ordering decision across three runtime entry
- * points, not a `deferred-in-source` one-line deferral this register's shape fits), and that
- * statement is this plan's own deliverable rather than something to duplicate here as a second
- * copy that can drift from the first. This is a raise, not a lowering — the residue is larger,
- * honestly, until a future phase wires the port or a disposition is written for it.
- *
- * ## Raised 47 → 49, measured 2026-08-09 (Plan 25-02)
- *
- * `core/decodeX509Certificate` and `core/describeX509Failure` arrived when Plan 25-02
- * barrel-exported `packages/core/src/x509.ts` for the first time. Not disposed, for the
- * same shape of reason as the ed25519-backend.ts raise immediately above: this phase's
- * X.509 profile is fully implemented and tested but has no production caller this
- * phase by design (`.planning/REQUIREMENTS.md`'s X509-01…07 rows state it explicitly —
- * this phase does not wire the decoder into enrollment, issuance, or the demo; that is
- * out of its named scope, and only its bundle cost is measured, in Plan 25-03). Two
- * exports moved the count by exactly two, not five, because
- * `MAX_CERTIFICATE_BYTES`/`MAX_EXTENSION_BYTES`/`MAX_EXTENSION_COUNT` are `const` value
- * exports rather than functions/classes and never entered the "callable" corpus this
- * guard walks.
- *
- * ## Lowered 49 → 47, measured 2026-08-10 (Phase 28, Plan 28-01)
- *
- * `core/createLibsodiumSyncVerifier` and `core/createSubtleAsyncVerifier` left the barrel when
- * Plan 28-01 merged `packages/core`'s two Ed25519 selection paths into one. Both were undisposed
- * findings, so the residue falls by exactly two and nothing arrived to offset it. The five
- * remaining `ed25519-backend.ts` findings — `core/createNobleSyncVerifier`,
- * `core/Ed25519NotInitializedError`, `core/getAsyncVerifier`, `core/getSyncVerifier`,
- * `core/initEd25519` — stay open and stay undisposed for the reason the 40 → 47 note above
- * already gives: the port still has no production caller, and the merge did not change that.
- * The merge is behaviour-neutral in production; it removed a duplication from the package, not a
- * hazard from a trust path, and this lowering should be read as exactly that much.
- *
- * **Measured, not derived, and the arithmetic here is a trap worth naming.** The ceiling was set
- * to 0 before the merge and the guard reported *"49 unreachable callable barrel exports carry no
- * disposition"*, and again after and it reported *"47"*, naming all forty-seven with the two
- * departed symbols visibly absent — a within-run pair, so the difference is the merge. 49 − 2 is
- * also 47, and `reachability-guard.node.test.ts:350` and `.planning/REQUIREMENTS.md:790` have
- * both *said* "47" since before this phase, staled against the 47 → 49 raise above and describing
- * a different population. **Agreement with a stale comment is not confirmation and was not taken
- * as any**; the number here is the one the guard printed.
- *
- * ## Lowered 47 → 37, measured 2026-08-10 — a RECLASSIFICATION, not wiring
- *
- * **Nothing was wired and nothing became reachable.** Ten symbols moved from the open list into
- * {@link GLOBAL_OBJECT_HOP} because they were always members of that class and the class had
- * never been derived; see that constant's `16 → 26` note for the method and the per-symbol
- * chains. The residue this ceiling holds is *"callable barrel exports with no production caller
- * at all"*, and all ten have one — so counting them here was reporting the gap as **larger than
- * it is**, which is the direction the 2026-08-08 re-audit named about itself and the direction
- * `G14` was raised in.
- *
- * **This does not touch the owner's 2026-08-08 ruling to hold the residue rather than work it
- * down.** Holding a count still and correcting what the count is *of* are different acts, and
- * only the second happened here. The 37 that remain are undisposed on the same terms as before.
- *
- * **Measured, not derived, and the trap named in the note above was live again here.** This
- * ceiling was set to 0 before the ten were added and the guard reported *"47 unreachable callable
- * barrel exports carry no disposition"*, and again after and it reported *"37"*, naming all
- * thirty-seven with the ten visibly absent — a within-run pair, so the difference is the
- * reclassification. 47 − 10 is also 37, and the agreement was not taken as the proof.
- *
- * **Raised 37 → 38, 2026-08-11, for `net/reduceSovereignJob` — one symbol, and it is reported
- * as an open finding rather than disposed.** MR-02's sovereign aggregation arm has no
- * production caller. **A disposition would be the wrong shape for that**: this file's own rule is
- * that a disposition is granted on a *mechanism* the graph cannot see, and there is no mechanism
- * here — the symbol is genuinely uncalled. It is measured, across real `bin/agent.ts` processes,
- * by `sovereign-aggregation.node.test.ts`; measured is not wired, and this ceiling says so.
- *
- * ### The blocker written here on 2026-08-11 was FALSE, and it is retracted — 2026-08-14
- *
- * This entry read: *"the blocker was measured rather than assumed: the arm needs a job whose
- * shards are pinned to **two or more** owners, and no rig in this repository stands up two
- * owners … Giving either a second owner changes what a published driver measures or what a
- * visitor's page submits, which is an **owner decision and not a wiring fix**."*
- *
- * **The arm does not require two owners. It requires two CONTRIBUTIONS, and one owner can
- * supply both.** Measured by `reduce-sovereign.test.ts`'s case *"aggregates ONE owner's two
- * distinct partials"*: one owner, two owner-pinned shards, two distinct outputs — the call
- * returns `ok: true` with `tree.nodes: 1`, `minReplicas: 2`, and complete coverage at 1/1. The
- * case was planted red before it was believed: inserting `if (new Set(pinned.values()).size < 2)
- * return refuse(…)` into `reduce-sovereign.ts` reddened it with *"expected false to be true"*,
- * and the plant was restored to a byte-identical file.
- *
- * **Why the false premise survived, stated so the next reader can spot the shape.** The three
- * refusals between a job and an aggregate are each counted over a *different* population:
- * `pinned.size === 0` over owner-pinned **shards**, `tree.nodes.length === 0` over
- * **contributions** (*"a single contribution is promoted rather than combined"*), and
- * `minReplicas < 2` over **combine executors**. None is over distinct owners. Every passing
- * fixture in that spec happened to pin one shard per owner, so owners and contributions moved
- * together in all of them, and the refusal case for the middle branch varied **both at once** —
- * `specPinnedTo([ALICE.ownerId])` is one owner *and* one shard. Nothing in the suite separated
- * them, so a reader checking "does this need a second owner?" found every fixture consistent
- * with yes and none of them testing it.
- *
- * **What is actually true of `bin/bench.ts`.** Its `--sovereign` leg dispatches
- * `shards: [{ … label: 'sovereign', ownerId: BENCH_OWNER_KEY }]` — a **one-element array**
- * (`bin/bench.ts:1549`), and it prints *"of 1 sovereign shards agreed"* (`:1590`). So the leg is
- * short of a *second row*, not short of a *second identity*. That is a wiring fix and not an
- * owner decision, and the sentence above had it backwards.
- *
- * ## Lowered 38 → 36, measured 2026-08-11 — and this one is WIRING, not a reclassification
- *
- * Every prior movement in this note was a raise, a removal, or a correction of what the count was
- * *of*. This is the first that is the work itself. `core/decodeX509Certificate` and
- * `core/describeX509Failure` were raised into this residue by the 47 → 49 note above, on the
- * explicit ground that *"this phase does not wire the decoder into enrollment, issuance, or the
- * demo"*. It is wired now: `checkX509Form` in `packages/core/src/enrollment.ts` calls both — the
- * decoder to parse a presented certificate and the describer to name its refusal — fail-closed,
- * on the trust path. Both symbols leave the open list because they have a production caller, not
- * because anything about them was reclassified.
- *
- * **Measured, not derived.** This ceiling was set to 0 and the guard reported *"36 unreachable
- * callable barrel exports carry no disposition"*, naming all thirty-six with the two visibly
- * absent. 38 − 2 is also 36 and the agreement was not taken as the proof — the 49 → 47 note above
- * records why that coincidence is refused here as a matter of habit.
- *
- * ## Lowered 36 → 29, measured 2026-08-13 — an INSTRUMENT repair, and it is neither of the above
- *
- * Every prior movement was a raise, a reclassification, or wiring. This one is a third kind:
- * **nothing about the tree changed and nothing was reclassified by judgement** — the tracer was
- * repaired, and seven symbols that had a production caller all along stopped being reported as
- * having none. Six could not be seen by any plant, and one was seen only by a plant that had
- * nothing to root:
- *
- * - `core/executeVerified` **leaves the findings entirely** and is not disposed. It is the
- *   fabric's N-version comparison and runs on every shard dispatch; `submitJob` hands `runOn` — a
- *   `const`-arrow at `submit.ts:2933` — to `dispatchUnderLease` at `:3006`, and the reference
- *   filter dropped the edge because `classify` reads declaration flags and an arrow-initialised
- *   `const` is a `Variable`. This is the only symbol in this repair that becomes **reachable**.
- * - `core/describeStartReport` moves to {@link GLOBAL_OBJECT_HOP}; see that constant's `26 → 27`
- *   note. It had an in-degree of zero, so the hop plant could not find it.
- * - `core/signResult`, `core/describeModuleRefusal`, `aot/describeWasiFailure`,
- *   `core/TransportError` and `node/classifyReservationFailure` move to
- *   {@link HIDDEN_BY_DISPATCH}, where each carries the member it is reached through and three
- *   measured legs holding that claim up.
- *
- * **Measured, not derived, and the trap this note names twice above was live a third time.** Both
- * ceilings were set to 0 and the guard reported *"the guard found 71 unreachable callable barrel
- * exports"* and *"29 unreachable callable barrel exports carry no disposition"*, naming all
- * twenty-nine. 36 − 7 is also 29 and the agreement was not taken as the proof.
- *
- * **This does not touch the owner's ruling to hold the residue.** Nothing was worked down; a
- * measuring instrument stopped mis-measuring, and the residue was smaller than reported for as
- * long as the defect existed.
- *
- * **This is where the count of the facades is NOT.** `packages/core/src/cert-lifecycle.ts`
- * publishes nothing to any barrel, so its four facades and three factories were never in this
- * population and no edit here can put them in one. They are ledgered by
- * `reachability-guard.node.test.ts`'s *"a module that reaches no barrel is counted, not
- * invisible"* block, which measures the price of moving them here — **+7, read within one run on
- * 2026-08-11, not the +12 that had been projected** — and holds them out until an owner decides
- * otherwise.
- *
- * ## Lowered 29 → 27, measured 2026-08-14 — WIRING, and the second such lowering here
- *
- * `net/reduceSovereignJob` and `core/withCoverage` both leave the open population, and they leave
- * it together for one reason: the arm was `withCoverage`'s only caller, so giving the arm a caller
- * gave both a path. One wire, two symbols.
- *
- * The caller is `bin/bench.ts`'s `--sovereign` leg, which now dispatches **two** owner-pinned rows
- * instead of one and aggregates them. Measured on a real run — *"1 combine(s) at 2 replicas,
- * coverage 1/1 owners complete, 2 row(s) watched over 2 pinned"* at the two-worker rung, with the
- * one-worker rung naming why it cannot carry an aggregation verified at two replicas — and the
- * instrument re-read afterwards at 27 rather than derived by subtraction.
- *
- * **This lowering is only possible because the blocker recorded above was false**; see the
- * retraction in the `37 → 38` note. Neither symbol was ever blocked on anything.
- *
- * ## Lowered 27 → 25, measured 2026-08-14 — an INSTRUMENT REPAIR, and nothing was wired
- *
- * `node/lanAddresses` and `node/localHostname` were never unwired. Both run on **every `o2 seed`
- * invocation**: `bin/seed.ts` is an entry point and reads `seed.joinUrl` (`:364`, `:368`) and
- * `seed.joinUrlsByIp` (`:365`), which are **getters** — so the reads are property accesses, not
- * calls, and the tracer dropped the `.name` half of a bare read while keeping it for a call.
- * `reachability.ts`'s property-access branch now pushes the member edge for a read too, and the
- * branch carries the measurement.
- *
- * **This is the second time in two days that this count was over-stating the gap, and the shape
- * was identical both times**: live production code reported as an unwired capability because the
- * graph could not see one kind of edge. Yesterday it was `core/executeVerified` — the fabric's
- * N-version comparison, running on every shard dispatch — hidden behind a `const`-arrow. The
- * standing lesson is unchanged and is worth restating where the number lives: **do not treat a
- * reachability finding as a gap without reading the symbol's call sites first.**
- *
- * The over-connection risk was measured before the rule was taken. `demo/estimatePi` — the anchor
- * that must stay unreachable — **still does**, and the total moved 69 → 67, i.e. the rule connects
- * exactly the two getters and nothing else. A rule that connected broadly would have shown as a
- * large drop and been refused, as the object-literal-method rule was.
- *
- * ## Lowered 25 → 24, measured 2026-08-14 — WIRING, and it closed a real refusal
- *
- * `browser/memoryConsentStore` has a production caller. Its own docblock had claimed for
- * months that it was used *"by a page whose storage is denied"*, and that was false —
- * `demo/main.ts` bound `localConsentStore()` unconditionally, whose writes are a silent
- * no-op when storage is unusable. **The unwired symbol and a user-visible defect were the
- * same fact**: `requireConsent()` re-reads the store rather than using what `grantConsent`
- * returned, so a visitor in private browsing pressed *Allow* and then got `no consent` on
- * *Start*. `pageConsentStore` round-trips a probe and falls back to memory; the demo binds
- * it; the symbol is reached because the bug is fixed, not to make a number smaller.
- */
-export const OPEN_FINDING_CEILING = 24
+// ---------------------------------------------------------------------------
+// The other register — WIRE-02's, and it is NOT here. Read this before looking for it.
+// ---------------------------------------------------------------------------
+//
+// `OPEN_FINDING_CEILING` stood on this line until 2026-08-14: a bound, `open.length <= 24`,
+// green about twenty-four unwired capabilities without naming one of them and **equally green
+// about any other twenty-four**. The owner replaced it with a per-symbol register — a ceiling
+// permits any new unreachable export up to N, a named register permits only the ones somebody
+// wrote down — and that register, `OPEN_FINDINGS`, together with the whole movement history
+// this constant carried, now lives in `reachability-guard.node.test.ts`.
+//
+// **It lives in the spec rather than beside `DISPOSITIONS`, and the reason was measured twice
+// on the day of the move rather than argued.** A register has to spell the symbol names it
+// registers, and this module is production source under `packages/`, which four guards scan
+// for exactly those names:
+//
+//  1. `requirements-ledger.node.test.ts` counts `NAME(` over comment-stripped production
+//     source as a call site. Quoting `ed25519-backend.ts`'s own sentence about `initEd25519`
+//     — with the empty argument list the original writes — put the call form in a **string
+//     literal**, which the comment stripper leaves standing, and CRYPTO-01 reddened with
+//     *"initEd25519 is called by packages/node/src/reachability-dispositions.ts"*. A citation
+//     read as a caller.
+//  2. `demo-primes.e2e.test.ts` greps `packages/` and `tools/` for the five symbols that are
+//     G4's open half and reddens on any file outside the module and the barrel that names one
+//     **on a code line**. Three of the register's rows are those symbols, and a `key:` line is
+//     a code line. **That guard is correct and must not be widened**: its own words are *"a
+//     third entry here is Option A having landed"*, so admitting a citation would destroy the
+//     sentence that makes it worth having. The three are named in the spec's own docblock,
+//     which that grep excludes; naming them again here would re-trip it, so this note does not.
+//
+// Both scans exclude `*.test.ts` by construction, because test files are where symbol names get
+// spelled. `ACCEPTED_SIGNATURE_COMPARISONS` lives inside `one-crypto-implementation.node.test.ts`
+// for the same reason, and it is the register whose both-directions shape this one copies.
+//
+// `DISPOSITIONS` stays here: it is imported by the spec and by nothing else either, but no
+// guard in this tree watches the symbols it happens to name. That is luck rather than design,
+// and it is written down so the next register does not have to rediscover it.
 
 /**
  * How large the register may grow before something reddens.
