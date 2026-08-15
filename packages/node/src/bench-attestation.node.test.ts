@@ -178,7 +178,7 @@ const ATTESTATION = /^map attestation \(([^)]+)\): (.+)$/
 /**
  * VER-04's line — what the quorum came to, distinct from the strength it produced.
  *
- * Deliberately does NOT anchor on the arm word: all three arms (`composed over`,
+ * Deliberately does NOT anchor on the arm word: all three arms (`composed across`,
  * `not composed`, `not attempted`) are read through one pattern, so a driver that stopped
  * printing one of them fails on a missing rung rather than on a regex that silently never
  * matched.
@@ -559,7 +559,11 @@ describe('the driver says how strongly each rung was attested', () => {
     // The gate ran and composed. Asserted before the operator names so a driver that
     // printed a refusal fails here, naming the arm, rather than at a `toContain` that
     // reads like a missing worker.
-    expect(composed).toContain('composed over 2 operator(s)')
+    // `describeQuorum`'s wording since 2026-08-14 — was `composed over 2 operator(s)` while
+    // this driver formatted the union itself. It formats nothing now: the CLI and the demo
+    // page both render the kernel's sentence, which is what stopped the refusal arm printing
+    // `not composed ([object Object])` on a line no assertion in this file ever read.
+    expect(composed).toContain('composed across 2 operators')
     expect(composed).not.toContain('not composed')
     expect(composed).not.toContain('not attempted')
 
@@ -576,7 +580,7 @@ describe('the driver says how strongly each rung was attested', () => {
     const one = quorums.get('real/1')
     expect(one, `no quorum line for real/1\n${attemptLog.join('\n')}`).toBeDefined()
     expect(one).toContain('not attempted')
-    expect(one).not.toContain('composed over')
+    expect(one).not.toContain('composed across')
 
     // Both readings came off runs that completed, so neither is a statement about a
     // failed run.

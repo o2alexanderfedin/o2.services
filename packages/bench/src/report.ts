@@ -62,7 +62,12 @@ export function hostCount(inventory: Inventory): number {
  * from certificates rather than passed in.
  */
 export function isSameMachine(inventory: Inventory): boolean {
-  return hostCount(inventory) <= 1 && inventory.nodeCount > 1
+  // `=== 1` and not `<= 1`, corrected 2026-08-14. The old form returned `true` for an
+  // inventory with **no machines at all**, because `hostCount([])` is `0` and `0 <= 1` —
+  // so a run that had observed no host would be published as having observed exactly one —
+  // the strongest same-machine claim this report can make, resting on nothing at all.
+  // "Every node ran on one host" requires that one host to have been seen.
+  return hostCount(inventory) === 1 && inventory.nodeCount > 1
 }
 
 /**
@@ -89,6 +94,18 @@ export function isSameMachine(inventory: Inventory): boolean {
 export function machineLabel(inventory: Inventory): string {
   const hosts = hostCount(inventory)
   const nodes = inventory.nodeCount
+  // **Refuse rather than render.** With no machines the two branches below print `0 host`
+  // and `0 hosts` — a disclosure stating the run happened nowhere, which is worse than no
+  // disclosure because it looks like one and would be copy-pasted with the numbers exactly
+  // as the label is designed to be. The driver's own `inventoryOf` throws on the same
+  // condition; this is the same refusal at the package boundary, because `@o2/bench` has
+  // no platform with which to check who built the inventory it was handed.
+  if (hosts === 0) {
+    throw new RangeError(
+      'a report cannot be labelled from an inventory with no machines in it: there is no ' +
+        'host to state, and `0 host` would read as a measurement',
+    )
+  }
   if (nodes <= 1) return `single node on ${hosts} host`
   return isSameMachine(inventory)
     ? `SAME-MACHINE: ${nodes} nodes on ${hosts} host — a node count, not a machine count`

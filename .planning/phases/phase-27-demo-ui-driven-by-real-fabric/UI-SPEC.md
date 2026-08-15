@@ -27,7 +27,7 @@ Operationally, that rule needs three things this document supplies:
 
 1. **An enumeration.** §4 lists every figure region on every surface, with the exact call and
    field it reads, and its copy in three states (no reading yet / node stopped / legitimately
-   unavailable). 91 regions, 74 of them live readings.
+   unavailable). 92 regions, 75 of them live readings.
 2. **A machine-readable declaration on each region**, so a guard can enumerate the page
    without having seen the mockup (§3).
 3. **Assertable properties**, each with the mutation that proves it can fail (§9).
@@ -368,6 +368,7 @@ stops at the first rung the fabric cannot settle. `best` is the last settled run
 | C15 | `colouring/attestation` | reading | `best.attestation` — see §5.1 | `Not established: the search has not been run.` | `Not established: this tab's node is stopped.` | the absence arm, rendered per §5.1 |
 | C16 | `colouring/agreeing` | reading | `best.agreeing[]` — peer id tags per cube | `No placement: the search has not been run.` | `No placement: this tab's node is stopped.` | `No placement: no cube reached agreement.` |
 | C17 | `colouring/egress` | reading | `best.egress` — see §5.2 | `Nothing measured: nothing has left this device for this workload yet.` | `Nothing measured: this tab's node is stopped.` | — |
+| C22 | `colouring/quorum` | reading | `best.quorum` — `describeQuorum` verbatim, see §5.5 | `Not composed: the search has not been run.` | `Not composed: this tab's node is stopped.` | `Not composed: the fabric settled no rung, so no shard was placed.` |
 
 Plus, unchanged and not counted as figure regions: `#run` (control), `#run-status`
 (control-status, existing strings `start a node first` / `ready` / `n = …` / `settled n = …` /
@@ -382,7 +383,18 @@ Plus, unchanged and not counted as figure regions: `#run` (control), `#run-statu
 | C20 | `colouring/verify-triples` | `.triplesChecked` | as C18 | as C18 | — |
 | C21 | `colouring/verify-violation` | `.violation` | as C18 | as C18 | `No refutation: every triple checked has two colours among its three numbers.` |
 
-**Colouring surface count: 21 regions.**
+**Colouring surface count: 22 regions.**
+
+> **Amended 2026-08-14 — C22 added, VER-03 and VER-04.** It is out of numeric order in the
+> table above on purpose: it belongs to the run card beside C15, not to the verification card
+> C18–C21, and renumbering four committed rows to make one row sort would break every
+> reference to them. C22 is the first region on this page reporting a decision the fabric took
+> *before* any work was placed. It exists as its own row rather than as a line inside C15
+> because the two answer different questions from different inputs — C15 is
+> `classifyAttestation` over the certificates of whoever answered and signed, C22 is
+> `composeQuorum` over the candidate pool — and **a fabric on which the quorum gate never ran
+> produces an identical C15**. Merging them would make the page's strongest claim
+> unfalsifiable.
 
 ### 4.3 Primes — 12 regions
 
@@ -571,9 +583,13 @@ Requirements on this surface:
    surface that is not in that document is the defect this surface is most likely to introduce;
    P9 in §9 is the check.
 
-**Total regions enumerated: 91.** By surface: 5 session header, 3 bar, 21 colouring, 12 primes,
-14 π, 13 bring-your-own, 21 fabric state, 2 Benchmarks. By kind: **74 `reading`** — the ones the
+**Total regions enumerated: 92.** By surface: 5 session header, 3 bar, 22 colouring, 12 primes,
+14 π, 13 bring-your-own, 21 fabric state, 2 Benchmarks. By kind: **75 `reading`** — the ones the
 anti-placeholder guard holds to a named absence — 6 `constant`, 3 `cited`, 8 `control`.
+
+*(91/74/21-colouring until 2026-08-14, when C22 landed. `demo-regions.ts`'s `UI_SPEC_TALLY` is
+a transcription of these three figures and the guard asserts the catalogue against them in both
+directions — so this paragraph is a claim under test, not a note.)*
 
 ---
 
@@ -660,6 +676,33 @@ when the fabric is stopped, and its absence copy says *no answer has been produc
 never *the node is stopped*, which would be untrue and would misdescribe the one control on the
 page that works with the fabric disconnected. `colouring-demo.e2e.test.ts` asserts exactly this
 property; the copy must not contradict it.
+
+### 5.5 The quorum verdict is not the attestation, and the page must not let them merge
+
+*Added 2026-08-14 with C22 — VER-03, VER-04.*
+
+C15 and C22 sit in adjacent cards and answer questions that sound like one question. They are
+not, and the distinction is the requirement rather than a nicety:
+
+| | C15 — attestation | C22 — quorum |
+|---|---|---|
+| Computed by | `classifyAttestation` | `composeQuorum` |
+| From | the certificates of the replicas that **answered and signed** | the **candidate pool**, before anyone was asked |
+| When | after the work came back | before any shard was placed |
+| Reads `owner-domain` when | two replicas of one owner agreed | — |
+| Reads `[shared-relay-dependency]` when | — | every member it could pick hangs off one relay |
+
+**The reason this section exists at all is a measurement.** `AttestationReceipt` carries a
+`sharedRelay` field, and the fabric surface already renders it as `· shared relay: <peer id>`.
+That line reads like VER-03's evidence and is not: it is derived from certificates, so deleting
+`composeQuorum` outright would leave it printing exactly the same string. **A reading that would
+be identical if the mechanism never ran is not evidence of the mechanism.** VER-03 is answered by
+C22 or it is not answered.
+
+Both regions render the kernel's own words verbatim — `attestation.description` and
+`describeQuorum(quorum)` — and the page composes no sentence of its own in either, per §5.1.
+`describeQuorum` emits the refusal **kind** in brackets before the composer's prose, so a guard
+can assert *which* refusal occurred rather than pattern-matching a sentence.
 
 ---
 

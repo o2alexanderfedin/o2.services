@@ -63,12 +63,13 @@ import type {
 } from '@o2/core'
 import {
   Libp2pTransport,
+  PeerVerifier,
   audienceKeyOf,
   generateSeed,
   identityFromSeed,
   peerIdForNodeKey,
 } from '@o2/libp2p'
-import type { NodeIdentity } from '@o2/libp2p'
+import type { NodeIdentity, PeerVerdict } from '@o2/libp2p'
 import {
   CountingExecutor,
   EgressGuard,
@@ -186,6 +187,46 @@ export interface BrowserNodeOptions {
    * something is.
    */
   readonly trustAnchors: readonly PublicKeyHex[] | 'runs-unsigned-artifacts'
+  /**
+   * Provider keys whose certificates this tab accepts from a peer — AUTH-02.
+   *
+   * **The same shape as `FabricNodeOptions.trustedIssuers`** (`packages/node/src/fabric-node
+   * .ts`), field for field, and that file carries the long form of every argument below —
+   * the two docs are meant to be read together, as `trustAnchors`, `sovereignty` and
+   * `enrollment` already are. It is the same shape because a tab verifies on identical
+   * terms: **all nodes have equal functionality, and the only difference is discovery.**
+   *
+   * A list of **issuers**, never of peers: pinning is about who signed, never about who is
+   * talking. A peer whose certificate chains to one of these is verified; every other
+   * connected peer is excluded from the block source's peer list, by name and with a
+   * verdict a caller can read through {@link BrowserNode.verdictFor}.
+   *
+   * **Omitting it means this tab verifies nobody and treats every connected peer as
+   * usable**, which is what every browser node in this repository did before this field
+   * existed and what every existing test relies on. That is 17-CONTEXT.md decision 9's
+   * third row, and — copied deliberately from the Node tier — it is a **stated** absence
+   * rather than a safe default: the alternative, an empty verified set for a tab that
+   * pinned nothing, would be indistinguishable from a network outage, which is the failure
+   * shape NET-05 exists to eliminate one tier down. **In a tab that reading is sharper than
+   * it is on the backbone**, because the only peer a fresh tab has is the relay it
+   * reserved on, so a fail-closed default would empty the block source of the one peer the
+   * page can fetch through and the demo would stop loading blocks with nothing named. So a
+   * tab that pins nobody does no verification work at all: it never subscribes, never asks
+   * a peer for records, and `verdictFor` is undefined by construction rather than by
+   * winning a race. See `PeerVerifier.verifiedPeers`'s early return, which is where that
+   * lives and which is deliberately **not** symmetric with `RelayAdmission` — that type's
+   * docblock in `@o2/libp2p` carries the matching half of the asymmetry.
+   *
+   * Per-node configuration, not a node kind. Every `BrowserNode` has the identical
+   * executor, transport, relay behaviour and protocol surface whatever is passed here —
+   * exactly as `sovereignty` and `trustAnchors` do.
+   *
+   * `trustAnchors` above is a different pinning and the two must not be conflated: an
+   * anchor says whose *build* records this tab will run a module for, and an issuer says
+   * whose *enrollment* signature it will believe about a peer. A module and a peer are
+   * different subjects, and a key pinned for one says nothing about the other.
+   */
+  readonly trustedIssuers?: readonly PublicKeyHex[]
   /**
    * Whether this tab's own start row may leave this device — BROW-01.
    *
@@ -323,39 +364,38 @@ export interface BrowserNodeOptions {
    * node kind to do it; four mechanisms were simply absent here, and an absence
    * partitions just as effectively as a branch.
    *
-   * ## That clause is still false in one direction — CORRECTED 2026-08-06
+   * ## That clause was false in one direction — flagged 2026-08-06, CLOSED 2026-08-14
    *
-   * *"all nodes have equal functionality, and the only difference is discovery"* is quoted
-   * from the paragraph above, and *"the one this option exists to make true again"*
-   * overstates what this field achieved. It is corrected here rather than deleted because
-   * the argument it makes is the right one and a reader needs the sentence that outran the
-   * code.
+   * The 2026-08-06 correction that stood here read, of *"all nodes have equal functionality,
+   * and the only difference is discovery"*: **"The other half is open, and this module is
+   * the reason. Measured on this file: nothing here constructs a peer verifier, `#compose`
+   * installs no selection gate, and `PeerVerifier` appears in this file only in the
+   * paragraph above — as prose. So a tab takes blocks from any peer, while the Node peer it
+   * just enrolled with may be refusing half the fabric."** Every clause of that was true
+   * when written. It is quoted rather than deleted because the gap it names is the one the
+   * sibling {@link BrowserNodeOptions.trustedIssuers} field now closes, and because the
+   * reasoning — an absence partitions as effectively as a branch — is what a reader should
+   * take from this docblock.
    *
-   * **What this field closed is the half where a tab could not *be* verified.** A tab can
-   * now hold a certificate, so a Node peer started with `--trusted-issuer` will take blocks
-   * from it. That half is real and it is what AUTH-01 asked for.
+   * **What *this* field closed is the half where a tab could not *be* verified.** A tab can
+   * hold a certificate, so a Node peer started with `--trusted-issuer` will take blocks from
+   * it. That half is AUTH-01's and is unchanged by anything below.
    *
-   * **The other half is open, and this module is the reason.** Measured on this file:
-   * nothing here constructs a peer verifier, `#compose` installs no selection gate, and
-   * `PeerVerifier` appears in this file only in the paragraph above — as prose. So **a tab
-   * takes blocks from any peer**, while the Node peer it just enrolled with may be refusing
-   * half the fabric. The verification is one-way, and the docblock above argues against
-   * exactly the asymmetry the code below has.
+   * **What closed the other half was a `git mv`, not a browser implementation.** The
+   * correction diagnosed the cause exactly right — *"`PeerVerifier` lives in `@o2/node`;
+   * `@o2/browser` does not depend on that package and must not, so the absence here is a
+   * package boundary and not a decision about tabs"* — and the fix follows from the
+   * diagnosis: the module imported nothing Node-only, so it moved to `@o2/libp2p`, the
+   * dual-target tier both platform packages already depend on. `#compose` now constructs a
+   * verifier and reads `verifiedPeers` into the block source, mirroring `fabric-node.ts`
+   * line for line. `DEFICIENCIES.md` **D09** (*"the browser tier structurally cannot verify
+   * peers"*) describes a structure that no longer exists.
    *
-   * **It is structural rather than a branch on node kind, which is the same shape the
-   * paragraph above describes.** `PeerVerifier` lives in `@o2/node`; `@o2/browser` does not
-   * depend on that package and must not, so the absence here is a package boundary and not
-   * a decision about tabs — the identical *"four mechanisms were simply absent"* argument,
-   * one mechanism later.
-   *
-   * **Not settled here, and deliberately not.** This is `DEFICIENCIES.md` **D09** (*"the
-   * browser tier structurally cannot verify peers, because `PeerVerifier` lives in
-   * `@o2/node`"*) and the remaining leg of `REQUIREMENTS.md` **AUTH-02**, which records
-   * *"the browser tier verifies nobody … it does not verify in return, and that asymmetry
-   * is the remaining leg."* **Phase 22 owns the move**, and 24-03, 24-04 and 24-08 each
-   * re-state that owner rather than acting on it. This correction changes what the comment
-   * claims; it changes nothing about what the code does, and the field's shape below is
-   * unaffected.
+   * **One thing did not change and must not be read as having changed.** A tab that passes
+   * no `trustedIssuers` still takes blocks from every connected peer — that is the stated
+   * absence, not an oversight, and the argument for it is on that field. So *"a tab takes
+   * blocks from any peer"* remains a true description of the **default** tab; what is no
+   * longer true is that it is the only tab available.
    *
    * **`userPrivateKey`, not a `userKey` hex string, and the difference is load-bearing.**
    * `EnrollmentAuthority.enrol` requires an `ownerProof` — the *user's* signature over
@@ -928,6 +968,7 @@ export class BrowserNode {
     admission: LocalCapacity
     counter: CountingExecutor
     startLedger: StartOutcomeLedger
+    verifier: PeerVerifier
   }) {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
@@ -946,6 +987,37 @@ export class BrowserNode {
     this.admission = parts.admission
     this.#counter = parts.counter
     this.#startLedger = parts.startLedger
+    this.#verifier = parts.verifier
+  }
+
+  /** AUTH-02 — per-peer verdicts. See {@link BrowserNodeOptions.trustedIssuers}. */
+  readonly #verifier: PeerVerifier
+
+  /**
+   * The connected peers this tab will fetch a block from — AUTH-02.
+   *
+   * The same list `RpcBlockSource` reads, so this is a reading of the gate rather than a
+   * parallel account of it. A tab given no `trustedIssuers` returns the connected set
+   * unchanged; see that option's doc for why that is stated rather than defaulted.
+   *
+   * Mirrors `FabricNode.verifiedPeers` — same getter, same source, same wording — because
+   * a test that measures the two tiers against each other should not have to know which
+   * one it is holding.
+   */
+  get verifiedPeers(): readonly string[] {
+    return this.#verifier.verifiedPeers
+  }
+
+  /**
+   * Why a peer is or is not verified — AUTH-02.
+   *
+   * `undefined` means no verdict has been computed: either this tab pins nobody and
+   * therefore verifies nobody, or the records round trip for that peer has not landed yet.
+   * Those two are different states and a caller that cares distinguishes them by whether
+   * it configured `trustedIssuers` at all.
+   */
+  verdictFor(peerId: string): PeerVerdict | undefined {
+    return this.#verifier.verdictFor(peerId)
   }
 
   /**
@@ -1206,7 +1278,39 @@ export class BrowserNode {
       egress,
       options.rpcTimeoutMs === undefined ? {} : { timeoutMs: options.rpcTimeoutMs },
     )
-    const blockstore = new FetchingBlockstore(store, new RpcBlockSource(rpc, () => transport.peers))
+    // AUTH-02 — per-peer verdicts, computed offline against the pinned issuer keys.
+    //
+    // **Constructed before `resolveCertificate` rather than after it, which is where
+    // `fabric-node.ts` puts it, and the difference is placement rather than behaviour.**
+    // That file builds its verifier after the provider dial and relies on `start`'s
+    // seeding loop over `peers()` to catch the `peer:connect` that already fired. Here the
+    // verifier exists first, so the enrolment dial's `peer:connect` reaches a live
+    // listener. Both paths funnel into the same memoised `verify`, so neither is a
+    // correctness claim — but this one is the cheaper of the two and it is the ordering
+    // the block source below forces anyway.
+    //
+    // A tab given no `trustedIssuers` gets a verifier that subscribes to nothing, asks
+    // nobody anything, and answers `verifiedPeers` with the connected set unchanged — so
+    // this line costs a tab that pins nobody exactly one allocation.
+    const verifier = PeerVerifier.start({
+      libp2p,
+      rpc,
+      peers: () => transport.peers,
+      trustedIssuers: new Set(options.trustedIssuers ?? []),
+    })
+
+    // Blocks this tab lacks are pulled from whichever peers are connected **and verified**.
+    // AUTH-02's browser leg, and the line this whole move existed for: the thunk read
+    // `() => transport.peers` — the raw connected set — from the day this file was written
+    // until 2026-08-14, because `PeerVerifier` was not importable here. See
+    // `BrowserNodeOptions.enrollment`'s CLOSED note.
+    //
+    // Still a thunk, and now for two reasons rather than one, exactly as `fabric-node.ts`
+    // states: a peer that connects later is usable immediately, and a peer that connects
+    // later is usable *once verified* — which is what makes the fail-closed window between
+    // connect and verdict cost nothing durable, since the source is read per fetch and a
+    // retry after the verdict lands succeeds without reconnecting.
+    const blockstore = new FetchingBlockstore(store, new RpcBlockSource(rpc, () => verifier.verifiedPeers))
 
     // AUTH-01 — the enrollment round trip, over the fabric's own protocol, before this
     // factory returns anything. Mirrors `fabric-node.ts` step for step, including where
@@ -1215,6 +1319,11 @@ export class BrowserNode {
     // it rather than left to `libp2p.stop()` alone.
     undo.push(() => transport.stop())
     undo.push(() => rpc.close())
+    // On the stack for the same reason and in the same place, because the verifier is
+    // built above this line: it holds two `libp2p` listeners, and a `#compose` that rejects
+    // here would otherwise leave them attached to a node nobody holds a reference to. A
+    // no-op for a tab that pins nobody — `PeerVerifier.start` never subscribed.
+    undo.push(() => verifier.stop())
     const certificate = await resolveCertificate({
       enrollment: options.enrollment,
       identity,
@@ -1601,6 +1710,7 @@ export class BrowserNode {
       admission,
       counter,
       startLedger,
+      verifier,
     })
     serveAgent({
       rpc,
@@ -1868,6 +1978,11 @@ export class BrowserNode {
   async stop(): Promise<void> {
     this.worker.terminate()
     this.rpc.close()
+    // AUTH-02, and before the transport for `fabric-node.ts`'s stated reason: the verifier
+    // holds two listeners on `libp2p`, and a stopped tab that kept them would react to a
+    // `peer:connect` by issuing a records request through an endpoint it has already
+    // closed. A no-op for a tab that pins nobody — it never subscribed.
+    this.#verifier.stop()
     await this.transport.stop()
     await this.libp2p.stop()
     this.governor.stop()

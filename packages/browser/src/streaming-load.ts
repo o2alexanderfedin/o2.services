@@ -75,30 +75,36 @@
  *
  * ## What was measured, and what was not
  *
- * The four conditions are necessary. That they are **sufficient** is not
- * established, and on the one configuration this repository actually drives they
- * demonstrably were not: `packages/node/src/code-cache.e2e.test.ts` loads a ~4.8 MB
- * artifact three times over one stable URL in a persistent Chromium profile and
- * reads `Default/Code Cache/wasm` off disk, and no WASM entry has ever appeared —
- * while the *JavaScript* code cache in the same profile, over the same visits, grew
- * past the floor that test asserts.
+ * The four conditions are necessary. **There is a fifth**, and missing it is what
+ * produced the negative this comment used to carry.
  *
- * That finding is carried as data, in {@link CODE_CACHE_EVIDENCE}, and not as prose,
- * because the prose got it wrong. This comment previously stated the negative across
+ * V8 decides to cache on the volume of *top-tier* code a module has produced —
+ * `--wasm-caching-threshold=1000`, with `--wasm-caching-timeout-ms=2000` and
+ * `--wasm-caching-hard-threshold=1000000`. Bytes of machine code, not bytes of module.
+ * A function only reaches top tier when it is called enough times, so a large module
+ * nothing calls is, to this mechanism, an empty one.
+ *
+ * The fixture the negative was measured against was exactly that. Its only export,
+ * `run`, called nothing and consisted of constants combined with constants, which
+ * Turbofan folds to a single value — so heating it tiered up one function out of 8000
+ * and produced a few dozen bytes against a threshold of 1000. **The negative was a
+ * property of the fixture.** With an executable shape
+ * ({@link SyntheticShape.chained}) the same harness, the same headers and the same
+ * URL discipline write a code-cache entry on the first visit and read it back on the
+ * second.
+ *
+ * That correction is carried as data, in {@link CODE_CACHE_EVIDENCE}, and not as
+ * prose, because the prose got it wrong twice. It first stated a negative across
  * "220 KB through 10.8 MB, headless and headed, across a browser restart" — four
- * configurations, of which the committed harness drives one. The other three, and the
- * disabled-cache calibration that gives the null its meaning, were run by hand and
- * never committed. Nothing in the sentence told a reader which was which, so a
- * measured zero and a remembered one read identically. {@link CODE_CACHE_BLIND_SPOTS}
- * is the repair: every configuration the result was ever claimed for is named, with a
- * reason it is not reproducible here and what committing it would take. The negative
- * result is not softened by this — it is the same negative, minus three rows it was
- * being credited with.
+ * configurations, of which the committed harness drove one; {@link
+ * CODE_CACHE_BLIND_SPOTS} was the repair for that, and still is. Then the surviving
+ * measured row turned out to be measuring its own fixture. Both repairs point the same
+ * way: a row belongs in the table only with a harness here that drives it.
  *
- * Whether the `clone()` above preserves or destroys a cache hit stays unknown, and
- * for a structural reason rather than an unfinished one: no entry was ever produced
- * for a second visit to consume, so there is nothing for the comparison to run
- * against.
+ * Whether the `clone()` above preserves or destroys a cache hit is **no longer
+ * unknown**. It could not be asked while no entry existed to consume; now that one
+ * does, the loader gets its own Chromium profile in that harness and both writes and
+ * reads an entry through it. The clone does not cost the cache.
  */
 
 import { SHA256_CODE, sha256, toHex } from '@o2/core'
@@ -119,6 +125,21 @@ export const WASM_CONTENT_TYPE: string = 'application/wasm'
  * above it is necessary and demonstrably not sufficient — see the module comment.
  */
 export const CODE_CACHE_MIN_BYTES: number = 128 * 1024
+
+/**
+ * Bytes of **top-tier** code that trigger a caching event — V8's fifth precondition.
+ *
+ * Named here because this repository spent a phase publishing a negative that this
+ * number explains: nothing in the tree accounted for it, the fixture produced code
+ * far below it, and the resulting zero was read as a fact about the platform. The
+ * value is `--wasm-caching-threshold`'s default, read from `node --v8-options` on the
+ * V8 this project runs.
+ *
+ * It is not checkable from inside a page — there is no API that reports how much of a
+ * module has tiered up — so unlike {@link CODE_CACHE_MIN_BYTES} it gates nothing here.
+ * It is recorded so the next person reads five preconditions rather than four.
+ */
+export const CODE_CACHE_TOP_TIER_THRESHOLD_BYTES: number = 1000
 
 /** Multicodec `raw`. The codec a single-block binary artifact is addressed with. */
 export const RAW_CODE: number = 0x55
@@ -535,7 +556,36 @@ export const CODE_CACHE_E2E_HARNESS: CodeCacheHarness = {
   configuration: { moduleBytes: 4_856_036, visits: 3, display: 'headless', browserRestart: false },
 }
 
-export const CODE_CACHE_HARNESSES: readonly CodeCacheHarness[] = [CODE_CACHE_E2E_HARNESS]
+/**
+ * The executable shape, through the platform API — the row that refutes the negative.
+ *
+ * Its own Chromium profile in the same file. Separate profiles rather than two arms in
+ * one, because a trace event says *a* module was serialised and not *which* one, and
+ * the whole point of this row and the next is to tell the platform's answer apart from
+ * the loader's.
+ */
+export const CODE_CACHE_HOT_PLATFORM_HARNESS: CodeCacheHarness = {
+  file: 'packages/node/src/code-cache.e2e.test.ts',
+  test: 'writes an entry on the first visit through the platform API',
+  command: 'npx vitest run --project=e2e packages/node/src/code-cache.e2e.test.ts',
+  arms: [{ functions: 2000, opsPerFunction: 100, chained: true }],
+  configuration: { moduleBytes: 621_623, visits: 2, display: 'headless', browserRestart: false },
+}
+
+/** The same shape through the shipped `loadArtifact`, so `Response.clone()` is on trial. */
+export const CODE_CACHE_HOT_LOADER_HARNESS: CodeCacheHarness = {
+  file: 'packages/node/src/code-cache.e2e.test.ts',
+  test: 'does the same through the shipped loader, so Response.clone() does not cost the hit',
+  command: 'npx vitest run --project=e2e packages/node/src/code-cache.e2e.test.ts',
+  arms: [{ functions: 2001, opsPerFunction: 100, chained: true }],
+  configuration: { moduleBytes: 621_934, visits: 2, display: 'headless', browserRestart: false },
+}
+
+export const CODE_CACHE_HARNESSES: readonly CodeCacheHarness[] = [
+  CODE_CACHE_E2E_HARNESS,
+  CODE_CACHE_HOT_PLATFORM_HARNESS,
+  CODE_CACHE_HOT_LOADER_HARNESS,
+]
 
 /**
  * Every configuration the code-cache negative has ever been claimed for.
@@ -551,6 +601,8 @@ export const CODE_CACHE_ROWS = [
   '4.8mb-3-visits',
   '10.8mb-3-visits-restart',
   'disabled-cache-calibration',
+  '622kb-chained-2-visits-platform',
+  '622kb-chained-2-visits-loader',
 ] as const
 
 export type CodeCacheRow = (typeof CODE_CACHE_ROWS)[number]
@@ -569,19 +621,40 @@ export interface CodeCacheReading {
    * {@link CodeCacheHarness.command} reproduces or contradicts it.
    */
   readonly wasmCacheBytes: number
-  /**
-   * The positive control, as the floor the harness asserts.
-   *
-   * A floor rather than a figure, because a figure would be a number nobody re-derives
-   * — the same defect as the rows below. What the harness actually enforces is that
-   * `Default/Code Cache/js`, in the same profile over the same visits, passes this and
-   * grows between the first visit and the last. One directory fills and its sibling
-   * does not; that comparison is what makes the null a finding rather than a broken
-   * instrument.
-   */
-  readonly jsControlFloorBytes: number
+  /** What makes this row's figure a finding rather than a broken instrument. */
+  readonly control: CodeCacheControl
   readonly note: string
 }
+
+/**
+ * How a reading is calibrated — and it must be, in the direction its figure points.
+ *
+ * A **zero** needs a positive control, or it cannot be told from an instrument that
+ * sees nothing. A **non-zero** needs the opposite: something in the same apparatus
+ * that stays at zero, or the figure could be an artefact of the apparatus rather than
+ * of the thing under test. The two cases need different evidence, so they are
+ * different variants rather than one nullable number.
+ *
+ * The field this replaces was `jsControlFloorBytes: number`, which encoded only the
+ * first case. Carrying it onto a positive row would have meant writing down a floor no
+ * harness enforces for that row — a number nobody re-derives, which is the precise
+ * defect {@link CODE_CACHE_BLIND_SPOTS} exists to prevent, reintroduced through the
+ * control field instead of the reading field.
+ */
+export type CodeCacheControl =
+  /**
+   * The sibling `Default/Code Cache/js` directory, in the same profile over the same
+   * visits, asserted to pass `floorBytes` and to grow between the first visit and the
+   * last. One directory fills and the other does not.
+   */
+  | { readonly kind: 'js-code-cache-floor'; readonly floorBytes: number }
+  /**
+   * Another row of this table, measured in the same run, whose figure stays at the
+   * index-only floor. For a positive reading this is the stronger control: same
+   * Chromium, same origin, same headers, same settle, and the only difference is the
+   * property under test.
+   */
+  | { readonly kind: 'contrasting-row'; readonly against: CodeCacheRow }
 
 export const CODE_CACHE_READINGS: readonly CodeCacheReading[] = [
   {
@@ -589,12 +662,42 @@ export const CODE_CACHE_READINGS: readonly CodeCacheReading[] = [
     configuration: CODE_CACHE_E2E_HARNESS.configuration,
     harness: CODE_CACHE_E2E_HARNESS.file,
     wasmCacheBytes: 72,
-    jsControlFloorBytes: 500_000,
+    control: { kind: 'js-code-cache-floor', floorBytes: 500_000 },
     note:
       'three visits to one persistent profile with application/wasm, a cacheable response, a ' +
-      'query-free CID URL, compileStreaming, and the module executed hot enough to tier up — ' +
-      'because blink serialises top-tier code and a module that is never called never tiers up. ' +
-      'Code Cache/wasm never grew beyond its index file on any visit',
+      'query-free CID URL and compileStreaming. Code Cache/wasm never grew beyond its index file ' +
+      'on any visit — and the reason is the fixture, not the loader. This row previously claimed ' +
+      'the module was "executed hot enough to tier up"; it was executed, and one function of 8000 ' +
+      'tiered up, because the straight-line shape\'s only export calls nothing and folds to a ' +
+      'constant. The harness prints the giveaway: this arm completes 3,000,000 run() calls in ' +
+      'about 24 ms, upwards of 10^8 calls a second, which no 200-operation body can do. Retained ' +
+      'as the control it turned out to be, not as evidence about the platform',
+  },
+  {
+    row: '622kb-chained-2-visits-platform',
+    configuration: CODE_CACHE_HOT_PLATFORM_HARNESS.configuration,
+    harness: CODE_CACHE_HOT_PLATFORM_HARNESS.file,
+    wasmCacheBytes: 61_528,
+    control: { kind: 'contrasting-row', against: '4.8mb-3-visits' },
+    note:
+      'the same apparatus, the same headers and the same URL discipline, on a module whose export ' +
+      'calls every other function and whose bodies start from a mutable global so nothing folds. ' +
+      'wasm.SerializeModule on visit 1; wasm.GetNativeModuleFromCache, wasm.Deserialize and ' +
+      'wasm.CompilationAfterDeserialization on visit 2. The figure is reported, not asserted — ' +
+      'what is asserted is that it clears the 72-byte index-only floor and that the trace events fire',
+  },
+  {
+    row: '622kb-chained-2-visits-loader',
+    configuration: CODE_CACHE_HOT_LOADER_HARNESS.configuration,
+    harness: CODE_CACHE_HOT_LOADER_HARNESS.file,
+    wasmCacheBytes: 61_570,
+    control: { kind: 'contrasting-row', against: '4.8mb-3-visits' },
+    note:
+      'the shipped loadArtifact rather than the platform API, in its own profile so the answer is ' +
+      'unambiguously the loader\'s. It clones the response to verify bytes against the CID while ' +
+      'compileStreaming consumes the original, and the worry was that the clone would detach ' +
+      'whatever Blink attaches for cached metadata. It does not: the same write on visit 1 and the ' +
+      'same read on visit 2',
   },
 ]
 
@@ -631,13 +734,13 @@ export const CODE_CACHE_BLIND_SPOTS: readonly CodeCacheBlindSpot[] = [
     claim: '220 KB, 2 visits — Code Cache/wasm 72 B',
     note:
       'an exploratory run from the same series; no harness here serves a 220 KB artifact across ' +
-      'two visits, so the row is a memory of a result rather than a result. The size axis is the ' +
-      'one it covers, and a smaller module is the less likely of the two to be cached — so this ' +
-      'row was never the load-bearing evidence, only the widest-sounding',
+      'two visits, so the row is a memory of a result rather than a result. It is now doubly ' +
+      'unusable: it was run against the straight-line shape, whose single export folds to a ' +
+      'constant, so its 72 B says nothing about 220 KB modules and only repeats what the fixture ' +
+      'made inevitable at every size',
     wouldNeed:
-      'a second pair of arms in the e2e harness at the CODE_CACHE_SIZED shape, with its own ' +
-      'profile so the 4.8 MB arms cannot contaminate it — one more Chromium launch and one more ' +
-      '25-second settle, which is why it was dropped rather than committed',
+      'a chained arm at 220 KB with its own profile. Cheap in harness time and no longer very ' +
+      'interesting: the size axis it covers is not the axis that decided the result',
   },
   {
     kind: 'configuration-not-driven',
@@ -646,35 +749,38 @@ export const CODE_CACHE_BLIND_SPOTS: readonly CodeCacheBlindSpot[] = [
     note:
       'same series, and the weakest row of the four: the shape that produced 1.1 MB was not ' +
       'recorded, so the module itself cannot be regenerated. A size is not a module, and a row ' +
-      'whose subject cannot be rebuilt could not be re-run even with the harness time to spare',
+      'whose subject cannot be rebuilt could not be re-run even with the harness time to spare. ' +
+      'Superseded in substance — whatever that module was, it was straight-line',
     wouldNeed:
-      'a recorded SyntheticShape first — the missing half — then an arm like the one above',
+      'a recorded SyntheticShape first — the missing half — then a chained arm at that size',
   },
   {
     kind: 'configuration-not-driven',
     row: '10.8mb-3-visits-restart',
     claim: '10.8 MB, 3 visits including a browser restart, headed and headless — Code Cache/wasm 72 B',
     note:
-      'the strongest of the discarded rows and the most expensive. It is also the only one that ' +
-      'covers axes the committed harness does not touch at all: a restart separates a cache held ' +
-      'in the renderer from one written to the profile, and a headed run rules out headless ' +
-      'Chromium as the cause. Both were run by hand once; neither is in the tree, so "across a ' +
-      'browser restart" and "headed" are claims nothing here supports',
+      'the strongest of the discarded rows and the most expensive, and the two axes it covers are ' +
+      'still uncovered: a restart separates a cache held in the renderer from one written to the ' +
+      'profile, and a headed run rules out headless Chromium as a factor. Both were run by hand ' +
+      'once, against the straight-line shape, so neither axis was ever really exercised — the ' +
+      'null they returned was the fixture\'s. Now that an entry is produced on demand, a restart ' +
+      'arm would finally be able to distinguish something',
     wouldNeed:
-      'a second chromium.launchPersistentContext over the same profile directory after the first ' +
-      'is closed, plus a headless:false arm gated on a display being present — the gate is the ' +
-      'awkward part, since CI has no display and a silently skipped arm would restore exactly the ' +
-      'ambiguity this table is removing',
+      'a second chromium.launchPersistentContext over the chained profile directory after the ' +
+      'first is closed, asserting the entry survives and is read back, plus a headless:false arm ' +
+      'gated on a display being present — the gate is the awkward part, since CI has no display ' +
+      'and a silently skipped arm would restore exactly the ambiguity this table is removing',
   },
   {
     kind: 'control-not-committed',
     row: 'disabled-cache-calibration',
     claim: 'relaunched with --v8-cache-options=none, Code Cache/js reads 72 B — the same figure Code Cache/wasm reads on every ordinary run',
     note:
-      'the negative control, and the row that turns 72 B from "nothing was found" into "nothing ' +
-      'was written". Note what the harness does commit: the *positive* control, Code Cache/js ' +
-      'filling in the same profile over the same visits, asserted rather than printed. So the ' +
-      'instrument is calibrated in one direction here and only by hand in the other',
+      'the negative control for the 72 B figure, establishing that it means "nothing was written" ' +
+      'rather than "nothing was found". Still run only by hand. It matters less than it did: the ' +
+      'chained rows now show the same directory in the same harness filling to about 61.5 KB, which ' +
+      'calibrates the instrument in the direction that was missing without anyone relaunching ' +
+      'anything. What it would still add is proof that 72 B specifically is an empty store',
     wouldNeed:
       'one more launchPersistentContext over a fresh profile with args ["--v8-cache-options=none"], ' +
       'asserting Code Cache/js collapses to the figure Code Cache/wasm shows — about thirty lines, ' +
@@ -719,9 +825,20 @@ function sameConfiguration(left: CodeCacheConfiguration, right: CodeCacheConfigu
  * did not measure it.
  */
 export function codeCacheHarnessFor(reading: CodeCacheReading): CodeCacheHarness | null {
-  const named = CODE_CACHE_HARNESSES.find((harness) => harness.file === reading.harness)
-  if (named === undefined) return null
-  return sameConfiguration(named.configuration, reading.configuration) ? named : null
+  // `filter`, not `find`. One file now holds three harnesses — a straight-line profile
+  // and two chained ones — and `find` would have returned whichever was declared first
+  // and then failed the configuration check for the other two. That failure mode is
+  // benign here (a true row reads as unmeasured) but it is the mirror of the one this
+  // function exists to catch, so it is fixed rather than worked around at the call site.
+  const inFile = CODE_CACHE_HARNESSES.filter((harness) => harness.file === reading.harness)
+  return inFile.find((harness) => sameConfiguration(harness.configuration, reading.configuration)) ?? null
+}
+
+/** One line of prose for a reading's calibration, in the direction its figure points. */
+export function describeCodeCacheControl(control: CodeCacheControl): string {
+  return control.kind === 'js-code-cache-floor'
+    ? `positive control: Code Cache/js passes ${control.floorBytes} B and grows, same profile, same visits`
+    : `contrast: ${control.against} stays at the index-only floor in the same run`
 }
 
 const describeConfiguration = (configuration: CodeCacheConfiguration): string =>
@@ -736,9 +853,7 @@ export function describeCodeCacheEvidence(evidence: CodeCacheEvidence): string {
       `  measured: ${describeConfiguration(reading.configuration)} → Code Cache/wasm ${reading.wasmCacheBytes} B`,
     )
     lines.push(`    ${reading.note}`)
-    lines.push(
-      `    positive control: Code Cache/js passes ${reading.jsControlFloorBytes} B and grows, same profile, same visits`,
-    )
+    lines.push(`    ${describeCodeCacheControl(reading.control)}`)
     lines.push(`    produced by ${reading.harness}`)
   }
   for (const spot of evidence.blindSpots) {

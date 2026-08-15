@@ -9,6 +9,8 @@ import {
   CODE_CACHE_E2E_HARNESS,
   CODE_CACHE_EVIDENCE,
   CODE_CACHE_HARNESSES,
+  CODE_CACHE_HOT_LOADER_HARNESS,
+  CODE_CACHE_HOT_PLATFORM_HARNESS,
   CODE_CACHE_MIN_BYTES,
   CODE_CACHE_READINGS,
   CODE_CACHE_ROWS,
@@ -22,7 +24,7 @@ import {
   loadArtifact,
   measureRepeatLoad,
 } from './streaming-load.ts'
-import { ARTIFACT_SIZED, CODE_CACHE_SIZED, syntheticArtifact } from './synthetic-artifact.ts'
+import { ARTIFACT_SIZED, CHAINED_HOT, CODE_CACHE_SIZED, syntheticArtifact } from './synthetic-artifact.ts'
 
 /**
  * AOT-05 — loading a translated artifact the way V8 can cache it.
@@ -35,8 +37,16 @@ import { ARTIFACT_SIZED, CODE_CACHE_SIZED, syntheticArtifact } from './synthetic
  * that bytes from a gateway are verified against the CID before a module is handed
  * back, and that every refusal names a reason. They establish **nothing about
  * whether a code-cache hit actually occurs** — that needs two page loads in one
- * browser profile, and it lives in `packages/node/src/code-cache.e2e.test.ts`,
- * which reports a negative result. Read it before quoting anything from here.
+ * browser profile, and it lives in `packages/node/src/code-cache.e2e.test.ts`.
+ * Read it before quoting anything from here.
+ *
+ * That file reported a negative until 2026-08-14 and now reports a hit. The negative
+ * was not wrong about what it saw; it was wrong about what it was looking at. The
+ * module it served exports one function that calls nothing and folds to a constant,
+ * so almost none of it ever reached top tier, and V8 decides to cache on the volume
+ * of top-tier code. The tests below that quote the table quote it as data for exactly
+ * this reason — the prose in three docblocks had to be corrected, and the data did
+ * not, because a row cannot claim a configuration no harness here drives.
  *
  * The CIDs and byte counts below are hardcoded literals, never recomputed from the
  * generator. An expectation derived from the code under test only proves the code
@@ -62,6 +72,23 @@ const TINY_MODULE = [
   0x03, 0x0a, 0x00, 0x41, 0x04, 0x41, 0x13, 0x71, 0x41, 0x16, 0x77, 0x0b, 0x0a, 0x00, 0x41, 0x3d,
   0x41, 0x38, 0x72, 0x41, 0x37, 0x73, 0x0b, 0x0a, 0x00, 0x41, 0x2a, 0x41, 0x01, 0x71, 0x41, 0x2c,
   0x72, 0x0b,
+]
+
+/**
+ * The same three-function module in the chained shape — the second conformance vector.
+ *
+ * Readable against the first: a global section (`0x06`) appears before the exports,
+ * every body opens `0x23 0x00` (`global.get 0`) instead of an `i32.const`, and function
+ * 0 is now `call 1; add; call 2; add; local.tee; global.get; add; global.set; local.get`
+ * rather than arithmetic of its own.
+ */
+const TINY_CHAINED = [
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7f, 0x03,
+  0x04, 0x03, 0x00, 0x00, 0x00, 0x06, 0x06, 0x01, 0x7f, 0x01, 0x41, 0x01, 0x0b, 0x07, 0x07, 0x01,
+  0x03, 0x72, 0x75, 0x6e, 0x00, 0x00, 0x0a, 0x2d, 0x03, 0x15, 0x01, 0x01, 0x7f, 0x41, 0x00, 0x10,
+  0x01, 0x6a, 0x10, 0x02, 0x6a, 0x22, 0x00, 0x23, 0x00, 0x6a, 0x24, 0x00, 0x20, 0x00, 0x0b, 0x0a,
+  0x00, 0x23, 0x00, 0x41, 0x05, 0x6a, 0x41, 0x0d, 0x77, 0x0b, 0x0a, 0x00, 0x23, 0x00, 0x41, 0x17,
+  0x6a, 0x41, 0x1f, 0x77, 0x0b,
 ]
 
 const big = (): Uint8Array<ArrayBuffer> => syntheticArtifact(CODE_CACHE_SIZED)
@@ -141,6 +168,38 @@ describe('AOT-05 — the synthetic stand-in is reproducible, so its CID is a sta
   it('clears the caching threshold at the shape the measurements use', () => {
     expect(big().length).toBe(BIG_BYTES)
     expect(BIG_BYTES).toBeGreaterThanOrEqual(CODE_CACHE_MIN_BYTES)
+  })
+
+  it('leaves the straight-line output byte-identical when the chained flag is absent', () => {
+    // The additive guarantee, stated as a test rather than as an intention. Every
+    // hardcoded CID in this file, and both straight-line arms in the e2e, are CIDs of
+    // the output above; a generator change that touched them would invalidate the
+    // control the refutation is measured against.
+    expect([...syntheticArtifact({ functions: 3, opsPerFunction: 2, chained: false })]).toEqual(TINY_MODULE)
+  })
+
+  it('emits the chained shape byte-identically too, so its CID is a stable key as well', () => {
+    // Same discipline as TINY_MODULE and for the same reason: the e2e addresses these
+    // modules by CID, so a silent drift in the generator would change the URL and turn
+    // a cache hit into a miss for a reason that has nothing to do with the cache.
+    expect([...syntheticArtifact({ functions: 3, opsPerFunction: 2, chained: true })]).toEqual(TINY_CHAINED)
+  })
+
+  it('makes the chained shape depend on a value no optimiser can fold away', () => {
+    // The property the whole refutation rests on. A body that folds to a constant is
+    // a body that produces no top-tier code, and a module of those cannot be cached
+    // however large it is — which is precisely what the published negative measured.
+    //
+    // Executed rather than inspected: `run` mutates the global it reads, so successive
+    // calls must return different values. If they stop doing so, the arithmetic has
+    // collapsed and the e2e is measuring the old fixture again under a new name.
+    const bytes = syntheticArtifact({ functions: 40, opsPerFunction: 100, chained: true })
+    expect(WebAssembly.validate(bytes)).toBe(true)
+    const run = new WebAssembly.Instance(new WebAssembly.Module(bytes), {}).exports['run']
+    expect(typeof run).toBe('function')
+    if (typeof run !== 'function') return
+    const seen = new Set([run(), run(), run(), run(), run()])
+    expect(seen.size, 'chained bodies folded to a constant — the fixture is inert again').toBe(5)
   })
 })
 
@@ -521,17 +580,86 @@ describe('AOT-05 — the code-cache table separates what this tree measures from
     }
   })
 
-  it('keeps the negative result rather than trimming the table down to nothing', () => {
-    // The opposite failure, and just as bad: an over-claimed negative is repaired by
-    // splitting it, never by deleting it. The measured row must still say zero.
+  it('keeps the refuted negative as the control it turned out to be, rather than deleting it', () => {
+    // ## This assertion used to pin the negative, and its reasoning is now inverted
+    //
+    // It read `expect(measured.wasmCacheBytes).toBeLessThan(4096)` under the heading
+    // "keeps the negative result rather than trimming the table down to nothing", and
+    // it was right to exist: an over-claimed negative is repaired by splitting it,
+    // never by deleting it, and a row that quietly vanishes is indistinguishable from
+    // one removed because it was inconvenient.
+    //
+    // The negative has since been **refuted** — see `622kb-chained-2-visits-platform`.
+    // The straight-line module could not reach `--wasm-caching-threshold` however it
+    // was served, because its only export folds to a constant, so its zero was a fact
+    // about the fixture. Deleting this row on that news would look exactly like the
+    // trimming the original assertion existed to prevent, so the row stays and the
+    // assertion changes meaning: the zero is still required, and it is now required
+    // *as the contrast* that makes the positive rows evidence. If the straight-line
+    // row ever starts reporting a hit, the two chained rows lose their control and
+    // this must fail.
     const measured = CODE_CACHE_READINGS.find((reading) => reading.row === '4.8mb-3-visits')
     expect(measured).toBeDefined()
     if (measured === undefined) return
     expect(measured.wasmCacheBytes).toBeLessThan(4096)
-    expect(measured.jsControlFloorBytes).toBeGreaterThan(measured.wasmCacheBytes)
+    // Its own calibration is unchanged: a zero still needs a positive control.
+    expect(measured.control.kind).toBe('js-code-cache-floor')
+    if (measured.control.kind === 'js-code-cache-floor') {
+      expect(measured.control.floorBytes).toBeGreaterThan(measured.wasmCacheBytes)
+    }
     // The disabled-cache calibration is what gives that figure its meaning, and it is
     // named as uncommitted rather than quoted as if it were.
     expect(CODE_CACHE_BLIND_SPOTS.some((spot) => spot.kind === 'control-not-committed')).toBe(true)
+  })
+
+  it('carries the refutation as a measured row, not as a correction in prose', () => {
+    // The whole reason the table is data. The negative was stated in three docblocks
+    // and one table before it was refuted; had the refutation been written the same
+    // way, the next reader would have had four claims and no way to tell which the
+    // tree still produces.
+    const platform = CODE_CACHE_READINGS.find((r) => r.row === '622kb-chained-2-visits-platform')
+    const loader = CODE_CACHE_READINGS.find((r) => r.row === '622kb-chained-2-visits-loader')
+    expect(platform).toBeDefined()
+    expect(loader).toBeDefined()
+    if (platform === undefined || loader === undefined) return
+
+    for (const reading of [platform, loader]) {
+      // A positive figure, well clear of the 72-byte index-only floor.
+      expect(reading.wasmCacheBytes).toBeGreaterThan(4096)
+      // ...calibrated in the direction a positive figure needs: something in the same
+      // run that stayed at zero. A JS floor would say nothing about whether *this*
+      // number is an artefact of the apparatus.
+      const control = reading.control
+      expect(control.kind).toBe('contrasting-row')
+      if (control.kind === 'contrasting-row') {
+        // The contrast must be a row this tree measures, or it is a rhetorical one.
+        const against = CODE_CACHE_READINGS.find((r) => r.row === control.against)
+        expect(against, `${reading.row} contrasts against an unmeasured row`).toBeDefined()
+        expect(against?.wasmCacheBytes).toBeLessThan(4096)
+      }
+      // And a harness here at exactly this configuration — the invariant every row obeys.
+      expect(codeCacheHarnessFor(reading), `${reading.row} has no harness`).not.toBeNull()
+    }
+
+    // The two are distinct modules in distinct profiles: one CID, one URL, one cache
+    // entry, so sharing bytes would make the second row a reading of the first.
+    expect(platform.configuration.moduleBytes).not.toBe(loader.configuration.moduleBytes)
+  })
+
+  it('drives a chained shape, because a straight-line one cannot tier up whatever its size', () => {
+    // The fifth precondition, pinned where it can be checked. `CHAINED_HOT` is the only
+    // shape in this tree that produces a cache entry, and the property that makes it
+    // one is `chained` — not its size, which is a seventh of `ARTIFACT_SIZED`'s.
+    expect(CODE_CACHE_HOT_PLATFORM_HARNESS.arms[0]).toEqual(CHAINED_HOT)
+    expect(CHAINED_HOT.chained).toBe(true)
+    for (const harness of [CODE_CACHE_HOT_PLATFORM_HARNESS, CODE_CACHE_HOT_LOADER_HARNESS]) {
+      for (const shape of harness.arms) expect(shape.chained).toBe(true)
+    }
+    // The straight-line harness is left alone: it is the control now, and a control
+    // that quietly acquires the property under test stops being one.
+    for (const shape of CODE_CACHE_E2E_HARNESS.arms) expect(shape.chained).not.toBe(true)
+    // Smaller, and it caches while the larger one does not — which is the whole point.
+    expect(syntheticArtifact(CHAINED_HOT).length).toBeLessThan(syntheticArtifact(ARTIFACT_SIZED).length)
   })
 
   it('renders the unmeasured rows into the same string as the measured one', () => {

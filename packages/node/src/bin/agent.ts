@@ -101,6 +101,7 @@
  */
 
 import { readFile } from 'node:fs/promises'
+import { cpus, hostname, platform, release, totalmem } from 'node:os'
 import { parseArgs } from 'node:util'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { SEED_BYTES, identityFromSeed, parseKeyHex } from '@o2/libp2p'
@@ -1146,6 +1147,39 @@ process.stdout.write(
     // derived: the claim is that *this* process is the one serving the addresses above it,
     // and only this process can state that about itself.
     pid: process.pid,
+    // BENCH-06 — the host this process is actually running on, stated by the process that
+    // is running on it, for exactly the reason `pid` immediately above is.
+    //
+    // **The parent cannot supply this and have it mean anything.** A driver that filled a
+    // machine record in on a child's behalf would be publishing its own host under the
+    // child's name, so a rig that had silently fallen back to in-process nodes would
+    // produce an inventory indistinguishable from a genuinely distributed one — which is
+    // the same tautology `announcedPid` exists to break, applied to the quantity BENCH-06
+    // is actually about. `hostCount` over these announcements is what makes the published
+    // SAME-MACHINE label an observation rather than a declaration; until this key existed
+    // the driver's inventory was a one-element array built from its own `hostname()`, so
+    // the label could not have come out any other way and no plant against it could fail.
+    //
+    // Additive under the module comment's own rule for this line — *every reader
+    // destructures the keys it names* — so no existing parent of this binary breaks.
+    //
+    // `roles` and `physicalCores` are deliberately **not** here. An agent does not know
+    // what position a rig put it in, and `os.cpus()` reports logical CPUs with no portable
+    // way to ask for physical ones; both are the driver's to fill, and a process guessing
+    // at either would be announcing an opinion beside six measurements.
+    machine: {
+      hostId: hostname(),
+      // `?? 'unknown'` rather than the bare optional, matching the driver's own reading of
+      // the same call: `JSON.stringify` drops an `undefined` value, so the bare form would
+      // publish a *missing key* on a host that reports no CPUs and an absent field is not
+      // the same statement as an unknown model.
+      cpuModel: cpus()[0]?.model ?? 'unknown',
+      logicalCores: cpus().length,
+      totalMemoryBytes: totalmem(),
+      os: platform(),
+      kernel: release(),
+      runtime: `node ${process.version}`,
+    },
     // BENCH-07 criterion 3 — the two inbound limits, read off the **started node's own
     // getters** and never off `values`, and the difference is the whole reason these keys
     // exist.

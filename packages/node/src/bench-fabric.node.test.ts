@@ -1,5 +1,8 @@
 import { existsSync } from 'node:fs'
+import { hostname } from 'node:os'
 import { ed25519 } from '@noble/curves/ed25519.js'
+import { hostCount, isSameMachine, machineLabel } from '@o2/bench'
+import type { Machine } from '@o2/bench'
 import { MemoryBlockstore, signName, toHex } from '@o2/core'
 import type { CanonicalValue, NameRecord } from '@o2/core'
 import { submitJobWithEgress } from '@o2/net'
@@ -8,7 +11,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 // same reason: it keeps this file free of a dependency the fixture choice would impose.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { processFabric } from './bench-fabric.ts'
-import type { ProcessFabric } from './bench-fabric.ts'
+import type { AnnouncedMachine, ProcessFabric } from './bench-fabric.ts'
+import { inventory, inventoryOf, localMachine, machineFrom } from './bench-inventory.ts'
 
 /**
  * BENCH-07 — a fabric of N real operating-system processes, driven by a real job.
@@ -116,6 +120,40 @@ describe('BENCH-07 — processFabric puts N nodes in N operating-system processe
     // The submitting node is in *this* process, so it is the one pid on the rig that is
     // allowed to be the driver's own — and it is not an agent.
     expect(built.agents.map((a) => a.peerId)).not.toContain(built.submitterPeerId)
+
+    // ── BENCH-06 — each agent's host, propagated off its own handshake ─────────────
+    //
+    // The same shape as `announcedPid` above, and the same caveat: a rig that filled
+    // `announcedMachine` from this process's `hostname()` would satisfy the equality below
+    // by identity. `agent-handshake.node.test.ts` is what carries that claim, comparing
+    // what a *spawned binary printed* against this process's reading. What is asserted
+    // here is that the fabric propagated it — which is the seam `bin/bench.ts` reads, and
+    // the seam that did not exist until 2026-08-14.
+    for (const agent of built.agents) {
+      expect(agent.announcedMachine.hostId).toBe(hostname())
+      expect(agent.announcedMachine.logicalCores).toBeGreaterThan(0)
+      expect(agent.announcedMachine.runtime).toBe(`node ${process.version}`)
+    }
+
+    // Both agents ran here, so this rig really is same-machine and is labelled so — from
+    // three readings that agreed, not from one that could not have disagreed.
+    const observed = inventory(3, built.agents.map((a) => a.announcedMachine))
+    expect(hostCount(observed)).toBe(1)
+    expect(machineLabel(observed)).toBe(
+      'SAME-MACHINE: 3 nodes on 1 host — a node count, not a machine count',
+    )
+
+    // **The anti-vacuity reading.** The same real announcements with one `hostId` changed
+    // and nothing else moved — same call, same driver, same process. If the label were
+    // still coming from this process's own `hostname()`, as it did until 2026-08-14, it
+    // would be unchanged. It is not.
+    const elsewhere = inventory(3, [
+      built.agents[0]!.announcedMachine,
+      { ...built.agents[1]!.announcedMachine, hostId: `${hostname()}-elsewhere` },
+    ])
+    expect(hostCount(elsewhere)).toBe(2)
+    expect(isSameMachine(elsewhere)).toBe(false)
+    expect(machineLabel(elsewhere)).toBe('3 nodes across 2 hosts')
 
     // ── the executors dispatch to the children, never to the submitter ─────────────
     expect(built.executors.map((e) => e.nodeId).sort()).toEqual(built.agents.map((a) => a.peerId).sort())
@@ -255,4 +293,117 @@ describe('BENCH-07 — the rig can be built with the workers dialling in, and wi
       }
     }
   }, 120_000)
+})
+
+/**
+ * BENCH-06 — the fold that turns announcements into a published host count.
+ *
+ * ## The defect these cases exist to make impossible
+ *
+ * `inventory()` lived in `bin/bench.ts` and built a **one-element array** from the driver's
+ * own `hostname()`. No code path could put a second host into it, so `hostCount` was `1` by
+ * construction and every run was labelled SAME-MACHINE whatever it had done. `report.ts`
+ * calls that label *derived, never declared* — and it was neither. Replacing
+ * `machineLabel(report.inventory)` with the literal string it always produced would have
+ * left every published byte identical and no spec red.
+ *
+ * Two things kept it unfalsifiable and both had to move. The array was one. The other is
+ * that `bin/bench.ts` runs `await main()` on import, so a function declared in it can never
+ * be executed by a test — which is the same reason this whole file exists, stated in its
+ * header as *a pure function lifted out*. `bench-inventory.ts` is that lift.
+ *
+ * ## Why these are synthetic and the case above is not
+ *
+ * One host is all this repository can spawn on, so the multi-host arm has no other way to
+ * be exercised — and an arm that is never exercised is an arm that is broken when it is
+ * first needed. The rig case above supplies what synthesis cannot: that the values being
+ * folded came off child processes' own handshake lines.
+ */
+
+/** A synthetic announcement. Only `hostId` varies in the cases that count hosts. */
+const announcement = (hostId: string): AnnouncedMachine => ({
+  hostId,
+  cpuModel: 'Test CPU',
+  logicalCores: 16,
+  totalMemoryBytes: 32 * 1024 ** 3,
+  os: 'darwin',
+  kernel: '25.5.0',
+  runtime: 'node v24.0.0',
+})
+
+const asMachine = (hostId: string): Machine => machineFrom(announcement(hostId))
+
+describe('BENCH-06 — the inventory counts hosts that said so', () => {
+  it('makes two announcing hosts two rows, and drops the same-machine label', () => {
+    const built = inventoryOf(4, [asMachine('alpha'), asMachine('beta')])
+
+    expect(built.machines.map((m) => m.hostId)).toEqual(['alpha', 'beta'])
+    expect(hostCount(built)).toBe(2)
+    expect(isSameMachine(built)).toBe(false)
+    expect(machineLabel(built)).toBe('4 nodes across 2 hosts')
+  })
+
+  it('folds repeated announcements from one host into one machine', () => {
+    // Sixteen processes on one host are one machine. This is what every published run has
+    // actually been, and the label it produces is the one the report carries.
+    const built = inventoryOf(
+      16,
+      Array.from({ length: 16 }, () => asMachine('one-laptop')),
+    )
+
+    expect(built.machines.length).toBe(1)
+    expect(hostCount(built)).toBe(1)
+    expect(machineLabel(built)).toBe(
+      'SAME-MACHINE: 16 nodes on 1 host — a node count, not a machine count',
+    )
+  })
+
+  /**
+   * First writer wins, and the reading is on `roles` rather than on the count.
+   *
+   * The driver knows its own position — it submits, and it combines — while an agent's
+   * `roles` are assigned by `machineFrom`, because a spawned process cannot know what a rig
+   * used it for. So when both land on one `hostId`, the row that survives must be the
+   * driver's. A fold that kept the last writer would publish this host as a bare worker.
+   */
+  it('keeps the driver’s own row when an agent announces the driver’s host', () => {
+    const driver = localMachine(['worker', 'requestor', 'aggregator'])
+    const built = inventoryOf(2, [driver, asMachine(driver.hostId)])
+
+    expect(built.machines.length).toBe(1)
+    expect(built.machines[0]?.roles).toEqual(['worker', 'requestor', 'aggregator'])
+  })
+
+  it('refuses an inventory with no machines rather than publishing `0 host`', () => {
+    // The condition `machineLabel` refuses at the package boundary, refused here at
+    // construction so it cannot reach the renderer at all.
+    expect(() => inventoryOf(16, [])).toThrow(RangeError)
+    expect(() => inventoryOf(16, [])).toThrow(/at least one machine/)
+  })
+
+  it('publishes this host alone when nothing was spawned, and says so as a count', () => {
+    // `--quick`, and the memory-transport ladder generally: no child announced anything, so
+    // one host was observed and one host is reported. An empty `announced` is a statement.
+    const built = inventory(4, [])
+    expect(built.machines.map((m) => m.hostId)).toEqual([hostname()])
+    expect(hostCount(built)).toBe(1)
+  })
+
+  it('copies an announcement’s six measurements and invents nothing', () => {
+    // `machineFrom` measures nothing. The two fields it fills are the two an announcing
+    // process cannot know: its position in the rig, and a physical core count no platform
+    // exposes portably.
+    const source = announcement('elsewhere')
+    const built = machineFrom(source)
+
+    expect(built.hostId).toBe(source.hostId)
+    expect(built.cpuModel).toBe(source.cpuModel)
+    expect(built.logicalCores).toBe(source.logicalCores)
+    expect(built.totalMemoryBytes).toBe(source.totalMemoryBytes)
+    expect(built.os).toBe(source.os)
+    expect(built.kernel).toBe(source.kernel)
+    expect(built.runtime).toBe(source.runtime)
+    expect(built.roles).toEqual(['worker'])
+    expect(built.physicalCores).toBe(0)
+  })
 })

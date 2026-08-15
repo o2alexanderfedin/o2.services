@@ -150,6 +150,7 @@ import {
   RELAY_DURATION_LIMIT_MS,
   RELAY_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATION_TTL_MS,
+  PeerVerifier,
   admitsAnyPeer,
   audienceKeyOf,
   generateSeed,
@@ -157,7 +158,7 @@ import {
   nodeKeyForPeerId,
   peerIdForNodeKey,
 } from '@o2/libp2p'
-import type { NodeIdentity, RelayAdmission } from '@o2/libp2p'
+import type { NodeIdentity, PeerVerdict, RelayAdmission } from '@o2/libp2p'
 import {
   IDENTITY_FILE,
   PROVIDER_FILE,
@@ -165,8 +166,6 @@ import {
   loadOrCreateSeed,
   saveCertificate,
 } from './identity-store.ts'
-import { PeerVerifier } from './peer-verifier.ts'
-import type { PeerVerdict } from './peer-verifier.ts'
 import type { ReservationWatcher } from './reservation-watch.ts'
 import { workerThread } from './worker-thread.ts'
 

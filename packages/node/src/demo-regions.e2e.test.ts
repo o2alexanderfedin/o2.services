@@ -153,7 +153,7 @@ describe('the catalogue checks itself, with no browser', () => {
     expect(malformed, 'a region id must be <surface>/<field> and its prefix must be its surface').toEqual([])
   })
 
-  it("counts 91 figure regions, and the per-surface split matches UI-SPEC's own tally", () => {
+  it("counts 92 figure regions, and the per-surface split matches UI-SPEC's own tally", () => {
     expect(figures.length).toBe(UI_SPEC_TALLY.total)
 
     const bySurface: Record<string, number> = {}
@@ -163,7 +163,7 @@ describe('the catalogue checks itself, with no browser', () => {
     expect(bySurface).toEqual(UI_SPEC_TALLY.bySurface)
   })
 
-  it("splits 74 reading / 6 constant / 3 cited / 8 control, as UI-SPEC section 4 states", () => {
+  it("splits 75 reading / 6 constant / 3 cited / 8 control, as UI-SPEC section 4 states", () => {
     const byKind: Record<string, number> = {}
     for (const region of figures) byKind[region.kind] = (byKind[region.kind] ?? 0) + 1
     expect(byKind).toEqual(UI_SPEC_TALLY.byKind)

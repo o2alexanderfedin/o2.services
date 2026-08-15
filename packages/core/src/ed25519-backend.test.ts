@@ -95,7 +95,10 @@
  * an interface-shape change.
  *
  * **The structural obstacle, named precisely, because it is the one the adapter
- * dissolves:** `packages/node/src/peer-verifier.ts:433`'s `PeerVerifier.verifiedPeers`
+ * dissolves:** `packages/libp2p/src/peer-verifier.ts`'s `PeerVerifier.verifiedPeers`
+ * — the file moved out of `packages/node/src` on 2026-08-14 so the browser tier could
+ * construct one, and the line numbers this record cites throughout pre-date that move and
+ * were already drifting before it —
  * is a **synchronous getter**, not a function — `get verifiedPeers(): readonly
  * string[]`. A getter cannot be made `async` without changing its return type from
  * `readonly string[]` to `Promise<readonly string[]>`, an interface-shape change, not

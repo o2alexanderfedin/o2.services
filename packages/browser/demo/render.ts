@@ -41,7 +41,8 @@
  * catalogue in `../src/demo-regions.ts`.
  */
 
-import type { ShardAttestation } from '@o2/core'
+import type { ShardAttestation, ShardQuorum } from '@o2/core'
+import { describeQuorum } from '@o2/core'
 import type { EgressManifest } from '@o2/net'
 import type { Region, SurfaceId } from '../src/demo-regions.ts'
 import { REGIONS } from '../src/demo-regions.ts'
@@ -227,6 +228,28 @@ export const attestationLines = (attestation: ShardAttestation): string[] =>
         `Established over ${plural(attestation.replicas, 'replica')} from ` +
           `${plural(attestation.operators.length, 'operator')}.`,
       ]
+
+// VER-03, VER-04 — what the quorum composer decided, in the kernel's own words.
+//
+// **This sits beside `attestationLines` and reports a different fact, which is the entire
+// reason it exists.** The lines above answer *how strongly was the answer checked* from the
+// certificates of whoever answered and signed. This one answers *what did the composer
+// decide before anybody was asked*. Both were computed on every run of this page since the
+// quorum gate landed; only the first was ever displayed.
+//
+// **The distinction is not academic and it has a measurement behind it.** `attestationReceipt`
+// carries a `sharedRelay` field, and a fabric surface on this same page already renders it as
+// `· shared relay: <peer id>`. That line looks like VER-03's evidence and is not: delete
+// `composeQuorum` entirely and it prints exactly the same, because it is derived from
+// certificates rather than from the composer. A reading that would be identical if the
+// mechanism never ran is not evidence of the mechanism, so VER-03 is answered here or not at
+// all.
+//
+// One line, `describeQuorum` verbatim, no sentence of the page's own — the arrangement
+// directly above, for the reason directly above.
+export const quorumLines = (quorum: ShardQuorum): string[] => [
+  `How was the quorum chosen: ${describeQuorum(quorum)}`,
+]
 
 // DATA-05/DATA-06 — the egress manifest, rendered. **This is the sovereignty claim's
 // only operator-facing surface**, and until 2026-08-08 it did not exist: every run

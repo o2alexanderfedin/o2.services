@@ -2808,6 +2808,27 @@ function enrol(
   return { nodeId, signer: { nodeSeed, certificate: issued.certificate }, certificate: issued.certificate }
 }
 
+/**
+ * A node that binds a socket: `discoverability: 'seed'`, no relay dependency of its own.
+ *
+ * Separate from {@link enrol} rather than an extra parameter on it, because `enrol`'s
+ * trailing arguments are positional and every existing call passes `relayIds` third — a
+ * `discoverability` parameter would have to go fourth, ahead of `providerPrivateKey`, and
+ * silently reinterpret the two call sites that pass it. VER-03's second arm is the only
+ * thing that needs a seed here, and it needs it to be one that is *named* by other
+ * members, which is what `nodeId` supplies.
+ */
+function enrolSeed(nodeId: string, operatorId: string): Enrolled {
+  nodeSeedCounter += 1
+  const nodeSeed = new Uint8Array(32).fill(nodeSeedCounter)
+  const issued = authorityFor(PROVIDER_KEY).enrol(
+    requestEnrollment(nodeSeed, OWNER_KEY, { operatorId, discoverability: 'seed', relayIds: [] }),
+    Date.now(),
+  )
+  if (!issued.ok) throw new Error(`fixture failed to enrol ${nodeId}: ${JSON.stringify(issued.refusal)}`)
+  return { nodeId, signer: { nodeSeed, certificate: issued.certificate }, certificate: issued.certificate }
+}
+
 function descriptorFor(node: Enrolled, ownerId = 'public', load = 0): NodeDescriptor {
   return { nodeId: node.nodeId, ownerId, canExecuteSovereign: true, load, certificate: node.certificate }
 }
@@ -3303,6 +3324,68 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
     // The receipt reports what the run established — two operators did agree — and the
     // shared dependency is visible on it too rather than inferred from the refusal.
     expect(shard.attestation).toMatchObject({ strength: 'independent', sharedRelay: 'relay-shared' })
+  })
+
+  it('refuses when the relay every other candidate depends on is itself a candidate', async () => {
+    // VER-03's sharpest case, and the one this path was blind to until 2026-08-14.
+    //
+    // **This case lives here and not only in `quorum.test.ts` because the mapping that
+    // makes it visible exists only here.** `NodeCertificate` names relays by peer id and
+    // names its own subject by `nodeKey`; `NodeDescriptor` is the one structure holding
+    // both at once, so `submitJob` is the only place that can hand `composeQuorum` a
+    // `peerIdOf`. A unit case over certificates alone can assert the rule; only this one
+    // can assert that the rule is *reachable* from a submission.
+    //
+    // The two submissions below differ in exactly one field: the seed's `nodeId`. Same
+    // three operators, same three certificates' shape, same relay dependency named by the
+    // same two peers, same redundancy, same dial. So a difference in the verdict can only
+    // have come from whether the seed is the relay the other two depend on.
+    const relayIsCandidate = async (seedNodeId: string): Promise<ShardResult> => {
+      const seed = enrolSeed(seedNodeId, 'op-relay')
+      const a = enrol('a', 'op-a', ['relay-shared'])
+      const b = enrol('b', 'op-b', ['relay-shared'])
+      const r = await submitJob(
+        {
+          moduleCid: MODULE_CID,
+          shards: [{ value: { n: 1 }, label: 'public' }],
+          executors: [signing(seed), signing(a), signing(b)],
+          nodes: [descriptorFor(seed), descriptorFor(a), descriptorFor(b)],
+          redundancy: 2,
+          onQuorumShortfall: 'runs-at-available-redundancy',
+        },
+        new MemoryBlockstore(),
+        // CHURN-03 — this test asserts nothing about checkpointing.
+        { checkpoints: 'checkpoints-nothing' },
+      )
+      expect(r.ok).toBe(true)
+      if (!r.ok) throw new Error(`fixture job failed: ${JSON.stringify(r.error)}`)
+      return r.job.shards[0] as ShardResult
+    }
+
+    // ---- The control, read FIRST so the refusal below is a comparison. --------------
+    // A seed nobody named. Losing it costs the quorum one member and leaves the other
+    // standing, so there is no single dependency and the quorum composes — which is also
+    // the pre-existing behaviour of the three seed cases in `quorum.test.ts`, unchanged.
+    const unnamed = await relayIsCandidate('some-other-node')
+    expect(unnamed.quorum.kind).toBe('composed')
+    expect(unnamed.degraded).toBe(false)
+
+    // ---- The case: the seed's peer id IS the relay the other two name. --------------
+    const isTheRelay = await relayIsCandidate('relay-shared')
+    expect(isTheRelay.quorum).toMatchObject({
+      kind: 'not-composed',
+      refusal: { kind: 'shared-relay-dependency', relayId: 'relay-shared' },
+    })
+    if (isTheRelay.quorum.kind !== 'not-composed') return
+    // The words say which shape of the refusal this is. A relay that is a member is not
+    // a relay every member is discoverable *through* — the pre-existing sentence would
+    // be false about this case, and a reason that is false about its own case is worse
+    // than none.
+    expect(isTheRelay.quorum.reason).toContain('is itself a member of the quorum')
+    // It still ran, at the redundancy available, and said so. Degrading is defensible
+    // only because it is not silent — the same argument the one-operator case makes.
+    expect(isTheRelay.verification.status).toBe('agreed')
+    expect(isTheRelay.degraded).toBe(true)
   })
 
   it('attempts no quorum at redundancy 1, because there is no verification to compose one for', async () => {

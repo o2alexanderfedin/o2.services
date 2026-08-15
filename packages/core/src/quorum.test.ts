@@ -408,4 +408,69 @@ describe('a seed has no discovery dependency, whatever relays it lists', () => {
     expect(sharedRelay(mixed)).toBeNull()
     expect(composeQuorum(mixed, { size: 3 }).ok).toBe(true)
   })
+
+  it('refuses when the seed that broke the dependency IS the relay the others name', () => {
+    // VER-03's sharpest case, and the one rule 2 could not see until 2026-08-14.
+    //
+    // The fixture is the case above with **one** thing added: a statement of which peer
+    // id the seed answers to, and it is `relay-1` — the id the other two named. Nothing
+    // else moves. The seed is still a seed, still lists no relay of its own, and still
+    // depends on nobody to be found; what changed is that it is now *the* thing the
+    // other two depend on, so losing it loses all three at once. That is exactly one
+    // shared reachability dependency, which is VER-03's sentence.
+    //
+    // **The three cases above stay green for a reason worth stating rather than
+    // observing.** None of them supplies `peerIdOf`, and its absence is not a
+    // convenience default — `sharedRelay` reduces to the intersection it always
+    // computed, because `null` can never equal a relay id. So they read the identical
+    // rule they read before this case existed, and this case's refusal cannot have come
+    // from a widened predicate: it can only have come from the mapping.
+    const seedIsTheRelay = [
+      cert('n1', 'op-a', ['relay-1']),
+      cert('n2', 'op-b', ['relay-1']),
+      cert('n3', 'op-c', [], { discoverability: 'seed' }),
+    ]
+    const peerIdOf = (certificate: NodeCertificate): string | null =>
+      certificate.nodeKey === 'n3' ? 'relay-1' : `peer-${certificate.nodeKey}`
+
+    // Without the mapping: the seed's presence answers `null` — the old reading, kept
+    // here as the control so the pair below is a comparison rather than an assertion.
+    expect(sharedRelay(seedIsTheRelay)).toBeNull()
+    expect(composeQuorum(seedIsTheRelay, { size: 3 }).ok).toBe(true)
+
+    // With it: the same three certificates, refused, and named by the relay's peer id.
+    expect(sharedRelay(seedIsTheRelay, peerIdOf)).toBe('relay-1')
+    const refused = composeQuorum(seedIsTheRelay, { size: 3, peerIdOf })
+    expect(refused.ok).toBe(false)
+    if (refused.ok) return
+    expect(refused.refusal.kind).toBe('shared-relay-dependency')
+    if (refused.refusal.kind !== 'shared-relay-dependency') return
+    expect(refused.refusal.relayId).toBe('relay-1')
+    // The words distinguish this shape from the pre-existing one, whose sentence says
+    // every member is discoverable *through* the relay — untrue of a relay that is a
+    // member. The kind is what a caller discriminates on; the reason is what a reader
+    // gets, and it should not be a sentence that is false about the case it describes.
+    expect(refused.reason).toContain('is itself a member of the quorum')
+    expect(refused.reason).not.toContain('every member of the quorum is discoverable only through')
+  })
+
+  it('does not refuse a member merely for being some peer’s relay when another survives it', () => {
+    // The boundary, and without it the case above would pass under a rule that refused
+    // any quorum containing a named relay. Four members: the relay `n3`, one peer that
+    // depends on it, and one peer — `n4` — that is a seed depending on nobody and is not
+    // the relay. Losing `relay-1` costs the quorum two of its four members and leaves
+    // `n4` standing, so the redundancy did not rest on a single dependency and the
+    // answer is `null`.
+    const oneSurvivor = [
+      cert('n1', 'op-a', ['relay-1']),
+      cert('n2', 'op-b', ['relay-1']),
+      cert('n3', 'op-c', [], { discoverability: 'seed' }),
+      cert('n4', 'op-d', [], { discoverability: 'seed' }),
+    ]
+    const peerIdOf = (certificate: NodeCertificate): string | null =>
+      certificate.nodeKey === 'n3' ? 'relay-1' : `peer-${certificate.nodeKey}`
+
+    expect(sharedRelay(oneSurvivor, peerIdOf)).toBeNull()
+    expect(composeQuorum(oneSurvivor, { size: 4, peerIdOf }).ok).toBe(true)
+  })
 })
