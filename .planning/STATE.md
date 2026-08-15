@@ -156,7 +156,42 @@ stopped_at: >-
   a surface with no flag - closed. AOT: glog was never the wall; a 2-line __wasi__ branch plus
   ~7 lines fixing elfconv's own bugs gets 27/27 translation units compiling, and the real cost
   is the LLVM cross-build, still unmeasured.
-last_updated: "2026-08-14T17:50:00.000Z"
+
+  EVENING OF 2026-08-14: 88 OF 102, UP FROM 81 - VER-03, VER-04, AOT-05, MR-03, MR-05, MR-07 and
+  WIRE-02 all close, and THREE OF THEM CLOSED WITH NO NEW PRODUCTION CODE, which is the reusable
+  finding: the mechanism already existed and the evidence was pointed at the wrong thing. MR-07's
+  row says a duplicate is discarded BECAUSE IT CARRIES THE SAME CID while its cross-process reading
+  exercised rpc.ts's pending-entry check, which discards because a TIMEOUT deleted the entry,
+  independent of the CID entirely; re-sited and planted red, removing the CID-keyed collapse turns
+  two AGREEING live replicas into a disagreement across eight processes WHILE EVERY RPC RESOLVES.
+  MR-05 was already true of its own sentence and machinery was nearly built for a requirement that
+  did not ask for it. AN OWNER RULING REMOVED THAT WORK and is recorded at
+  .planning/consults/2026-08-14-owner-ruling-sovereign-threat-model.md: sovereign data is processed
+  AT REST, the requestor IS the data owner so there is no interest in faking a result about one's
+  own data, and a bad storage node has a blast radius of one owner's own data - so MR-05's
+  rendezvous check was defending against the data owner attacking their own job. THE BOUNDARY IS
+  RECORDED TOO: PROJECT.md:31 keeps cross-owner aggregation verified and the public path keeps
+  N-version redundancy plus commit-reveal. VER-03 CLOSED BY REPAIRING THE RULE RATHER THAN THE
+  FIXTURE - relayIds names relays by libp2p PEER ID while a quorum member is keyed by nodeKey, two
+  spellings of one node that never compare equal, so when the relay every other member depended on
+  was ITSELF a member no comparison in quorum.ts could see it; QuorumRules.peerIdOf closes it and
+  provably collapses to the old function when absent. THE PLANNED REMEDY FOR VER-03 WAS REFUTED
+  BEFORE IT WAS BUILT: qualifying the demo pool by block advertisement would have gone permanently
+  solo, because the input block is created inside submitJob AFTER the pool is chosen. AOT-05's
+  PUBLISHED NEGATIVE IS REFUTED - the fixture's functions had no call instruction so nothing tiered
+  up, and its trace-name list never fired on this path, so two claimed independent observations
+  were one observation and a constant. Its residual is settled to --wasm-caching-timeout-ms,
+  ISOLATED rather than inferred, and A RIVAL THAT FIT EVERY ROW OF THE TABLE WAS FALSIFIED: the
+  committed shape sits 0.9% over --wasm-caching-hard-threshold, and raising that threshold left the
+  figure byte-identical. WIRE-02 replaces a population ceiling with a 24-row per-symbol register
+  held in both directions. AUTH-02 GAINED ITS CAPABILITY AND DID NOT TICK - no production call site
+  can supply an issuer because the demo has no visitor enrolment, which is a product decision
+  declined on main.ts's own standing objection. TWO GUARDS CAUGHT ORCHESTRATOR ERRORS: WIRE-02 is a
+  new ID and not in the 72, and three now-Done rows were still in WITHOUT_A_CHECKABLE_CLAIM.
+  demo-pi.e2e.test.ts IS A KNOWN FLAKE - green, red, green on identical code, cause not found.
+  AOTW-06's 27/27 NOTE IS UNREPRODUCED: two prose sentences from one commit, no patch, no log, and
+  third_party/elfconv pristine at its pinned commit.
+last_updated: "2026-08-15T03:25:00.000Z"
 last_activity: 2026-08-14
 progress:
   total_phases: 15
