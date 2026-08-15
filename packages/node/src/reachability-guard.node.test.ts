@@ -393,14 +393,29 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // `demo/main.ts` binds. It was reached by fixing a defect rather than by moving a
     // number — a page whose storage silently forgets writes could not read back a consent
     // it had just granted, so a private-browsing visitor was refused after agreeing.
+    // ## Raised 66 → 67, measured 2026-08-14, and this one is a NEW SYMBOL — not a repair
+    //
+    // `browser/enrolledIssuer` is AUTH-02's production anchor read: `demo/main.ts#start` calls it
+    // on the line above `BrowserNode.start` to pin the provider this origin enrolled with. It has
+    // a real production caller from the day it landed, and it counts here anyway for the reason
+    // the fifteen other `browser/` symbols do — the caller is a member of the `api` literal
+    // assigned to `window.o2`, and the graph does not trace that assignment. So it is disposed as
+    // `global-object-hop` in `reachability-dispositions.ts` and the *undisposed* count is
+    // unmoved; this raise is the raw population growing by the one symbol that was added.
+    //
+    // **Stated so the direction is not misread later:** a raise here is normally the alarm this
+    // ceiling exists to sound. This one is not wiring debt arriving. It is a symbol that was
+    // wired in the same commit that created it, into a caller the tracer cannot follow, and the
+    // evidence is that the derived `global-object-hop` case named it by itself rather than the
+    // ceiling being moved to make room.
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(
       found.length,
       `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-14 was 66. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
+        'on 2026-08-14 was 67. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(66)
+    ).toBeLessThanOrEqual(67)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {

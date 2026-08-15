@@ -84,6 +84,7 @@ import {
   DISCLOSURE_VERSION,
   classifyStartError,
   currentBrowserLabel,
+  enrolledIssuer,
   firstGap,
   grantConsent,
   pageConsentStore,
@@ -296,12 +297,22 @@ const RECORDS_DEADLINE_MS = 5_000
  *
  * ## The anchor is this tab's own issuer, because it is the only one this tab has
  *
- * Measured rather than assumed: `BrowserNodeOptions` has **no `trustedIssuers` field** —
- * `FabricNodeOptions` has one and this tier does not — so the pinned-provider set a Node
- * peer verifies against does not exist here. `TabApi.start`'s `trustAnchors` is a
- * different namespace entirely: those are *build* authorities, checked by `NameResolver`
- * against a module's signed record, and using them as certificate issuers would be the
- * conflation this phase exists to end wearing a new hat.
+ * **Corrected 2026-08-14.** This paragraph read *"`BrowserNodeOptions` has no
+ * `trustedIssuers` field — `FabricNodeOptions` has one and this tier does not"*, and that
+ * is no longer true: the field landed, and `api.start` above now fills it from
+ * `enrolledIssuer`. The sentence is kept rather than deleted because the *reasoning* under
+ * it survived the field's arrival intact — it is why the field is filled the way it is.
+ *
+ * `TabApi.start`'s `trustAnchors` is still a different namespace entirely: those are
+ * *build* authorities, checked by `NameResolver` against a module's signed record, and
+ * using them as certificate issuers would be the conflation this phase exists to end
+ * wearing a new hat.
+ *
+ * What this function reads is this tab's *own* certificate rather than the pinned set,
+ * and that is not the same value even now — a tab pins what it enrolled with on an
+ * earlier start, and holds a certificate from this one. The two agree in every case a
+ * visitor reaches; they are read from different places on purpose, so a mismatch between
+ * them stays visible instead of being assumed away.
  *
  * What this tab does hold, when it was enrolled, is a certificate naming the provider
  * that signed it. That provider's key is a real anchor, held before any peer spoke, and
@@ -504,10 +515,38 @@ const api: TabApi = {
       throw new Error(`cannot start: ${gap}`)
     }
 
+    // AUTH-02 — **the production pinning decision, and the only one on a visitor's path.**
+    //
+    // Read before `BrowserNode.start` because it has to be: the verifier's anchor set is
+    // fixed inside `#compose` *before* the enrolment round trip that would produce an
+    // anchor, so a tab enrolling for the first time cannot pin the provider it is in the
+    // act of meeting. `enrolledIssuer` reads the certificate this origin stored on an
+    // earlier start and returns the provider that signed it — a key this tab obtained by
+    // its own enrolment, held before any peer spoke.
+    //
+    // **A fresh tab pins nobody, and that is the property that keeps this page working.**
+    // Fail-closed on a first visit would empty the block source of the relay, which is a
+    // fresh tab's only peer, and hand the visitor a node that connects and can fetch
+    // nothing. So the sequence a visitor actually walks is: visit once and pin nobody
+    // (unchanged from every build before 2026-08-14), enrol, and from the next start
+    // onwards take blocks only from peers the same provider certified.
+    //
+    // Applied at `start` rather than at `autoStart` deliberately — `autoStart`, the `#join`
+    // button and a direct `window.o2.start` all funnel through here, so there is one site
+    // that decides this and no entry point that can skip it. It is **not** a parameter, for
+    // the reason the two fields below it are not: a page that was found rather than
+    // configured must not let whatever found it choose who this tab believes.
+    const pinned = await enrolledIssuer(options.blockstoreName)
+
     try {
       node = await BrowserNode.start({
         relayAddrs: options.relayAddrs,
         blockstoreName: options.blockstoreName,
+        // Conditional spread, so a tab that has never enrolled passes no key at all rather
+        // than an empty array. The two are the same to `PeerVerifier` — both are a set of
+        // size zero — and different to a reader, who can see here that "pins nobody" is a
+        // state this tab was found in and not a list that came back empty.
+        ...(pinned === null ? {} : { trustedIssuers: [pinned] }),
         // DET-03/DATA-08: the build authorities this tab will run a module for. With no
         // `trustAnchors` supplied — which is every visitor, and `autoStart` — that is the
         // demo's own committed key, the same one `bin/agent.ts` and `bin/seed.ts` pin

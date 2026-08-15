@@ -1020,8 +1020,25 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   //
   // Two witnesses arrived with the move, and the second is the weaker of the two on purpose
   // — see its own docblock. `peer-verifier.browser.test.ts` measures the verifier in three
-  // real engines; `browser-node-contract.node.test.ts` counts the composition literal,
-  // which is the only instrument that sees which thunk the block source was handed.
+  // real engines; `browser-node-contract.node.test.ts` counts the composition literal.
+  //
+  // **That sentence used to end "…which is the only instrument that sees which thunk the
+  // block source was handed", and it stopped being true on 2026-08-14.**
+  // `tab-pinning.e2e.test.ts` sees it *behaviourally*: a live tab pinning an issuer is
+  // asked for a block held only by a connected-but-unverified peer, and does not get it.
+  // The source-text count is still worth keeping — it fails faster and names the literal —
+  // but it is no longer the only thing standing between that line and a silent revert.
+  // Measured, not asserted: reverting the thunk to `() => transport.peers` reddens the e2e
+  // with *"expected 48 to be null"*.
+  //
+  // **What re-reading the row against the new spec established, recorded because it is a
+  // gap and not a tick.** AUTH-02's own text asks that a node a person can run verify a
+  // certificate. A Node agent does, given `--trusted-issuer`. A browser tab now does too —
+  // `demo/main.ts` passes `trustedIssuers` from `enrolledIssuer` — **but only from the
+  // start after it has enrolled**, and the demo page carries no enrolment UI at all
+  // (`index.html` names `enrollment` zero times). So on the visitor path the argument is
+  // always empty and the tab still pins nobody. The call site is real and measured; the
+  // visitor's *route to it* is not built.
   {
     id: 'AUTH-02',
     because: 'tier-or-configuration',
@@ -1040,6 +1057,7 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/node/src/peer-gate.node.test.ts',
       'packages/node/src/peer-verifier.node.test.ts',
       'packages/node/src/relay-admission.node.test.ts',
+      'packages/node/src/tab-pinning.e2e.test.ts',
     ],
   },
   {
