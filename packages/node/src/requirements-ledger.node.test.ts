@@ -1020,8 +1020,25 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   //
   // Two witnesses arrived with the move, and the second is the weaker of the two on purpose
   // — see its own docblock. `peer-verifier.browser.test.ts` measures the verifier in three
-  // real engines; `browser-node-contract.node.test.ts` counts the composition literal,
-  // which is the only instrument that sees which thunk the block source was handed.
+  // real engines; `browser-node-contract.node.test.ts` counts the composition literal.
+  //
+  // **That sentence used to end "…which is the only instrument that sees which thunk the
+  // block source was handed", and it stopped being true on 2026-08-14.**
+  // `tab-pinning.e2e.test.ts` sees it *behaviourally*: a live tab pinning an issuer is
+  // asked for a block held only by a connected-but-unverified peer, and does not get it.
+  // The source-text count is still worth keeping — it fails faster and names the literal —
+  // but it is no longer the only thing standing between that line and a silent revert.
+  // Measured, not asserted: reverting the thunk to `() => transport.peers` reddens the e2e
+  // with *"expected 48 to be null"*.
+  //
+  // **What re-reading the row against the new spec established, recorded because it is a
+  // gap and not a tick.** AUTH-02's own text asks that a node a person can run verify a
+  // certificate. A Node agent does, given `--trusted-issuer`. A browser tab now does too —
+  // `demo/main.ts` passes `trustedIssuers` from `enrolledIssuer` — **but only from the
+  // start after it has enrolled**, and the demo page carries no enrolment UI at all
+  // (`index.html` names `enrollment` zero times). So on the visitor path the argument is
+  // always empty and the tab still pins nobody. The call site is real and measured; the
+  // visitor's *route to it* is not built.
   {
     id: 'AUTH-02',
     because: 'tier-or-configuration',
@@ -1040,6 +1057,7 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/node/src/peer-gate.node.test.ts',
       'packages/node/src/peer-verifier.node.test.ts',
       'packages/node/src/relay-admission.node.test.ts',
+      'packages/node/src/tab-pinning.e2e.test.ts',
     ],
   },
   {
@@ -1101,84 +1119,30 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/node/src/static-rendezvous.e2e.test.ts',
     ],
   },
-  // `SCHED-04` was here until 2026-08-11 and is REMOVED for the same reason `SCHED-05` is,
-  // one line down: its row is `Done`, so it has left the *unreached* population.
-  // `SCHED-05` was here until 2026-08-11 and is REMOVED because the row is now `Done`, so
-  // it has left the *unreached* population entirely. It is the second way out of this list
-  // that the rule allows — the first being a row acquiring a checkable claim — and the set
-  // equality below is what makes the removal compulsory rather than optional. Its entry was
-  // the clearest example in the "argument value" bucket: `eligibleNodes` was called by both
-  // placers and the open leg was that nothing ever passed `label: 'sovereign'`. Phase 23
-  // passed it.
-  // `MR-02` was here until 2026-08-11 and was REMOVED, which is the direction this
-  // list is supposed to move in: its row used to say only that Phase 16 had run the
-  // aggregation over public shards, which names no symbol this file can resolve. It then
-  // named one — `reduceSovereignJob` has no production caller — so the claim was checkable
-  // and was checked, and the row could no longer go stale silently.
-  //
-  // **RE-ADDED 2026-08-14, and the round trip is the honest record rather than an
-  // embarrassment.** The claim that took it off this list was *"`reduceSovereignJob` has no
-  // production caller"*, and that claim is now **false**: `bin/bench.ts`'s `--sovereign` leg
-  // calls it. So the row lost its checkable claim by the claim being *satisfied*, which is
-  // the one way out of checkability this register did not previously have an example of.
-  //
-  // What remains open cannot be phrased as a symbol claim, and that is why it is here
-  // rather than reworded. MR-02 reads *"**each owner** computes a local partial over its
-  // own data"*, and every entry point in this repository runs **one** owner: bench enrols
-  // every worker under a single `BENCH_USER_SEED`, and the demo submits under the single
-  // `options.sovereign.ownerId` its harness supplies. The multi-owner reading — two owners,
-  // two operating-system processes, neither store ever holding the other's row — is real
-  // and is measured, but it is measured by a spec. No symbol names "two owners", so
-  // `parseRows` has nothing to resolve and the exemption is the correct device.
-  //
-  // **Note what did NOT happen: the gap was not widened to fit the wiring.** Wiring the
-  // aggregation on one owner is progress and is recorded as such in the row; it does not
-  // make "each owner" true, and the row stays unticked on exactly the leg it always had.
-  //
-  // ## And then it was REMOVED again the same day — 2026-08-14
-  //
-  // The entry above stood for about an hour. The gap it names is closed: `bin/bench.ts`'s
-  // `--sovereign` leg now enrols its workers under **two** owners, seeds each owner's row onto
-  // that owner's nodes **and no others**, and aggregates — `coverage 2/2 owners complete`, read
-  // off a spawned driver by `sovereign-arm.node.test.ts` and planted red first. So MR-02 is
-  // `Done`, has left the *unreached* population entirely, and takes the same exit `SCHED-05`
-  // took. Its entry read:
-  //
-  //   { id: 'MR-02', because: 'entry-point-not-driven', reread: '2026-08-14', witnesses: [
-  //     core/reduce.test.ts, net/reduce-sovereign.test.ts,
-  //     node/sovereign-aggregation.node.test.ts, node/sovereign-arm.node.test.ts ] }
-  //
-  // **The lesson is about this register, not about MR-02, and it is the reason the round trip
-  // is written down instead of tidied away.** An entry here is a promise to re-read, and
-  // writing that promise down is what turned *"why is this exempt?"* into the next question
-  // rather than one for a future sweep. The exemption was the honest answer at 22:00 and was
-  // obsolete by 23:00 — the device did exactly what it exists to do, on the shortest possible
-  // timescale.
   {
-    id: 'MR-03',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-10',
-    witnesses: ['packages/core/src/reduce.test.ts', 'packages/net/src/combine.test.ts'],
-  },
-  {
+    // **Re-read 2026-08-14, `because` corrected, and the row's own text is what is now in
+    // question rather than the tree.**
+    //
+    // The open clause is *"every participant computes an identical tree with no consensus is a
+    // claim about two participants deriving the same tree, and the page has one requestor
+    // deriving it once"* — a statement about an experiment nobody has run, hence
+    // `'experiment-not-run'`. It is also an experiment nobody **can** run as the row is
+    // written: `deriveReduceTree` has exactly one production call site and it is inside the
+    // requestor, and the projection closure never crosses a wire, so no second participant can
+    // compute even one leaf CID to derive from. The row additionally says the tree is derived
+    // *"from sorted partial CIDs"*, and the sort is on `contributorId NUL cid` — the contributor
+    // string, with the CID only breaking ties (`reduce.ts` `leafId`).
+    //
+    // Under the owner ruling of 2026-08-14 the property that sentence protects is **routing
+    // stability and dedup**, not fraud prevention, so the resolution is a reword on VER-03's
+    // precedent rather than an experiment. Drafted and returned for the owner; not applied.
     id: 'MR-04',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-10',
+    because: 'experiment-not-run',
+    reread: '2026-08-14',
     witnesses: [
       'packages/core/src/reduce.test.ts',
       'packages/net/src/reduce-job.test.ts',
       'packages/node/src/late-combine.node.test.ts',
-      'packages/node/src/tree-reduce-agents.node.test.ts',
-    ],
-  },
-  {
-    id: 'MR-05',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-10',
-    witnesses: [
-      'packages/core/src/reduce.test.ts',
-      'packages/net/src/combine.test.ts',
-      'packages/net/src/reduce-job.test.ts',
       'packages/node/src/tree-reduce-agents.node.test.ts',
     ],
   },
@@ -1190,17 +1154,6 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/core/src/reduce.test.ts',
       'packages/net/src/combine-wire.test.ts',
       'packages/net/src/combine.test.ts',
-      'packages/node/src/tree-reduce-agents.node.test.ts',
-    ],
-  },
-  {
-    id: 'MR-07',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-10',
-    witnesses: [
-      'packages/core/src/reduce.test.ts',
-      'packages/net/src/reduce-job.test.ts',
-      'packages/node/src/late-combine.node.test.ts',
       'packages/node/src/tree-reduce-agents.node.test.ts',
     ],
   },
