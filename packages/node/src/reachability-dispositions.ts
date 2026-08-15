@@ -154,6 +154,12 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   'browser/classifyStartError',
   'browser/currentBrowserLabel',
   'browser/domThread',
+  // AUTH-02, 2026-08-14. Called from `main.ts#start` — a member of the same `api` literal as
+  // `classifyStartError`, `firstGap` and `probeEnvironment` three lines either side of it, and
+  // hidden by the same `window.o2` assignment. Not read off the source: the derived case named
+  // it verbatim, *"expected [ 'browser/enrolledIssuer' ] to deeply equal []"*, which is the
+  // G14 defence doing its job for the second recorded time.
+  'browser/enrolledIssuer',
   'browser/firstGap',
   'browser/grantConsent',
   'browser/identifyBrowser',
@@ -645,8 +651,16 @@ export const OPEN_FINDING_CEILING = 24
  * `reachability-guard.node.test.ts` re-measures all three legs of that claim on every run. The
  * ceiling is again exactly the register's size, deliberately. The guard printed it: *"the register
  * holds 42 entries against a ceiling of 36"*.
+ *
+ * **Raised 42 → 43, measured 2026-08-14.** One `global-object-hop` entrant, `browser/enrolledIssuer`,
+ * and it arrived the way the no-slack design above says a forced addition should: the derived case
+ * went red first and named it — *"expected [ 'browser/enrolledIssuer' ] to deeply equal []"* — and
+ * the register was edited to agree with a measurement rather than a judgement. It is AUTH-02's
+ * production anchor read, called from `main.ts#start`, hidden by the same `window.o2` assignment as
+ * the fifteen `browser/` entries it sits among. No new cause class and no new mechanism: had the
+ * graph been able to trace that one assignment, this entry would not exist.
  */
-export const DISPOSITION_CEILING = 42
+export const DISPOSITION_CEILING = 43
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {

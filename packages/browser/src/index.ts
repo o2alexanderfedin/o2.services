@@ -21,6 +21,11 @@
 
 export { IdbBlockstore } from './idb-blockstore.ts'
 export { BrowserNode } from './browser-node.ts'
+// AUTH-02 — the anchor a tab pins in production, read from the certificate this origin
+// already holds. Exported because the *caller* has to apply it: the set is fixed before
+// `resolveCertificate` runs, so `BrowserNode.start` cannot read it for itself. See the
+// function's own docblock for the ordering argument.
+export { enrolledIssuer } from './browser-node.ts'
 export type { BrowserNodeOptions } from './browser-node.ts'
 export type {
   TabActivity,

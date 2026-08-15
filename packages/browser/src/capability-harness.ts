@@ -36,7 +36,7 @@
  */
 
 import { CID } from 'multiformats/cid'
-import { BrowserNode } from './browser-node.ts'
+import { BrowserNode, enrolledIssuer } from './browser-node.ts'
 import { createTaskWorker } from './worker-factory.ts'
 import type { NodeSovereignty, PublicKeyHex } from '@o2/core'
 
@@ -54,6 +54,20 @@ export interface HarnessStartOptions {
   readonly relayAddrs: readonly string[]
   readonly blockstoreName: string
   readonly trustAnchors: readonly PublicKeyHex[]
+  /**
+   * AUTH-02 — the certificate issuers this tab pins, passed straight through.
+   *
+   * Omitted by every fixture that predates 2026-08-14, which is what keeps them reading
+   * the unpinned behaviour they were written against: `PeerVerifier` treats an empty set
+   * as "verifies nobody, so takes everybody", and a harness that quietly pinned something
+   * would change what those files measure without changing a line in them.
+   *
+   * Separate from {@link HarnessStartOptions.trustAnchors} and the separation is the
+   * point — those are *build* authorities checked against a module's signed record, these
+   * are *certificate* issuers checked against a peer's enrolment. `demo/main.ts` carries
+   * the long form of why conflating them is the mistake this surface exists to avoid.
+   */
+  readonly trustedIssuers?: readonly PublicKeyHex[]
   /** The owner this tab is pinned to, and whether it is cleared to execute for them. */
   readonly sovereignty: NodeSovereignty
   /**
@@ -102,6 +116,35 @@ export interface CapabilityHarness {
    */
   hasBlock(cid: string): Promise<boolean>
   /**
+   * Ask the **fetching** tier for `cid` and report how many bytes came back — AUTH-02.
+   *
+   * The deliberate opposite of {@link hasBlock}, and the two exist as a pair. `hasBlock`
+   * reads the local store *without* touching the network, so it can answer "did this tab
+   * go and get it". This one reads `BrowserNode.blockstore`, which is the
+   * `FetchingBlockstore` composed over `RpcBlockSource(rpc, () => verifier.verifiedPeers)`
+   * — so it walks the very list the pinning decision produces, over a real connection, to
+   * a real peer that really holds the block.
+   *
+   * That is what makes it the reading `peer-verifier.browser.test.ts` cannot take. A count
+   * of `verifiedPeers` establishes what the verifier *thinks*; this establishes what the
+   * node *does with it*, which is the composition line's actual claim.
+   *
+   * `null` for a block that could not be got. Length rather than the bytes because the
+   * bytes cross a `page.evaluate` boundary as JSON and no assertion here needs them —
+   * `FetchingBlockstore` has already verified the CID against the content by the time this
+   * returns, so a wrong block arrives as `null`, never as a wrong length.
+   */
+  fetchBlock(cid: string): Promise<number | null>
+  /**
+   * The peers this tab will fetch a block from — the AUTH-02 gate, read directly.
+   *
+   * Weaker than {@link fetchBlock} and kept beside it rather than instead of it. A getter
+   * can be right while the block source reads something else entirely, which is precisely
+   * the gap that made `browser-node.ts`'s composition line witnessed by a source-text
+   * count for a day. Both are asserted; they fail independently.
+   */
+  verifiedPeers(): string[]
+  /**
    * How many times this node's executor has been called — the ordering instrument.
    *
    * `GovernedExecutor` increments this immediately before it calls the executor it
@@ -133,6 +176,15 @@ export interface CapabilityHarness {
    * that would be compared as a string across a JSON boundary for no benefit.
    */
   certificate(): { nodeKey: string; issuer: string; userKey: string; expiresAt: number } | null
+  /**
+   * What `demo/main.ts` would pin if a visitor started a node on this origin right now.
+   *
+   * The production helper itself, called in a real engine against the IndexedDB a real
+   * enrolment wrote — not a reimplementation of it. Deliberately **not** routed through
+   * {@link running}: the whole question it answers is what a tab knows *before* it starts,
+   * so requiring a started node would make it unable to read the state it exists for.
+   */
+  enrolledIssuer(blockstoreName: string): Promise<string | null>
   stop(): Promise<void>
 }
 
@@ -157,6 +209,13 @@ export function installCapabilityHarness(): void {
         relayAddrs: [...options.relayAddrs],
         blockstoreName: options.blockstoreName,
         trustAnchors: [...options.trustAnchors],
+        // Conditional spread rather than `?? []`, so a fixture that names no issuers is
+        // absent from the option rather than present-and-empty. Both reach `PeerVerifier`
+        // as a set of size zero; only one of them says so in the `start` call a reader
+        // is looking at.
+        ...(options.trustedIssuers === undefined
+          ? {}
+          : { trustedIssuers: [...options.trustedIssuers] }),
         sovereignty: options.sovereignty,
         whenSeedIsGone: options.whenSeedIsGone,
         // BROW-01, and this harness states the open value rather than growing an option
@@ -191,6 +250,15 @@ export function installCapabilityHarness(): void {
     },
     async hasBlock(cid: string): Promise<boolean> {
       return running().store.has(CID.parse(cid))
+    },
+    async fetchBlock(cid: string): Promise<number | null> {
+      // `blockstore`, not `store` — see the interface. This is the whole distinction the
+      // method exists to make.
+      const bytes = await running().blockstore.get(CID.parse(cid))
+      return bytes?.length ?? null
+    },
+    verifiedPeers(): string[] {
+      return [...running().verifiedPeers]
     },
     executed(): number {
       return running().executor.executed
@@ -230,6 +298,9 @@ export function installCapabilityHarness(): void {
         userKey: held.userKey,
         expiresAt: held.expiresAt,
       }
+    },
+    async enrolledIssuer(blockstoreName: string): Promise<string | null> {
+      return enrolledIssuer(blockstoreName)
     },
     async stop(): Promise<void> {
       const started = node
