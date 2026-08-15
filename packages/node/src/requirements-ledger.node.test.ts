@@ -1119,114 +1119,6 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/node/src/static-rendezvous.e2e.test.ts',
     ],
   },
-  // `SCHED-04` was here until 2026-08-11 and is REMOVED for the same reason `SCHED-05` is,
-  // one line down: its row is `Done`, so it has left the *unreached* population.
-  // `SCHED-05` was here until 2026-08-11 and is REMOVED because the row is now `Done`, so
-  // it has left the *unreached* population entirely. It is the second way out of this list
-  // that the rule allows — the first being a row acquiring a checkable claim — and the set
-  // equality below is what makes the removal compulsory rather than optional. Its entry was
-  // the clearest example in the "argument value" bucket: `eligibleNodes` was called by both
-  // placers and the open leg was that nothing ever passed `label: 'sovereign'`. Phase 23
-  // passed it.
-  // `MR-02` was here until 2026-08-11 and was REMOVED, which is the direction this
-  // list is supposed to move in: its row used to say only that Phase 16 had run the
-  // aggregation over public shards, which names no symbol this file can resolve. It then
-  // named one — `reduceSovereignJob` has no production caller — so the claim was checkable
-  // and was checked, and the row could no longer go stale silently.
-  //
-  // **RE-ADDED 2026-08-14, and the round trip is the honest record rather than an
-  // embarrassment.** The claim that took it off this list was *"`reduceSovereignJob` has no
-  // production caller"*, and that claim is now **false**: `bin/bench.ts`'s `--sovereign` leg
-  // calls it. So the row lost its checkable claim by the claim being *satisfied*, which is
-  // the one way out of checkability this register did not previously have an example of.
-  //
-  // What remains open cannot be phrased as a symbol claim, and that is why it is here
-  // rather than reworded. MR-02 reads *"**each owner** computes a local partial over its
-  // own data"*, and every entry point in this repository runs **one** owner: bench enrols
-  // every worker under a single `BENCH_USER_SEED`, and the demo submits under the single
-  // `options.sovereign.ownerId` its harness supplies. The multi-owner reading — two owners,
-  // two operating-system processes, neither store ever holding the other's row — is real
-  // and is measured, but it is measured by a spec. No symbol names "two owners", so
-  // `parseRows` has nothing to resolve and the exemption is the correct device.
-  //
-  // **Note what did NOT happen: the gap was not widened to fit the wiring.** Wiring the
-  // aggregation on one owner is progress and is recorded as such in the row; it does not
-  // make "each owner" true, and the row stays unticked on exactly the leg it always had.
-  //
-  // ## And then it was REMOVED again the same day — 2026-08-14
-  //
-  // The entry above stood for about an hour. The gap it names is closed: `bin/bench.ts`'s
-  // `--sovereign` leg now enrols its workers under **two** owners, seeds each owner's row onto
-  // that owner's nodes **and no others**, and aggregates — `coverage 2/2 owners complete`, read
-  // off a spawned driver by `sovereign-arm.node.test.ts` and planted red first. So MR-02 is
-  // `Done`, has left the *unreached* population entirely, and takes the same exit `SCHED-05`
-  // took. Its entry read:
-  //
-  //   { id: 'MR-02', because: 'entry-point-not-driven', reread: '2026-08-14', witnesses: [
-  //     core/reduce.test.ts, net/reduce-sovereign.test.ts,
-  //     node/sovereign-aggregation.node.test.ts, node/sovereign-arm.node.test.ts ] }
-  //
-  // **The lesson is about this register, not about MR-02, and it is the reason the round trip
-  // is written down instead of tidied away.** An entry here is a promise to re-read, and
-  // writing that promise down is what turned *"why is this exempt?"* into the next question
-  // rather than one for a future sweep. The exemption was the honest answer at 22:00 and was
-  // obsolete by 23:00 — the device did exactly what it exists to do, on the shortest possible
-  // timescale.
-  // ## The five MR rows, re-read by hand on 2026-08-14 — and four of the five reason codes
-  // were wrong
-  //
-  // All five entered this register on 2026-08-10 under `'entry-point-not-driven'`, which the
-  // bucket list above glosses as *"the caller is behind a flag, or is a test rather than a page,
-  // or is one of two merge paths"*. **For `MR-03` and `MR-04` that is false of the tree and was
-  // false when it was written**, and the rows themselves say so: `packages/browser/demo/main.ts`
-  // calls `reduceJob` behind a page control (`runPi`), `packages/node/src/demo-pi.e2e.test.ts`
-  // presses that control on a real two-tab page, and `bin/bench.ts` calls it from the CLI. The
-  // entry point IS driven for the whole family. What is open in those two rows is a **statement
-  // about what an experiment covered** — the first bucket — and filing it under the second put
-  // four rows behind a reason that a reader checking it would have found untrue.
-  //
-  // `MR-05`, `MR-06` and `MR-07` keep `'entry-point-not-driven'` because for those three the
-  // gloss is exactly right: each row's open clause says the mechanism is read by a process-level
-  // spec and by no page button, which is *a test rather than a page* verbatim.
-  //
-  // **`MR-06` is deliberately left at its 2026-08-10 clock.** Nothing in this pass re-read it,
-  // and moving a date for a row you did not read is the precise failure this register was built
-  // to stop. Four days outstanding, well inside the bound.
-  {
-    // **Re-read 2026-08-14, `because` corrected, and the open clause is now measured.**
-    //
-    // The row's remaining gap was named by
-    // `.planning/phases/phase-27-demo-ui-driven-by-real-fabric/27-OPEN-ITEMS.md` §11: *"No
-    // surface demonstrates the **commutative** half: the demo runs one combine order, once."*
-    // Until today the only reading of commutativity anywhere was `reduce.test.ts`'s *"hashes the
-    // same whatever order its inputs arrive in"*, which calls `fabricCombiner([a,b])` and
-    // `fabricCombiner([b,a])` — the monoid, and nothing that reaches it.
-    //
-    // The new witness takes it off the driver instead: `reduceJob` is run twice over ONE
-    // completed job under two `ContributorAttribution` maps whose labels are reversed inside
-    // each fanout-sized block, so both runs hand every level-1 combine the same four partials
-    // and differ only in the order — asserted as a multiset equality plus a sequence
-    // inequality, so re-grouping cannot be what is being read. Every combine is served by
-    // `combineAdmitted` in a real `bin/agent.ts` process. Planted: `fabricCombiner`'s
-    // `counts.set(word, (counts.get(word) ?? 0) + n)` → `+ n + counts.size`, watched red at
-    // `expected 'bafyreidx7gk27rdag3bkcilpbyatu36cb4s3…' to be
-    // 'bafyreiew5mwm5sdjupps4uh4ys5eakpvmzog…'`, restored and `cmp`-verified.
-    //
-    // **The second clause of the row's gap died on its own**: it read *"`MR-02` above is still
-    // *Built, not wired*"*, and `MR-02` is `Done` as of 2026-08-14.
-    //
-    // So this entry is re-recorded rather than removed, and only because ticking the box is an
-    // owner's edit to a file this agent may not write. The proposed tick is carried in the
-    // return of the plan that added the witness, not taken here.
-    id: 'MR-03',
-    because: 'experiment-not-run',
-    reread: '2026-08-14',
-    witnesses: [
-      'packages/core/src/reduce.test.ts',
-      'packages/net/src/combine.test.ts',
-      'packages/node/src/tree-reduce-agents.node.test.ts',
-    ],
-  },
   {
     // **Re-read 2026-08-14, `because` corrected, and the row's own text is what is now in
     // question rather than the tree.**
@@ -1255,42 +1147,6 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     ],
   },
   {
-    // **Re-read 2026-08-14. The row's sentence is met; the clause holding it open is an
-    // addition to the row rather than the row, and the clock moves for that finding alone.**
-    //
-    // The sentence is *"combine executors are assigned by rendezvous hashing, yielding a ranked
-    // fallback list"*. Assignment: `packages/core/src/reduce.ts:427`,
-    // `rendezvousRank(node.id, executors)`, once per combine. Ranked fallback list:
-    // `rendezvousRank` returns **every** candidate in preference order (`reduce.ts:250-255`) and
-    // the walk at `reduce.ts:441-449` consumes the tail — the ranking IS the fallback list, with
-    // no lookup and no coordinator. Driven from `bin/bench.ts` and from the demo page through
-    // `reduceJob`. Read across processes by `tree-reduce-agents.node.test.ts`'s SIGKILL case,
-    // and that reading was planted today: `.map((entry) => entry.nodeId)` → `+ .slice(0, 1)`
-    // went red at `expect(outcome.ok).toBe(true) // (c)` — so the *list*, and not merely the
-    // winner, is what the spec reads. Restored and `cmp`-verified.
-    //
-    // **What this re-read did NOT establish, stated so the bump cannot be mistaken for more
-    // than it is:** the page-surface clause is untouched. No visitor sees a ranking, and the
-    // two-tab run still produces no null combine for the walk to fall through. That is why the
-    // entry stays and why `because` stays.
-    //
-    // **And a verifiability concern raised the same day is deliberately NOT recorded as a gap.**
-    // It proposed that an executor recompute the combine id and refuse work it was not the
-    // rendezvous choice for. The owner ruling of 2026-08-14
-    // (`.planning/consults/2026-08-14-owner-ruling-sovereign-threat-model.md`) disposes of it:
-    // both attacks it names are the data owner attacking their own job. It is not in this row's
-    // text and it is not security here.
-    id: 'MR-05',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-14',
-    witnesses: [
-      'packages/core/src/reduce.test.ts',
-      'packages/net/src/combine.test.ts',
-      'packages/net/src/reduce-job.test.ts',
-      'packages/node/src/tree-reduce-agents.node.test.ts',
-    ],
-  },
-  {
     id: 'MR-06',
     because: 'entry-point-not-driven',
     reread: '2026-08-10',
@@ -1298,39 +1154,6 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/core/src/reduce.test.ts',
       'packages/net/src/combine-wire.test.ts',
       'packages/net/src/combine.test.ts',
-      'packages/node/src/tree-reduce-agents.node.test.ts',
-    ],
-  },
-  {
-    // **Re-read 2026-08-14, and the finding is a mis-sited citation rather than a gap.**
-    //
-    // The row's sentence is *"a duplicate combine result is discarded harmlessly **because it
-    // carries the same CID**"*, and the row attributes that to
-    // `packages/node/src/late-combine.node.test.ts`. That spec is excellent and it reads a
-    // different mechanism: `packages/net/src/rpc.ts`'s `if (entry === undefined) return`
-    // discards because a **timeout** already deleted the pending entry, which happens whatever
-    // CID the frame carries. Nothing there turns on content addressing.
-    //
-    // The mechanism the sentence names is read by `tree-reduce-agents.node.test.ts`'s
-    // `MR-07 — two replicas dedupe` case, and every RPC in it resolves — nothing times out, so
-    // the timeout path cannot be what discards anything. Two arms:
-    // `executeReduce`'s `cids: [...new Set(produced.map((p) => p.cid))]` collapses two live
-    // replicas' answers to one, and the content-addressed `put` behind
-    // `remoteCombineDispatch` leaves a probe store unmoved when a ninth, never-before-involved
-    // process re-answers a combine — with a disjoint input set moving it by one, as the control.
-    // Planted today: deleting the `new Set` turned two agreeing replicas into a disagreement
-    // across eight real processes, red at `expect(outcome.ok).toBe(true)`. Restored and
-    // `cmp`-verified.
-    //
-    // The entry stays because the row's *"not something a page button can demonstrate"* clause
-    // is still true, and because the citation is the ledger's to fix.
-    id: 'MR-07',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-14',
-    witnesses: [
-      'packages/core/src/reduce.test.ts',
-      'packages/net/src/reduce-job.test.ts',
-      'packages/node/src/late-combine.node.test.ts',
       'packages/node/src/tree-reduce-agents.node.test.ts',
     ],
   },

@@ -731,7 +731,13 @@ describe('the ledger this suite parses is the real ledger', () => {
     // `coverage 2/2 owners complete`, read off a spawned driver by `sovereign-arm.node.test.ts`.
     expect(locate('MR-02')?.satisfied).toBe(true) // v1 section, closed 2026-08-14
     expect(locate('SCHED-06')?.satisfied).toBe(true) // v1.1 section, closed
-    expect(locate('WIRE-02')?.satisfied).toBe(false) // v1.1 section, open
+    // **WIRE-02 closed 2026-08-14 and this line moved with it** — `false` until then. It was
+    // the list's only open v1.1 row, and the paragraph above says why an id that CHANGES state
+    // serves this list better than one that never does: a parser returning a constant passes a
+    // list of unchanging values and fails a line like this one. So the row keeps its place here
+    // rather than being swapped for a still-open id, and it now carries the same evidence it
+    // did before — that this parser reads the state the ledger gives, whichever state that is.
+    expect(locate('WIRE-02')?.satisfied).toBe(true) // v1.1 section, closed 2026-08-14
     expect(locate('BENCH-07')?.satisfied).toBe(true) // v1.1 section, closed 2026-08-06
     expect(locate('DATA-10')?.satisfied).toBe(true) // v1.1 section, closed 2026-08-02
     expect(locate('WIRE-01')?.satisfied).toBe(true)
