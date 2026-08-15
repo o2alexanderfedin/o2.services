@@ -269,7 +269,23 @@ describe('the colouring formatter, with no DOM', () => {
     expect(format(held).regions['colouring/quorum']).not.toBe(
       format(heldComposed).regions['colouring/quorum'],
     )
-  })
+    // 30 s, sited on a measurement rather than on a failure. This case calls `format()`
+    // SIX times where every sibling calls it once or twice, and it is the slowest in the
+    // file by a factor of two: measured alone on 2026-08-15 at **2 146 ms**, against
+    // vitest's 5 000 ms default. That is 2.3x headroom, which a full node run does not
+    // reliably leave — it timed out inside one, and passed alone minutes later on the same
+    // tree.
+    //
+    // The alternative reading was "the host was loaded, change nothing", and it was
+    // rejected on the numbers: a case sitting at 43 % of its own bound is not a case the
+    // weather occasionally spoils, it is one whose bound was never sized for it. This is
+    // the shape `vitest.config.ts` already records for the `reachability` spec, where one
+    // member of a block sat on the default while its siblings carried an explicit value —
+    // diagnosed there as *"a missing argument, not weather; fixed at the case."*
+    //
+    // Nothing about what is asserted changes. A slower machine does not make a region
+    // derive from the wrong value.
+  }, 30_000)
 
   it('says the fabric settled nothing rather than that nothing was run', () => {
     const nothing = format({ peers: 0, rungs: [{ n: 300, run: run({ found: false }) }] })
