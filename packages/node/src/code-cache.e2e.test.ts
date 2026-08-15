@@ -59,13 +59,17 @@ import { ARTIFACT_SIZED, CHAINED_HOT, syntheticArtifact } from '../../browser/sr
  *
  * ## What is observed now
  *
- * Three profiles, three separate Chromium contexts, one Vite origin:
+ * Five profiles, five separate Chromium contexts, one Vite origin:
  *
  * | profile | shape | visits | result |
  * |---|---|---|---|
  * | straight-line | `ARTIFACT_SIZED`, 4.86 MB, both arms | 3 | `Code Cache/wasm` 72 B, no cache trace events |
  * | chained / platform | `CHAINED_HOT`, 622 KB, `compileStreaming` only | 2 | writes on visit 1, reads on visit 2 |
  * | chained / loader | `CHAINED_HOT`, 622 KB, shipped `loadArtifact` only | 2 | writes on visit 1, reads on visit 2 |
+ * | quiet-default | 250 x 250, 189 KB, `compileStreaming` only | 2 | 72 B — never writes |
+ * | quiet-disabled | the same, `--wasm-caching-timeout-ms=0` | 2 | writes on visit 1, reads on visit 2 |
+ *
+ * The last two are one pair and are read as one: see *The governing variable* below.
  *
  * The two chained profiles are separate **so the arms can be told apart**. A trace event
  * says a module was serialised; it does not say which of two modules in the same
@@ -90,33 +94,85 @@ import { ARTIFACT_SIZED, CHAINED_HOT, syntheticArtifact } from '../../browser/sr
  * turn a Chromium code-generation change into a red build. The assertion is that they
  * clear the 72-byte index-only floor by orders of magnitude.
  *
- * ## What this still does not say
+ * ## The governing variable, settled 2026-08-14
  *
- * Not every executable module caches, and the governing variable is **not established**.
- * Measured on this machine, all chained, all heated well past tier-up, all served
- * identically:
+ * This section used to say the governing variable was **not established**, and offered
+ * function count as the axis that ordered four points without claiming it was the
+ * mechanism. It is established now, and it is neither function count nor size.
  *
- * | shape | module | outcome | entry |
- * |---|---|---|---|
- * | 2000 x 100 | 621,623 B | writes on visit 1 | 61,478 B |
- * | 1000 x 150 | 460,473 B | writes — visit 1 or 2 depending on the run | 30,690 B |
- * | 500 x 400 | 604,223 B | never writes | — |
- * | 250 x 250 | 189,423 B | never writes | — |
+ * **It is V8's quiescence window, `--wasm-caching-timeout-ms`.** Caching is triggered
+ * only once no new code has been compiled for that long; the default is 2000 ms. The
+ * shapes that "never cache" are perfectly cacheable modules whose compilation never goes
+ * quiet inside that window.
  *
- * The four module sizes are exact and reproduce. The *outcomes* were re-measured on a
- * second occasion, and one of them moved: 1000 x 150 was first recorded as writing on
- * visit 2 and was then observed writing on visit 1. Nothing else changed, so the row
- * is stated as the range it actually occupies rather than as the first reading —
- * `--wasm-caching-timeout-ms=2000` makes "which visit" a race between the settle and a
- * timer, and a row that names one visit is claiming a precision this has not got. The
- * two never-writes rows and the committed shape's write were identical both times.
+ * The sweep, four shapes x four Chromium configurations, all chained, all heated 60,000
+ * calls, one persistent profile each, one loopback origin, headless. `CACHES` means
+ * `wasm.SerializeModule` on visit 1 and all three read events on visit 2:
  *
- * 500 x 400 and 2000 x 100 have near-identical module sizes and identical total
- * operation counts, and they behave differently — so module size alone does not
- * explain it, and neither does "the module is executable". Function count is the axis
- * that orders these four, but four points on one machine is a correlation, not a
- * mechanism, and no attempt was made to read V8's own accounting of top-tier bytes.
- * The committed shape is the one that reproduces; why its neighbours do not is open.
+ * | shape | module | default | `--wasm-caching-threshold=1` | `--wasm-caching-timeout-ms=0` | `--wasm-caching-hard-threshold=250000` |
+ * |---|---|---|---|---|---|
+ * | 2000 x 100 | 621,623 B | CACHES 61,483 B | CACHES 61,483 B | CACHES | CACHES |
+ * | 1000 x 150 | 460,473 B | flaky (72 B this run) | CACHES 30,695 B | CACHES | CACHES |
+ * | 500 x 400 | 604,223 B | 72 B | 72 B | CACHES | CACHES |
+ * | 250 x 250 | 189,423 B | 72 B | 72 B | CACHES | CACHES |
+ *
+ * Two readings do the work. **Disabling the timer alone caches all four** — the byte
+ * threshold left at its default 1000. **Lowering the byte threshold to 1 does not**:
+ * 500 x 400 and 250 x 250 stay at the 72-byte index-only floor. So the gate is the
+ * timer, and the threshold is not what those two were failing.
+ *
+ * The window each shape needs, from a ladder on `--wasm-caching-timeout-ms` alone:
+ *
+ * | shape | 2000 ms (default) | 1000 ms | 250 ms | 50 ms |
+ * |---|---|---|---|---|
+ * | 500 x 400 | no | CACHES | CACHES | CACHES |
+ * | 250 x 250 | no | no | CACHES | CACHES |
+ *
+ * Monotone, and at a different value per shape. 2000 x 100 caches at the default, so the
+ * three sit in an order — 2000 x 100 tolerates ≥2000 ms, 500 x 400 needs ≤1000 ms,
+ * 250 x 250 needs ≤250 ms — and that order, not the size column, is the finding.
+ *
+ * ## A hypothesis that fit the arithmetic and was false anyway
+ *
+ * V8's own accounting, read for the first time with `--trace-wasm-compilation-times`
+ * (which reports each function's Liftoff→TurboFan upgrade **and its `codesize`**, the
+ * quantity this file had only ever inferred), summed over the module in Node:
+ *
+ * | shape | TurboFan functions | top-tier code |
+ * |---|---|---|
+ * | 2000 x 100 | 2000 | **1,009,052 B** |
+ * | 1000 x 150 | 1000 | 691,008 B |
+ * | 500 x 400 | 500 | 785,080 B |
+ * | 250 x 250 | 250 | 260,688 B |
+ *
+ * `--wasm-caching-hard-threshold` defaults to 1,000,000 and is documented as triggering
+ * caching *immediately, ignoring the timeout*. The committed shape produces 1,009,052 B —
+ * over that line by 9,052 B, or 0.9% — and it is the only one of the four that crosses
+ * it. That is a complete explanation of every row in the first table, and it is **wrong**.
+ * Raising the hard threshold to 2,000,000, above the committed shape's own top-tier
+ * total, left it caching and left the figure byte-identical at 61,483 B. It does not
+ * reach the cache by that door.
+ *
+ * The number is recorded because it agreed with a theory and the theory still died —
+ * which is the third time in this project that arithmetic fitting a hypothesis has not
+ * been the hypothesis's proof, and the reason the falsifying arm was run at all.
+ *
+ * ## What is still open
+ *
+ * *Why* compilation fails to go quiet inside 2000 ms for these shapes. Per-function
+ * TurboFan cost does not look like the cause: measured in Node, 500 x 400's 500 upgrades
+ * total 4 ms and 250 x 250's 250 total 1 ms, so no individual job is slow, and the
+ * consultation's proposed mechanism — large functions finishing far apart so bytes
+ * trickle — is not supported by that reading even though its conclusion was right.
+ * Total top-tier bytes does not order the four either: 500 x 400 produces more of it
+ * than 1000 x 150 and is the harder of the two to cache.
+ *
+ * The residual is settled to the level of *which knob governs*, which is what the
+ * committed pair below asserts, and not to the level of what makes each shape sit where
+ * it does on that knob.
+ *
+ * Also unchanged and deliberate: the committed default shape stays 2000 x 100. It is the
+ * shape that reproduces, and `streaming-load.browser.test.ts` pins its bytes exactly.
  *
  * It also remains true that this is automation-driven Chromium, a fresh temporary
  * profile and a loopback http origin, and that none of those was isolated as a factor.
@@ -154,6 +210,48 @@ const LOADER_ARM = syntheticArtifact({ ...ARTIFACT_SIZED, functions: ARTIFACT_SI
  */
 const HOT_PLATFORM_ARM = syntheticArtifact(CHAINED_HOT)
 const HOT_LOADER_ARM = syntheticArtifact({ ...CHAINED_HOT, functions: CHAINED_HOT.functions + 1 })
+
+/**
+ * 250 x 250 — the shape that never cached, and the subject of the quiescence pair.
+ *
+ * Chosen from the four swept shapes because it is the one that fails hardest at V8's
+ * default settings and the one whose heat is cheapest: 60,000 calls cost about 1.5 s
+ * here against 6.5 s for `CHAINED_HOT`, so carrying two more profiles costs the suite
+ * a few seconds rather than a minute. It is deliberately **not** promoted to
+ * `synthetic-artifact.ts`: it is a diagnostic subject for one measurement, not a
+ * published fixture, and `streaming-load.browser.test.ts` pins byte-exact output for
+ * the shapes that are.
+ */
+const QUIET_SHAPE = { functions: 250, opsPerFunction: 250, chained: true } as const
+const QUIET_DEFAULT_ARM = syntheticArtifact(QUIET_SHAPE)
+/** A distinct module for the other profile, for the reason the other arms are distinct. */
+const QUIET_DISABLED_ARM = syntheticArtifact({ ...QUIET_SHAPE, functions: QUIET_SHAPE.functions + 1 })
+
+/**
+ * The flag that settles the residual, passed to one profile of the pair and not the other.
+ *
+ * `--wasm-caching-timeout-ms` is V8's quiescence window: caching is triggered only once
+ * no new code has been compiled for that long. `0` is documented on `node --v8-options`
+ * as *"disable this logic and only use --wasm-caching-threshold"*.
+ *
+ * ## The flag was verified to exist rather than assumed
+ *
+ * Two checks, because "the flag is in the help text of the Node on this machine" is not
+ * the same claim as "this Chromium's V8 honours it", and this file has already been
+ * burned once by a list of names that were present in the binary and inert on the path.
+ *
+ * 1. `--js-flags` reaches the renderer's V8 at all: launched with
+ *    `--js-flags=--expose-gc`, `typeof globalThis.gc` is `'function'` in the page, and
+ *    `'undefined'` without it.
+ * 2. This flag is *recognised by name*: V8 writes `Error: unrecognized flag <name>` to
+ *    the browser process's stderr for one that is not, and a deliberately bogus
+ *    `--o2-bogus-flag-xyz` produces exactly that line while the wasm-caching flags
+ *    produce none. Measured against Google Chrome for Testing 151.0.7922.34.
+ *
+ * A flag that were silently ignored would make the pair below agree, not disagree — so
+ * the disagreement is itself the third check, and the one that runs on every build.
+ */
+const DISABLE_QUIESCENCE_TIMER = ['--js-flags=--wasm-caching-timeout-ms=0']
 
 /** Multicodec `raw` — a single block of bytes, which is what an artifact is. */
 const RAW_CODE = 0x55
@@ -285,10 +383,14 @@ let baseUrl: string
 let straight: Profile
 let hotPlatform: Profile
 let hotLoader: Profile
+let quietDefault: Profile
+let quietDisabled: Profile
 let rawCid: string
 let loaderCid: string
 let hotPlatformCid: string
 let hotLoaderCid: string
+let quietDefaultCid: string
+let quietDisabledCid: string
 let artifactRequests = 0
 
 /** Recursive byte total. `-1` when the directory does not exist at all. */
@@ -384,11 +486,15 @@ import(/* @vite-ignore */ controlUrl).then((mod) => {
 window.probeReady = true
 </script>`
 
-async function launchProfile(label: string): Promise<Profile> {
+async function launchProfile(label: string, args: readonly string[] = []): Promise<Profile> {
   // A persistent profile, because a code cache that lives only in memory would make
   // the "second visit" arm meaningless before it started.
+  //
+  // `args` exists for the quiescence pair below and for nothing else. It is the only
+  // difference between those two profiles, which is what makes their disagreement a
+  // reading of the flag rather than of the machine.
   const dir = await mkdtemp(join(tmpdir(), `o2-code-cache-${label}-`))
-  return { label, dir, context: await chromium.launchPersistentContext(dir, { headless: true }) }
+  return { label, dir, context: await chromium.launchPersistentContext(dir, { headless: true, args: [...args] }) }
 }
 
 beforeAll(async () => {
@@ -396,12 +502,16 @@ beforeAll(async () => {
   loaderCid = CID.create(1, RAW_CODE, await sha256.digest(LOADER_ARM)).toString()
   hotPlatformCid = CID.create(1, RAW_CODE, await sha256.digest(HOT_PLATFORM_ARM)).toString()
   hotLoaderCid = CID.create(1, RAW_CODE, await sha256.digest(HOT_LOADER_ARM)).toString()
+  quietDefaultCid = CID.create(1, RAW_CODE, await sha256.digest(QUIET_DEFAULT_ARM)).toString()
+  quietDisabledCid = CID.create(1, RAW_CODE, await sha256.digest(QUIET_DISABLED_ARM)).toString()
 
   const byCid = new Map<string, Uint8Array>([
     [rawCid, RAW_ARM],
     [loaderCid, LOADER_ARM],
     [hotPlatformCid, HOT_PLATFORM_ARM],
     [hotLoaderCid, HOT_LOADER_ARM],
+    [quietDefaultCid, QUIET_DEFAULT_ARM],
+    [quietDisabledCid, QUIET_DISABLED_ARM],
   ])
 
   server = await createServer({
@@ -468,10 +578,12 @@ beforeAll(async () => {
   straight = await launchProfile('straight')
   hotPlatform = await launchProfile('hot-platform')
   hotLoader = await launchProfile('hot-loader')
+  quietDefault = await launchProfile('quiet-default')
+  quietDisabled = await launchProfile('quiet-disabled', DISABLE_QUIESCENCE_TIMER)
 }, 300_000)
 
 afterAll(async () => {
-  for (const profile of [straight, hotPlatform, hotLoader]) {
+  for (const profile of [straight, hotPlatform, hotLoader, quietDefault, quietDisabled]) {
     await profile?.context.close().catch(() => {})
     await rm(profile?.dir ?? '', { recursive: true, force: true }).catch(() => {})
   }
@@ -560,6 +672,8 @@ const INDEX_ONLY_CEILING = 4096
 const straightReadings: VisitReading[] = []
 const hotPlatformReadings: VisitReading[] = []
 const hotLoaderReadings: VisitReading[] = []
+const quietDefaultReadings: VisitReading[] = []
+const quietDisabledReadings: VisitReading[] = []
 
 describe('AOT-05 — a translated artifact loads over a stable content-addressed URL', () => {
   it('completes every visit in every profile with both the platform API and the shipped loader', async () => {
@@ -578,10 +692,23 @@ describe('AOT-05 — a translated artifact loads over a stable content-addressed
     hotLoaderReadings.push(await visit(hotLoader, 1, 15_000, loader))
     hotLoaderReadings.push(await visit(hotLoader, 2, 8_000, loader))
 
+    // The quiescence pair. Identical in every respect the other profiles vary —
+    // same origin, same headers, same heat, same settle, same platform API, same
+    // shape — and different in exactly one Chromium argument.
+    const quietA = [platformArm(quietDefaultCid, HOT_HEAT_CALLS)]
+    quietDefaultReadings.push(await visit(quietDefault, 1, 15_000, quietA))
+    quietDefaultReadings.push(await visit(quietDefault, 2, 8_000, quietA))
+
+    const quietB = [platformArm(quietDisabledCid, HOT_HEAT_CALLS)]
+    quietDisabledReadings.push(await visit(quietDisabled, 1, 15_000, quietB))
+    quietDisabledReadings.push(await visit(quietDisabled, 2, 8_000, quietB))
+
     for (const [label, readings] of [
       ['straight', straightReadings],
       ['hot-platform', hotPlatformReadings],
       ['hot-loader', hotLoaderReadings],
+      ['quiet-default', quietDefaultReadings],
+      ['quiet-disabled', quietDisabledReadings],
     ] as const) {
       for (const reading of readings) {
         for (const arm of reading.arms) {
@@ -595,7 +722,12 @@ describe('AOT-05 — a translated artifact loads over a stable content-addressed
     // The whole correction in this file is that the previous fixture never tiered up.
     // A truncated heat would silently reintroduce exactly that, and the wall-clock
     // backstop in `heat` makes truncation possible rather than impossible.
-    for (const reading of [...hotPlatformReadings, ...hotLoaderReadings]) {
+    for (const reading of [
+      ...hotPlatformReadings,
+      ...hotLoaderReadings,
+      ...quietDefaultReadings,
+      ...quietDisabledReadings,
+    ]) {
       for (const arm of reading.arms) {
         expect(arm.heatCalls, `visit ${reading.visit} heated only ${arm.heatCalls} calls`).toBe(HOT_HEAT_CALLS)
       }
@@ -703,6 +835,46 @@ describe('AOT-05 — the code cache is written and read back, once the module ca
     expect(last.jsCacheBytes).toBeGreaterThan(first.jsCacheBytes)
   })
 
+  it('leaves 250x250 uncached at V8\'s default quiescence window, reproducing the residual', () => {
+    // The row the sweep recorded as "never writes". It is reproduced here rather than
+    // quoted, because it is the half of the pair that carries the contrast: without it,
+    // the flagged profile below is a module that caches, which was never in doubt.
+    for (const reading of quietDefaultReadings) {
+      expect(reading.wasmCacheBytes, `quiet-default visit ${reading.visit}`).toBeLessThan(INDEX_ONLY_CEILING)
+      expect(reading.writeTraceEvents).toEqual([])
+      expect(reading.readTraceEvents).toEqual([])
+    }
+    // A reading, not an absence of one.
+    for (const reading of quietDefaultReadings) expect(reading.wasmCacheBytes).toBeGreaterThanOrEqual(0)
+  })
+
+  it('caches that same shape once the quiescence timer is disabled — the governing variable', () => {
+    // **This is the answer to the residual.** One Chromium argument apart from the
+    // profile above: same origin, same headers, same 60,000 calls, same settle, same
+    // platform API, and a module of the same shape. It writes on visit 1 and reads on
+    // visit 2.
+    //
+    // What that rules out is everything the residual left open. The module is not too
+    // small, not too large, not the wrong function count, and not "unable to tier up" —
+    // it is the same module, and the only thing that changed is *when V8 decides to
+    // serialise*. So the governing variable is the caching trigger policy, and
+    // specifically the quiescence window: not module bytes, not function count, and not
+    // ops per function, all of which are identical across this pair.
+    const first = quietDefaultReadings[0]
+    const flaggedFirst = quietDisabledReadings[0]
+    const flaggedSecond = quietDisabledReadings[1]
+    expect(first).toBeDefined()
+    expect(flaggedFirst).toBeDefined()
+    expect(flaggedSecond).toBeDefined()
+    if (first === undefined || flaggedFirst === undefined || flaggedSecond === undefined) return
+    expect(flaggedFirst.writeTraceEvents).toEqual(CACHE_WRITE_TRACE_NAMES)
+    expect(flaggedSecond.readTraceEvents).toEqual(CACHE_READ_TRACE_NAMES)
+    expect(flaggedFirst.wasmCacheBytes).toBeGreaterThan(INDEX_ONLY_CEILING)
+    // The comparison stated as a ratio within the run, which is what makes it a reading
+    // of the flag rather than of this machine on this day.
+    expect(flaggedFirst.wasmCacheBytes).toBeGreaterThan(first.wasmCacheBytes * 10)
+  })
+
   it('reports every reading, including the figures it deliberately does not assert', () => {
     const lines: string[] = []
     lines.push('AOT-05 criterion 4 — V8 WebAssembly code cache across visits')
@@ -714,6 +886,8 @@ describe('AOT-05 — the code cache is written and read back, once the module ca
       ['straight', straightReadings],
       ['hot-platform', hotPlatformReadings],
       ['hot-loader', hotLoaderReadings],
+      ['quiet-default', quietDefaultReadings],
+      ['quiet-disabled', quietDisabledReadings],
     ] as const) {
       for (const reading of readings) {
         const compile = reading.arms.map((arm) => `${arm.compileMs.toFixed(1)}ms`).join('+')
@@ -730,15 +904,27 @@ describe('AOT-05 — the code cache is written and read back, once the module ca
         ' fixture — a module whose only exported function called nothing and folded to a constant,' +
         ' so one function of 8000 tiered up and --wasm-caching-threshold was never reached.',
     )
+    lines.push(
+      '  RESIDUAL SETTLED 2026-08-14: the governing variable is V8\'s quiescence window' +
+        ' (--wasm-caching-timeout-ms), not module size, not function count, and not bytes of' +
+        ' top-tier code. The quiet-default and quiet-disabled rows above are the same 250x250' +
+        ' shape one Chromium argument apart: uncached at the default 2000 ms, cached at 0.',
+    )
     lines.push('  Limitations of this reading, published rather than dropped:')
     lines.push('    - automation-driven Chromium with fresh temporary profiles; neither isolated as a factor')
     lines.push('    - a loopback http origin, not the https gateway a deployment would use')
-    lines.push('    - why 500x400 and 250x250 do not cache while 2000x100 does is unexplained; see the module comment')
+    lines.push('    - WHY compilation fails to go quiet inside the window for these shapes is still open')
     lines.push('    - a synthetic module stands in for a translated artifact; it has no imports, no memory and no WASI')
     lines.push('    - the heat loop is the harness calling run() in a tight loop, not a workload anything would run')
     process.stdout.write(`${lines.join('\n')}\n`)
 
-    for (const reading of [...straightReadings, ...hotPlatformReadings, ...hotLoaderReadings]) {
+    for (const reading of [
+      ...straightReadings,
+      ...hotPlatformReadings,
+      ...hotLoaderReadings,
+      ...quietDefaultReadings,
+      ...quietDisabledReadings,
+    ]) {
       expect(reading.wasmCacheBytes, 'Code Cache/wasm was never created — nothing was observed').toBeGreaterThanOrEqual(0)
     }
   })

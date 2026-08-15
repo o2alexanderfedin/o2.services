@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import {
+  DEFAULT_FANOUT,
   MemoryBlockstore,
   canonicalCid,
   executeReduce,
@@ -1072,5 +1073,115 @@ describe('MR-07 — two replicas dedupe, and a duplicate from a fresh process co
     expect(outcome.rootCid).not.toBeNull()
     const holders = await holdersOf(spawned, outcome.rootCid as string)
     expect(holders).toHaveLength(2)
+  }, PROCESS_TEST_TIMEOUT)
+})
+
+/**
+ * **MR-03's commutative half, taken off the driver rather than off the combiner.**
+ *
+ * `MR-03` reads *"partials merge up a hierarchical tree via an associative, **commutative**
+ * combine"*. The associative half has two readings already and both are strong: `referenceRoot`
+ * above merges all eight in ONE call and the tree's two-level answer matches it bit for bit,
+ * and `reduce.test.ts` re-takes it in-process. The commutative half had exactly one reading
+ * anywhere in this repository — `reduce.test.ts`'s *"hashes the same whatever order its inputs
+ * arrive in"*, which calls `fabricCombiner([a,b])` and `fabricCombiner([b,a])` directly. That
+ * is a kernel fixture: it reads the monoid and nothing that reaches it.
+ * `.planning/phases/phase-27-demo-ui-driven-by-real-fabric/27-OPEN-ITEMS.md` §11 names this
+ * as the substantive reason the row was left unticked — *"the demo runs one combine order,
+ * once"*.
+ *
+ * ## What varies here, and what is held fixed so the reading is commutativity and not
+ * associativity
+ *
+ * The variable is `ContributorAttribution`, which is a **production option** of `reduceJob`
+ * (`reduce-job.ts`, `ReduceJobOptions.contributors`) and not a test seam: `reduceSovereignJob`
+ * builds the `Map` form from certificates it verified. A leaf's identity is
+ * `contributorId\u0000cid` and `deriveReduceTree` sorts on it, so relabelling the contributors
+ * of one completed job re-orders the leaves without touching a single partial.
+ *
+ * The permutation reverses the labels **within each fanout-sized block**. That is the whole
+ * design of this case: block membership is preserved, so both runs hand each level-1 combine
+ * **the same four partials**, and the only difference between the runs is the **order** those
+ * four arrive in. A permutation that crossed block boundaries would re-group as well as
+ * re-order and the reading would collapse back into associativity — which is already held, and
+ * would make this case say nothing new. Assertion (2) below measures both halves of that claim
+ * rather than asserting the arithmetic: same multiset, different sequence.
+ *
+ * ## Why this is not the same claim `referenceRoot` already makes
+ *
+ * `referenceRoot`'s docblock says, correctly, that *"commutativity is **not** claimed and must
+ * not be reintroduced"* — because a one-call reference over eight partials in shard order,
+ * compared against a tree that merges them in that same sorted order, varies the **grouping**
+ * and nothing else. This case leaves that sentence true of `referenceRoot` and adds the
+ * missing variable beside it.
+ *
+ * ## What "driven" means here, stated rather than implied
+ *
+ * `reduceJob` is the requestor half of the production path — `bin/bench.ts:2437`,
+ * `packages/browser/demo/main.ts:820` behind a page button, and `reduce-sovereign.ts:361` —
+ * and every combine below is served by `combineAdmitted` inside a real `bin/agent.ts` operating
+ * -system process, reached over a real transport. It is **not** a page reading: no visitor can
+ * press a control that permutes an attribution, and nothing on screen shows this. What it stops
+ * being is a kernel fixture.
+ */
+describe('MR-03 — the commutative half, read off reduceJob across eight bin/agent.ts processes', () => {
+  it('reduces one job twice under permuted contributor labels and reaches the same aggregate', async () => {
+    const fabric = await standUp(8)
+    const { submitter, executorIds } = fabric
+    const job = await runMap(fabric)
+
+    const reduceUnder = (contributors: ReadonlyMap<number, string>) =>
+      reduceJob(job, {
+        rpc: submitter.rpc,
+        executors: executorIds,
+        blockstore: submitter.store,
+        project,
+        trustedIssuers: CHECKS_NO_COMBINE_SIGNATURES,
+        contributors,
+      })
+
+    // `o-0` … `o-7`: single digits, so the lexicographic sort `deriveReduceTree` performs is
+    // also the numeric one, and the leaves come out in partition order.
+    const ascending = new Map(Array.from({ length: SHARDS }, (_, i) => [i, `o-${i}`]))
+    // The same eight labels, reversed **inside each block of `DEFAULT_FANOUT`**.
+    const permuted = new Map(
+      Array.from({ length: SHARDS }, (_, i) => {
+        const block = Math.floor(i / DEFAULT_FANOUT)
+        const within = i % DEFAULT_FANOUT
+        return [i, `o-${block * DEFAULT_FANOUT + (DEFAULT_FANOUT - 1 - within)}`]
+      }),
+    )
+
+    const first = await reduceUnder(ascending)
+    const second = await reduceUnder(permuted)
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    expect(first.outcome.ok).toBe(true)
+    expect(second.outcome.ok).toBe(true)
+
+    // (1) Two genuinely different trees. A node id is the hash of its children's ids and a
+    //     leaf id carries the contributor, so relabelling moves every id in the tree. Without
+    //     this the two runs could be the same derivation read twice.
+    expect(second.tree.rootId).not.toBe(first.tree.rootId)
+    expect(first.tree.nodes).toHaveLength(3)
+    expect(second.tree.nodes).toHaveLength(3)
+
+    // (2) …whose level-1 combines are handed the same partials in a different order. Both
+    //     halves are required: the multiset equality is what rules out re-grouping, and the
+    //     sequence inequality is what stops this being a run against itself.
+    for (const index of [0, 1]) {
+      const before = leafCidsOf(first.tree, index).map((cid) => cid.toString())
+      const after = leafCidsOf(second.tree, index).map((cid) => cid.toString())
+      expect([...after].sort()).toEqual([...before].sort())
+      expect(after).not.toEqual(before)
+    }
+
+    // (3) And the aggregate does not move — which is commutativity, because (2) says order is
+    //     the only thing that did. Anchored to the production combiner's own one-call answer
+    //     rather than only to the other run, so two identically-wrong runs cannot agree their
+    //     way past this.
+    expect(second.outcome.rootCid).toBe(first.outcome.rootCid)
+    expect(first.outcome.rootCid).toBe(await referenceRoot(agreedOutputs(job)))
   }, PROCESS_TEST_TIMEOUT)
 })

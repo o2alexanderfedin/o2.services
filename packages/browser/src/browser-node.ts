@@ -645,6 +645,67 @@ async function resolveCertificate(parts: {
 }
 
 /**
+ * The store name a tab uses when its caller named none.
+ *
+ * A literal in `#compose` until 2026-08-14, when {@link enrolledIssuer} became a second
+ * reader of it. Two copies of a database name is a defect that presents as a node with no
+ * identity rather than as an error, so there is one.
+ */
+const DEFAULT_BLOCKSTORE_NAME = 'o2-blocks'
+
+/**
+ * The identity database's name, derived from the blockstore's — see `idb-identity-store.ts`
+ * for why the two are separate databases in the first place.
+ */
+function identityStoreName(blockstoreName: string): string {
+  return `${blockstoreName}-identity`
+}
+
+/**
+ * The issuer this origin's node enrolled with, or `null` — AUTH-02's production anchor.
+ *
+ * ## Why a tab has to ask this *before* it starts
+ *
+ * `BrowserNodeOptions.trustedIssuers` is read by `PeerVerifier.start`, which `#compose`
+ * builds **before** `resolveCertificate` — deliberately, so the enrolment dial's
+ * `peer:connect` reaches a live listener. So a tab cannot pin the provider it is about to
+ * enrol with in the same `start` call: at the moment the set is fixed, the certificate
+ * naming that provider does not exist yet. This function is the way round that ordering,
+ * and it is not a workaround for it — the anchor it returns was obtained by *this origin's
+ * own* enrolment on an earlier start, which is exactly what makes it an anchor rather than
+ * a peer's word for a peer's identity.
+ *
+ * **The consequence, stated plainly rather than left to be discovered: a tab pins nobody
+ * until it has enrolled once.** That is not a weakening of anything, because a tab that
+ * never enrolled has no independently-held key to pin *with*; `demo/main.ts`'s
+ * `peerCertificate` has made the identical argument since Phase 22 — *"a tab enrolled by
+ * nobody has no anchor and therefore names nobody, which is the honest answer and not a
+ * degradation."* It is also what keeps a first visit working: pinning an issuer a fresh tab
+ * cannot verify anybody against would empty its block source of the relay that is its only
+ * peer, for no gain.
+ *
+ * ## What is deliberately not checked here
+ *
+ * Neither the expiry nor the `nodeKey`. Both are `resolveCertificate`'s business and it
+ * applies them to decide whether to *reuse* the certificate; they are the wrong questions
+ * for this one. A certificate that has lapsed, or that names a seed this origin has since
+ * lost, still names the provider this origin enrolled with — and that provider's key is no
+ * less this tab's anchor for the certificate around it having gone stale. Refusing to pin
+ * on an expired certificate would mean a tab silently *widened* who it takes blocks from
+ * at the moment its own paperwork lapsed, which is the wrong direction for a gate to fail.
+ */
+export async function enrolledIssuer(blockstoreName?: string): Promise<PublicKeyHex | null> {
+  const store = await IdbIdentityStore.open(
+    identityStoreName(blockstoreName ?? DEFAULT_BLOCKSTORE_NAME),
+  )
+  try {
+    return (await store.loadCertificate())?.issuer ?? null
+  } finally {
+    store.close()
+  }
+}
+
+/**
  * What this node answers a peer's `records` and `providers` requests with — AUTH-01,
  * SCHED-01.
  *
@@ -1158,7 +1219,7 @@ export class BrowserNode {
     options: BrowserNodeOptions,
     undo: (() => Promise<void> | void)[],
   ): Promise<BrowserNode> {
-    const blockstoreName = options.blockstoreName ?? 'o2-blocks'
+    const blockstoreName = options.blockstoreName ?? DEFAULT_BLOCKSTORE_NAME
     const store = await IdbBlockstore.open(blockstoreName)
     undo.push(() => store.close())
 
@@ -1166,7 +1227,7 @@ export class BrowserNode {
     // Opened here rather than lazily because `createLibp2p` below needs the derived key,
     // and the release goes on the line after the acquisition, as everything in this
     // method does.
-    const identityStore = await IdbIdentityStore.open(`${blockstoreName}-identity`)
+    const identityStore = await IdbIdentityStore.open(identityStoreName(blockstoreName))
     undo.push(() => identityStore.close())
 
     // AUTH-01 — this tab's own name, and the one decision this factory refuses to make
