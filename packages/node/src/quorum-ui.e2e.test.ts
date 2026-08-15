@@ -69,27 +69,49 @@ import { FabricNode } from './fabric-node.ts'
  * single point of failure. The page now says so instead of reporting a redundancy it does not
  * have.
  *
- * ## The two arms, and why one arm would not have been enough
+ * **And it is the topology of two of the three arms, not of the file.** The third stands the
+ * same two tabs up on *two* relays, which is the same tier one relay operator later — no new
+ * kind of node, no new transport, one more of what already exists. Both halves above still
+ * hold there: each tab reserves on its own relay and enrols `via-relay` naming it, and the two
+ * tabs still pair over a direct WebRTC connection that carries the job.
+ *
+ * ## The three arms, and why fewer would not have been enough
  *
  * A single case reading a verdict cannot tell *the composer decided this* from *this region
- * renders a constant*. So the file stands up two fabrics differing in exactly **one** property
- * — `operatorId` — and reads two different verdicts off the same region:
+ * renders a constant*. So the file stands up three fabrics and reads three different verdicts
+ * off the same region — one per arm of `describeQuorum`'s own union:
  *
- * | | operators | verdict |
- * |---|---|---|
- * | distinct-operators | three distinct | `not composed [shared-relay-dependency] … relay <id> is itself a member` |
- * | one-operator | one | `not composed [insufficient-operators] … 2 distinct operators, found 1` |
+ * | | relays | operators | verdict |
+ * |---|---|---|---|
+ * | distinct-operators | one | three distinct | `not composed [shared-relay-dependency] … relay <id> is itself a member` |
+ * | one-operator | one | one | `not composed [insufficient-operators] … 2 distinct operators, found 1` |
+ * | two-relays | **two** | four distinct | `composed across 2 operators (…) — no two members share an operator` |
  *
- * A page hardcoding either string fails the other case, and the third case asserts the two
- * differ at all. Both arms also assert against `not attempted`, which is the arm that means the
- * gate never ran — and is what two earlier drafts of this file actually read.
+ * A page hardcoding any one string fails the other two, and the final case asserts all three
+ * differ pairwise. Every arm also asserts against `not attempted`, which is the arm that means
+ * the gate never ran — and is what two earlier drafts of this file actually read.
  *
- * **Both arms are now refusals, and the discrimination is stronger for it rather than weaker.**
- * It used to be composed-vs-refused, which a region could satisfy by rendering the presence or
- * absence of one word. It is now refusal **kind** against refusal **kind** — two strings the
- * page never composes, both coming from `describeQuorum`, each naming a different rule of
- * `composeQuorum`. A region that rendered either constant fails the other arm exactly as
- * before, and a region that rendered "some refusal" now fails both.
+ * **The first two arms are both refusals, and that is stronger than the composed-vs-refused
+ * pair it replaced**, which a region could satisfy by rendering the presence or absence of one
+ * word. It is refusal **kind** against refusal **kind** — two strings the page never composes,
+ * both from `describeQuorum`, each naming a different rule of `composeQuorum`.
+ *
+ * **The third arm exists because two refusals cannot show a rule working, only two ways of it
+ * refusing.** With the file at two arms, every reading it took was a refusal, so a page that
+ * had lost `describeQuorum`'s `composed` branch altogether still passed it — and VER-04's
+ * actual sentence is *quorum members are selected with anti-affinity, so one operator cannot
+ * supply a whole quorum*, whose positive evidence is the `composed across N operators … no two
+ * members share an operator` string. On an unflagged surface that string appeared nowhere: the
+ * only other place it is printed is `bin/bench.ts` behind `--discover`. The third arm is what
+ * puts it back on a page a visitor reads.
+ *
+ * **And it is not a fixture bent to produce the wanted answer.** Two independently-run relays
+ * with a tab on each is *genuine* path diversity — exactly the thing VER-03 asks a quorum not
+ * to lack, standing up rather than failing. No arrangement of operators over a **one**-relay
+ * fabric can compose, because rule 2 is not a rule about operators: the single relay is the
+ * single point of failure of everything it carries and is itself a member. A second relay was
+ * therefore the minimum change, and it is the change that makes the fabric honest rather than
+ * the one that makes the assertion pass.
  *
  * ## VER-03 on this page — read here since 2026-08-14, and the retraction that got it here
  *
@@ -138,10 +160,20 @@ const MIME: Record<string, string> = {
 const OWNER_A = [...new Uint8Array(32).fill(72)]
 const OWNER_B = [...new Uint8Array(32).fill(73)]
 const OWNER_RELAY = [...new Uint8Array(32).fill(74)]
+/**
+ * The second relay's owner — seed 75, and the third arm is the only case that stands one up.
+ *
+ * Re-grepped across every `new Uint8Array(32).fill(n)` site in `packages/` before it was
+ * chosen, the census `gated-seed.e2e.test.ts` and `bench-fabric.node.test.ts` both record
+ * doing for theirs. 75 is free, and 74 is this file's other relay.
+ */
+const OWNER_RELAY_B = [...new Uint8Array(32).fill(75)]
 
 const OPERATOR_A = 'quay-street-collective'
 const OPERATOR_B = 'north-mill-compute'
 const OPERATOR_RELAY = 'dockside-relay-co'
+/** The second relay's operator. Distinct from every other id here, which is the point of it. */
+const OPERATOR_RELAY_B = 'harbour-line-signals'
 
 /** What `describeQuorum` emits. Fixed strings, so a reworded sentence cannot pass either arm. */
 const SHARED_RELAY = '[shared-relay-dependency]'
@@ -227,7 +259,7 @@ async function startProvider(name: string): Promise<{ node: FabricNode; addr: st
 }
 
 /**
- * The relay both tabs reserve on — **enrolled**, because in this fabric a relay computes.
+ * A relay a tab reserves on — **enrolled**, because in this fabric a relay computes.
  *
  * ## The correction this function records, which is the file's most reusable finding
  *
@@ -353,36 +385,74 @@ async function openEnrolledTab(
   return { page, peerId }
 }
 
+/** One relay this fabric stands up: who runs it, and whose key enrolled it. */
+interface RelaySpec {
+  readonly operator: string
+  readonly owner: number[]
+}
+
 /**
- * Stand up both tabs on one relay and join them over a direct WebRTC connection.
+ * Stand up this fabric's relays, put one tab on each, and join the two tabs over a direct
+ * WebRTC connection.
  *
  * Returns the tab that will *submit*. The dial direction is A → B, so A is the requestor and
- * the quorum is composed in A's process over A's and B's certificates.
+ * the quorum is composed in A's process over every certificate A can account for.
+ *
+ * ## Why `relays` is a list, added 2026-08-14
+ *
+ * The first two arms need exactly one relay and the third needs two, and the difference
+ * between them is **the entire fabric property under test** — one shared reachability
+ * dependency against two independent ones. Everything else has to stay byte-identical or the
+ * three verdicts stop being attributable to the topology: same provider, same enrolment path,
+ * same dial, same direct-WebRTC assertion, same wait. So the relay count is the parameter and
+ * nothing else moved.
+ *
+ * Tab A goes on `relays[0]` and tab B on the last one, so a one-relay list is exactly the
+ * fabric this function stood up before the parameter existed. With two, A dials B at an address
+ * whose circuit half names **B's** relay — which is how A comes to hold a connection to a relay
+ * it never reserved on, and therefore how both relays become candidates in A's process. That is
+ * a consequence of the dial rather than an arrangement: nothing here connects A to relay 2.
  */
-async function twoTabsOnOneRelay(
+async function twoTabsOnRelays(
   label: string,
+  relays: readonly RelaySpec[],
   operatorOfB: string,
   ownerOfB: number[],
-  operatorOfRelay: string,
-): Promise<{ page: Page; relayPeerId: string }> {
+): Promise<{ page: Page; relayPeerIds: readonly string[] }> {
   const provider = await startProvider(`provider-${label}`)
-  const relay = await startEnrolledRelay(
-    `relay-${label}`,
-    provider.addr,
-    operatorOfRelay,
-    new Uint8Array(OWNER_RELAY),
-  )
-  // Enrolled, and asserted before anything depends on it. A relay that came up without a
-  // certificate collapses the whole job to `not-attempted` naming a candidate the reader would
-  // then have to identify — which is exactly how this file's previous draft failed.
-  expect(relay.node.certificate?.operatorId).toBe(operatorOfRelay)
-  expect(relay.node.certificate?.discoverability).toBe('seed')
+  // Named `standing` rather than `started` because this file already has a module-level
+  // `started` that `afterAll` stops, and a shadow of it here would read as the same list.
+  const standing: { node: FabricNode; addr: string }[] = []
+  for (const [index, spec] of relays.entries()) {
+    const relay = await startEnrolledRelay(
+      `relay-${label}-${index}`,
+      provider.addr,
+      spec.operator,
+      new Uint8Array(spec.owner),
+    )
+    // Enrolled, and asserted before anything depends on it. A relay that came up without a
+    // certificate collapses the whole job to `not-attempted` naming a candidate the reader would
+    // then have to identify — which is exactly how this file's previous draft failed.
+    expect(relay.node.certificate?.operatorId).toBe(spec.operator)
+    // **`seed`, and on the third arm this is what decides who the members are.** A seed's
+    // `relayIds` is empty, `composeQuorum` orders candidates fewest-dependencies-first, and
+    // both tabs name one relay each — so with two seeds in the pool the seeds are the two
+    // members at `size: 2`. Asserted on every arm because it is a fact about how a node that
+    // binds a socket enrols, not a property of one fixture.
+    expect(relay.node.certificate?.discoverability).toBe('seed')
+    standing.push(relay)
+  }
+  const relayForA = standing[0]
+  const relayForB = standing[standing.length - 1]
+  if (relayForA === undefined || relayForB === undefined) {
+    throw new Error(`${label}: a fabric needs at least one relay`)
+  }
 
   const a = await openEnrolledTab(
-    `${label}-a`, `o2-quorum-${label}-a`, relay.addr, provider.addr, OWNER_A, OPERATOR_A,
+    `${label}-a`, `o2-quorum-${label}-a`, relayForA.addr, provider.addr, OWNER_A, OPERATOR_A,
   )
   const b = await openEnrolledTab(
-    `${label}-b`, `o2-quorum-${label}-b`, relay.addr, provider.addr, ownerOfB, operatorOfB,
+    `${label}-b`, `o2-quorum-${label}-b`, relayForB.addr, provider.addr, ownerOfB, operatorOfB,
   )
   expect(a.peerId).not.toBe(b.peerId)
 
@@ -424,13 +494,47 @@ async function twoTabsOnOneRelay(
   // So this waits on the fabric predicate the run handler will itself use, rather than on a
   // rendering that a harness-started tab does not refresh. Polled on an interval rather than
   // per animation frame: each call is an `offer` RPC to every connected peer.
+  //
+  // **Every relay is waited on too, not only tab B — added with the third arm and it is a
+  // precondition rather than a formality.** Each arm's verdict is a statement about a member
+  // set, and a relay that is connected but not answering `offer` is simply not in the pool the
+  // composer sees. On one relay that would turn the `shared-relay-dependency` arm into a
+  // reading of a fabric with no relay in it; on two it would leave a *single* seed and one tab
+  // as the members, which composes or refuses depending on which tab sorted second — the one
+  // genuinely non-deterministic shape this fixture has. Waiting here makes that a stall this
+  // line names rather than a verdict some later assertion has to explain.
+  const expected = [b.peerId, ...standing.map((relay) => relay.node.peerId)]
   await a.page.waitForFunction(
-    (peer) => window.o2.computePeers().then((peers) => peers.includes(peer)),
-    b.peerId,
+    (peers) => window.o2.computePeers().then((seen) => peers.every((peer) => seen.includes(peer))),
+    expected,
     { timeout: 180_000, polling: 3_000 },
   )
 
-  return { page: a.page, relayPeerId: relay.node.peerId }
+  return { page: a.page, relayPeerIds: standing.map((relay) => relay.node.peerId) }
+}
+
+/**
+ * The one-relay fabric, which is what the first two arms are about.
+ *
+ * A thin wrapper rather than a second implementation: the two shared-relay arms must differ
+ * from the composed arm in the relay count **alone**, and two functions that stand up tabs are
+ * two things that can come to stand them up differently.
+ */
+async function twoTabsOnOneRelay(
+  label: string,
+  operatorOfB: string,
+  ownerOfB: number[],
+  operatorOfRelay: string,
+): Promise<{ page: Page; relayPeerId: string }> {
+  const { page, relayPeerIds } = await twoTabsOnRelays(
+    label,
+    [{ operator: operatorOfRelay, owner: OWNER_RELAY }],
+    operatorOfB,
+    ownerOfB,
+  )
+  const relayPeerId = relayPeerIds[0]
+  if (relayPeerId === undefined) throw new Error(`${label}: the sole relay reported no peer id`)
+  return { page, relayPeerId }
 }
 
 /** Press the page's own Run button and wait for the ladder to stop climbing. */
@@ -539,36 +643,131 @@ describe('VER-03/VER-04 — the quorum composer’s verdict, on the page a visit
     expect(verdict).not.toContain(SHARED_RELAY)
   }, 1_200_000)
 
-  it('reads two different refusal KINDS off two fabrics, so neither arm can be a constant', () => {
-    // The property both cases exist to establish and neither can establish alone. A region
-    // hardcoded to either string passes one case and fails this comparison; a region that
-    // renders nothing fails both; a region wired to `not attempted` fails both. This is the
-    // check that the reading DISCRIMINATES.
+  it('composes across two operators when two independent relays carry the tabs, and says so', async () => {
+    // ---- VER-04's positive sentence, and the fabric that actually establishes it. -------
     //
-    // **Re-sited on the refusal KIND on 2026-08-14, and it is a stronger reading than what it
-    // replaced.** It used to be composed-against-refused: the first arm composed, the second
-    // did not, and the two texts differed. Once rule 2 could see that the relay was a member,
-    // the first arm became a refusal too — so "one composed, one did not" was no longer
-    // available and something had to carry the discrimination. Kind-against-kind is what it
-    // is now, and the trade runs in this file's favour: the old pair could be satisfied by a
-    // region that rendered the *presence or absence* of one word, and this one cannot. Each
-    // arm names a different rule of `composeQuorum`, both strings come from `describeQuorum`,
-    // and the page composes neither.
-    expect(verdicts.map((verdict) => verdict.arm)).toStrictEqual(['distinct-operators', 'one-operator'])
-    const [distinct, oneOperator] = verdicts
-    if (distinct === undefined || oneOperator === undefined) {
+    // **Two relays, one tab on each. This is not a contrived fixture — it is the fabric that
+    // SHOULD compose.** Two independently-run relays are genuine path diversity, which is
+    // precisely the property VER-03 asks a quorum not to lack and precisely what VER-04's
+    // positive arm has to look like: `composed across N operators … no two members share an
+    // operator`, read off the page rather than off a CLI.
+    //
+    // **Why the two-arm version of this file could not show it.** Both arms above stand one
+    // relay up, and one relay is by construction the single point of failure of everything it
+    // carries — the tabs name it and it is itself a member, so rule 2 fires (many-operator arm)
+    // or rule 1 fires first (one-operator arm). No arrangement of *operators* over a one-relay
+    // fabric composes, because rule 2 is not about operators. So an unflagged surface showing
+    // anti-affinity SUCCEEDING needed a second relay and nothing less, and until this case
+    // existed the only place that sentence appeared was `bin/bench.ts` behind `--discover`.
+    //
+    // **Who the members are, and why it is the relays.** `composeQuorum` dedups to one
+    // certificate per operator, then orders fewest-discovery-dependencies-first. A relay binds
+    // a socket, so it enrols `seed` with `relayIds: []`; a tab can bind nothing, so it enrols
+    // `via-relay` naming the one relay it reserved on. Both relays therefore sort ahead of both
+    // tabs and are the two members at `size: 2` — `redundancyFor` asks for `min(2, 1 + peers)`.
+    // `sharedRelay` then looks for a relay id that loses *every* member, where a member is lost
+    // with R if it depends on R or **is** R. Its candidate ids come only from the members' own
+    // `relayIds`, and two seeds name none, so there is no such id and the composer says so.
+    //
+    // Both readings are asserted below rather than either alone: the count with the identities
+    // (VER-04's subject is `operatorId`) and the anti-affinity clause (its actual sentence).
+    const { page, relayPeerIds } = await twoTabsOnRelays(
+      'two-relay',
+      [
+        { operator: OPERATOR_RELAY, owner: OWNER_RELAY },
+        { operator: OPERATOR_RELAY_B, owner: OWNER_RELAY_B },
+      ],
+      OPERATOR_B,
+      OWNER_B,
+    )
+    // Two distinct relays and not one counted twice — cheap, and it is the fixture's whole
+    // premise. `twoTabsOnRelays` has already waited for both to answer `offer` in tab A's
+    // process, so both are in the pool the composer reads.
+    expect(new Set(relayPeerIds).size).toBe(2)
+
+    await runTheLadder(page, 600_000)
+    const verdict = await quorumRegion(page)
+    verdicts.push({ arm: 'two-relays', text: verdict })
+    process.stderr.write(`[two-relays] ${verdict}\n`)
+
+    expect(await page.textContent('#peers')).toContain('node(s) computing')
+
+    // The gate ran, and it did not refuse. Asserted before the positive clauses for the reason
+    // the arms above give: `not attempted` would otherwise satisfy every negative below.
+    expect(verdict).not.toContain(NOT_ATTEMPTED)
+    expect(verdict).not.toContain(SHARED_RELAY)
+    expect(verdict).not.toContain(INSUFFICIENT_OPERATORS)
+    expect(verdict).toContain(COMPOSED)
+    expect(verdict).toContain('composed across 2 operators')
+    // **VER-04's clause verbatim.** `composed across 2 operators` alone would be satisfied by a
+    // sentence that counted operators without claiming anything about how members were picked;
+    // this is the half that states the anti-affinity.
+    expect(verdict).toContain('no two members share an operator')
+    // **The identities, and NOT as one ordered string.** `ShardQuorum.operators` is
+    // `members.map(...)` in the composer's own order, which is sorted by `nodeKey` among equal
+    // dependency counts — and a `nodeKey` is a fresh ed25519 key per run. Asserting the pair as
+    // a joined literal would be asserting a coin toss.
+    expect(verdict).toContain(OPERATOR_RELAY)
+    expect(verdict).toContain(OPERATOR_RELAY_B)
+    // **And the tabs' operators are absent, which is the fewest-dependencies-first ordering
+    // being read rather than assumed.** It is also the one degradation this fabric could
+    // silently produce: were a relay missing from the pool, a member set of one seed plus one
+    // tab would compose too — with a tab's operator in it — and every assertion above would
+    // still pass. This is the line that would go red.
+    expect(verdict).not.toContain(OPERATOR_A)
+    expect(verdict).not.toContain(OPERATOR_B)
+  }, 1_200_000)
+
+  it('reads three different verdicts off three fabrics, so no arm can be a constant', () => {
+    // The property the three cases exist to establish and none can establish alone. A region
+    // hardcoded to any one string passes one case and fails the other two; a region that
+    // renders nothing fails all three; a region wired to `not attempted` fails all three. This
+    // is the check that the reading DISCRIMINATES.
+    //
+    // **Re-sited on the refusal KIND on 2026-08-14, and re-widened to three arms the same
+    // day.** It began as composed-against-refused: the first arm composed, the second did not,
+    // and the two texts differed. Once rule 2 could see that the relay was a member, the first
+    // arm became a refusal too — so "one composed, one did not" was no longer available and
+    // kind-against-kind carried it, which was strictly stronger because the old pair could be
+    // satisfied by a region rendering the presence or absence of one word.
+    //
+    // **What kind-against-kind alone still could not see, and why this case had to grow rather
+    // than merely get longer.** With both arms refusing, every reading this file took was a
+    // refusal, and a page that had lost the composed branch entirely — rendering
+    // `describeQuorum`'s two `not-composed` sentences correctly and its `composed` one never —
+    // passed the whole file. The third arm closes that: three fabrics, three of
+    // `describeQuorum`'s three arms, pairwise distinct. Each names a different decision of
+    // `composeQuorum` (rule 2, rule 1, and neither), all three strings come from one formatter,
+    // and the page composes none of them.
+    expect(verdicts.map((verdict) => verdict.arm)).toStrictEqual([
+      'distinct-operators',
+      'one-operator',
+      'two-relays',
+    ])
+    const [distinct, oneOperator, twoRelays] = verdicts
+    if (distinct === undefined || oneOperator === undefined || twoRelays === undefined) {
       throw new Error('an arm did not record its verdict')
     }
+    // Pairwise, all three. Two of the three comparisons would hold even if two arms had
+    // collapsed onto one reading, so the pair that collapsed has to be named explicitly.
     expect(distinct.text).not.toBe(oneOperator.text)
+    expect(distinct.text).not.toBe(twoRelays.text)
+    expect(oneOperator.text).not.toBe(twoRelays.text)
     expect(distinct.text).not.toBe('')
     expect(oneOperator.text).not.toBe('')
+    expect(twoRelays.text).not.toBe('')
 
-    // The kinds, crossed. Asserting each arm's own kind and the *absence* of the other's is
-    // what makes this a discrimination rather than two independent readings that happen to
-    // differ — a region rendering both strings at once would pass the inequality above.
+    // The kinds, crossed. Asserting each arm's own kind and the *absence* of the other two is
+    // what makes this a discrimination rather than three independent readings that happen to
+    // differ — a region rendering all three strings at once would pass the inequalities above.
     expect(distinct.text).toContain(SHARED_RELAY)
     expect(distinct.text).not.toContain(INSUFFICIENT_OPERATORS)
+    expect(distinct.text).not.toContain(COMPOSED)
     expect(oneOperator.text).toContain(INSUFFICIENT_OPERATORS)
     expect(oneOperator.text).not.toContain(SHARED_RELAY)
+    expect(oneOperator.text).not.toContain(COMPOSED)
+    expect(twoRelays.text).toContain(COMPOSED)
+    expect(twoRelays.text).not.toContain(SHARED_RELAY)
+    expect(twoRelays.text).not.toContain(INSUFFICIENT_OPERATORS)
   })
 })
