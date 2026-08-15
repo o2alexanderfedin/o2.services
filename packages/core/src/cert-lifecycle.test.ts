@@ -339,14 +339,29 @@ describe('recovery and multi-device — the flows RFC-0003 §17 defers', () => {
     tab.evict()
     expect(await tab.load()).toBeUndefined()
     expect(await tab.deriveFromPassphrase('correct horse battery', 'salt:alice')).toStrictEqual(before)
-  })
+    // 60 s, and the number is sited rather than guessed. These are the only two cases in
+    // this file that derive from a passphrase TWICE, i.e. two Argon2id runs each, and
+    // Argon2id is memory-hard by design — it contends for exactly the resource a browser
+    // suite running three engines over ~290 files is already short of. Measured alone on
+    // 2026-08-15: 1 502 ms in the slowest engine, against vitest's 15 000 ms default. That
+    // is 10x headroom solo and it was still exceeded inside the full browser run, which is
+    // the ordinary way this suite is invoked.
+    //
+    // This widens a LIVENESS bound and no correctness claim: the assertion is that two
+    // derivations of the same passphrase agree, and a slower machine does not make them
+    // agree differently. Sibling blocks in this repository already carry explicit 60 000 ms
+    // for the same reason — see the `reachability` case recorded in `vitest.config.ts`,
+    // where one member of a block left on the default while its siblings carried 60 000 was
+    // diagnosed as a missing argument rather than weather.
+  }, 60_000)
 
   it('enrolls a second device with no cross-device ceremony', async () => {
     const laptop = await createSubject(false)
     const phone = await createSubject(false)
     const a = await laptop.deriveFromPassphrase('correct horse battery', 'salt:alice')
     expect(await phone.deriveFromPassphrase('correct horse battery', 'salt:alice')).toStrictEqual(a)
-  })
+    // See the sibling above: two Argon2id derivations, measured at 1 502 ms alone.
+  }, 60_000)
 
   it('admits it cannot guarantee erasure in a browser', async () => {
     const vault = await createSubject(true)
