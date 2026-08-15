@@ -16,7 +16,7 @@ export type { AgentRequest, AgentResponse } from './protocol.ts'
 // AUTH-02 — the one certificate validator, shared by the wire and the disk path. A
 // second, more lenient parser beside it is exactly how a persisted certificate would
 // come to be trusted on terms the wire would have refused.
-export { parseCertificate } from './protocol.ts'
+export { decodeNodeRecords, encodeNodeRecords, parseCertificate } from './protocol.ts'
 
 // Enrollment over the fabric's own protocol — AUTH-01, AUTH-04.
 export { enrolOverRpc, UNREACHABLE_PROVIDER } from './enrol-client.ts'
