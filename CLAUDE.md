@@ -203,10 +203,22 @@ manifest and coverage report, not by a quorum.
   evicted silently under storage pressure, so durability is soft; and tab churn is high, while
   Kademlia routing tables assume moderate stability. A hosted, always-reachable slice of the
   keyspace complements browser-held records rather than replacing them.
-- **Unverified, and it matters:** js-libp2p promotes kad-dht to server mode when it detects a
-  public dialable address. Whether a relayed `/p2p-circuit` address satisfies that check is
-  **unmeasured** — the package is not installed, so it could not be read. Set `clientMode`
-  explicitly rather than relying on promotion either way.
+- **MEASURED 2026-08-14, and the answer is not the obvious one.** This bullet read *"whether a
+  relayed `/p2p-circuit` address satisfies that check is **unmeasured** — the package is not
+  installed, so it could not be read"* until then. `@libp2p/kad-dht@16.4.0`'s predicate is
+  `!isPrivate(ma) && !Circuit.exactMatch(ma)` (`src/kad-dht.ts:347`), installed **only when
+  `clientMode` is left unset** (`:340`), and it was run against this repository's own
+  `@multiformats/multiaddr-matcher` and `@libp2p/utils`. A `/p2p-circuit` address is excluded
+  by name — but a browser also listens on `/webrtc`, whose real form is
+  `<relay>/p2p-circuit/webrtc/p2p/<self>`, and that **is** a WebRTC multiaddr rather than an
+  exact Circuit match. **So a tab behind a public relay DOES auto-promote to server mode.**
+  Worse, promotion is a property of the *relay's* address: the same tab promotes on a public
+  relay and stays a client on a LAN one, because `isPrivate` reads the relay portion. **Set
+  `clientMode` explicitly** — not as a style rule but because leaving it unset makes a node's
+  DHT role follow network topology with nothing in the code saying so. `canRelay` is **not**
+  this predicate and is not a proxy for it: the default `/ip4/127.0.0.1/tcp/0` listen
+  satisfies `canRelay` and does not promote. Full working:
+  `.planning/consults/2026-08-14-kad-dht-server-mode-promotion.md`
 - **Querying the Amino DHT from a browser is impractical.** Amino peers advertise TCP/QUIC. Use **delegated routing over HTTP** (`https://delegated-ipfs.dev`, or self-hosted [someguy](https://github.com/ipfs/someguy)) with `filterAddrs` restricted to browser-dialable protocols. Helia's browser defaults do exactly this and additionally keep `kadDHT({clientMode:true})` as a secondary router.
 - **Run a private DHT for the fabric's own keyspace.** Set a distinct `protocol` (e.g. `/o2/kad/1.0.0`) so your scheduling records don't pollute — and aren't polluted by — Amino. `@libp2p/kad-dht` supports multiple named DHT instances side by side, as its own docs demonstrate for LAN + Amino.
 - **S/Kademlia (design §3.4's fix for eclipse attacks) is not implemented in js-libp2p.** The docs say the implementation is "largely based on the Kademlia white paper, augmented with notions from S/Kademlia, Coral and mainlineDHT" — that is not the same as disjoint-path lookups. Treat sybil/eclipse resistance as **build**, not **configure**, and lean on `@libp2p/keychain` + provider-signed enrollment (§3.9) instead.
