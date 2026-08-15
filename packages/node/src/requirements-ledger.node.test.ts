@@ -1004,11 +1004,31 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     witnesses: ['packages/core/src/lease.test.ts'],
   },
   // ── The pre-existing entries ───────────────────────────────────────────────────────
+  // **Re-read 2026-08-14, and the promise this entry carries was partly discharged rather
+  // than renewed.** `because: 'tier-or-configuration'` named a real thing: `PeerVerifier`
+  // sat in `@o2/node`, `@o2/browser` does not depend on that package, so the browser tier
+  // reached no verdict about any peer and the asymmetry was a package boundary. The module
+  // moved to `@o2/libp2p` on 2026-08-14 and a tab now verifies on identical terms.
+  //
+  // **The entry stays, and the reason it stays is not the one it was written for.** What
+  // remains open is a *configuration* fact and no longer a tier one: a tab that passes no
+  // `trustedIssuers` still takes blocks from every connected peer — stated, not defaulted,
+  // because a fail-closed default would empty the block source of the relay a fresh tab's
+  // only peer is. So the row keeps a legitimately unreached leg, and `because` still reads
+  // true on its second word only. Rewriting it to `configuration` alone is the ledger
+  // owner's call, not this file's, because the row's verdict lives in `REQUIREMENTS.md`.
+  //
+  // Two witnesses arrived with the move, and the second is the weaker of the two on purpose
+  // — see its own docblock. `peer-verifier.browser.test.ts` measures the verifier in three
+  // real engines; `browser-node-contract.node.test.ts` counts the composition literal,
+  // which is the only instrument that sees which thunk the block source was handed.
   {
     id: 'AUTH-02',
     because: 'tier-or-configuration',
-    reread: '2026-08-06',
+    reread: '2026-08-14',
     witnesses: [
+      'packages/browser/src/browser-node-contract.node.test.ts',
+      'packages/browser/src/peer-verifier.browser.test.ts',
       'packages/core/src/enrollment.test.ts',
       'packages/node/src/bench-admission.node.test.ts',
       'packages/node/src/browser-enrollment.e2e.test.ts',

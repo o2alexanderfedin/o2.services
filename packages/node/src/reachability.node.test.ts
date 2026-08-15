@@ -110,6 +110,26 @@ const GRAPH_TIMEOUT_MS = 60_000
  * `CALLABLE_TOTAL_FLOOR` still passes, so the one symbol `node` lost was offset elsewhere in the
  * corpus. Only the per-barrel claim was falsified, which is exactly what a per-barrel floor is
  * for.
+ *
+ * ## `node` re-sited again 15 → 14 and 41 → 37, 2026-08-14 — a move, not a deletion
+ *
+ * AUTH-02's browser leg moved `peer-verifier.ts` from `packages/node/src` to
+ * `packages/libp2p/src`, because `@o2/browser` depends on `@o2/libp2p` and not on `@o2/node`,
+ * and a tab therefore could not construct a `PeerVerifier` at all. `@o2/node`'s barrel lost
+ * `PeerVerifier` (callable) and `PeerFailure`, `PeerVerdict`, `PeerVerifierOptions` (type-only):
+ * −1 callable, −4 total, which is exactly the gap the run reported.
+ *
+ * **Nothing left the corpus, so this is a weaker event than the `hasSeed` deletion above and is
+ * recorded separately rather than folded into it.** The same four symbols are published by
+ * `libp2p`, together with `DEFAULT_VERDICT_RETRY_FLOOR_MS`, which was never on `@o2/node`'s
+ * barrel — the spec that reads it used to sit beside the module and import it relatively. So the
+ * corpus is +1 total and unchanged in callables, and `CALLABLE_TOTAL_FLOOR`, `EXPORT_TOTAL_FLOOR`
+ * and `TYPE_ONLY_FLOOR` all passed on the run that failed the two lines below.
+ *
+ * **`libp2p`'s own floors are deliberately left alone.** They are floors: a barrel that gained
+ * five exports still satisfies 9 and 29, and raising them to the new actuals would be re-siting a
+ * number this change did not measure against a claim nobody made. A floor catches a collapse, and
+ * `libp2p` has not collapsed.
  */
 const CALLABLE_FLOOR: Readonly<Record<string, number>> = {
   aot: 13,
@@ -119,8 +139,9 @@ const CALLABLE_FLOOR: Readonly<Record<string, number>> = {
   demo: 16,
   libp2p: 9,
   net: 32,
-  // 16 until 2026-08-08; `hasSeed` deleted at `36c2800` (finding G12). See the note above.
-  node: 15,
+  // 16 until 2026-08-08; `hasSeed` deleted at `36c2800` (finding G12). 15 until 2026-08-14,
+  // when `PeerVerifier` moved to `@o2/libp2p` for AUTH-02. See the two notes above.
+  node: 14,
 }
 
 /** Total exports per barrel, same run, same siting — also floors. */
@@ -132,8 +153,9 @@ const TOTAL_FLOOR: Readonly<Record<string, number>> = {
   demo: 40,
   libp2p: 29,
   net: 78,
-  // 42 until 2026-08-08, same deletion, same commit.
-  node: 41,
+  // 42 until 2026-08-08, same deletion, same commit. 41 until 2026-08-14: `PeerVerifier` plus its
+  // three type exports moved to `@o2/libp2p`, which is why this drops by four and callable by one.
+  node: 37,
 }
 
 const CALLABLE_TOTAL_FLOOR = 217

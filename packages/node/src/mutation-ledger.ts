@@ -903,7 +903,7 @@ export const MUTATIONS: readonly Mutation[] = [
       'and only a peer whose answer *changes* is lost. It is the shape a "this getter ' +
       'should be pure" cleanup leaves behind, and the reason the side effect is documented ' +
       'on the getter rather than left to be discovered.',
-    file: 'packages/node/src/peer-verifier.ts',
+    file: 'packages/libp2p/src/peer-verifier.ts',
     find: '    for (const peer of peers) this.#refresh(peer)\n',
     replace: '',
     caughtBy: ['packages/node/src/peer-verifier.node.test.ts'],
@@ -922,7 +922,7 @@ export const MUTATIONS: readonly Mutation[] = [
       'about the verdict changes, so every refusal-name assertion in the file stays green ' +
       'and only the request count moves: the same shape as NET-08, where a bound placed ' +
       'below a fetch loop left both refusal-text readings intact while reads went 0 to 2.',
-    file: 'packages/node/src/peer-verifier.ts',
+    file: 'packages/libp2p/src/peer-verifier.ts',
     find: "  'nodeKey-mismatch',\n",
     replace: '',
     caughtBy: ['packages/node/src/peer-verifier.node.test.ts'],
@@ -943,7 +943,7 @@ export const MUTATIONS: readonly Mutation[] = [
       'and not a hypothetical** — it was found by probing the guard rather than trusting ' +
       'it, which is why the entry exists at all: the first version of the guard was ' +
       'unmeasured and nothing in the suite moved when it was weakened.',
-    file: 'packages/node/src/peer-verifier.ts',
+    file: 'packages/libp2p/src/peer-verifier.ts',
     find: '    this.#generations += 1\n    const generation = this.#generations\n',
     replace: '    const generation = (this.#lastAsk.get(peerId)?.generation ?? 0) + 1\n',
     caughtBy: ['packages/node/src/peer-verifier.node.test.ts'],

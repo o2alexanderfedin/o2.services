@@ -29,12 +29,18 @@ export {
   saveCertificate,
 } from './identity-store.ts'
 
-// AUTH-02 — one named verdict per peer, computed offline against pinned issuer keys.
-// `verifyCertificate` has been complete since Phase 6 with no production caller; this is
-// that caller. The module imports nothing Node-only and sits here only because
-// `@o2/browser` does not depend on `@o2/node` — see its own comment's packaging note.
-export { PeerVerifier } from './peer-verifier.ts'
-export type { PeerFailure, PeerVerdict, PeerVerifierOptions } from './peer-verifier.ts'
+// AUTH-02 — `PeerVerifier` moved to `@o2/libp2p` on 2026-08-14 and is exported from that
+// barrel. The four lines that stood here said it "sits here only because `@o2/browser` does
+// not depend on `@o2/node`", which was the whole of why a tab reached no verdict about any
+// peer; the module imports nothing Node-only, so the fix was the move.
+//
+// **Deliberately not re-exported**, which is the opposite of what the transport block below
+// does and needs the difference stated. That block says *"re-exported so existing importers
+// of `@o2/node` are unaffected"*, and here there are none to be unaffected: `grep -rl
+// "from '@o2/node'"` over `packages` and `tools` matches one file, and it is
+// `peer-verifier.ts`'s own docblock quoting the specifier as the example of an import
+// `purity.node.test.ts` refuses. A re-export with no importer is a widened surface that
+// nothing would notice going stale.
 
 // The Node tier's killable compute thread — SCHED-06, BROW-04's other half.
 export { workerThread } from './worker-thread.ts'

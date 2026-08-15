@@ -5,12 +5,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { peerIdFromString } from '@libp2p/peer-id'
 import { EnrollmentAuthority, MemoryNetwork, publishCapabilities, requestEnrollment } from '@o2/core'
 import type { NodeCertificate, NodeRecords, PublicKeyHex } from '@o2/core'
-import { SEED_BYTES, identityFromSeed } from '@o2/libp2p'
+// `PeerVerifier` moved from `./peer-verifier.ts` to `@o2/libp2p` on 2026-08-14, so the
+// browser tier could construct one. This spec stayed here rather than following it: three
+// `mutation-ledger.ts` rows name it in `caughtBy` and `AUTH-02` names it in the
+// requirements ledger's witness list, and both are read off disk by path.
+import { DEFAULT_VERDICT_RETRY_FLOOR_MS, PeerVerifier, SEED_BYTES, identityFromSeed } from '@o2/libp2p'
 import { RpcEndpoint, encodeResponse, parseRequest } from '@o2/net'
 import type { Libp2p } from '@libp2p/interface'
 import { FabricNode } from './fabric-node.ts'
 import type { FabricNodeOptions } from './fabric-node.ts'
-import { DEFAULT_VERDICT_RETRY_FLOOR_MS, PeerVerifier } from './peer-verifier.ts'
 
 /**
  * AUTH-02 — a node verifies a peer's provider-signed certificate offline.
