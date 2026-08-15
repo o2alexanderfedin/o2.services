@@ -903,7 +903,7 @@ export const MUTATIONS: readonly Mutation[] = [
       'and only a peer whose answer *changes* is lost. It is the shape a "this getter ' +
       'should be pure" cleanup leaves behind, and the reason the side effect is documented ' +
       'on the getter rather than left to be discovered.',
-    file: 'packages/node/src/peer-verifier.ts',
+    file: 'packages/libp2p/src/peer-verifier.ts',
     find: '    for (const peer of peers) this.#refresh(peer)\n',
     replace: '',
     caughtBy: ['packages/node/src/peer-verifier.node.test.ts'],
@@ -922,7 +922,7 @@ export const MUTATIONS: readonly Mutation[] = [
       'about the verdict changes, so every refusal-name assertion in the file stays green ' +
       'and only the request count moves: the same shape as NET-08, where a bound placed ' +
       'below a fetch loop left both refusal-text readings intact while reads went 0 to 2.',
-    file: 'packages/node/src/peer-verifier.ts',
+    file: 'packages/libp2p/src/peer-verifier.ts',
     find: "  'nodeKey-mismatch',\n",
     replace: '',
     caughtBy: ['packages/node/src/peer-verifier.node.test.ts'],
@@ -943,7 +943,7 @@ export const MUTATIONS: readonly Mutation[] = [
       'and not a hypothetical** — it was found by probing the guard rather than trusting ' +
       'it, which is why the entry exists at all: the first version of the guard was ' +
       'unmeasured and nothing in the suite moved when it was weakened.',
-    file: 'packages/node/src/peer-verifier.ts',
+    file: 'packages/libp2p/src/peer-verifier.ts',
     find: '    this.#generations += 1\n    const generation = this.#generations\n',
     replace: '    const generation = (this.#lastAsk.get(peerId)?.generation ?? 0) + 1\n',
     caughtBy: ['packages/node/src/peer-verifier.node.test.ts'],
@@ -1020,10 +1020,31 @@ export const MUTATIONS: readonly Mutation[] = [
       'fails, so the pool position is strictly the weaker one — measured rather than argued, on ' +
       'the run that moved it back.',
     file: 'packages/core/src/quorum.ts',
-    find: '    const shared = sharedRelay(members)',
-    replace: '    const shared = sharedRelay(distinct)',
+    find: '    const shared = sharedRelay(members, rules.peerIdOf)',
+    replace: '    const shared = sharedRelay(distinct, rules.peerIdOf)',
     caughtBy: ['packages/core/src/quorum.test.ts'],
     signature: 'refuses a one-member quorum that hangs off a single relay',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M39b',
+    why:
+      'VER-03 — the second arm of rule 2, added 2026-08-14, and the argument that it is not ' +
+      'decoration. `relayIds` names relays by PEER ID while a quorum member is identified by ' +
+      '`nodeKey`; two spellings of one node that never compare equal. So when the relay every ' +
+      'other member depends on was ITSELF a member, no comparison in `quorum.ts` could see it — ' +
+      'and because a relay binds a socket it enrols `seed`, whose dependency set is empty, so ' +
+      '`sharedRelay` returned `null` and the quorum composed while reporting a redundancy one ' +
+      'node’s failure would erase. That is the browser tier’s own topology, not a contrived ' +
+      'one. Dropping the mapping at the call site restores exactly the old, silent behaviour ' +
+      'while leaving every other line of the rule in place, which is what makes it the right ' +
+      'plant: it cannot be caught by a test that merely reads rule 2, only by one that reads ' +
+      'this case.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '          peerIdOf: (certificate) => peerIdByNodeKey.get(certificate.nodeKey) ?? null,\n',
+    replace: '',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    signature: 'refuses when the relay every other candidate depends on is itself a candidate',
     signatureSource: 'test-title',
   },
   {

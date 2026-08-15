@@ -8,13 +8,43 @@
  *
  *   1. **No two replicas from the same operator.** Otherwise "3 of 3 agreed" can mean
  *      one person agreeing with themselves.
- *   2. **No single relay every member is discovered through.** Not a rule about kinds
- *      of node — **all nodes have equal functionality** and a browser peer fills any
- *      slot a server can. It is a statement about the discovery *graph*: if every
- *      member is found only via relay R, then R failing loses the whole quorum, and
- *      the redundancy was never real. Three browser peers discoverable through three
- *      different relays pass; three servers published behind one do not. The rule
- *      reads the actual discovery paths, never a node's category.
+ *   2. **No single relay whose failure would lose every member.** Not a rule about
+ *      kinds of node — **all nodes have equal functionality** and a browser peer fills
+ *      any slot a server can. It is a statement about the discovery *graph*: if losing
+ *      relay R would take every member with it, then the redundancy was never real.
+ *      Three browser peers discoverable through three different relays pass; three
+ *      servers published behind one do not. The rule reads the actual discovery paths,
+ *      never a node's category.
+ *
+ * ## Rule 2's sharpest case was invisible to it until 2026-08-14
+ *
+ * The rule above used to read *"no single relay every member is **discovered
+ * through**"*, and `sharedRelay` implemented exactly that: intersect the members'
+ * `relayIds`. **That misses the case where the relay is itself a member of the quorum**,
+ * which is the browser tier's own topology and the sharpest instance of VER-03 there is.
+ *
+ * The defect was a namespace mismatch, and it is worth naming precisely because nothing
+ * about the code looked wrong. `relayIds` holds **libp2p peer ids** — `fabric-node.ts`
+ * and `browser-node.ts` both sign `relayIds: canRelay ? [] : [...relayPeerIds]` — while a
+ * member's identity here is its `nodeKey`, an ed25519 public key. Two spellings of one
+ * node that never compare equal, so the relay could sit in the member set and no
+ * comparison in this file could see that the other members named *it*. Worse, the relay
+ * binds a socket, so it enrols `discoverability: 'seed'`, `dependenciesOf` answered `[]`
+ * for it, and the function returned `null` — the quorum composed and reported a
+ * redundancy that one node's failure would erase.
+ *
+ * `quorum-ui.e2e.test.ts` carried the mistaken reading as a *finding*: "the relay
+ * computes, it binds a socket so it enrols `seed`, `composeQuorum` orders seeds first so
+ * it is always a member, and `sharedRelay` answers `null` the moment a member is a seed.
+ * That is the rule being *right*, not silent." **It was silent.** A seed's own
+ * reachability does not depend on a relay, which is why counting its advertisement
+ * relays would be wrong — but *being* the relay is not a dependency on one, it is being
+ * the thing everyone else depends on, and losing it loses them anyway.
+ *
+ * The fix is a mapping, supplied by the caller because core cannot import libp2p: an
+ * optional `peerIdOf` that answers a certificate's peer id. Absent, this file behaves
+ * exactly as it did — which is what keeps `attestationReceipt` and every pure-core
+ * caller reading the same rule they always read.
  *
  * ## The third rule that was here, and why it is not — retracted 2026-08-03
  *
@@ -133,6 +163,27 @@ export interface QuorumRules {
    * its name has always said.
    */
   readonly requireIndependentPaths?: boolean
+  /**
+   * A certificate's **peer id**, when the caller can supply one — VER-03.
+   *
+   * `relayIds` names relays by peer id; a member is identified here by `nodeKey`. Those
+   * are two spellings of one node that never compare equal, so without this hook the
+   * rule cannot see the case where the relay every other member depends on is *itself*
+   * a member. See this module's header for what that cost.
+   *
+   * **A function rather than a `Map<PublicKeyHex, string>`** so this file states what it
+   * needs (one answer per certificate) rather than how the caller stores it, and so a
+   * caller holding descriptors keyed the other way round pays no re-index. `null` means
+   * "this certificate's peer id is not known to me" and is treated as *no match* — never
+   * as a match against another unknown.
+   *
+   * **Optional, and its absence is behaviour rather than a default.** Core cannot import
+   * libp2p (`CLAUDE.md`'s one-codebase constraint), so it cannot derive a peer id from a
+   * key itself; a caller that has no mapping gets precisely the rule that shipped before
+   * this parameter existed, which is what lets `attestationReceipt` and the unit cases
+   * below go on reading it unchanged.
+   */
+  readonly peerIdOf?: (certificate: NodeCertificate) => string | null
 }
 
 export type QuorumRefusal =
@@ -214,11 +265,22 @@ export function composeQuorum(
   // relay common to every candidate is common to every member — and the converse is
   // the case above, which is what makes this position strictly the stronger one.
   if (requireIndependentPaths) {
-    const shared = sharedRelay(members)
+    const shared = sharedRelay(members, rules.peerIdOf)
     if (shared !== null) {
+      // Two sentences for one refusal, because the two shapes of it are genuinely
+      // different facts and a reader who cannot tell them apart cannot act on either.
+      // The *kind* is one — `shared-relay-dependency` — and every test and surface that
+      // discriminates does so on the kind, which is why the wording can afford to be
+      // specific. The first string is verbatim what shipped before 2026-08-14 and
+      // `quorum-agents.node.test.ts:1087` reads it exactly, so the pre-existing case
+      // says what it always said.
+      const relayIsMember =
+        rules.peerIdOf !== undefined && members.some((member) => rules.peerIdOf?.(member) === shared)
       return refuse(
         { kind: 'shared-relay-dependency', relayId: shared },
-        `every member of the quorum is discoverable only through relay ${shared}; its failure would lose the whole quorum`,
+        relayIsMember
+          ? `relay ${shared} is itself a member of the quorum and every other member is discoverable only through it; its failure would lose the whole quorum`
+          : `every member of the quorum is discoverable only through relay ${shared}; its failure would lose the whole quorum`,
       )
     }
   }
@@ -241,15 +303,26 @@ export function composeQuorum(
 }
 
 /**
- * A relay every member is discovered through, or `null` if their paths are independent.
+ * A relay whose failure would lose every member, or `null` if their paths are independent.
  *
- * A seed node depends on no relay to be found, so its presence alone means there is no
- * single shared discovery path and the answer is `null`.
+ * **Two ways a member goes down with relay R**, and the second is why `peerIdOf` exists:
+ *
+ *   - it is discoverable **only** through R — `discoverability: 'via-relay'` naming R;
+ *   - it **is** R — its own peer id is the id the others named.
+ *
+ * A member that is neither survives R, and one surviving member is enough for the answer
+ * to be `null`: the quorum did not rest on a single reachability dependency.
+ *
+ * `peerIdOf` is optional and defaults to answering `null` for everything, which reduces
+ * this to the reading that shipped before 2026-08-14 — the intersection of the members'
+ * relay dependencies. `attestationReceipt` below calls it that way deliberately: its
+ * `sharedRelay` field describes the certificates of whoever **answered**, a display fact,
+ * while the reading VER-03 rests on is the composer's and is where the mapping is passed.
  */
-export function sharedRelay(members: readonly NodeCertificate[]): string | null {
-  const first = members[0]
-  if (first === undefined) return null
-
+export function sharedRelay(
+  members: readonly NodeCertificate[],
+  peerIdOf: (certificate: NodeCertificate) => string | null = () => null,
+): string | null {
   // A seed has *no* discovery dependency, whatever relays it happens to list.
   //
   // This distinction is the whole correctness of the rule. A seed may advertise
@@ -258,18 +331,36 @@ export function sharedRelay(members: readonly NodeCertificate[]): string | null 
   // perfectly independent quorum: three seeds that share an advertisement channel are
   // not three nodes that vanish together. Only a node whose *sole* discovery path is a
   // relay actually depends on it.
-  const dependenciesOf = (member: NodeCertificate): readonly string[] =>
-    member.discoverability === 'seed' ? [] : member.relayIds
+  //
+  // Note what is deliberately *not* narrowed here: a `via-relay` member listing two
+  // relays would survive losing one of them, yet this counts it as depending on both.
+  // That over-refusal predates this function's rewrite — the old intersection had the
+  // identical property — and it errs toward refusing a quorum that would have held,
+  // which is the safe direction for a rule about redundancy. Changing it is a separate
+  // decision and would need its own case.
+  const dependsOn = (member: NodeCertificate, relayId: string): boolean =>
+    member.discoverability !== 'seed' && member.relayIds.includes(relayId)
 
-  let common: string[] = [...dependenciesOf(first)]
+  // The second arm. `peerIdOf` answering `null` — the default, and the answer for any
+  // certificate the caller cannot place — can never equal a relay id, so an absent
+  // mapping leaves `lostWith` exactly equal to `dependsOn` and this whole function
+  // exactly equal to the intersection it used to compute.
+  const lostWith = (member: NodeCertificate, relayId: string): boolean =>
+    dependsOn(member, relayId) || peerIdOf(member) === relayId
+
+  // Only relays somebody actually depends on are candidates. A relay named by nobody
+  // cannot lose a quorum, and a member's *own* peer id is not a candidate on its own —
+  // a node is not a single point of failure for a quorum it is merely a member of.
+  const named = new Set<string>()
   for (const member of members) {
-    const relays = dependenciesOf(member)
-    if (relays.length === 0) return null
-    const lookup = new Set<string>(relays)
-    common = common.filter((id) => lookup.has(id))
-    if (common.length === 0) return null
+    if (member.discoverability === 'seed') continue
+    for (const relayId of member.relayIds) named.add(relayId)
   }
-  return [...common].sort()[0] ?? null
+
+  const fatal = [...named].filter((relayId) => members.every((member) => lostWith(member, relayId)))
+  // Sorted so a set with more than one such relay names the same one on every run —
+  // the determinism the previous implementation got from sorting its intersection.
+  return fatal.sort()[0] ?? null
 }
 
 /**

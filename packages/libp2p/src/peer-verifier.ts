@@ -112,63 +112,83 @@
  * separate design question involving an owner. What is closed here is only the half where
  * the signed document itself says it has stopped being valid.
  *
- * ## Packaging, stated because it is a finding and not a design
+ * ## Packaging — the paragraph that stood here described a gap, and the gap is closed
  *
- * This module imports nothing Node-only: `@libp2p/interface` types, `@o2/core`,
- * `@o2/libp2p` and `@o2/net`. It lives in `@o2/node` because that is where Plan 17-04 put
- * it, and `@o2/browser` does not depend on `@o2/node` — so **the browser tier still cannot
- * construct one, and browser-tier verification is still UNMEASURED.** That is a
- * **packaging** fact, not a capability one. Nothing here reads what kind of node a peer is;
- * there is no field to branch on.
+ * It read: *"It lives in `@o2/node` because that is where Plan 17-04 put it, and
+ * `@o2/browser` does not depend on `@o2/node` — so **the browser tier still cannot
+ * construct one, and browser-tier verification is still UNMEASURED**"*. That was accurate
+ * for as long as the file sat in `@o2/node`, and on 2026-08-14 the file moved here. The
+ * sentence is quoted rather than deleted because the *reasoning* under it is what chose
+ * this directory, and a reader who finds the move surprising needs the argument that made
+ * it the only destination.
  *
- * ### The destination this paragraph used to name is impossible — measured 2026-08-04
+ * The clause it turned on is unchanged and still true: this is a **packaging** fact, not a
+ * capability one. Nothing here reads what kind of node a peer is; there is no field to
+ * branch on. That is why the fix was a `git mv` and two barrel lines rather than a browser
+ * implementation of anything.
  *
- * It read: *"moving this file to `@o2/net` is a barrel change with no code change"*. That
- * is **false**, and it was false for a reason the sentence did not consider: it checked
- * *"nothing Node-only"*, and `@o2/net`'s bar is stricter than that.
+ * ### `@o2/net` was named first and is impossible — measured 2026-08-04, still true
+ *
+ * An earlier draft read: *"moving this file to `@o2/net` is a barrel change with no code
+ * change"*. That is **false**, and it was false for a reason the sentence did not consider:
+ * it checked *"nothing Node-only"*, and `@o2/net`'s bar is stricter than that.
  *
  * `purity.node.test.ts` lists `net` in `PORTABLE` and refuses the specifier pattern
  * `/^@libp2p\//` there outright — *"libp2p modules belong in an adapter package"* — because
  * the portable tier must also work over the in-process `MemoryNetwork` transport, not
- * merely in a browser. This module imports `@libp2p/interface`, so the move reddens that
- * guard by name. Four separate comments in `packages/net` already say the same thing about
- * the sibling half (`reduce-job.ts`: *"that derivation lives in `@o2/libp2p`, which
+ * merely in a browser. This module imports `@libp2p/interface`, so that move would redden
+ * the guard by name. Four separate comments in `packages/net` already say the same thing
+ * about the sibling half (`reduce-job.ts`: *"that derivation lives in `@o2/libp2p`, which
  * `@o2/net` may not import"*; also `discover-candidates.ts`, `capability-authorizer.ts`,
- * `start-report.test.ts`, the last of which calls the edge *"the wrong direction"*).
+ * `start-report.test.ts`, the last of which calls the edge *"the wrong direction"*). **Do
+ * not "tidy" this file down one tier.**
  *
- * ### The honest destination, and what it actually costs
+ * ### Why here, and what it cost
  *
- * **`@o2/libp2p`.** It is the dual-target middle tier — permitted to use libp2p, forbidden
- * `node:` and `@o2/node` — and *both* `@o2/node` and `@o2/browser` already depend on it, so
- * it delivers exactly what the move was for without `@o2/browser` acquiring `@o2/node`.
- * `nodeKeyForPeerId` is already there, so that import becomes relative.
+ * `@o2/libp2p` is the dual-target middle tier — permitted to use libp2p, forbidden `node:`
+ * and `@o2/node` (`purity.node.test.ts`'s `DUAL_TARGET`) — and *both* `@o2/node` and
+ * `@o2/browser` already depend on it, so it delivers what the move was for without
+ * `@o2/browser` acquiring `@o2/node`. `nodeKeyForPeerId` is a sibling here, so that import
+ * is relative rather than a package specifier.
  *
- * It is **not** free, and the price is why it was not taken inside Plan 24-01:
+ * The two prices were named in advance and both were paid, not avoided:
  *
- *   - `@o2/libp2p` gains a dependency on `@o2/net`, a package edge that does not exist
- *     today. It is acyclic — nothing under `packages/net/src` imports `@o2/libp2p`, only
- *     names it in prose — and it is the permitted direction, but it is a new edge and not a
- *     barrel line.
- *   - Three `mutation-ledger.ts` entries (`M33`, `M34`, `M35`) are keyed on this file's
- *     path, and `mutation-guard.node.test.ts` reads each `entry.file` off disk. Moving the
- *     file without repointing all three reddens that guard. `mutation-ledger.ts` is owned
- *     by an unexecuted plan in Phase 20 at the time of writing.
+ *   - **`@o2/libp2p` gained a dependency on `@o2/net`**, a package edge that did not exist
+ *     before. It is acyclic — nothing under `packages/net/src` imports `@o2/libp2p`, only
+ *     names it in prose, which is what the four comments above are — and it is the
+ *     permitted direction. It is still a new edge and not a barrel line.
+ *   - **Three `mutation-ledger.ts` entries (`M33`, `M34`, `M35`) are keyed on this file's
+ *     path** and were repointed with the move. `mutation-guard.node.test.ts` reads each
+ *     `entry.file` off disk and each `find` string out of it, so a move without the repoint
+ *     reddens that guard — which is the intended behaviour and was watched happening.
  *
- * ### The instrument that sees this, which is not `tsc`
+ * ### The instrument that sees a bad destination, which is not `tsc`
  *
  * Recorded because the obvious check does not work and somebody will otherwise rely on it.
- * Planting `import { PeerVerifier } from '@o2/node'` into `browser-node.ts` and running
- * `npx tsc --noEmit` exits **0** — hoisted `node_modules` resolves the specifier whatever
- * `packages/browser/package.json` declares. The instrument that refuses it is
- * `purity.node.test.ts`, which reports *"packages/browser/src/browser-node.ts imports
- * \"@o2/node\" — a dual-target package must not depend on the Node adapters"*. A
- * before/after reading taken with `tsc` alone would pass in both directions and establish
- * nothing.
+ * Planting an `@o2/node` import into `browser-node.ts` and running `npx tsc --noEmit` exits
+ * **0** — hoisted `node_modules` resolves the specifier whatever `packages/browser/package
+ * .json` declares. The instrument that refuses it is `purity.node.test.ts`, which reports
+ * *"packages/browser/src/browser-node.ts imports \"@o2/node\" — a dual-target package must
+ * not depend on the Node adapters"*. A before/after reading of this move taken with `tsc`
+ * alone would have passed in both directions and established nothing.
+ *
+ * **The paragraph above names the specifier in prose and never as syntax, and writing the
+ * syntax back reddens the very guard it describes.** It used to spell the plant out as a
+ * one-line ES import — the `import { … }` keyword, the `from` keyword, and the specifier in
+ * quotes — which was fine while this file sat in `@o2/node`, a package
+ * `purity.node.test.ts` scans neither as `PORTABLE` nor as `DUAL_TARGET`. Arriving here put
+ * the file inside a scanned root, and `specifiersOf` is a regex over raw text with no
+ * notion of a comment: the example matched `/(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/` and
+ * this module was reported as importing the Node adapters on the first run after the move.
+ * Twice, in fact — the second time from the sentence quoting the first. That is the scanner
+ * being conservative rather than wrong: a text scan that tried to skip comments would be a
+ * parser, and the failure mode of getting *that* wrong is a forbidden import hiding behind
+ * a `//`.
  */
 
 import { verifyCertificate } from '@o2/core'
 import type { CanonicalValue, CertificateFailure, NodeCertificate, PublicKeyHex } from '@o2/core'
-import { nodeKeyForPeerId } from '@o2/libp2p'
+import { nodeKeyForPeerId } from './identity.ts'
 import { RpcFailure, encodeRequest, parseResponse } from '@o2/net'
 import type { RpcEndpoint } from '@o2/net'
 import type { Libp2p, PeerId } from '@libp2p/interface'

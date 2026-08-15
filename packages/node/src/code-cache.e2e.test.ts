@@ -10,101 +10,117 @@ import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { sha256 } from '@o2/core'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
-import { syntheticArtifact } from '../../browser/src/synthetic-artifact.ts'
+import { ARTIFACT_SIZED, CHAINED_HOT, syntheticArtifact } from '../../browser/src/synthetic-artifact.ts'
 
 /**
  * AOT-05, criterion 4 — does a second visit hit V8's code cache?
  *
- * The criterion asks for a *measurement*, and a measurement can come back negative.
- * This one does. What follows is the apparatus and the result, written so that the
- * negative is checkable rather than asserted.
+ * **Yes.** It did not until 2026-08-14, and the reason it did not was the fixture.
  *
- * ## Why it cannot be done in the browser test
+ * ## What this file used to say, and why it was wrong
  *
- * V8's WebAssembly code cache is populated asynchronously, after top-tier
- * compilation, and read back on a *subsequent load of the same URL*. Nothing inside
- * a single page can observe it: a second `compileStreaming` of the same URL in the
- * same document is faster for at least four reasons that are not the code cache
- * (`CACHE_CONFOUNDS` in `streaming-load.ts` lists them). So the observation has to
- * be made from outside the browser, across page loads, in one profile — which means
- * Playwright, which means an e2e.
+ * This test previously published a negative: no WASM code-cache entry was produced on
+ * any configuration tried, at 220 KB, 1.1 MB, 4.8 MB and 10.8 MB, with
+ * `application/wasm`, a cacheable response, a query-free CID URL, `compileStreaming`,
+ * and the module "executed millions of times first so that `wasm.TopTierCompilation`
+ * appears in the trace — because blink serialises top-tier code, and a module that is
+ * never called never tiers up."
  *
- * ## What is observed, and why it is trustworthy
+ * That last clause was the right idea applied to the wrong object. A module is not
+ * what tiers up; a **function** is. The synthetic modules those runs served export one
+ * function, `run`, and `run` did not call anything — every body in the straight-line
+ * shape is an `i32.const`/binop chain, so heating `run()` three million times tiered
+ * up exactly one function out of 8000, and that one function was a closed expression
+ * over constants that Turbofan folds to a single materialised value.
  *
- * Two independent observations, neither of which is a timing:
+ * The measurement that settles it is printed by this test on every run, in the `heat`
+ * column: the straight-line arms complete **3,000,000 `run()` calls in about 24 ms** —
+ * upwards of 10^8 calls a second, a rate no 200-operation function body can sustain,
+ * and the signature of a body that has been folded away. The chained arms, doing real
+ * work, take 6.8 s for 60,000 calls. So the straight-line module never produced enough
+ * top-tier code to reach `--wasm-caching-threshold`, and could not have been cached
+ * whatever its URL, MIME type or size. **The published negative was a fact about the
+ * fixture, not about the loader or the platform.**
  *
- * 1. **The profile's `Default/Code Cache/wasm` directory.** Chromium's code cache is
- *    a real on-disk store. If a compiled module were serialised, megabytes would
- *    appear there.
- * 2. **Chromium's own trace events.** `v8.wasm.moduleCacheHit`,
- *    `v8.wasm.cachedModule`, `v8.wasm.moduleCacheInvalid` and
- *    `v8.wasm.moduleCacheInvalidDigest` are present as string literals in the
- *    Chromium binary this test drives, so their absence from a trace is evidence
- *    rather than a guess about naming.
+ * ## The fifth precondition
  *
- * Both are negatives, and a negative from an instrument nobody has calibrated is
- * worthless. So the test carries a **positive control**: the sibling directory,
- * `Default/Code Cache/js`, filled by the JavaScript this same page loads from this
- * same origin over these same visits. It goes from roughly 8 KB after the first
- * visit to over a megabyte by the second, and the test asserts that growth. Two
- * directories, one profile, one set of page loads: one fills and the other does not.
- * That is what turns "we saw no WASM code cache" into a finding rather than a broken
- * harness.
+ * This project built around four preconditions — streaming API, `application/wasm`, a
+ * URL that is a stable cache key, and a module over ~128 KB. `node --v8-options` names
+ * a fifth that nothing here accounted for:
  *
- * The control is deliberately described as *the page's JavaScript* rather than as a
- * particular file. An earlier version served a 600 KB module with long cache headers
- * and called that the control; re-serving it with `Cache-Control: no-store` was then
- * expected to collapse the number and did not — the figure is dominated by the
- * modules Vite serves, and the claim that the header mattered was wrong. The
- * calibration that survives is the weaker and true one: this profile's JS code cache
- * fills while its WASM code cache does not.
+ * ```
+ * --wasm-caching-threshold=1000         (top-tier code that triggers the next caching event)
+ * --wasm-caching-timeout-ms=2000        (only cache if no new code compiled within this window)
+ * --wasm-caching-hard-threshold=1000000 (top-tier code that triggers caching immediately)
+ * ```
  *
- * That calibration was then checked against a deliberately disabled cache. Relaunched
- * with Chromium's `--v8-cache-options=none`, `Code Cache/js` reads **72 bytes** —
- * exactly what `Code Cache/wasm` reads on every ordinary run. So 72 bytes is the
- * measured signature of "no code cache was written", produced on purpose on the side
- * that normally works, and it is the number the WASM side returns every time. The
- * negative below is therefore a reading, not an absence of one.
+ * The unit is **bytes of top-tier code**, not bytes of module. A large module whose
+ * code never tiers up is, to this mechanism, an empty one.
  *
- * ## The result
+ * ## What is observed now
  *
- * No WASM code-cache entry was ever produced, on any configuration tried:
+ * Three profiles, three separate Chromium contexts, one Vite origin:
  *
- * | module size | visits | `Code Cache/wasm` |
- * |---|---|---|
- * | 220 KB | 2 | 72 B (index only) |
- * | 1.1 MB | 2 | 72 B |
- * | 4.8 MB | 3 | 72 B |
- * | 10.8 MB | 3, incl. browser restart, headed and headless | 72 B |
+ * | profile | shape | visits | result |
+ * |---|---|---|---|
+ * | straight-line | `ARTIFACT_SIZED`, 4.86 MB, both arms | 3 | `Code Cache/wasm` 72 B, no cache trace events |
+ * | chained / platform | `CHAINED_HOT`, 622 KB, `compileStreaming` only | 2 | writes on visit 1, reads on visit 2 |
+ * | chained / loader | `CHAINED_HOT`, 622 KB, shipped `loadArtifact` only | 2 | writes on visit 1, reads on visit 2 |
  *
- * all with `Content-Type: application/wasm`, `Cache-Control: public, max-age=…`, a
- * query-free same-origin URL, `compileStreaming`, and the module executed millions
- * of times first so that `wasm.TopTierCompilation` appears in the trace — because
- * blink serialises top-tier code, and a module that is never called never tiers up.
- * In the same profile and the same runs, the JavaScript code cache grew past half a
- * megabyte — **2,078,297 bytes** on the 4.8 MB run recorded in
- * `.planning/phases/phase-10-elfconv-aot/10-VERIFICATION.md`, against 8,545 bytes
- * after the first visit — and was consumed on later visits.
+ * The two chained profiles are separate **so the arms can be told apart**. A trace event
+ * says a module was serialised; it does not say which of two modules in the same
+ * renderer produced it. One arm per profile is what makes the loader's answer the
+ * loader's.
  *
- * The assertion below floors that at 500,000 rather than pinning 2,078,297, because
- * the figure is dominated by whatever modules Vite happens to serve and would drift
- * with an unrelated dependency change. The floor is what the finding needs: the JS
- * side is three orders of magnitude above the 72 bytes the WASM side returns, and no
- * plausible drift closes that gap.
+ * That third row closes a question this file previously parked as unanswerable:
+ * *"whether `Response.clone()` preserves a cache hit is unknown: no entry was ever
+ * produced to consume."* An entry is produced now, and the shipped loader — which
+ * clones the response to verify its bytes while `compileStreaming` consumes the
+ * original — both writes and reads one. The clone does not cost the cache.
  *
- * So: the four preconditions this project builds around are **necessary**. That they
- * are **sufficient** is not established, and on this platform, this Chromium, and
- * this transport they were demonstrably not sufficient. The honest statement of
- * criterion 4 is that the load path is correct and the cache hit is unobserved.
+ * ## What is asserted, and what is only reported
  *
- * ## What this does not say
+ * Asserted: that the chained profiles write and read, that the straight-line profile
+ * does neither, and that the two readings come from the same apparatus in the same run.
+ * The contrast is the evidence — a within-run comparison rather than a threshold
+ * carried over from another machine.
  *
- * It does not say Chrome never caches WebAssembly. It says this harness never saw it
- * — automation-driven Chromium, a fresh temporary profile, a loopback origin. Any of
- * those could be the reason, and none of them was isolated. It also cannot say
- * whether `Response.clone()` in the loader would preserve or destroy a cache hit,
- * because no entry was ever produced for a second visit to consume. That question
- * stays open and is the first thing to re-check if the table above ever changes.
+ * Reported and not asserted: the byte counts. `Code Cache/wasm` reads 61,528 B for the
+ * platform profile and 61,570 B for the loader profile here, and pinning either would
+ * turn a Chromium code-generation change into a red build. The assertion is that they
+ * clear the 72-byte index-only floor by orders of magnitude.
+ *
+ * ## What this still does not say
+ *
+ * Not every executable module caches, and the governing variable is **not established**.
+ * Measured on this machine, all chained, all heated well past tier-up, all served
+ * identically:
+ *
+ * | shape | module | outcome | entry |
+ * |---|---|---|---|
+ * | 2000 x 100 | 621,623 B | writes on visit 1 | 61,478 B |
+ * | 1000 x 150 | 460,473 B | writes — visit 1 or 2 depending on the run | 30,690 B |
+ * | 500 x 400 | 604,223 B | never writes | — |
+ * | 250 x 250 | 189,423 B | never writes | — |
+ *
+ * The four module sizes are exact and reproduce. The *outcomes* were re-measured on a
+ * second occasion, and one of them moved: 1000 x 150 was first recorded as writing on
+ * visit 2 and was then observed writing on visit 1. Nothing else changed, so the row
+ * is stated as the range it actually occupies rather than as the first reading —
+ * `--wasm-caching-timeout-ms=2000` makes "which visit" a race between the settle and a
+ * timer, and a row that names one visit is claiming a precision this has not got. The
+ * two never-writes rows and the committed shape's write were identical both times.
+ *
+ * 500 x 400 and 2000 x 100 have near-identical module sizes and identical total
+ * operation counts, and they behave differently — so module size alone does not
+ * explain it, and neither does "the module is executable". Function count is the axis
+ * that orders these four, but four points on one machine is a correlation, not a
+ * mechanism, and no attempt was made to read V8's own accounting of top-tier bytes.
+ * The committed shape is the one that reproduces; why its neighbours do not is open.
+ *
+ * It also remains true that this is automation-driven Chromium, a fresh temporary
+ * profile and a loopback http origin, and that none of those was isolated as a factor.
+ * What changed is the direction of the result, not the reach of the harness.
  *
  * Serialised with the other e2e specs: it launches its own Chromium and its own Vite
  * server.
@@ -121,19 +137,53 @@ const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
  *
  * ~4.8 MB puts them in the range of a real `aarch64-wasi32` translation: elfconv
  * turned a 659 KB `hello` into 5.66 MB, measured on this machine.
+ *
+ * These are the *straight-line* shapes, and they are kept for exactly one reason:
+ * they are the configuration the negative was published at, so reproducing the 72-byte
+ * reading beside a working one is what shows the difference is the fixture. Nothing
+ * here treats them as a stand-in for a cacheable artifact any more.
  */
-const RAW_ARM = syntheticArtifact({ functions: 8000, opsPerFunction: 200 })
-const LOADER_ARM = syntheticArtifact({ functions: 8001, opsPerFunction: 200 })
+const RAW_ARM = syntheticArtifact(ARTIFACT_SIZED)
+const LOADER_ARM = syntheticArtifact({ ...ARTIFACT_SIZED, functions: ARTIFACT_SIZED.functions + 1 })
+
+/**
+ * The executable shapes — the same two-arm rule, on a module that can tier up.
+ *
+ * One per profile rather than two per profile: see the module comment. Distinct byte
+ * counts for the same reason as above.
+ */
+const HOT_PLATFORM_ARM = syntheticArtifact(CHAINED_HOT)
+const HOT_LOADER_ARM = syntheticArtifact({ ...CHAINED_HOT, functions: CHAINED_HOT.functions + 1 })
 
 /** Multicodec `raw` — a single block of bytes, which is what an artifact is. */
 const RAW_CODE = 0x55
 
 /**
- * Bulk JavaScript for the page to load, so the control side of the comparison has
+ * How many times each arm calls `run()` before the page is left to settle.
+ *
+ * A **call count**, not a wall-clock budget. V8 budgets tier-up in approximate bytes
+ * executed per function (`--wasm-tiering-budget=13000000`), so what has to be
+ * controlled is calls; a time box would make the thing under control depend on how
+ * busy the machine is, which is the failure mode a measurement here can least afford.
+ *
+ * 60,000 against a requirement of roughly 42,000 for a 2000 x 100 module — about 40%
+ * headroom. Measured: at 45,400 calls the entry appears, at 19,800 it does not.
+ * The straight-line arms keep their original three million, which cost a fraction of
+ * a second precisely because the body they call has been folded away.
+ */
+const HOT_HEAT_CALLS = 60_000
+const STRAIGHT_HEAT_CALLS = 3_000_000
+
+/**
+ * Bulk JavaScript for the page to load, so the JS side of the comparison has
  * something substantial in it even if Vite's own output shrinks.
  *
- * Not *the* control on its own — see the module comment. The measured figure covers
- * every script this origin serves.
+ * This was the *positive control* while the WASM reading was null: without it, "no
+ * WASM code cache" could not be told apart from "this harness cannot see a code
+ * cache". It is retained rather than removed, because the straight-line profile still
+ * returns a null and that null still needs calibrating — but it is no longer the only
+ * thing standing between this file and an uninterpretable zero. The chained profiles
+ * calibrate the WASM directory directly, which is strictly better evidence.
  */
 function controlModule(): string {
   let source = ''
@@ -149,6 +199,9 @@ interface ArmResult {
   readonly ok: boolean
   readonly bytes: number
   readonly compileMs: number
+  /** Calls actually completed, so a truncated heat is visible rather than silent. */
+  readonly heatCalls: number
+  readonly heatMs: number
   readonly detail: string
 }
 
@@ -157,42 +210,85 @@ declare global {
     probeReady: boolean
     controlLoaded: boolean
     /** The platform API, unmediated — the control for the loader arm. */
-    armRaw: (url: string) => Promise<ArmResult>
+    armRaw: (url: string, heatCalls: number) => Promise<ArmResult>
     /** The shipped `loadArtifact`, imported into the page by Vite. */
-    armLoader: (base: string, cid: string) => Promise<ArmResult>
+    armLoader: (base: string, cid: string, heatCalls: number) => Promise<ArmResult>
   }
 }
 
 interface VisitReading {
   readonly visit: number
-  readonly raw: ArmResult
-  readonly loader: ArmResult
+  readonly arms: readonly ArmResult[]
   readonly wasmCacheBytes: number
   readonly jsCacheBytes: number
-  readonly cacheTraceEvents: readonly string[]
+  readonly writeTraceEvents: readonly string[]
+  readonly readTraceEvents: readonly string[]
   readonly artifactRequests: number
 }
 
 /**
- * Trace event names this Chromium emits around the WASM code cache.
+ * Trace event names this Chromium emits when it **writes** a module to the code cache.
  *
- * Taken from the binary itself rather than from memory of the Blink source: all four
- * appear as string literals in the framework this test drives, so looking for them
- * and finding nothing is a measurement.
+ * ## The list this replaces was inert
+ *
+ * It read:
+ *
+ * ```
+ * v8.wasm.moduleCacheHit, v8.wasm.cachedModule,
+ * v8.wasm.moduleCacheInvalid, v8.wasm.moduleCacheInvalidDigest
+ * ```
+ *
+ * under a comment claiming they were "taken from the binary itself rather than from
+ * memory of the Blink source: all four appear as string literals in the framework this
+ * test drives, so looking for them and finding nothing is a measurement."
+ *
+ * The premise is true and the conclusion did not follow. All four *are* string literals
+ * in this Chromium — `strings` on the framework binary finds them. **None of them fires
+ * on a genuine cache hit.** They were checked against a run that writes an entry on
+ * visit 1 and reads it back on visits 2 and 3, and the filtered list came back empty on
+ * every visit, exactly as it did when nothing was cached at all.
+ *
+ * So the file's claim of "two independent observations" was one observation and a
+ * constant. That is the defect class this project names as its own: **a reading that
+ * would be identical if the mechanism had never run.** Present in a binary is not the
+ * same as emitted on this path, and only the second one makes a filter a measurement.
+ *
+ * The names below were read off a trace of a run that demonstrably cached, not off the
+ * binary and not off memory of the source.
  */
-const CACHE_TRACE_NAMES = [
-  'v8.wasm.moduleCacheHit',
-  'v8.wasm.cachedModule',
-  'v8.wasm.moduleCacheInvalid',
-  'v8.wasm.moduleCacheInvalidDigest',
+const CACHE_WRITE_TRACE_NAMES = ['wasm.SerializeModule']
+
+/**
+ * ...and when it **reads** one back.
+ *
+ * Three, because they are three different claims: `wasm.GetNativeModuleFromCache` is
+ * the lookup succeeding, `wasm.Deserialize` is the bytes being turned back into code,
+ * and `wasm.CompilationAfterDeserialization` is the residue compiled because it was
+ * not in the entry. A hit emits all three together here; requiring only one would
+ * accept a lookup that found something and could not use it.
+ */
+const CACHE_READ_TRACE_NAMES = [
+  'wasm.GetNativeModuleFromCache',
+  'wasm.Deserialize',
+  'wasm.CompilationAfterDeserialization',
 ]
+
+/** One Chromium profile, its directory, and the readings taken from it. */
+interface Profile {
+  readonly label: string
+  readonly dir: string
+  readonly context: BrowserContext
+}
 
 let server: ViteDevServer
 let baseUrl: string
-let context: BrowserContext
-let profile: string
+let straight: Profile
+let hotPlatform: Profile
+let hotLoader: Profile
 let rawCid: string
 let loaderCid: string
+let hotPlatformCid: string
+let hotLoaderCid: string
 let artifactRequests = 0
 
 /** Recursive byte total. `-1` when the directory does not exist at all. */
@@ -211,7 +307,8 @@ async function dirBytes(dir: string): Promise<number> {
   return total
 }
 
-const codeCacheDir = (kind: 'js' | 'wasm'): string => join(profile, 'Default', 'Code Cache', kind)
+const codeCacheDir = (profile: Profile, kind: 'js' | 'wasm'): string =>
+  join(profile.dir, 'Default', 'Code Cache', kind)
 
 /**
  * The page.
@@ -226,36 +323,49 @@ const PAGE = `<!doctype html><meta charset="utf-8"><title>o2 code cache probe</t
 import { CID } from 'multiformats/cid'
 import { loadArtifact } from '/packages/browser/src/streaming-load.ts'
 
-/** Force top-tier compilation: blink serialises tiered-up code, nothing else. */
-function heat(module) {
+/**
+ * Force top-tier compilation: V8 serialises tiered-up code and nothing else.
+ *
+ * Bounded by calls, with a wall-clock stop only as a backstop against a module that
+ * turns out to be far slower than expected — reaching that backstop truncates the heat,
+ * so the count is returned and asserted rather than assumed.
+ */
+function heat(module, calls) {
   const instance = new WebAssembly.Instance(module, {})
+  const run = instance.exports.run
   let acc = 0
-  for (let i = 0; i < 3_000_000; i++) acc = (acc + instance.exports.run()) | 0
-  return acc
+  let done = 0
+  const started = performance.now()
+  while (done < calls && performance.now() - started < 60000) {
+    for (let i = 0; i < 200; i++) { acc = (acc + run()) | 0; done++ }
+  }
+  return { acc, done, ms: performance.now() - started }
 }
 
-window.armRaw = async (url) => {
+window.armRaw = async (url, heatCalls) => {
   try {
     const started = performance.now()
     const module = await WebAssembly.compileStreaming(fetch(url))
     const compileMs = performance.now() - started
     const response = await fetch(url)
     const bytes = (await response.arrayBuffer()).byteLength
-    heat(module)
-    return { ok: true, bytes, compileMs, detail: 'compileStreaming' }
+    const heated = heat(module, heatCalls)
+    return { ok: true, bytes, compileMs, heatCalls: heated.done, heatMs: heated.ms, detail: 'compileStreaming' }
   } catch (cause) {
-    return { ok: false, bytes: 0, compileMs: 0, detail: String(cause) }
+    return { ok: false, bytes: 0, compileMs: 0, heatCalls: 0, heatMs: 0, detail: String(cause) }
   }
 }
 
-window.armLoader = async (base, cid) => {
+window.armLoader = async (base, cid, heatCalls) => {
   const result = await loadArtifact({ gatewayBase: base, cid: CID.parse(cid) })
-  if (!result.ok) return { ok: false, bytes: 0, compileMs: 0, detail: JSON.stringify(result.failure) }
-  heat(result.artifact.module)
+  if (!result.ok) return { ok: false, bytes: 0, compileMs: 0, heatCalls: 0, heatMs: 0, detail: JSON.stringify(result.failure) }
+  const heated = heat(result.artifact.module, heatCalls)
   return {
     ok: true,
     bytes: result.artifact.bytes,
     compileMs: result.artifact.compileMs,
+    heatCalls: heated.done,
+    heatMs: heated.ms,
     detail: result.artifact.cacheEligible ? 'eligible' : 'INELIGIBLE',
   }
 }
@@ -274,9 +384,25 @@ import(/* @vite-ignore */ controlUrl).then((mod) => {
 window.probeReady = true
 </script>`
 
+async function launchProfile(label: string): Promise<Profile> {
+  // A persistent profile, because a code cache that lives only in memory would make
+  // the "second visit" arm meaningless before it started.
+  const dir = await mkdtemp(join(tmpdir(), `o2-code-cache-${label}-`))
+  return { label, dir, context: await chromium.launchPersistentContext(dir, { headless: true }) }
+}
+
 beforeAll(async () => {
   rawCid = CID.create(1, RAW_CODE, await sha256.digest(RAW_ARM)).toString()
   loaderCid = CID.create(1, RAW_CODE, await sha256.digest(LOADER_ARM)).toString()
+  hotPlatformCid = CID.create(1, RAW_CODE, await sha256.digest(HOT_PLATFORM_ARM)).toString()
+  hotLoaderCid = CID.create(1, RAW_CODE, await sha256.digest(HOT_LOADER_ARM)).toString()
+
+  const byCid = new Map<string, Uint8Array>([
+    [rawCid, RAW_ARM],
+    [loaderCid, LOADER_ARM],
+    [hotPlatformCid, HOT_PLATFORM_ARM],
+    [hotLoaderCid, HOT_LOADER_ARM],
+  ])
 
   server = await createServer({
     root: ROOT,
@@ -290,15 +416,15 @@ beforeAll(async () => {
             const path = (request.url ?? '/').split('?')[0] ?? '/'
 
             if (path.startsWith('/artifact/')) {
-              const wanted = path.slice('/artifact/'.length)
-              const bytes = wanted === rawCid ? RAW_ARM : wanted === loaderCid ? LOADER_ARM : null
-              if (bytes === null) {
+              const bytes = byCid.get(path.slice('/artifact/'.length))
+              if (bytes === undefined) {
                 response.writeHead(404).end('no such artifact')
                 return
               }
               artifactRequests += 1
               // The four preconditions, on the wire: the right type, a cacheable
-              // response, and a URL that is the CID and nothing else.
+              // response, and a URL that is the CID and nothing else. The fifth is a
+              // property of the module, not of the response, and lives in the shape.
               response.writeHead(200, {
                 'content-type': 'application/wasm',
                 'content-length': String(bytes.length),
@@ -339,31 +465,52 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   baseUrl = url.endsWith('/') ? url.slice(0, -1) : url
 
-  // A persistent profile, because a code cache that lives only in memory would make
-  // the "second visit" arm meaningless before it started.
-  profile = await mkdtemp(join(tmpdir(), 'o2-code-cache-'))
-  context = await chromium.launchPersistentContext(profile, { headless: true })
+  straight = await launchProfile('straight')
+  hotPlatform = await launchProfile('hot-platform')
+  hotLoader = await launchProfile('hot-loader')
 }, 300_000)
 
 afterAll(async () => {
-  await context?.close().catch(() => {})
+  for (const profile of [straight, hotPlatform, hotLoader]) {
+    await profile?.context.close().catch(() => {})
+    await rm(profile?.dir ?? '', { recursive: true, force: true }).catch(() => {})
+  }
   await server?.close().catch(() => {})
-  await rm(profile, { recursive: true, force: true }).catch(() => {})
-}, 120_000)
+}, 180_000)
 
-/** One page load: both arms, the control, the disk, and the trace. */
-async function visit(index: number, settleMs: number): Promise<VisitReading> {
-  const page = await context.newPage()
+/** What one page load should do, beyond loading the page. */
+type Arm = (page: import('playwright').Page) => Promise<ArmResult>
+
+const platformArm =
+  (cid: string, heatCalls: number): Arm =>
+  (page) =>
+    page.evaluate((args) => window.armRaw(args.url, args.heatCalls), {
+      url: `${baseUrl}/artifact/${cid}`,
+      heatCalls,
+    })
+
+const loaderArm =
+  (cid: string, heatCalls: number): Arm =>
+  (page) =>
+    page.evaluate((args) => window.armLoader(args.base, args.cid, args.heatCalls), {
+      base: `${baseUrl}/artifact/`,
+      cid,
+      heatCalls,
+    })
+
+/** One page load in one profile: its arms, the control, the disk, and the trace. */
+async function visit(profile: Profile, index: number, settleMs: number, arms: readonly Arm[]): Promise<VisitReading> {
+  const page = await profile.context.newPage()
   // A silent page failure here is indistinguishable from a timeout, and a timeout
   // in a cache measurement looks like a cache miss.
-  page.on('pageerror', (error) => process.stderr.write(`[probe] page error: ${error.message}\n`))
+  page.on('pageerror', (error) => process.stderr.write(`[${profile.label}] page error: ${error.message}\n`))
   page.on('console', (message) => {
-    if (message.type() === 'error') process.stderr.write(`[probe] console: ${message.text()}\n`)
+    if (message.type() === 'error') process.stderr.write(`[${profile.label}] console: ${message.text()}\n`)
   })
-  const session = await context.newCDPSession(page)
-  const traced: string[] = []
+  const session = await profile.context.newCDPSession(page)
+  const traced = new Set<string>()
   session.on('Tracing.dataCollected', (payload) => {
-    for (const event of payload.value) if (typeof event['name'] === 'string') traced.push(event['name'])
+    for (const event of payload.value) if (typeof event['name'] === 'string') traced.add(event['name'])
   })
   await session.send('Tracing.start', {
     traceConfig: { includedCategories: ['v8', 'v8.wasm', 'disabled-by-default-v8.wasm'] },
@@ -374,16 +521,13 @@ async function visit(index: number, settleMs: number): Promise<VisitReading> {
   await page.goto(`${baseUrl}/code-cache-probe`)
   await page.waitForFunction(() => window.probeReady === true, null, { timeout: 60_000 })
 
-  const raw = await page.evaluate((url) => window.armRaw(url), `${baseUrl}/artifact/${rawCid}`)
-  const loader = await page.evaluate(
-    (args) => window.armLoader(args.base, args.cid),
-    { base: `${baseUrl}/artifact/`, cid: loaderCid },
-  )
+  const results: ArmResult[] = []
+  for (const arm of arms) results.push(await arm(page))
   await page.waitForFunction(() => window.controlLoaded === true, null, { timeout: 60_000 })
 
-  // Blink writes the cache on a timer once top-tier compilation has produced
-  // something worth serialising. Closing the page early would be a way to observe
-  // nothing for a reason that has nothing to do with caching.
+  // V8 writes the cache on a timer once enough top-tier code exists and compilation
+  // has gone quiet (`--wasm-caching-timeout-ms=2000`). Closing the page early would be
+  // a way to observe nothing for a reason that has nothing to do with caching.
   await page.waitForTimeout(settleMs)
 
   const finished = new Promise<void>((resolve) => session.once('Tracing.tracingComplete', () => resolve()))
@@ -393,129 +537,208 @@ async function visit(index: number, settleMs: number): Promise<VisitReading> {
 
   return {
     visit: index,
-    raw,
-    loader,
-    wasmCacheBytes: await dirBytes(codeCacheDir('wasm')),
-    jsCacheBytes: await dirBytes(codeCacheDir('js')),
-    cacheTraceEvents: CACHE_TRACE_NAMES.filter((name) => traced.includes(name)),
+    arms: results,
+    wasmCacheBytes: await dirBytes(codeCacheDir(profile, 'wasm')),
+    jsCacheBytes: await dirBytes(codeCacheDir(profile, 'js')),
+    writeTraceEvents: CACHE_WRITE_TRACE_NAMES.filter((name) => traced.has(name)),
+    readTraceEvents: CACHE_READ_TRACE_NAMES.filter((name) => traced.has(name)),
     artifactRequests: artifactRequests - before,
   }
 }
 
-const readings: VisitReading[] = []
+/**
+ * The floor that separates "an entry exists" from "only the index exists".
+ *
+ * 72 bytes is the measured signature of an empty code-cache directory on this platform
+ * — produced deliberately by relaunching with `--v8-cache-options=none`, and the figure
+ * the straight-line profile returns on every visit. 4096 is a generous margin above it
+ * and an order of magnitude below the ~61.5 KB an entry actually occupies, so the
+ * comparison never depends on where in that gap a future Chromium lands.
+ */
+const INDEX_ONLY_CEILING = 4096
+
+const straightReadings: VisitReading[] = []
+const hotPlatformReadings: VisitReading[] = []
+const hotLoaderReadings: VisitReading[] = []
 
 describe('AOT-05 — a translated artifact loads over a stable content-addressed URL', () => {
-  it('completes three visits with both the platform API and the shipped loader', async () => {
-    // The first visit gets the long settle: it is the only one that could produce a
-    // cache entry, and a short wait would confuse "not written" with "not yet".
-    readings.push(await visit(1, 25_000))
-    readings.push(await visit(2, 10_000))
-    readings.push(await visit(3, 10_000))
+  it('completes every visit in every profile with both the platform API and the shipped loader', async () => {
+    // The first visit of each profile gets the long settle: it is the one that could
+    // produce a cache entry, and a short wait would confuse "not written" with "not yet".
+    const straightArms = [platformArm(rawCid, STRAIGHT_HEAT_CALLS), loaderArm(loaderCid, STRAIGHT_HEAT_CALLS)]
+    straightReadings.push(await visit(straight, 1, 25_000, straightArms))
+    straightReadings.push(await visit(straight, 2, 10_000, straightArms))
+    straightReadings.push(await visit(straight, 3, 10_000, straightArms))
 
-    for (const reading of readings) {
-      expect(reading.raw.ok, `visit ${reading.visit} raw arm: ${reading.raw.detail}`).toBe(true)
-      expect(reading.loader.ok, `visit ${reading.visit} loader arm: ${reading.loader.detail}`).toBe(true)
+    const platform = [platformArm(hotPlatformCid, HOT_HEAT_CALLS)]
+    hotPlatformReadings.push(await visit(hotPlatform, 1, 15_000, platform))
+    hotPlatformReadings.push(await visit(hotPlatform, 2, 8_000, platform))
+
+    const loader = [loaderArm(hotLoaderCid, HOT_HEAT_CALLS)]
+    hotLoaderReadings.push(await visit(hotLoader, 1, 15_000, loader))
+    hotLoaderReadings.push(await visit(hotLoader, 2, 8_000, loader))
+
+    for (const [label, readings] of [
+      ['straight', straightReadings],
+      ['hot-platform', hotPlatformReadings],
+      ['hot-loader', hotLoaderReadings],
+    ] as const) {
+      for (const reading of readings) {
+        for (const arm of reading.arms) {
+          expect(arm.ok, `${label} visit ${reading.visit}: ${arm.detail}`).toBe(true)
+        }
+      }
     }
-  }, 600_000)
+  }, 900_000)
 
-  it('serves both arms over the ~4.8 MB the caching threshold requires', () => {
-    const first = readings[0]
+  it('heats every chained arm past the tier-up budget, so a null could not be an unheated module', () => {
+    // The whole correction in this file is that the previous fixture never tiered up.
+    // A truncated heat would silently reintroduce exactly that, and the wall-clock
+    // backstop in `heat` makes truncation possible rather than impossible.
+    for (const reading of [...hotPlatformReadings, ...hotLoaderReadings]) {
+      for (const arm of reading.arms) {
+        expect(arm.heatCalls, `visit ${reading.visit} heated only ${arm.heatCalls} calls`).toBe(HOT_HEAT_CALLS)
+      }
+    }
+  })
+
+  it('serves the straight-line arms over the ~4.8 MB the size precondition asks for', () => {
+    const first = straightReadings[0]
     expect(first).toBeDefined()
     if (first === undefined) return
     // Both arms must clear 128 KB or the measurement is of a module V8 would never
-    // have cached anyway — which is exactly the trap the demo kernel sets.
-    expect(first.raw.bytes).toBeGreaterThan(128 * 1024)
-    expect(first.loader.bytes).toBeGreaterThan(128 * 1024)
-    // The shipped loader agrees the module is eligible.
-    expect(first.loader.detail).toBe('eligible')
+    // have cached anyway — which is exactly the trap the demo kernel sets. Necessary,
+    // and — as this file now documents at length — not sufficient.
+    for (const arm of first.arms) expect(arm.bytes).toBeGreaterThan(128 * 1024)
+    expect(first.arms[1]?.detail).toBe('eligible')
   })
 
   it('addresses the artifact by CID alone, with nothing in the URL that could bust a cache', () => {
     // The cache key is the URL. This is the one precondition that is a property of
     // this repository's code rather than of the platform, so it is asserted here as
     // well as in the browser test.
-    const url = `${baseUrl}/artifact/${rawCid}`
-    expect(url).not.toContain('?')
-    expect(url).not.toContain('#')
-    expect(url.endsWith(rawCid)).toBe(true)
+    for (const cid of [rawCid, hotPlatformCid, hotLoaderCid]) {
+      const url = `${baseUrl}/artifact/${cid}`
+      expect(url).not.toContain('?')
+      expect(url).not.toContain('#')
+      expect(url.endsWith(cid)).toBe(true)
+    }
   })
 
   it('serves the artifact from the HTTP cache on later visits, which is not the code cache', () => {
-    // Distinguishing the two is the whole reason this test looks at disk rather than
-    // at a stopwatch: a repeat visit is faster because the bytes never crossed a
-    // socket, and that improvement is real, cheap, and not what criterion 4 asks for.
-    expect(readings[0]?.artifactRequests).toBe(2) // one per arm
-    expect(readings[1]?.artifactRequests).toBe(0)
-    expect(readings[2]?.artifactRequests).toBe(0)
+    // Distinguishing the two is the whole reason this test looks at disk and at the
+    // trace rather than at a stopwatch: a repeat visit is faster because the bytes
+    // never crossed a socket, and that improvement is real, cheap, and not criterion 4.
+    expect(straightReadings[0]?.artifactRequests).toBe(2) // one per arm
+    expect(straightReadings[1]?.artifactRequests).toBe(0)
+    expect(straightReadings[2]?.artifactRequests).toBe(0)
+    expect(hotPlatformReadings[0]?.artifactRequests).toBe(1)
+    expect(hotPlatformReadings[1]?.artifactRequests).toBe(0)
   })
 })
 
-describe('AOT-05 — the code-cache observation, and its positive control', () => {
-  it('sees Chromium fill the JavaScript code cache in the same profile, so a null WASM reading means something', () => {
-    // The calibration, and the reason the negative below is worth anything. Same
-    // profile, same origin, same visits, sibling directory — one fills, one does not.
-    // Without this, "no WASM code cache" would be indistinguishable from "this
-    // harness cannot see a code cache".
-    const first = readings[0]
-    const last = readings[readings.length - 1]
+describe('AOT-05 — the code cache is written and read back, once the module can tier up', () => {
+  it('writes an entry on the first visit through the platform API', () => {
+    const first = hotPlatformReadings[0]
+    expect(first).toBeDefined()
+    if (first === undefined) return
+    // Two observations that are genuinely independent this time: a directory that grew
+    // on disk, and a trace event emitted by the engine that grew it. Either alone would
+    // be a number; together they are a mechanism.
+    expect(first.wasmCacheBytes).toBeGreaterThan(INDEX_ONLY_CEILING)
+    expect(first.writeTraceEvents).toEqual(CACHE_WRITE_TRACE_NAMES)
+  })
+
+  it('reads that entry back on the second visit, which is what criterion 4 actually asks', () => {
+    const second = hotPlatformReadings[1]
+    expect(second).toBeDefined()
+    if (second === undefined) return
+    // All three, not any: a lookup that finds an entry it cannot use would emit the
+    // first and not the rest, and that is a miss wearing a hit's name.
+    expect(second.readTraceEvents).toEqual(CACHE_READ_TRACE_NAMES)
+    expect(second.wasmCacheBytes).toBeGreaterThan(INDEX_ONLY_CEILING)
+  })
+
+  it('does the same through the shipped loader, so Response.clone() does not cost the hit', () => {
+    // The question this file parked as unanswerable while no entry existed. `loadArtifact`
+    // clones the response to verify its bytes against the CID and hands the original to
+    // `compileStreaming`; the worry was that the clone would detach whatever Blink
+    // attaches for cached metadata. Its own profile, so the answer is unambiguously the
+    // loader's rather than a neighbouring arm's.
+    const first = hotLoaderReadings[0]
+    const second = hotLoaderReadings[1]
+    expect(first).toBeDefined()
+    expect(second).toBeDefined()
+    if (first === undefined || second === undefined) return
+    expect(first.writeTraceEvents).toEqual(CACHE_WRITE_TRACE_NAMES)
+    expect(second.readTraceEvents).toEqual(CACHE_READ_TRACE_NAMES)
+    expect(second.wasmCacheBytes).toBeGreaterThan(INDEX_ONLY_CEILING)
+  })
+
+  it('produces no entry at all for the straight-line shape, in the same run and the same apparatus', () => {
+    // The contrast that makes the rows above evidence rather than an anecdote. Same
+    // Chromium, same origin, same headers, same settle, larger module, more visits —
+    // and nothing, because nothing in it ever became top-tier code. This is the
+    // published negative, reproduced, and now explained.
+    for (const reading of straightReadings) {
+      expect(reading.wasmCacheBytes, `straight visit ${reading.visit}`).toBeLessThan(INDEX_ONLY_CEILING)
+      expect(reading.writeTraceEvents).toEqual([])
+      expect(reading.readTraceEvents).toEqual([])
+    }
+    // And it is a reading rather than an absence of one: the directory exists.
+    for (const reading of straightReadings) expect(reading.wasmCacheBytes).toBeGreaterThanOrEqual(0)
+  })
+
+  it('still fills the JavaScript code cache in the null profile, so that null stays calibrated', () => {
+    // Retained from when this was the only calibration available. It answers a question
+    // the WASM rows no longer leave open — "can this harness see a code cache at all" —
+    // but the straight-line profile still reports a zero, and a zero from an
+    // uncalibrated instrument is worth nothing whichever direction the other rows point.
+    const first = straightReadings[0]
+    const last = straightReadings[straightReadings.length - 1]
     expect(first).toBeDefined()
     expect(last).toBeDefined()
     if (first === undefined || last === undefined) return
-
-    // Growth *during* these visits, not a number that was already there. A static
-    // total could have come from anywhere, including Chromium's own pages.
     expect(last.jsCacheBytes).toBeGreaterThan(500_000)
     expect(last.jsCacheBytes).toBeGreaterThan(first.jsCacheBytes)
-
-    // And the two directories are genuinely read apart. If this ever failed, the
-    // comparison the whole finding rests on would be one number against itself.
-    expect(last.wasmCacheBytes).toBeLessThan(last.jsCacheBytes)
   })
 
-  it('reports what was seen for WebAssembly without asserting a hit that was not observed', () => {
-    // Deliberately not `expect(wasmCacheBytes).toBe(72)`. Asserting the negative
-    // would turn a future Chromium that starts caching into a red build, and the
-    // point of this test is to find out, not to freeze today's answer.
+  it('reports every reading, including the figures it deliberately does not assert', () => {
     const lines: string[] = []
     lines.push('AOT-05 criterion 4 — V8 WebAssembly code cache across visits')
-    lines.push(`  origin ${baseUrl}, persistent profile, ${readings.length} visits`)
-    lines.push('  | visit | raw compile | loader compile | Code Cache/wasm | Code Cache/js | cache trace events |')
-    for (const reading of readings) {
-      lines.push(
-        `  | ${reading.visit} | ${reading.raw.compileMs.toFixed(1)}ms | ${reading.loader.compileMs.toFixed(1)}ms | ` +
-          `${reading.wasmCacheBytes}B | ${reading.jsCacheBytes}B | ` +
-          `${reading.cacheTraceEvents.length === 0 ? 'none' : reading.cacheTraceEvents.join(', ')} |`,
-      )
+    lines.push(`  origin ${baseUrl}, three persistent profiles, headless`)
+    lines.push(`  straight-line arms ${RAW_ARM.length} B / ${LOADER_ARM.length} B, ${STRAIGHT_HEAT_CALLS} calls each`)
+    lines.push(`  chained arms ${HOT_PLATFORM_ARM.length} B / ${HOT_LOADER_ARM.length} B, ${HOT_HEAT_CALLS} calls each`)
+    lines.push('  | profile | visit | compile | heat | Code Cache/wasm | Code Cache/js | write trace | read trace |')
+    for (const [label, readings] of [
+      ['straight', straightReadings],
+      ['hot-platform', hotPlatformReadings],
+      ['hot-loader', hotLoaderReadings],
+    ] as const) {
+      for (const reading of readings) {
+        const compile = reading.arms.map((arm) => `${arm.compileMs.toFixed(1)}ms`).join('+')
+        const heat = reading.arms.map((arm) => `${arm.heatMs.toFixed(0)}ms`).join('+')
+        lines.push(
+          `  | ${label} | ${reading.visit} | ${compile} | ${heat} | ${reading.wasmCacheBytes}B | ` +
+            `${reading.jsCacheBytes}B | ${reading.writeTraceEvents.join(', ') || 'none'} | ` +
+            `${reading.readTraceEvents.join(', ') || 'none'} |`,
+        )
+      }
     }
-
-    const anyWasmCache = readings.some((reading) => reading.wasmCacheBytes > 4096)
-    const anyTrace = readings.some((reading) => reading.cacheTraceEvents.length > 0)
     lines.push(
-      anyWasmCache || anyTrace
-        ? '  OBSERVED: a WASM code-cache entry appeared. Criterion 4 is met — and the' +
-            ' loader arm must now be compared against the raw arm, because Response.clone()' +
-            ' could preserve or destroy the cached-metadata handler and that has never been tested.'
-        : '  NOT OBSERVED: no WASM code-cache entry was produced on any visit, at ~4.8 MB,' +
-            ' with application/wasm, a cacheable response, a query-free CID URL, compileStreaming,' +
-            ' and the module executed hot enough to tier up.',
-    )
-    lines.push(
-      '  Calibration: relaunched with --v8-cache-options=none, Code Cache/js reads 72B —' +
-        ' the same number Code Cache/wasm reads on every ordinary run. 72B is what a' +
-        ' disabled code cache looks like on this platform.',
+      '  RESULT: the code cache is written and read. The published negative was an artifact of the' +
+        ' fixture — a module whose only exported function called nothing and folded to a constant,' +
+        ' so one function of 8000 tiered up and --wasm-caching-threshold was never reached.',
     )
     lines.push('  Limitations of this reading, published rather than dropped:')
-    lines.push('    - automation-driven Chromium with a fresh temporary profile; neither was isolated as a cause')
+    lines.push('    - automation-driven Chromium with fresh temporary profiles; neither isolated as a factor')
     lines.push('    - a loopback http origin, not the https gateway a deployment would use')
-    lines.push('    - compile timings fall across visits because of the HTTP cache and a warm JIT, not the code cache')
-    lines.push('    - whether Response.clone() preserves a cache hit is unknown: no entry was ever produced to consume')
+    lines.push('    - why 500x400 and 250x250 do not cache while 2000x100 does is unexplained; see the module comment')
     lines.push('    - a synthetic module stands in for a translated artifact; it has no imports, no memory and no WASI')
+    lines.push('    - the heat loop is the harness calling run() in a tight loop, not a workload anything would run')
     process.stdout.write(`${lines.join('\n')}\n`)
 
-    // What *is* asserted: that the observation was actually made. A reading of -1
-    // means the directory was never created, which would mean this test measured
-    // nothing at all and quietly passed.
-    for (const reading of readings) {
+    for (const reading of [...straightReadings, ...hotPlatformReadings, ...hotLoaderReadings]) {
       expect(reading.wasmCacheBytes, 'Code Cache/wasm was never created — nothing was observed').toBeGreaterThanOrEqual(0)
     }
   })

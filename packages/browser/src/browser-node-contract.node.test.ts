@@ -117,3 +117,45 @@ describe('browser-node.ts composes a killable thread and nothing else', () => {
     expect(occurrences(BROWSER_NODE, 'options.createWorker === undefined')).toBe(0)
   })
 })
+
+describe('browser-node.ts hands the block source a verified peer list — AUTH-02', () => {
+  /**
+   * The one behavioural line AUTH-02's browser leg turned on, and the only instrument in
+   * this repository that sees it.
+   *
+   * `#compose` read `new RpcBlockSource(rpc, () => transport.peers)` — the raw connected
+   * set, verified against nothing — from the day the file was written until 2026-08-14.
+   * The Node tier passed `() => verifier.verifiedPeers` at the matching line for the whole
+   * of that period, so the asymmetry was one argument wide.
+   *
+   * **This is a count of literals and therefore not a measurement of behaviour**, exactly
+   * as this file's header forbids treating it. It is here because the alternative is
+   * nothing, and the reason is worth stating precisely rather than waving at:
+   * `packages/browser/src/peer-verifier.browser.test.ts` measures the *verifier* in three
+   * real engines — that a tab reaches `untrusted-issuer`, `nodeKey-mismatch`, and an
+   * acceptance — but it constructs the verifier directly. It cannot observe which thunk
+   * `#compose` chose. Observing that needs a tab holding a peer it *refuses*, and a tab's
+   * only peer is the relay it reserved on, which puts it in the `e2e` project behind a
+   * live relay.
+   *
+   * **`BrowserNode.verifiedPeers` is not that instrument and must not be mistaken for
+   * one.** That getter reads the verifier directly, so reverting the line below to
+   * `transport.peers` leaves it returning exactly the same answer — a test on the getter
+   * would stay green across the reversion and would be a proof that cannot fail. What
+   * follows catches the reversion and claims nothing further.
+   */
+  it('passes the verified set and not the raw connected set', () => {
+    expect(occurrences(BROWSER_NODE, 'new RpcBlockSource(rpc, () => verifier.verifiedPeers)')).toBe(1)
+    // The other half, in this file's established idiom: the count above is also satisfiable
+    // by a second block source built beside the first, so the raw form is asserted absent
+    // rather than merely outnumbered. The full call literal is matched, not the bare
+    // `() => transport.peers` — that fragment appears in the prose two lines above the
+    // composition, where it is quoting the history, and a scanner has no notion of a
+    // comment. That is not hypothetical here: `peer-verifier.ts`'s own move was reported as
+    // a forbidden import twice for this exact reason.
+    expect(occurrences(BROWSER_NODE, 'new RpcBlockSource(rpc, () => transport.peers)')).toBe(0)
+    // And the verifier the thunk reads, because deleting the construction is the other way
+    // to reach a tab that verifies nobody — this time with no option left to state it.
+    expect(occurrences(BROWSER_NODE, 'PeerVerifier.start(')).toBe(1)
+  })
+})

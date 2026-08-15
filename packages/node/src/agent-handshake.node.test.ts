@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcessByStdio } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
@@ -88,6 +88,21 @@ interface Handshake {
    * `ownRecords` docblock exists to name.
    */
   readonly peers: readonly string[]
+  /**
+   * BENCH-06 — the host this process is running on, stated by the process running on it.
+   *
+   * Six measurements and no `roles` or `physicalCores`: neither is something an agent can
+   * read about itself, and both are filled by the driver. See `bench-inventory.ts`.
+   */
+  readonly machine: {
+    readonly hostId: string
+    readonly cpuModel: string
+    readonly logicalCores: number
+    readonly totalMemoryBytes: number
+    readonly os: string
+    readonly kernel: string
+    readonly runtime: string
+  }
 }
 
 let workdir: string
@@ -212,6 +227,28 @@ describe('BENCH-07 — an agent states its own process id on the line it already
       `OBSERVED default agent limits: inboundConnectionThreshold=${String(handshake.inboundConnectionThreshold)}` +
         ` maxIncomingPendingConnections=${String(handshake.maxIncomingPendingConnections)}\n`,
     )
+
+    // BENCH-06 — the same argument as `pid`, applied to the host. A driver that filled a
+    // machine record in on a child's behalf would publish its own host under the child's
+    // name, and the SAME-MACHINE label derived from those records would then be true
+    // whatever the run had done — which is exactly what it was until 2026-08-14.
+    //
+    // `hostId` is asserted at a value because on this rig it *is* one: the child was
+    // spawned by this process on this machine, so a child reading its own host must agree
+    // with this one. That is the strongest reading available on a single host, and it is
+    // the reading a `hostId: ''` or an omitted key both fail.
+    expect(handshake.machine.hostId).toBe(hostname())
+    // The remaining five are asserted as measurements rather than at values, on the same
+    // rule the two inbound limits above follow: predicting a core count or a RAM figure
+    // would be a test of this host, and a later machine would fail it for a reason about
+    // nothing. `os` and `runtime` are the two that *can* be compared, so they are.
+    expect(handshake.machine.cpuModel.length).toBeGreaterThan(0)
+    expect(Number.isInteger(handshake.machine.logicalCores)).toBe(true)
+    expect(handshake.machine.logicalCores).toBeGreaterThan(0)
+    expect(handshake.machine.totalMemoryBytes).toBeGreaterThan(0)
+    expect(handshake.machine.os).toBe(process.platform)
+    expect(handshake.machine.kernel.length).toBeGreaterThan(0)
+    expect(handshake.machine.runtime).toBe(`node ${process.version}`)
 
     // An agent given no `--peer-addr` dials nobody and says so. `[]` is a statement,
     // exactly as `relays` beside it is.

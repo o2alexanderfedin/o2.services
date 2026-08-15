@@ -7,7 +7,7 @@
  * error surfaces as a timeout.
  */
 
-import type { BrowserTally, ShardAttestation } from '@o2/core'
+import type { BrowserTally, ShardAttestation, ShardQuorum } from '@o2/core'
 import type { EgressManifest } from '@o2/net'
 
 /**
@@ -315,6 +315,27 @@ export interface TabColouringRun {
    * in which the CLI and this page cannot come to describe one result differently.
    */
   readonly attestation: ShardAttestation
+  /**
+   * What the verification quorum came to for this run — VER-03, VER-04.
+   *
+   * **This is not the same fact as {@link attestation}, and the whole reason this field
+   * exists is that the two are routinely confused.** `attestation` is computed by
+   * `classifyAttestation` from the certificates of whoever *answered and signed*; this is
+   * what `composeQuorum` *decided* before anybody was asked. A fabric on which the quorum
+   * gate never ran produces an identical `attestation` — that is measured, not feared, and
+   * it is why VER-03 could not be closed on the receipt's own `sharedRelay` line.
+   *
+   * **Job-level by construction, carried here off the first shard.** `submitJob` composes
+   * once for the whole job — its candidate pool is the same for every shard — and records
+   * the answer per shard by label. Every shard `runColouring` submits is `label: 'public'`,
+   * so all of them carry that one composition and the first is not a sample of the others,
+   * it *is* them. A future caller that mixes labels in one job must not read this field
+   * without revisiting that sentence.
+   *
+   * Rendered through `describeQuorum`, the kernel's own words, on the same passthrough
+   * arrangement as `attestation` directly above.
+   */
+  readonly quorum: ShardQuorum
 }
 
 /**

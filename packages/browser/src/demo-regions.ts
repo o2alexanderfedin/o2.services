@@ -171,18 +171,23 @@ export const UI_SPEC_TALLY: {
   readonly bySurface: Readonly<Record<SurfaceId, number>>
   readonly byKind: Readonly<Record<'reading' | 'constant' | 'cited' | 'control', number>>
 } = {
-  total: 91,
+  // 91 -> 92 on 2026-08-14, and this is the first row added since UI-SPEC section 4 was
+  // written. C22 (`colouring/quorum`) puts `composeQuorum`'s verdict on a screen — VER-03
+  // and VER-04. UI-SPEC section 4.2's table and its section 12 tally were amended in the
+  // same commit, so the guard's *both directions* property still holds: this object is a
+  // measurement of the catalogue, and UI-SPEC's tally is the claim it is measured against.
+  total: 92,
   bySurface: {
     session: 5,
     bar: 3,
-    colouring: 21,
+    colouring: 22,
     primes: 12,
     pi: 14,
     byo: 13,
     fabric: 21,
     bench: 2,
   },
-  byKind: { reading: 74, constant: 6, cited: 3, control: 8 },
+  byKind: { reading: 75, constant: 6, cited: 3, control: 8 },
 }
 
 /**
@@ -659,6 +664,31 @@ export const REGIONS: readonly Region[] = [
       stopped: COLOURING_NOT_CHECKED,
       unavailable:
         'No refutation: every triple checked has two colours among its three numbers.',
+    },
+  },
+  {
+    // C22 — VER-03, VER-04. Added 2026-08-14, and it is the first region on this page to
+    // report a decision the fabric took *before* any work was placed.
+    //
+    // **Why a region of its own rather than a line inside C15.** C15 is
+    // `classifyAttestation`'s answer — computed from the certificates of the replicas that
+    // answered and signed. This is `composeQuorum`'s — computed from the candidate pool
+    // before anybody was asked. They are separate mechanisms answering separate questions,
+    // and a fabric on which the quorum gate never ran produces an *identical* C15. Folding
+    // this into C15 would make the strongest claim on the page unfalsifiable by the same
+    // conflation `ShardQuorum`'s own docblock exists to end.
+    //
+    // Its `unavailable` arm is COMPOSED for the same reason C15's and C17's are — the
+    // ladder settling no rung leaves no shard, and therefore no verdict, and UI-SPEC names
+    // no sentence for a state that did not exist when section 4.2 was written.
+    id: 'colouring/quorum', // C22
+    surface: 'colouring',
+    kind: 'reading',
+    source: 'TabApi.runColouring().quorum',
+    absence: {
+      initial: 'Not composed: the search has not been run.',
+      stopped: "Not composed: this tab's node is stopped.",
+      unavailable: 'Not composed: the fabric settled no rung, so no shard was placed.',
     },
   },
 

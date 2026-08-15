@@ -23,7 +23,8 @@
  * report's `unmet` list — in its opening section, not a footnote.
  */
 
-import { cpus, hostname, freemem, totalmem, platform, release } from 'node:os'
+// No `node:os` reading survives in this file: the host is read in `bench-inventory.ts`,
+// which is where a test can call it. `tmpdir` below is the only remaining need.
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -36,6 +37,7 @@ import {
   canonicalCid,
   delegate,
   describeCoverage,
+  describeQuorum,
   guardModuleProvenance,
   publicNodes,
   signName,
@@ -95,9 +97,7 @@ import type {
   DriverKind,
   ObservedFailure,
   FixtureKind,
-  Inventory,
   JobRunner,
-  Machine,
   Observation,
   ProcessIdentity,
   ReduceObservation,
@@ -112,7 +112,8 @@ import type {
 import { DEFAULT_BUDGET, buildInput, kernelBytes, readPartial } from '@o2/demo'
 import { MODULE_WRITES_PARTITION } from '../../../core/src/executor/fixtures.ts'
 import { processFabric } from '../bench-fabric.ts'
-import type { AgentHandle, DialDirection, Fabric, ProcessFabric, SubmitterReading } from '../bench-fabric.ts'
+import type { AgentHandle, AnnouncedMachine, DialDirection, Fabric, ProcessFabric, SubmitterReading } from '../bench-fabric.ts'
+import { inventory, localMachine } from '../bench-inventory.ts'
 import { FabricNode } from '../fabric-node.ts'
 import { armOrphanLeash } from '../orphan-leash.ts'
 
@@ -551,27 +552,16 @@ function guarded(inner: Executor): Executor {
   })
 }
 
-function inventory(nodeCount: number): Inventory {
-  const cores = cpus()
-  const machine: Machine = {
-    hostId: hostname(),
-    // `aggregator` has been declared in `MachineRole` and never true since Phase 8. It
-    // becomes accurate here rather than staying a declared-and-never-true value,
-    // because the same processes now run combines as well as `exec`.
-    roles: ['worker', 'requestor', 'aggregator'],
-    cpuModel: cores[0]?.model ?? 'unknown',
-    // `os.cpus()` reports logical CPUs. Physical count is not exposed portably, so
-    // it is reported as unknown rather than guessed at half — a guess here would
-    // silently halve the contention a reader infers.
-    physicalCores: 0,
-    logicalCores: cores.length,
-    totalMemoryBytes: totalmem(),
-    os: platform(),
-    kernel: release(),
-    runtime: `node ${process.version}`,
-  }
-  return { machines: [machine], nodeCount }
-}
+/**
+ * BENCH-06 — the inventory, and it lives in `bench-inventory.ts` rather than here.
+ *
+ * It used to be a function on this line that built a **one-element array** from this
+ * process's `hostname()`, with no code path able to add a second host. Two things were
+ * wrong with that and only one of them was the array. The other is that a function in this
+ * file cannot be executed by any test — `main()` runs on import — so the claim the label
+ * carries could never be watched failing. Both are fixed by lifting it out; see that
+ * module's header for what the label now derives from.
+ */
 
 /**
  * The job: `SHARDS` partitions of the fixture module, one input block.
@@ -2241,11 +2231,17 @@ function quorumReading(held: RungAttestation | NoJobToAttest): string | null {
   // follow: a reader tells *this rung produced no shard* from *this rung's quorum was not
   // composed* by the presence of the line, never by parsing a sentinel out of it.
   if (quorum === 'this-rung-returned-no-shard') return null
-  if (quorum.kind === 'composed') {
-    return `composed over ${String(quorum.operators.length)} operator(s): ${quorum.operators.join(', ')}`
-  }
-  if (quorum.kind === 'not-composed') return `not composed (${quorum.refusal}) — ${quorum.reason}`
-  return `not attempted — ${quorum.reason}`
+  // **`describeQuorum`, not a copy of it — and this line replaced a defect rather than a
+  // preference.** What stood here rendered the refusal arm as
+  // `not composed (${quorum.refusal})`, interpolating the refusal **object**, so every
+  // refusal this driver has ever printed read `not composed ([object Object])`. The kind is
+  // the one field {@link ShardQuorum}'s docblock says a caller must be able to read — *a
+  // caller that can read `insufficient-operators` or `shared-relay-dependency` can tell an
+  // over-concentrated fabric from any other degradation, and one that cannot, cannot* — and
+  // it was the field destroyed. Nothing caught it because `bench-attestation.node.test.ts`
+  // asserts only on the composed arm and on the *absence* of the words `not composed`, so
+  // the refusal arm's rendering had no reader at all.
+  return describeQuorum(quorum)
 }
 
 /**
@@ -3311,7 +3307,18 @@ interface AttemptOutcome {
  * `undefined` after a construction failure is correct rather than a leak. What `finally`
  * covers is the other case — a rig that was built and whose *job* then failed.
  */
-async function runAttempt(attempt: Attempt): Promise<AttemptOutcome> {
+async function runAttempt(
+  attempt: Attempt,
+  /**
+   * BENCH-06 — where this attempt's agents post the host each of them announced.
+   *
+   * A sink rather than a return value, because an attempt that fails still spawned
+   * processes and those processes still ran somewhere. Putting it on `AttemptOutcome`
+   * would tie the reading to the success path and would also publish it into `raw.json`
+   * twice, once per attempt and once in the inventory — the same fact under two names.
+   */
+  announcedMachines: AnnouncedMachine[],
+): Promise<AttemptOutcome> {
   // **This heading must not match `/^ {2}(memory|real) transport, (\d+) node\(s\)…$/`** —
   // `coverage-agents.node.test.ts` asserts that pattern's matches over a `--quick` run's
   // stdout are exactly five specific entries. This block does not run under `--quick` at
@@ -3358,7 +3365,10 @@ async function runAttempt(attempt: Attempt): Promise<AttemptOutcome> {
                 : {}),
             })
       held = built
-      if ('agents' in built) agents = (built as ProcessFabric).agents
+      if ('agents' in built) {
+        agents = (built as ProcessFabric).agents
+        for (const agent of agents) announcedMachines.push(agent.announcedMachine)
+      }
       return built
     }, newRunnerState())
 
@@ -3885,6 +3895,20 @@ async function main(): Promise<void> {
   const speedupRungs: SpeedupRung[] = []
   const processRows: ProcessRow[] = []
   let perShardMs: readonly number[] = []
+  /**
+   * BENCH-06 — every host an agent said it was running on, in the order they announced.
+   *
+   * Collected rather than counted, because `inventory` folds by `hostId` and the fold is
+   * the measurement: sixteen announcements from one host are one machine, and one
+   * announcement from a second host is two. Duplicates are therefore expected here and are
+   * not filtered on the way in — filtering early would move the fold to the call site and
+   * leave nothing for a test to hold.
+   *
+   * Empty on the `--quick` path and on any run that spawns nothing, which is a true
+   * statement about such a run rather than a gap: no process other than this one reported
+   * a host, so `inventory` publishes the one host it read directly.
+   */
+  const announcedMachines: AnnouncedMachine[] = []
 
   if (!QUICK) {
     const proc = processRunnerFor(async (nodes) =>
@@ -3950,6 +3974,10 @@ async function main(): Promise<void> {
           moduleCid: readings.moduleCid,
         })
         multiProcess.push(measured)
+        // BENCH-06 — read off the handle, which read it off the child's own handshake. The
+        // driver never substitutes its own `hostname()` for a child's; see
+        // `AgentHandle.announcedMachine`.
+        for (const agent of fabric.agents) announcedMachines.push(agent.announcedMachine)
         processRows.push({
           nodes,
           pids: fabric.agents.map((agent) => agent.pid),
@@ -4078,7 +4106,7 @@ async function main(): Promise<void> {
       // `finally` on the success path, and by the rig's own release on a construction
       // failure. One failure does not end the block, which is what makes it a factorial
       // rather than a sequence that stops at its first interesting cell.
-      criterionThree.push(await runAttempt(attempt))
+      criterionThree.push(await runAttempt(attempt, announcedMachines))
     }
   }
 
@@ -4108,13 +4136,17 @@ async function main(): Promise<void> {
   const wasmSummary = summarise((await wasmInProcess(RUNS)).slice(1))
 
   const maxNodes = Math.max(...LADDER)
-  // Read from the host through the same `Machine` the report already publishes, so the
-  // oversubscription statement below and the inventory table cannot disagree.
-  const logicalCores = inventory(maxNodes).machines[0]?.logicalCores ?? 0
+  // The **driver's own** core count, and the change of expression is the point. It read
+  // `inventory(maxNodes).machines[0]?.logicalCores` — element zero of the inventory — which
+  // was the driver's host only because the inventory could not hold anything else. Now that
+  // agents contribute rows, element zero is a position rather than a fact, and a run that
+  // spanned two hosts could silently attribute the oversubscription statement below to
+  // whichever machine happened to sort first. `localMachine` reads this host and says so.
+  const logicalCores = localMachine(['requestor']).logicalCores
   const report = {
     title: 'o2.services — benchmark run',
     at: new Date().toISOString(),
-    inventory: inventory(maxNodes),
+    inventory: inventory(maxNodes, announcedMachines),
     baseline: baselineSummary,
     memoryTransport: memoryResults,
     realTransport: realResults,

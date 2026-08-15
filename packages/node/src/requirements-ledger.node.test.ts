@@ -1004,11 +1004,31 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     witnesses: ['packages/core/src/lease.test.ts'],
   },
   // ── The pre-existing entries ───────────────────────────────────────────────────────
+  // **Re-read 2026-08-14, and the promise this entry carries was partly discharged rather
+  // than renewed.** `because: 'tier-or-configuration'` named a real thing: `PeerVerifier`
+  // sat in `@o2/node`, `@o2/browser` does not depend on that package, so the browser tier
+  // reached no verdict about any peer and the asymmetry was a package boundary. The module
+  // moved to `@o2/libp2p` on 2026-08-14 and a tab now verifies on identical terms.
+  //
+  // **The entry stays, and the reason it stays is not the one it was written for.** What
+  // remains open is a *configuration* fact and no longer a tier one: a tab that passes no
+  // `trustedIssuers` still takes blocks from every connected peer — stated, not defaulted,
+  // because a fail-closed default would empty the block source of the relay a fresh tab's
+  // only peer is. So the row keeps a legitimately unreached leg, and `because` still reads
+  // true on its second word only. Rewriting it to `configuration` alone is the ledger
+  // owner's call, not this file's, because the row's verdict lives in `REQUIREMENTS.md`.
+  //
+  // Two witnesses arrived with the move, and the second is the weaker of the two on purpose
+  // — see its own docblock. `peer-verifier.browser.test.ts` measures the verifier in three
+  // real engines; `browser-node-contract.node.test.ts` counts the composition literal,
+  // which is the only instrument that sees which thunk the block source was handed.
   {
     id: 'AUTH-02',
     because: 'tier-or-configuration',
-    reread: '2026-08-06',
+    reread: '2026-08-14',
     witnesses: [
+      'packages/browser/src/browser-node-contract.node.test.ts',
+      'packages/browser/src/peer-verifier.browser.test.ts',
       'packages/core/src/enrollment.test.ts',
       'packages/node/src/bench-admission.node.test.ts',
       'packages/node/src/browser-enrollment.e2e.test.ts',
@@ -1197,11 +1217,32 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // the same-machine witness to retire this entry would be escaping the register on the
   // strength of the half that was never in question — the overclaim this file exists to
   // catch. So: re-recorded, not removed, and not ticked.
+  //
+  // **Second witness arrived 2026-08-14, and the `reread` date deliberately did not move.**
+  // `bench-fabric.node.test.ts` began title-naming this row because the same-machine half
+  // acquired something it did not have on 2026-08-11. The re-read above found that half
+  // "genuinely measured" on the strength of `harness.test.ts`, which exercises
+  // `machineLabel` over *synthetic* inventories — and that was true of the renderer and
+  // false of the run. `bin/bench.ts` built the published `Inventory` from a **one-element
+  // array** over its own `hostname()`, with no code path able to add a second host, so
+  // `hostCount` was `1` by construction and the published SAME-MACHINE label could not have
+  // come out any other way. Replacing `machineLabel(report.inventory)` with the literal
+  // string it always produced would have left every published byte identical and no spec
+  // red. What is now measured is the missing half of the same-machine claim: agents
+  // announce their own host, the driver folds the announcements, and the new witness
+  // watches the label follow them.
+  //
+  // **The date stays at 2026-08-11 on purpose.** Bumping it would buy fourteen days of
+  // silence on the strength of work that changed nothing about what holds this row open —
+  // the distinct-machine half is still structural, still unmeasured, and still the only
+  // reason the row is here. A register whose countdown can be reset by improving the half
+  // that was never in question is a register that rewards the overclaim it exists to catch.
+  // So: witness added, clock untouched.
   {
     id: 'BENCH-06',
     because: 'experiment-not-run',
     reread: '2026-08-11',
-    witnesses: ['packages/bench/src/harness.test.ts'],
+    witnesses: ['packages/bench/src/harness.test.ts', 'packages/node/src/bench-fabric.node.test.ts'],
   },
   // **The one entry with no witness at all**, and it is the honest reading rather than a
   // gap in the scan: no spec in this repository title-names `AOT-03`. Every other entry

@@ -48,7 +48,8 @@ import { DEFAULT_BUDGET, MAX_N, buildInput } from '@o2/demo'
 import { REGIONS } from '../../src/demo-regions.ts'
 import type { Region } from '../../src/demo-regions.ts'
 import type { TabColouringRun, TabVerification } from '../../src/tab-api.ts'
-import { attestationLines, egressLines } from '../render.ts'
+import { describeQuorum } from '@o2/core'
+import { attestationLines, egressLines, quorumLines } from '../render.ts'
 import type { SurfaceRender } from '../render.ts'
 
 /** Measured rungs, moved here with the handler. The wall is real and moves with cube count. */
@@ -307,6 +308,10 @@ export function format(state: ColouringState): SurfaceRender {
     regions['colouring/agreeing'] = absence('colouring/agreeing', 'unavailable')
     regions['colouring/attestation'] = NO_RUNG_ATTESTATION
     regions['colouring/egress'] = NO_RUNG_EGRESS
+    // C22 takes its sentence from the catalogue rather than a COMPOSED constant, because
+    // unlike C15 and C17 this region has one: "no rung settled" is a state that existed
+    // when C22 was written, so its `unavailable` arm was written for it.
+    regions['colouring/quorum'] = absence('colouring/quorum', 'unavailable')
     return { regions, text }
   }
 
@@ -317,6 +322,7 @@ export function format(state: ColouringState): SurfaceRender {
   const cost = `${best.verificationMultiplier.toFixed(2)}×`
   const placement = best.agreeing.map(placementLine)
   const attLines = attestationLines(best.attestation)
+  const quoLines = quorumLines(best.quorum)
   const egress = egressLines(best.egress)
 
   text.push('')
@@ -325,6 +331,11 @@ export function format(state: ColouringState): SurfaceRender {
   // and the half of the old line that was never in doubt.
   text.push(`Verification cost ${cost}.`)
   text.push(...attLines)
+  // VER-03, VER-04 — directly under the attestation lines, because the two answers are
+  // most useful side by side and most misleading apart: one says who signed, the other
+  // says who was *allowed to be asked*. A run can read `owner-domain` with a quorum the
+  // composer refused, and that pairing is the honest picture of a single-relay fabric.
+  text.push(...quoLines)
   text.push('')
   text.push('Where the last rung ran:')
   text.push(...placement.slice(0, 8).map((line) => `  ${line}`))
@@ -345,6 +356,13 @@ export function format(state: ColouringState): SurfaceRender {
   // arm is `attestationLines`' own output, which ends in `attestation.reason` verbatim.
   regions['colouring/attestation'] =
     'kind' in best.attestation ? attLines.join('\n') : best.attestation.description
+  // **The kernel's sentence verbatim, with no prefix**, on exactly C15's arrangement above:
+  // the text view carries the "How was the quorum chosen:" lead-in, the region carries the
+  // composer's own words alone, and both come from one `describeQuorum` so the two views
+  // cannot drift. The refusal *kind* is inside that string — `[shared-relay-dependency]`,
+  // `[insufficient-operators]` — which is what makes this region assertable by a test
+  // rather than merely readable by a person.
+  regions['colouring/quorum'] = describeQuorum(best.quorum)
   // **ONE region, count and sentence together** — UI-SPEC section 5.2. `0 withheld` alone
   // reads as a sovereignty proof and would be a lie by omission, so the figure and the
   // sentence explaining it come out of one call to one function and cannot be separated by

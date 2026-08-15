@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { ShardAttestation } from '@o2/core'
+import type { ShardAttestation, ShardQuorum } from '@o2/core'
+import { describeQuorum } from '@o2/core'
 import type { EgressManifest } from '@o2/net'
 import {
   COLOURING_STOP_ABSENCE_IDS,
@@ -44,6 +45,27 @@ const NO_RECEIPT: ShardAttestation = {
   verified: 1,
 }
 
+/**
+ * The composer refusing a quorum whose every member hangs off one relay — VER-03.
+ *
+ * `reason` is `composeQuorum`'s own sentence, transcribed rather than invented, so a rewording
+ * upstream shows up here as a failing comparison instead of as two sentences that differ by a
+ * comma.
+ */
+const REFUSED_SHARED_RELAY: ShardQuorum = {
+  kind: 'not-composed',
+  refusal: { kind: 'shared-relay-dependency', relayId: '12D3KooWrelay' },
+  reason:
+    'every member of the quorum is discoverable only through relay 12D3KooWrelay; ' +
+    'its failure would lose the whole quorum',
+}
+
+/** The composer succeeding — two operators, no two members sharing one. VER-04. */
+const COMPOSED_TWO_OPERATORS: ShardQuorum = {
+  kind: 'composed',
+  operators: ['harbour-road-volunteers', 'east-pier-compute'],
+}
+
 function manifest(violations: readonly string[] = []): EgressManifest {
   return {
     entries: [
@@ -71,11 +93,16 @@ function run(overrides: Partial<TabColouringRun> = {}): TabColouringRun {
     elapsedMs: 412.6,
     egress: manifest(),
     attestation: RECEIPT,
+    // VER-03, VER-04 — C22. The default is a *refusal*, not a composed quorum, and that is
+    // deliberate: this fixture stands for the ordinary browser run, and every peer a tab can
+    // reach is discovered through the relay it reserved on. A fixture defaulting to
+    // `composed` would make the page's happiest case its most-exercised one.
+    quorum: REFUSED_SHARED_RELAY,
     ...overrides,
   }
 }
 
-/** Every colouring region that is a figure — the seventeen `format` owns, plus the four it does not. */
+/** Every colouring region that is a figure — the eighteen `format` owns, plus the four it does not. */
 const FIGURE_IDS: readonly string[] = REGIONS.filter(
   (region) =>
     region.surface === 'colouring' &&
@@ -102,7 +129,7 @@ const SETTLED: ColouringState = {
 }
 
 describe('the colouring formatter, with no DOM', () => {
-  it('names every one of its seventeen regions in every arm, so nothing keeps a stale value', () => {
+  it('names every one of its eighteen regions in every arm, so nothing keeps a stale value', () => {
     const arms: Record<string, ColouringState> = {
       settled: SETTLED,
       'nothing settled': { peers: 0, rungs: [{ n: 300, run: run({ found: false }) }] },
@@ -187,6 +214,61 @@ describe('the colouring formatter, with no DOM', () => {
     expect(absent).toContain('12D3KooWfake: this requestor holds no certificate for it')
     // No strength claimed where none was established.
     expect(absent).not.toContain('owner-attested')
+  })
+
+  it("renders the composer's own quorum words, kind included, and composes none of its own", () => {
+    const refused = format(SETTLED).regions['colouring/quorum']
+    expect(refused).toBe(describeQuorum(REFUSED_SHARED_RELAY))
+    // The kind is the assertable part — a caller that can read it can tell an
+    // over-concentrated fabric from any other degradation, and one that cannot, cannot.
+    expect(refused).toContain('[shared-relay-dependency]')
+    expect(refused).toContain('12D3KooWrelay')
+
+    const composed = format({
+      peers: 2,
+      rungs: [{ n: 300, run: run({ quorum: COMPOSED_TWO_OPERATORS }) }],
+    }).regions['colouring/quorum']
+    expect(composed).toBe(describeQuorum(COMPOSED_TWO_OPERATORS))
+    expect(composed).toContain('east-pier-compute')
+    // VER-04 — anti-affinity, stated as the property rather than implied by a count.
+    expect(composed).toContain('no two members share an operator')
+
+    // The two verdicts are DISTINGUISHABLE on screen. Without this the region could be a
+    // constant and every assertion above would still pass.
+    expect(composed).not.toBe(refused)
+  })
+
+  it('does not derive the quorum verdict from the attestation — VER-03’s whole trap', () => {
+    // The reason this case exists: `AttestationReceipt` carries its own `sharedRelay`, and a
+    // page deriving C22 from the receipt would look correct on every ordinary run. So hold one
+    // input still and move the other, in both directions. A region derived from the wrong
+    // value fails one of the two halves.
+
+    // Attestation moves, quorum does not: same refusal text under three different receipts,
+    // including one whose receipt reports NO shared relay at all.
+    const receiptWithNoSharedRelay: ShardAttestation = { ...RECEIPT, sharedRelay: null }
+    const receiptNamingOne: ShardAttestation = { ...RECEIPT, sharedRelay: '12D3KooWsomethingElse' }
+    const quorumUnder = (attestation: ShardAttestation): string | undefined =>
+      format({ peers: 1, rungs: [{ n: 300, run: run({ attestation }) }] }).regions['colouring/quorum']
+
+    expect(quorumUnder(receiptWithNoSharedRelay)).toBe(describeQuorum(REFUSED_SHARED_RELAY))
+    expect(quorumUnder(receiptNamingOne)).toBe(describeQuorum(REFUSED_SHARED_RELAY))
+    expect(quorumUnder(NO_RECEIPT)).toBe(describeQuorum(REFUSED_SHARED_RELAY))
+    // And it never picks up the receipt's peer id, which is what a derived region would.
+    expect(quorumUnder(receiptNamingOne)).not.toContain('12D3KooWsomethingElse')
+
+    // Quorum moves, attestation does not: one receipt, two verdicts, two different strings.
+    const held = { peers: 1, rungs: [{ n: 300, run: run({ attestation: RECEIPT }) }] }
+    const heldComposed = {
+      peers: 1,
+      rungs: [{ n: 300, run: run({ attestation: RECEIPT, quorum: COMPOSED_TWO_OPERATORS }) }],
+    }
+    expect(format(held).regions['colouring/attestation']).toBe(
+      format(heldComposed).regions['colouring/attestation'],
+    )
+    expect(format(held).regions['colouring/quorum']).not.toBe(
+      format(heldComposed).regions['colouring/quorum'],
+    )
   })
 
   it('says the fabric settled nothing rather than that nothing was run', () => {
