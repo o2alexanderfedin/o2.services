@@ -404,12 +404,20 @@ describe('CHURN-04 — the shipped colouring run supplies admission control', ()
     expect(source).toContain('submitJobWithEgress(')
   })
 
-  it('passes rpcAdmission over this tab’s own rpc into the job spec', () => {
+  it('passes rpcAdmission over this tab’s own rpc into the job spec, with a local port', () => {
     const wiring = source
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line.startsWith('admit:'))
-    expect(wiring).toEqual(['admit: rpcAdmission(node.rpc),'])
+    // **The `local` half is not decoration and this assertion is why it is named here.**
+    // This line read `admit: rpcAdmission(node.rpc),` from `c1f95a2` until 2026-08-16, and
+    // in that form it refused *this tab* every shard of every job: `rpcAdmission` asked the
+    // submitting node about itself over RPC and the transport answered `Can not dial self`.
+    // A tab is always in the pool it places over, so a two-tab run at `redundancy: 2`
+    // reached one replica and four e2e files went red. Widening this back to a prefix match
+    // would let the same omission return silently, which is the whole reason the expectation
+    // is an equality over the trimmed line rather than a `toContain`.
+    expect(wiring).toEqual(['admit: rpcAdmission(node.rpc, { local: node.admission }),'])
   })
 
   it('imports rpcAdmission from @o2/net rather than reimplementing the probe', () => {
