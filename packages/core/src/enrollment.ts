@@ -89,12 +89,25 @@
  * anything, and a reader reaching for one should be sent back to `19-CONTEXT.md`'s
  * NO BLOCKCHAIN constraint.
  *
- * **And that answer is untested here.** Every fixture in this repository and the demo
- * itself are **single-provider**, so the multi-provider recovery is an argument and not a
- * reading. *Unmeasured is not met* — which applies to a mitigation exactly as much as to
- * a mechanism. No mitigation machinery is built: no proof-of-work at the enrolment frame,
- * no authenticated enrolment, no per-peer quota. The trade was a trade, and the next
- * reader is owed that word rather than a claim of design.
+ * **And half that answer is now a reading. CORRECTED 2026-08-16.** This paragraph opened
+ * *"And that answer is untested here. Every fixture in this repository and the demo itself
+ * are **single-provider**, so the multi-provider recovery is an argument and not a
+ * reading"* — and that became false when `packages/node/src/enrollment-cost.node.test.ts`
+ * landed. Its last section spawns a **second** `bin/agent.ts` provider with an issuer key
+ * of its own, has the node the exhausted provider refused certified by it, and then reads
+ * `verifyCertificate` refusing that certificate `untrusted-issuer` against a peer that
+ * pinned only the first. So routing around a starved provider is measured, **and** its
+ * cost is measured with it: the peers who are to accept the newcomer must themselves have
+ * pinned the provider it went to. The sentence is quoted rather than deleted because it
+ * was true when written.
+ *
+ * **What is still untested is the operational half**, and *unmeasured is not met* applies
+ * to a mitigation exactly as much as to a mechanism: nothing shows an operator noticing
+ * that a provider is starved, or a fabric re-pinning at scale. No mitigation machinery is
+ * built either — no proof-of-work at the enrolment frame, no authenticated enrolment, no
+ * per-peer quota; `serveAgent`'s `enrol` branch still takes no authorization step of any
+ * kind. The trade was a trade, and the next reader is owed that word rather than a claim
+ * of design.
  *
  * **Why a shorter certificate lifetime is not part of this argument** (owner correction
  * 2026-08-02). The attack radius does not pay for renewal churn: results are signed and

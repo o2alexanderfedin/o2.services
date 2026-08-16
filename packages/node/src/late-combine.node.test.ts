@@ -260,6 +260,26 @@ import { FabricNode } from './fabric-node.ts'
  * | alone + 48 CPU burners | 0.34 – 0.42 | 36 – 77 ms | 275 – 442 ms |
  * | alone, host saturated by an unrelated LLVM build (load 182) | 0.89 | 59 ms | 100 ms |
  * | a `--project node` run on that same saturated host | 0.51 | **564 ms** | 1311 ms |
+ * | a `--project node` run, 2026-08-16, unrelated C++ build farm | **0.355** | **295 ms** | 767 ms |
+ *
+ * The last row is this file's own reading taken on 2026-08-16 and it is paired, in the same
+ * hour and at the same commit, with a solo run: `standUp 1331ms, map 274ms,
+ * cold combines [19,22,23,27,32,39]ms floor 19ms spread 2.00×` at `(user+sys)/real`
+ * **1.574**, green. The suite run beside it read `standUp 9444ms, map 3572ms,
+ * cold combines [295,306,354,476,499,767]ms floor 295ms spread 2.60×` and failed
+ * `expected 1500 to be greater than 2950.46`. Every term inflated together — standUp 7.1×,
+ * map 13.0×, floor 15.5× — which is what the reading rule below calls the host, and the
+ * solo floor landed in the 14–18 ms band this table opens with.
+ *
+ * **And the second row's share range is too narrow at its lower end.** When the build farm
+ * finished, the same `--project node` at the same commit came back **192/192 files, 2881
+ * passed, 1 skipped, EXIT 0** at `(user+sys)/real` **0.830** — below the 0.90 this table
+ * gives as that regime's floor, and fully green, in 703 s against the starved run's 2352 s.
+ * So 0.90 is **not** the edge of green: the threshold this file fails at lies somewhere in
+ * (0.355, 0.830], and nothing measured here narrows it further. No floor is quoted for that
+ * run on purpose — vitest's default reporter prints a test's stdout only when it **fails**,
+ * so the criterion-6 line was never emitted, and a row is not filled in with a number
+ * nobody read.
  *
  * Two facts, and they are different facts:
  *
@@ -279,7 +299,24 @@ import { FabricNode } from './fabric-node.ts'
  * `--project node` runs — including one at `(user+sys)/real` **0.90**, the share that
  * produced the recorded failures — and 77 ms under a burner load twice past that, on a
  * run where this file alone took 42 s. So the residual margin is **~2.6× in the regime
- * that occurs** and ~2× at a starvation far beyond it.
+ * that occurs**.
+ *
+ * **The clause that used to end that sentence — *"and ~2× at a starvation far beyond it"* —
+ * is withdrawn, measured 2026-08-16.** It read the burner rows as an upper bound on the
+ * suite regime because their share is lower, and the row added above falsifies that: at
+ * **0.355** a real `--project node` run produced a floor of **295 ms**, where 48 burners at
+ * **0.34 – 0.42** produced 36 – 77 ms. Four to eight times worse at the *same* number.
+ *
+ * The two numbers are not the same quantity, which is the whole of the mistake.
+ * `(user+sys)/real` taken over `vitest --project node` averages 192 files' work, four
+ * concurrent container builds among them, so it says nothing about the share *this
+ * fixture's four spawned agents* actually got — whereas in a `this file alone + burners`
+ * run the tree being measured **is** the fixture. A burner is also the mildest possible
+ * competitor: it spins on CPU and never contends for the socket accepts, process spawns
+ * and Docker I/O that a real suite run puts in front of a combine. **So the burner rows
+ * bound nothing about a suite run and must not be read as a safety factor over it.** They
+ * remain in the table because they are honest readings of what they measured; what is
+ * withdrawn is the inference drawn across them.
  *
  * ### Where this reading stops working, measured rather than left to be discovered
  *
@@ -1197,7 +1234,23 @@ describe('MR-04 — a paused process answers after the request that asked for it
     // Reading the first is what made this line fail three times under whole-suite load;
     // the file header carries the five-regime measurement that licenses the minimum and
     // states where its own margin runs out.
-    expect(RPC_TIMEOUT_MS).toBeGreaterThan(healthyCombineMs * TIMEOUT_MARGIN)
+    // The message carries the header's own reading rule, because without it this red is
+    // `expected 1500 to be greater than 2950` and attributing it costs a trip through two
+    // hundred lines of docblock — which is what it cost on 2026-08-16. The solo figures
+    // quoted are this file's 2026-08-16 paired reading, in the table above. Nothing here
+    // changes which runs pass; it changes what a failing one says about itself.
+    expect(
+      RPC_TIMEOUT_MS,
+      `the cold-combine floor ${Math.round(healthyCombineMs)}ms × ${TIMEOUT_MARGIN} is past the ` +
+        `${RPC_TIMEOUT_MS}ms budget, so a timeout could not be attributed to the pause. ` +
+        `Read this by the distribution, per this file's header: standUp ${Math.round(standUpMs)}ms ` +
+        `(alone ~1331), map ${Math.round(mapMs)}ms (alone ~274), floor ${Math.round(healthyCombineMs)}ms ` +
+        `(alone ~19), spread ${(Math.max(...coldSpans) / healthyCombineMs).toFixed(2)}×. ` +
+        `ALL THREE inflated together is a starved host, not this code — re-run this file alone ` +
+        `under \`/usr/bin/time -p\` and read (user+sys)/real; the solo band is 1.32–1.63 and a ` +
+        `whole --project node run at 0.355 produced exactly this. A floor that has moved while ` +
+        `standUp and map have NOT is the combine, and that is the defect this guard exists to catch.`,
+    ).toBeGreaterThan(healthyCombineMs * TIMEOUT_MARGIN)
     expect(pausedDispatchMs).toBeGreaterThanOrEqual(RPC_TIMEOUT_MS)
     expect(pauseMs).toBeGreaterThan(RPC_TIMEOUT_MS)
 

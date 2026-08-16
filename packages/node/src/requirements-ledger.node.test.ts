@@ -997,11 +997,42 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   //   noticed for five days. Fourth instance in one sweep. **An id here is a promise to
   //   re-read a row by hand, and nothing in this file counts how long the promise has been
   //   outstanding** — which is the one thing that would have caught all four.
+  // **Re-read 2026-08-16, and the leg this row was kept for is CLOSED — the entry stays for
+  // a narrower reason.** The sentence above says the open leg is an *argument value*: renewal
+  // is conditional on `JobSpec.admit`, and *"only `bin/bench.ts --discover` — off by default —
+  // supplies it in production"*. That stopped being true on 2026-08-16.
+  // `browser/demo/main.ts#runColouring` now passes `admit: rpcAdmission(node.rpc)` with no flag
+  // in front of it, so an ordinary visitor's cube ladder probes lease holders and renews on
+  // evidence. The owner's 2026-08-15 ruling — a capability reachable only behind an
+  // off-by-default flag is not shipped — is what makes that a change of state rather than a
+  // second instance of the same one.
+  //
+  // **What is still not driven, stated so the row is not read as closed.** The *renewal* the
+  // probe grants is proven by `packages/core/src/lease.test.ts` and by `submit.test.ts`'s
+  // renewal pair, both against fixtures. Nothing measures a renewal happening on a live tab
+  // fabric — that needs a peer tab held past a lease deadline while still executing, which no
+  // spec in this repository stages. So `because` reads true on its second word only, exactly
+  // as the AUTH-02 row below does, and the promise this id carries is now to drive *that*.
+  //
+  // The new witness is the weaker of the two on purpose and says so in its own docblock: it is
+  // a source-text reading of the shipped call, not a measurement of a renewal. It is here
+  // because it is the only instrument that sees whether a production caller still exists, and
+  // that is the fact the previous sentence got wrong for eleven days.
   {
     id: 'CHURN-04',
     because: 'entry-point-not-driven',
-    reread: '2026-08-05',
-    witnesses: ['packages/core/src/lease.test.ts'],
+    reread: '2026-08-16',
+    witnesses: [
+      'packages/core/src/lease.test.ts',
+      'packages/browser/src/colouring-surface.node.test.ts',
+      // Arrived 2026-08-16 and the drift case caught it the same hour it was written,
+      // which is the half of the guard that fires without waiting for the countdown
+      // doing exactly what its docblock claims. It witnesses the *precondition* rather
+      // than the renewal: `admit` was supplied on the default demo path by c1f95a2 and
+      // could not admit the submitting node, so the probe this row's renewal depends on
+      // refused the one node guaranteed to be present.
+      'packages/net/src/discovery.test.ts',
+    ],
   },
   // ── The pre-existing entries ───────────────────────────────────────────────────────
   // **Re-read 2026-08-14, and the promise this entry carries was partly discharged rather
@@ -1103,11 +1134,35 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // base64 fixtures and one protocol spec whose match is incidental. No `@ipshipyard/
   // libp2p-auto-tls` dependency exists in any `package.json`. The row is not stale; the
   // open leg is a hosting decision, which is what `tier-or-configuration` means.
+  //
+  // **Second witness arrived 2026-08-16, and the `reread` date deliberately did not move**
+  // — the rule this register set for `BENCH-06` on 2026-08-14, applied to the row it fits
+  // just as well. `seed-binary-join.e2e.test.ts` began title-naming this row because the
+  // *reservations* clause acquired something it did not have: the real `bin/seed.ts`
+  // binary, spawned as its own process on real sockets, joined by two real Chromium
+  // contexts that fetch `/bootstrap.json`, reserve, and find each other — with the
+  // reservation read back **over HTTP from the seed process**, so the reading cannot come
+  // from an in-process object the harness already held. The previous witness,
+  // `relaying.node.test.ts`, asserts a browser-dialable listen address; it does not put a
+  // browser on it.
+  //
+  // **That is the clause that was never in question.** What holds this row open is
+  // `auto-acquires a TLS certificate`, and no spec written on this host can acquire it:
+  // AutoTLS proves control of a publicly reachable address to `registration.libp2p.direct`,
+  // which a private host behind NAT with no public DNS name cannot do, and
+  // `@ipshipyard/libp2p-auto-tls` is still in no `package.json`. Re-checked 2026-08-16 in
+  // the pessimistic direction, as on 2026-08-11, and unchanged.
+  //
+  // So the clock stays at 2026-08-11. Moving it would buy days of silence on the strength
+  // of the half that was already met, which is the overclaim this register exists to catch.
   {
     id: 'NET-03',
     because: 'tier-or-configuration',
     reread: '2026-08-11',
-    witnesses: ['packages/node/src/relaying.node.test.ts'],
+    witnesses: [
+      'packages/node/src/relaying.node.test.ts',
+      'packages/node/src/seed-binary-join.e2e.test.ts',
+    ],
   },
   {
     id: 'NET-06',
@@ -1191,11 +1246,34 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // reason the row is here. A register whose countdown can be reset by improving the half
   // that was never in question is a register that rewards the overclaim it exists to catch.
   // So: witness added, clock untouched.
+  //
+  // **Third witness arrived 2026-08-16, clock untouched for the third time, same reason.**
+  // `bench-process-ladder.node.test.ts` title-names this row because the same-machine half
+  // gained a *ladder*: three rungs of 1, 2 and 4 real `bin/agent.ts` processes, each
+  // binding its own listening socket on its own port, with a real job dispatched across
+  // them and the derived label asserted at every rung. The second witness proved the label
+  // follows one rung's announcements; this one proves it follows them as the process count
+  // moves, and that the rungs run at all.
+  //
+  // **It measures the half that was never in question, and it is explicit about it.** The
+  // ladder's own docblock records three runs whose between-run variation exceeds their
+  // between-rung variation — including one taken under an unrelated LLVM build where every
+  // absolute figure tripled — so it asserts no trend, and it states in its printed output
+  // that separate processes give separate address spaces and real loopback sockets but not
+  // separate kernels, clocks, hardware or OS builds. That is the `vitest.config.ts:716`
+  // ruling carried into the process tier rather than quietly left behind at the engine one.
+  //
+  // The distinct-machine half is untouched, still structural, and still the only reason
+  // this row is here. Witness added, clock untouched.
   {
     id: 'BENCH-06',
     because: 'experiment-not-run',
     reread: '2026-08-11',
-    witnesses: ['packages/bench/src/harness.test.ts', 'packages/node/src/bench-fabric.node.test.ts'],
+    witnesses: [
+      'packages/bench/src/harness.test.ts',
+      'packages/node/src/bench-fabric.node.test.ts',
+      'packages/node/src/bench-process-ladder.node.test.ts',
+    ],
   },
   // **The one entry with no witness at all**, and it is the honest reading rather than a
   // gap in the scan: no spec in this repository title-names `AOT-03`. Every other entry
@@ -1223,14 +1301,32 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     reread: '2026-08-11',
     witnesses: [],
   },
+  // **Re-read 2026-08-16, and the sentence that kept it here is gone.** The row's own
+  // words were *"the browser tier's composition is present and its runtime behaviour is
+  // **unmeasured** — no tab has ever executed a translated artifact"*, and
+  // `packages/node/src/aot-tab.e2e.test.ts` now measures exactly that: a live Chromium tab
+  // running a real `BrowserNode`, handed the lifted echo guest over a direct WebSocket,
+  // routing it to its WASI arm and echoing the value back — with a source-compiled module
+  // through the same tab's native arm beside it, so the reading is about the router rather
+  // than about one arm answering everything.
+  //
+  // **It stays in the register anyway, and the reason is a condition on the evidence.**
+  // The new file is `describe.skipIf` on a gitignored artifact — the identical condition
+  // this row already carries for `aot-dispatch.node.test.ts` — and it is one engine, not
+  // the three the `browser` project runs. Ticking AOT-04's box is a decision for whoever
+  // owns the phase, taken against the row rather than against this comment; what is
+  // recorded here is that the *stated* gap is closed and the promise is now to decide,
+  // not to measure. Understating is the safe direction and the direction AOT-03 already
+  // takes for its own half.
   {
     id: 'AOT-04',
     because: 'tier-or-configuration',
-    reread: '2026-08-11',
+    reread: '2026-08-16',
     witnesses: [
       'packages/aot/src/admission.test.ts',
       'packages/aot/src/wasi-executor.test.ts',
       'packages/node/src/aot-dispatch.node.test.ts',
+      'packages/node/src/aot-tab.e2e.test.ts',
       'packages/node/src/fabric-node.node.test.ts',
     ],
   },
