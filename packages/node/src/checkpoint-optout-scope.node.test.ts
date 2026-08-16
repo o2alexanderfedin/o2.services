@@ -20,28 +20,50 @@ import { stripComments } from './strip-comments.ts'
  * A new production submitter that writes the sentinel fails here rather than merging,
  * which is the difference between a decision and a default.
  *
+ * ## Rewritten by hand on 2026-08-16, on the event this file said would force it
+ *
+ * The paragraph below stood here until then, and is kept because the rewrite is only
+ * legible against it:
+ *
+ * > It does **not** close criterion 7, and making the field required did not either.
+ * > **Criterion 7 remains PARTIAL and this file is the guard that says so out loud.**
+ * > The recovery half is proven; the write half is reachable from nothing an operator
+ * > runs.
+ *
+ * And, of the `toEqual` in both directions: *"closing the write half is exactly the event
+ * that should force this file, and criterion 7's score, to be rewritten by hand."* That
+ * happened. `browser/demo/main.ts`'s `runColouring` now passes `checkpointsInto(node.store)`
+ * — a real sink over the one production store that outlives its process — so two of this
+ * file's assertions went red exactly as designed, and both were rewritten rather than
+ * relaxed:
+ *
+ * 1. **`main.ts`'s sentinel count fell from 3 to 2.** That is the `toEqual`-in-both-
+ *    directions half doing what it was built for: a file that *stops* saying the sentinel
+ *    is a change of scope and has to be restated. `runPi` and the sovereign run still say
+ *    it, for the reasons recorded against them below.
+ * 2. **`CheckpointSink` is now named by a second production file.** The list is no longer
+ *    a statement that the write half is unreachable; it is a statement of *where the sink
+ *    is implemented*, and it stays pinned so a third implementation is a decision.
+ *
  * ## What this proves, and the two things it does not
  *
  * It proves that exactly the files listed in {@link CHECKPOINT_OPTOUTS} say
- * `'checkpoints-nothing'`, that each says it exactly as many times as it is allowed to,
- * and that no production file outside the definition so much as names `CheckpointSink`.
- * The last is the sharpest of the three: a submitter cannot supply a sink it never names,
- * so this is a *direct* reading of criterion 7's write half rather than an inference from
- * an outcome.
+ * `'checkpoints-nothing'` and each exactly as many times as it is allowed to; that
+ * `CheckpointSink` is named by exactly the definition and the one implementation; and that
+ * the shipped colouring run supplies that implementation rather than the sentinel.
  *
  * 1. It does **not** prove that checkpointing works — `checkpoint-agents.node.test.ts`
- *    does that, against sinks that exist only in tests. This file is about reachability
- *    from something an operator runs, which is the half that is missing.
- * 2. It does **not** close criterion 7, and making the field required did not either.
- *    **Criterion 7 remains PARTIAL and this file is the guard that says so out loud.**
- *    The recovery half is proven; the write half is reachable from nothing an operator
- *    runs. What changed on 2026-08-05 is that the gap is now *stated in the source* at
- *    five call sites instead of being invisible in five omissions.
+ *    does that, and `checkpoint.test.ts`'s CHURN-03-write-half block proves what the sink
+ *    itself does. This file is about *reachability from something an operator runs*.
+ * 2. It does **not** prove the handle goes anywhere a returning tab could find. It does
+ *    not, and `checkpointsInto`'s own docblock says so: a blockstore is content-addressed,
+ *    so there is no stable key under which the newest handle could be stored. What closes
+ *    here is that a shipped entry point writes checkpoint blocks into a store that
+ *    survives the tab closing — not that a second requestor can discover them unaided.
  *
- * **Both directions fail, deliberately.** `toEqual` over the whole set means a file that
- * *stops* saying the sentinel reddens too — including the day a submitter is given a real
- * sink. That is not a false alarm: closing the write half is exactly the event that should
- * force this file, and criterion 7's score, to be rewritten by hand.
+ * **Both directions still fail, deliberately**, and for the same reason as before: the day
+ * `runPi` or the sovereign run is given a sink is the next day this file must be rewritten
+ * by hand.
  *
  * Node-only: reads tracked source files off disk.
  */
@@ -110,10 +132,17 @@ const CHECKPOINT_OPTOUTS: readonly {
     // The count moved because `0d1fcb5` added the site and left the pin at 2, so this guard
     // was red at that commit. It was found by the v1.1 re-audit running the node suite, not
     // at the time — which is the guard working and the commit not reading it.
-    count: 3,
+    //
+    // **Back to 2 on 2026-08-16, and this is the good direction.** `runColouring` now
+    // passes `checkpointsInto(node.store)`. It is the right site and the only one of the
+    // three: it is the multi-shard run, so it is the only one of the three where partial
+    // progress exists to check-point at all. `runPi` and the sovereign run stay on the
+    // sentinel for the reasons written above them — one submit, no resumable partial —
+    // which are unchanged by anything `runColouring` gained.
+    count: 2,
     role:
-      'the demo page, three times: runColouring, runPi and the sovereign run — the only' +
-      ' durable store',
+      'the demo page, twice: runPi and the sovereign run. runColouring left this list on' +
+      ' 2026-08-16 — it supplies a real sink over the tab store, which is why it was here',
   },
 ]
 
@@ -188,14 +217,46 @@ describe('the set of production files that opt out of checkpointing is pinned', 
     )
   })
 
-  it('reads criterion 7 directly: no production file outside the definition names CheckpointSink', () => {
-    // **The sharpest of the three assertions.** A submitter cannot supply a sink whose
-    // type it never mentions, so this is a direct reading of the write half's
-    // reachability rather than an inference from a job's outcome. The day this list grows
-    // a second entry is the day the write half becomes reachable, and this test is
-    // supposed to redden and be rewritten then.
+  it('reads criterion 7 directly: the definition and exactly one implementation name CheckpointSink', () => {
+    // **The sharpest of the assertions.** A submitter cannot supply a sink whose type it
+    // never mentions, so this is a direct reading of the write half's reachability rather
+    // than an inference from a job's outcome.
+    //
+    // **The list held one entry until 2026-08-16**, and the comment here said *"the day
+    // this list grows a second entry is the day the write half becomes reachable, and
+    // this test is supposed to redden and be rewritten then."* It did, and this is that
+    // rewrite. The second entry is `checkpoint.ts` — `checkpointsInto`, the sink
+    // `runColouring` supplies. It sits beside `writeCheckpoint` and `readCheckpoint`
+    // rather than in the browser package because it needs nothing from a browser: its
+    // whole act is a read-back through the `Blockstore` port, and putting it in `browser/`
+    // would have made the one durable sink unavailable to every other tier.
+    //
+    // Still pinned, and still in both directions. A *third* file naming the type is a
+    // second sink implementation, which is a decision about which one a submitter gets
+    // and belongs in review rather than in a diff.
     const namesTheSink = sources.filter((file) => codeOccurrences(file, 'CheckpointSink') > 0)
-    expect(namesTheSink).toEqual(['packages/core/src/job/submit.ts'])
+    expect(namesTheSink).toEqual([
+      'packages/core/src/checkpoint.ts',
+      'packages/core/src/job/submit.ts',
+    ])
+  })
+
+  it('reads the write half positively: the shipped colouring run supplies the sink', () => {
+    // The three assertions above are all *negative* — they say where the sentinel is not
+    // and where the type is not named. A guard built only from those is satisfied by a
+    // repository in which nothing checkpoints and nothing submits, which is exactly the
+    // state this criterion was stuck in. So the closing evidence is stated positively and
+    // names the call: an entry point an operator runs hands a real sink to a real submit.
+    const demo = 'packages/browser/demo/main.ts'
+    expect(sources).toContain(demo)
+    expect(codeOccurrences(demo, 'checkpointsInto(node.store)')).toBe(1)
+    // And it is the *store* that outlives the process, not a scratch one built for the
+    // call. `browser-node.ts` declares `readonly store: IdbBlockstore`, so naming
+    // `node.store` here is naming IndexedDB. The honest claim is that a checkpoint block
+    // survives the tab closing — not that it is durable: browsers evict IndexedDB
+    // silently under storage pressure, and `navigator.storage.persist()` would exempt the
+    // origin from eviction under disk pressure but never from a visitor clearing site data.
+    expect(codeOccurrences('packages/browser/src/browser-node.ts', 'readonly store: IdbBlockstore')).toBe(1)
   })
 
   it('can report a new opt-out, and is not satisfied by prose describing one', () => {

@@ -5,6 +5,7 @@ import { encodeCanonical } from './canonical/encode.ts'
 import {
   checkpointChain,
   checkpointOf,
+  checkpointsInto,
   isComplete,
   readCheckpoint,
   recoverCheckpoint,
@@ -252,5 +253,113 @@ describe('the chain is the audit view, and stops rather than fails', () => {
     const selfResolve = (value: string): CID | null => (value === 'self' ? cid : null)
     const chain = await checkpointChain(cid, store, selfResolve)
     expect(chain).toHaveLength(1)
+  })
+})
+
+/**
+ * CHURN-03's **write half** — the sink `browser/demo/main.ts`'s `runColouring` supplies.
+ *
+ * Until 2026-08-16 every production submitter passed `'checkpoints-nothing'`, so the
+ * recovery half above was proven against sinks that exist only in tests. These cases are
+ * about the destination a shipped entry point can actually name.
+ *
+ * **What a sink over a blockstore is for.** `checkpointLogOf` has already written the
+ * block by the time `publish` is called, so the sink is not what makes the bytes durable —
+ * it is what establishes that they *are*, by reading the handle back out of the same
+ * store. That read is the whole claim: a handle whose block does not resolve is a resume
+ * nobody can perform, and counting it would be publishing a promise the store cannot keep.
+ */
+describe('CHURN-03 write half — a sink that confirms its handles against the store', () => {
+  it('confirms a handle whose block reads back, and reports it as the newest', async () => {
+    const store = new MemoryBlockstore()
+    const sink = checkpointsInto(store)
+    const checkpoint = state()
+    const handle = await writeCheckpoint(checkpoint, store)
+
+    await sink.publish(handle, checkpoint)
+
+    expect(sink.confirmed.map((cid) => cid.toString())).toEqual([handle.toString()])
+    expect(sink.unconfirmed).toEqual([])
+    expect(sink.newest()?.toString()).toBe(handle.toString())
+  })
+
+  it('does not confirm a handle whose block is absent, and does not throw over it', async () => {
+    // Browsers evict IndexedDB silently under storage pressure, so a missing block is a
+    // normal condition here — `idb-blockstore.ts` says so in those words. `publish` is
+    // awaited inside `checkpointLogOf`'s serialised chain, so a throw would reject that
+    // chain and every later `record` on it: one eviction would end the visitor's job. The
+    // sink therefore reports and continues.
+    const store = new MemoryBlockstore()
+    const sink = checkpointsInto(store)
+    const checkpoint = state()
+    const evicted = await writeCheckpoint(checkpoint, new MemoryBlockstore())
+
+    await expect(sink.publish(evicted, checkpoint)).resolves.toBeUndefined()
+
+    expect(sink.confirmed).toEqual([])
+    expect(sink.unconfirmed).toHaveLength(1)
+    expect(sink.unconfirmed[0]?.handle.toString()).toBe(evicted.toString())
+    expect(sink.unconfirmed[0]?.reason).toContain(evicted.toString())
+    expect(sink.newest()).toBe(null)
+  })
+
+  it('reports the newest CONFIRMED handle, not the newest published one', async () => {
+    // The distinction is why two lists are kept. A resume handed the newest *published*
+    // handle after an eviction would name a block that is gone, and `recoverCheckpoint`
+    // would have to skip it — from a handle the page had already shown as the place to
+    // resume from.
+    const store = new MemoryBlockstore()
+    const sink = checkpointsInto(store)
+    const first = state({ completed: [{ partitionIndex: 0, resultCid: 'bafyA' }] })
+    const kept = await writeCheckpoint(first, store)
+    const second = state({
+      completed: [
+        { partitionIndex: 0, resultCid: 'bafyA' },
+        { partitionIndex: 1, resultCid: 'bafyB' },
+      ],
+    })
+    const lost = await writeCheckpoint(second, new MemoryBlockstore())
+
+    await sink.publish(kept, first)
+    await sink.publish(lost, second)
+
+    expect(sink.newest()?.toString()).toBe(kept.toString())
+    expect(sink.confirmed).toHaveLength(1)
+    expect(sink.unconfirmed).toHaveLength(1)
+  })
+
+  it('keeps confirmed handles oldest first, so the list is the chain in order', async () => {
+    const store = new MemoryBlockstore()
+    const sink = checkpointsInto(store)
+    const first = state()
+    const older = await writeCheckpoint(first, store)
+    const second = state({ at: T0 + 1, previous: older.toString() })
+    const newer = await writeCheckpoint(second, store)
+
+    await sink.publish(older, first)
+    await sink.publish(newer, second)
+
+    expect(sink.confirmed.map((cid) => cid.toString())).toEqual([
+      older.toString(),
+      newer.toString(),
+    ])
+    expect(sink.newest()?.toString()).toBe(newer.toString())
+  })
+
+  it('refuses a handle whose block is unreadable, not merely one that is missing', async () => {
+    // `readCheckpoint` validates every field because the bytes came out of a blockstore.
+    // A sink that only asked `has()` would confirm a handle over a block that cannot be
+    // decoded back into a checkpoint — the same unusable resume, one layer down.
+    const store = new MemoryBlockstore()
+    const sink = checkpointsInto(store)
+    const encoded = encodeCanonical({ jobId: 'job-1', partitionCount: 'four' })
+    if (!encoded.ok) throw new Error('fixture')
+    const handle = await store.put(encoded.bytes)
+
+    await sink.publish(handle, state())
+
+    expect(sink.confirmed).toEqual([])
+    expect(sink.unconfirmed).toHaveLength(1)
+    expect(sink.newest()).toBe(null)
   })
 })

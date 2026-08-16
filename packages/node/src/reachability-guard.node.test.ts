@@ -408,14 +408,28 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // wired in the same commit that created it, into a caller the tracer cannot follow, and the
     // evidence is that the derived `global-object-hop` case named it by itself rather than the
     // ceiling being moved to make room.
+    // ## Raised 67 → 68, measured 2026-08-16 — the SAME case as the raise above, one row on
+    //
+    // `core/checkpointsInto` is CHURN-03's sink: `demo/main.ts#runColouring` passes
+    // `checkpointsInto(node.store)` as `SubmitOptions.checkpoints`, which is what makes the write
+    // half reachable from something an operator runs at all. It has one production caller from
+    // the commit that created it, and it counts here anyway for the same reason
+    // `browser/enrolledIssuer` does — the caller is a member of the `api` literal assigned to
+    // `window.o2`, and the graph does not trace that assignment. Disposed `global-object-hop`, so
+    // the *undisposed* count is unmoved; this raise is the raw population growing by one.
+    //
+    // The direction is not to be misread here either: this is not wiring debt arriving. It is the
+    // opposite — a symbol whose whole purpose is to close wiring debt, wired in the commit that
+    // created it. The evidence that it is that case and not the alarm case is, again, that the
+    // derived `global-object-hop` case named it by itself before this number was touched.
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(
       found.length,
       `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-14 was 67. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
+        'on 2026-08-16 was 68. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(67)
+    ).toBeLessThanOrEqual(68)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {

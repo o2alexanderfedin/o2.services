@@ -41,7 +41,7 @@
  * a third party I was here".
  */
 
-import { decodeCanonical, verifyCertificate } from '@o2/core'
+import { checkpointsInto, decodeCanonical, verifyCertificate } from '@o2/core'
 import type {
   Blockstore,
   CanonicalValue,
@@ -59,6 +59,7 @@ import {
   parseResponse,
   publishStartOutcome,
   reduceJob,
+  rpcAdmission,
   submitJobWithEgress,
 } from '@o2/net'
 import {
@@ -975,17 +976,60 @@ const api: TabApi = {
         // visitor sees a real answer next to a truthful statement of how well it was
         // checked, which is a stronger claim than a blank panel.
         onQuorumShortfall: 'runs-at-available-redundancy',
+        // CHURN-04 — **the second production supplier of `admit`, and the first one an
+        // ordinary visitor reaches.** `bin/bench.ts` supplies one too, but only behind
+        // `--discover`, so on every run of anything an operator starts the lease-renewal
+        // path was unreachable: `submit.ts` renews a lease *only* against evidence
+        // obtained through this hook, and where it is absent there is no probe, so every
+        // lease lapses on time.
+        //
+        // That default is wrong for exactly this run and right for `runPi`. A cube ladder
+        // dispatches `options.cubes` shards across peer tabs over WebRTC, where a slow
+        // executor and a departed one look identical from here — and a tab that went to a
+        // background throttle is the *common* case, not the exceptional one. Without a
+        // probe the fabric re-dispatches its work to somebody else and the original tab's
+        // answer arrives to a shard already reassigned; with one, `rpcAdmission` offers
+        // the same slot key back to the holder and reads the duplicate refusal
+        // (`is already in flight here`) as positive evidence it is still running.
+        //
+        // `node.rpc` and not a second endpoint: this is the same `RpcEndpoint` the
+        // `RemoteExecutor`s above dispatch over, so a peer that cannot be probed is a peer
+        // that could not have been dispatched to either. **Not `bin/bench.ts`'s** — that
+        // call site is left alone deliberately, because moving it off `--discover` would
+        // change the placement algorithm of the published benchmark.
+        admit: rpcAdmission(node.rpc),
       },
       node.store,
       [node.egress],
       {
-        // CHURN-03. The demo keeps no checkpoints: a visitor's cube run is short, and a
-        // handle published to a panel nobody can hand to a second requestor would be a
-        // resume story the page cannot tell. Stated rather than omitted since 2026-08-05
-        // — see `SubmitOptions.checkpoints`. **This tab's store is the one production
-        // store that already outlives its process** (`node.store` is IndexedDB-backed),
-        // so this is where a real sink would cost least; it is not wired here.
-        checkpoints: 'checkpoints-nothing',
+        // CHURN-03 — **the write half, and this is the site that closes it.** Every
+        // production submitter said `'checkpoints-nothing'` from 2026-08-05 until
+        // 2026-08-16, so nothing an operator ran ever wrote a checkpoint block; the
+        // comment that stood here said this tab is *"the one production store that
+        // already outlives its process"* and then declined to use it. It is used now.
+        //
+        // **This run and not the other two.** `runColouring` is the multi-shard ladder —
+        // it dispatches `options.cubes` shards and settles them one at a time, so partial
+        // progress genuinely exists between the first answer and the last. `runPi` and the
+        // sovereign run below are one submit each with nothing a resume could pick up, and
+        // both still state the sentinel.
+        //
+        // **What the durability claim is, exactly.** `node.store` is an `IdbBlockstore`,
+        // so a checkpoint block written here **survives the tab closing** — that is the
+        // whole claim and it is deliberately not the word "durable". Browsers evict
+        // IndexedDB silently under storage pressure; `idb-blockstore.ts` treats a missing
+        // block as a normal condition rather than corruption, and `checkpointsInto`
+        // reports an unconfirmed handle instead of throwing for that reason.
+        // `navigator.storage.persist()` would exempt this origin from eviction under disk
+        // pressure and would still not survive a visitor clearing site data, so it would
+        // buy a stronger claim than "survives tab close" from nobody.
+        //
+        // **And what it is not.** A blockstore is content-addressed, so there is no stable
+        // key under which the *newest* handle could be left for a returning tab to find.
+        // The block is recoverable by anyone holding its CID; discovering that CID unaided
+        // needs a mutable key space this port does not have. Said here rather than left
+        // for a reader to assume the resume story is complete.
+        checkpoints: checkpointsInto(node.store),
       },
     )
     if (!result.ok) throw new Error(`submit failed: ${JSON.stringify(result.error)}`)
