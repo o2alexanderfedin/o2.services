@@ -31,6 +31,17 @@ import { describe, expect, it } from 'vitest'
  * authorization step lands — the same shape mutation-ledger entry `M36` already uses to
  * pin an absence. When that day comes, delete the reading; do not widen it.
  *
+ * **And it fired, 2026-08-16, on a price nobody meant to charge.** `requestEnrollment` took
+ * a signer port so a visitor's owner key could be a non-extractable `CryptoKey`, and the
+ * first cut verified its own `ownerProof` on **both** arms — which put one `ed25519.verify`
+ * into the attacker's mint. This case reported it immediately: *"expected
+ * 1.2203070223189196 to be greater than 1.5"*, down from a recorded 2.96–3.16, because a
+ * verification costs about what the two signatures already there cost. The fix was to the
+ * code and not to the floor: the check now runs only on the arm where a *caller* supplies
+ * the pairing, because on the seed arm this module derives the key itself and the check can
+ * only fail if noble disagrees with noble. **A guard that turns red on an unintended change
+ * is the guard working**, and the number it printed is what identified the mechanism.
+ *
  * ## Why every reading is a ratio taken inside one run
  *
  * CONVENTIONS' measurement rule, and it binds hardest here. An absolute

@@ -124,19 +124,18 @@
  * node. Revocation is **non-renewal on the certificate's own clock**, not a list and not
  * a shorter clock; `certificateLifetimeMs` keeps its default.
  *
- * Pure module, with **two** stated exceptions, and the second one is new.
+ * Pure module, with **one** stated exception: {@link EnrollmentAuthority.mintChallenge}
+ * draws random bytes, because a nonce a caller could predict is not a nonce. Nothing else
+ * here reads a clock, a random source, or a platform API — `enrol` still takes `now` as a
+ * parameter so the limiter stays deterministic under test.
  *
- * 1. {@link EnrollmentAuthority.mintChallenge} draws random bytes, because a nonce a caller
- *    could predict is not a nonce.
- * 2. {@link subtleUserSigner} defaults its `subtle` argument to `globalThis.crypto.subtle`
- *    — **added 2026-08-16, when this paragraph said "nothing else here reads … a platform
- *    API" and became wrong.** It is the same portable Web-standard global
- *    `ed25519-backend.ts` already reaches for in this package, and it is a *default* rather
- *    than a hard reference: a caller may pass the implementation, and a caller who does not
- *    already hold a `CryptoKey` never reaches the function at all.
- *
- * Nothing here reads a clock — `enrol` still takes `now` as a parameter so the limiter
- * stays deterministic under test.
+ * **That sentence survived 2026-08-16 by one round trip through a guard.**
+ * {@link subtleUserSigner} was first written here with the `crypto.subtle` call inline, and
+ * `one-crypto-implementation.node.test.ts` reported this file **by path** as a second
+ * WebCrypto Ed25519 implementation — CRYPTO-01 permits exactly one. The call moved to
+ * `ed25519-backend.ts`, which is the file that exists to hold it, and what stayed here is
+ * hex encoding and a refusal. So this module's purity is now a property something re-reads,
+ * rather than a claim in a comment.
  */
 
 import { ed25519 } from '@noble/curves/ed25519.js'
@@ -145,6 +144,7 @@ import { NotEncodableError, encodeCanonical } from './canonical/encode.ts'
 import type { CanonicalValue } from './canonical/encode.ts'
 import { fromHex, toHex } from './capability.ts'
 import type { PublicKeyHex } from './capability.ts'
+import { subtleKeyPairSigner } from './ed25519-backend.ts'
 import { encodeX509Certificate, encodeX509Tbs } from './x509-encode.ts'
 import { decodeX509Certificate, describeX509Failure } from './x509.ts'
 import type { X509Failure } from './x509.ts'
@@ -506,14 +506,6 @@ export function seedUserSigner(userPrivateKey: Uint8Array): UserSigner {
 }
 
 /**
- * `BufferSource` wants `Uint8Array<ArrayBuffer>` specifically while this module's contract
- * accepts the wider `Uint8Array`. Same cast at the same boundary as `ed25519-backend.ts`.
- */
-function toBufferSource(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
-  return bytes as Uint8Array<ArrayBuffer>
-}
-
-/**
  * The WebCrypto arm — **a key the page cannot read**, which is the whole point.
  *
  * Takes the `CryptoKeyPair` rather than generating one, because whose key it is and where
@@ -522,42 +514,36 @@ function toBufferSource(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
  * ['sign', 'verify'])` returns: `extractable = false` is what makes `exportKey` on the
  * private half refuse, measured in all three engines.
  *
+ * **The WebCrypto call itself is not here**, and that is CRYPTO-01 rather than layering
+ * taste: exactly one production file in this repository may perform WebCrypto Ed25519
+ * operations, `one-crypto-implementation.node.test.ts` reports a second **by path**, and it
+ * reported this one the day it was written here. So the `subtle` work lives in
+ * `ed25519-backend.ts`, which is the file that exists to hold it, and what remains here is
+ * the part that is about *enrolment*: the hex encoding, and the refusal below.
+ *
  * **The public half must still be exportable**, and that is not a weakening: `raw` export of
  * a *public* key reveals nothing a certificate is not about to publish anyway, and there is
  * no other way to learn the `userKey` a certificate has to name. `generateKey`'s
  * `extractable` flag governs the private half only — the pair above exports its public half
  * happily, which is measured rather than assumed.
- *
- * **Not gated on a capability probe, unlike `detectCryptoBackend`.** A caller can only reach
- * this holding a `CryptoKeyPair`, which they can only hold if `crypto.subtle` existed and
- * implemented Ed25519 — so the probe has already happened, by construction, and a second one
- * here would refuse nothing. `subtle` is a parameter for the same reason
- * `subtleCryptoBackend` takes one: a `CryptoKey` belongs to the implementation that minted
- * it, and a test may want to say which.
  */
-export async function subtleUserSigner(
-  keyPair: CryptoKeyPair,
-  subtle: SubtleCrypto = globalThis.crypto.subtle,
-): Promise<UserSigner> {
-  const raw = new Uint8Array(await subtle.exportKey('raw', keyPair.publicKey))
-  // Refused here rather than at the provider. A pair on some other curve exports a public
-  // half of a different length, and letting it through would produce a `userKey` this
-  // fabric cannot parse — surfacing three round trips later as an unexplained refusal.
-  if (raw.length !== ED25519_PUBLIC_KEY_BYTES) {
+export async function subtleUserSigner(keyPair: CryptoKeyPair, subtle?: SubtleCrypto): Promise<UserSigner> {
+  const held = await subtleKeyPairSigner(keyPair, subtle)
+  // Refused here rather than at the provider, and in this module's vocabulary rather than
+  // the curve's. A pair on some other algorithm exports a public half of a different
+  // length, and letting it through would produce a `userKey` this fabric cannot parse —
+  // surfacing round trips later as an unexplained refusal against somebody else's code.
+  if (held.publicKey.length !== ED25519_PUBLIC_KEY_BYTES) {
     throw new UserKeyMismatchError(
-      toHex(raw),
-      `exported a ${raw.length}-byte public key rather than Ed25519's ${ED25519_PUBLIC_KEY_BYTES}`,
+      toHex(held.publicKey),
+      `exported a ${held.publicKey.length}-byte public key rather than Ed25519's ${ED25519_PUBLIC_KEY_BYTES}`,
     )
   }
-  const userKey = toHex(raw)
-  return {
-    userKey,
-    async sign(message: Uint8Array): Promise<Uint8Array> {
-      return new Uint8Array(
-        await subtle.sign({ name: 'Ed25519' }, keyPair.privateKey, toBufferSource(message)),
-      )
-    },
-  }
+  // A delegating property rather than a second `sign` method in this file. Not a dodge and
+  // not a coincidence: once the WebCrypto call moved out there is genuinely nothing left
+  // for this arm to implement, and `reachability.node.test.ts`'s collision bound reads the
+  // difference between a declaration and a delegation.
+  return { userKey: toHex(held.publicKey), sign: (message) => held.sign(message) }
 }
 
 /**
@@ -575,7 +561,7 @@ export async function subtleUserSigner(
  * Bytes are normalised through {@link seedUserSigner} on entry so there is exactly **one**
  * signing path below rather than two that have to be kept agreeing.
  *
- * ## Why the `ownerProof` is verified here, before anybody sends it
+ * ## Why the `ownerProof` is verified here — and only on the arm where it can fail
  *
  * The provider will verify it anyway — `enrol` refuses `bad-owner-proof` — so this looks
  * like a check paid for twice. It is not the same check. `enrol` answers *"did the named
@@ -584,12 +570,23 @@ export async function subtleUserSigner(
  * misconfiguration: a `CryptoKeyPair` whose halves came from different generations, or a
  * hand-rolled signer naming a key it cannot sign for. Without it, that defect leaves the
  * device, costs a round trip, and comes back as a refusal that accuses the *provider's*
- * wiring. One `ed25519.verify` on a path that already performs two signatures is the
- * cheapest place this can possibly be found.
+ * wiring.
  *
  * It is also what carries AUTH-04's caller-side property across the change from a value to
- * a port — see {@link UserKeyMismatchError} for why the guard had to change shape, and why
- * the new shape catches strictly more.
+ * a port — see {@link UserKeyMismatchError} for why the guard had to change shape.
+ *
+ * **The seed arm is not verified, and that is a measurement rather than a preference.**
+ * Derivation and verification are alternatives, not a stack: when this module computes
+ * `userKey` from the bytes itself, the check can only fail if `ed25519.sign` and
+ * `ed25519.verify` disagree with each other, which is a claim about `@noble/curves` and not
+ * about the caller. Verifying both arms was the first cut, and
+ * `enrollment-dos.node.test.ts` priced it immediately: the provider-refuses ÷ attacker-mints
+ * ratio it pins fell from a recorded **2.96–3.16 to 1.22**, because one `ed25519.verify` is
+ * roughly the cost of the two signatures the mint already pays. That file's floor is
+ * deliberately a **lower bound on an exposure this repository has not removed**, so a
+ * refactor quietly halving it — for no security gain on that arm — would have been changing
+ * a cost model by accident and then restating the model to match. The check stays where it
+ * can actually fail.
  */
 export async function requestEnrollment(
   nodePrivateKey: Uint8Array,
@@ -599,24 +596,29 @@ export async function requestEnrollment(
     'nodeKey' | 'userKey' | 'proofOfPossession' | 'ownerProof' | 'freshness'
   >,
 ): Promise<PendingEnrollment> {
-  const signer = user instanceof Uint8Array ? seedUserSigner(user) : user
+  // `supplied` is the whole condition for the check below: it is true exactly when the
+  // pairing of a public half with a signing capability was the **caller's** to get right.
+  const supplied = !(user instanceof Uint8Array)
+  const signer = supplied ? user : seedUserSigner(user)
   const nodeKey = toHex(ed25519.getPublicKey(nodePrivateKey))
   const userKey = signer.userKey
   const challenge = possessionChallenge(nodeKey, userKey)
   const ownerProof = await signer.sign(challenge)
 
-  let consented = false
-  try {
-    consented = ed25519.verify(ownerProof, challenge, fromHex(userKey))
-  } catch {
-    // `fromHex` on a non-hex `userKey` and `ed25519.verify` on a malformed key or
-    // signature both land here. Every one of them is the same finding — this signer does
-    // not hold what it says it holds — and none of them is an exception a caller of
-    // *this* function could act on differently.
-    consented = false
-  }
-  if (!consented) {
-    throw new UserKeyMismatchError(userKey, 'did not produce a signature that verifies under that key')
+  if (supplied) {
+    let consented = false
+    try {
+      consented = ed25519.verify(ownerProof, challenge, fromHex(userKey))
+    } catch {
+      // `fromHex` on a non-hex `userKey` and `ed25519.verify` on a malformed key or
+      // signature both land here. Every one of them is the same finding — this signer does
+      // not hold what it says it holds — and none of them is an exception a caller of
+      // *this* function could act on differently.
+      consented = false
+    }
+    if (!consented) {
+      throw new UserKeyMismatchError(userKey, 'did not produce a signature that verifies under that key')
+    }
   }
 
   return {

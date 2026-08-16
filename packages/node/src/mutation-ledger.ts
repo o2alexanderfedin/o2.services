@@ -698,12 +698,10 @@ export const MUTATIONS: readonly Mutation[] = [
       'bothered to pass one” is the shape a convenience edit leaves behind. ' +
       '**Retargeted 2026-08-16**, when the second parameter became a `UserSigner` so a ' +
       'visitor’s key could be a non-extractable `CryptoKey`: the derivation moved down into ' +
-      'the signer and the line this plants on is now the read of it. The property it guards ' +
-      'is unchanged, and **what catches the plant changed with it**: unplanted, a rogue ' +
-      '`userKey` in `fields` is inert because the spread below overwrites it; planted, the ' +
-      'local itself is the rogue value and the spread cannot help — what refuses it is the ' +
-      'local `ownerProof` verification, which will not build a request whose signer cannot ' +
-      'sign for the key it names.',
+      '`seedUserSigner` and the line this plants on is now the read of it. The property, the ' +
+      'catching case and the mechanism are all unchanged — a rogue `userKey` in `fields` is ' +
+      'inert because the local below overwrites it in the returned spread, and planting this ' +
+      'line is what makes the local itself rogue.',
     file: 'packages/core/src/enrollment.ts',
     find: '  const userKey = signer.userKey',
     replace:

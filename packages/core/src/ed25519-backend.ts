@@ -248,6 +248,55 @@ export function subtleCryptoBackend(subtle: SubtleCrypto = globalThis.crypto.sub
   }
 }
 
+/**
+ * A key pair `crypto.subtle` already holds, adapted to bytes-in / bytes-out signing.
+ *
+ * Deliberately says nothing about enrolment, certificates or hex: it is the WebCrypto half
+ * of `enrollment.ts`'s `UserSigner` and nothing more. The split is not taste — **CRYPTO-01
+ * requires exactly one production file to perform WebCrypto Ed25519 operations**, and
+ * `one-crypto-implementation.node.test.ts` reported by name the day a second one appeared
+ * in `enrollment.ts`. The guard was right and the code moved.
+ */
+export interface SubtleKeyPairSigner {
+  /** The raw public half, 32 bytes. Exported once, at construction. */
+  readonly publicKey: Uint8Array
+  sign(message: Uint8Array): Promise<Uint8Array>
+}
+
+/**
+ * Adapt a `CryptoKeyPair` the caller already holds — **its private half is never read**.
+ *
+ * The distinguishing property of the key this exists for is that `exportKey` on its private
+ * half is *refused*: a page holding one can sign with it and cannot learn it, measured in
+ * chromium, firefox and webkit by `webcrypto-ed25519.browser.test.ts`. So this function
+ * exports the **public** half only, which reveals nothing a certificate is not about to
+ * publish, and otherwise only ever asks `subtle` to *use* the private one.
+ *
+ * **No capability probe here, unlike {@link detectCryptoBackend}.** A caller can only reach
+ * this holding a `CryptoKeyPair`, which they can only hold if `subtle` existed and did
+ * Ed25519 — so the probe has already happened, by construction, and a second one would
+ * refuse nothing. `subtle` is a parameter for the reason {@link subtleCryptoBackend} takes
+ * one: a `CryptoKey` belongs to the implementation that minted it.
+ *
+ * The length of what comes back is **not** checked here. A caller that knows what the bytes
+ * are for can refuse in its own vocabulary — see `enrollment.ts`'s `subtleUserSigner`,
+ * which reports a wrong-length export as a user-key mismatch rather than as a curve error.
+ */
+export async function subtleKeyPairSigner(
+  keyPair: CryptoKeyPair,
+  subtle: SubtleCrypto = globalThis.crypto.subtle,
+): Promise<SubtleKeyPairSigner> {
+  const publicKey = new Uint8Array(await subtle.exportKey('raw', keyPair.publicKey))
+  return {
+    publicKey,
+    async sign(message: Uint8Array): Promise<Uint8Array> {
+      return new Uint8Array(
+        await subtle.sign({ name: 'Ed25519' }, keyPair.privateKey, toBufferSource(message)),
+      )
+    },
+  }
+}
+
 let backendPromise: Promise<CryptoBackend> | undefined
 
 /**
