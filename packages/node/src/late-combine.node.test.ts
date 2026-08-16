@@ -271,6 +271,16 @@ import { FabricNode } from './fabric-node.ts'
  * map 13.0×, floor 15.5× — which is what the reading rule below calls the host, and the
  * solo floor landed in the 14–18 ms band this table opens with.
  *
+ * **And the second row's share range is too narrow at its lower end.** When the build farm
+ * finished, the same `--project node` at the same commit came back **192/192 files, 2881
+ * passed, 1 skipped, EXIT 0** at `(user+sys)/real` **0.830** — below the 0.90 this table
+ * gives as that regime's floor, and fully green, in 703 s against the starved run's 2352 s.
+ * So 0.90 is **not** the edge of green: the threshold this file fails at lies somewhere in
+ * (0.355, 0.830], and nothing measured here narrows it further. No floor is quoted for that
+ * run on purpose — vitest's default reporter prints a test's stdout only when it **fails**,
+ * so the criterion-6 line was never emitted, and a row is not filled in with a number
+ * nobody read.
+ *
  * Two facts, and they are different facts:
  *
  * 1. **Contention only ever adds.** Across every regime and every trial no sample came in
