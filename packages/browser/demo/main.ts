@@ -997,7 +997,11 @@ const api: TabApi = {
         // that could not have been dispatched to either. **Not `bin/bench.ts`'s** — that
         // call site is left alone deliberately, because moving it off `--discover` would
         // change the placement algorithm of the published benchmark.
-        admit: rpcAdmission(node.rpc),
+        // `local` is not optional in spirit here, only in the signature: this tab is in
+        // the pool it places over, so without it every shard carried
+        // `unreachable: … Can not dial self` against this tab's own id and a two-tab run
+        // at `redundancy: 2` reached one replica. See `rpcAdmission`'s `LocalAdmission`.
+        admit: rpcAdmission(node.rpc, { local: node.admission }),
       },
       node.store,
       [node.egress],

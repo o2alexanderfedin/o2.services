@@ -1025,6 +1025,13 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     witnesses: [
       'packages/core/src/lease.test.ts',
       'packages/browser/src/colouring-surface.node.test.ts',
+      // Arrived 2026-08-16 and the drift case caught it the same hour it was written,
+      // which is the half of the guard that fires without waiting for the countdown
+      // doing exactly what its docblock claims. It witnesses the *precondition* rather
+      // than the renewal: `admit` was supplied on the default demo path by c1f95a2 and
+      // could not admit the submitting node, so the probe this row's renewal depends on
+      // refused the one node guaranteed to be present.
+      'packages/net/src/discovery.test.ts',
     ],
   },
   // ── The pre-existing entries ───────────────────────────────────────────────────────
