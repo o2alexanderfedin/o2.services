@@ -64,8 +64,11 @@ import { CID } from 'multiformats/cid'
 import {
   CEREMONY_NONCE_BYTES,
   MAX_COMBINE_INPUTS,
+  NotEncodableError,
   START_FAILURES,
   compareExtensionIds,
+  decodeCanonical,
+  encodeCanonical,
   isStartBrowserLabel,
 } from '@o2/core'
 import type {
@@ -1598,4 +1601,83 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
     default:
       return null
   }
+}
+
+// ---------------------------------------------------------------------------
+// `NodeRecords` as standalone bytes — the form a distributed index stores
+// ---------------------------------------------------------------------------
+
+/**
+ * One node's signed records, encoded to canonical bytes.
+ *
+ * ## Why this exists beside `encodeResponse`
+ *
+ * A DHT stores a value, not a frame. `encodeResponse({ kind: 'records', … })` produces a
+ * *response* — it carries a `kind` and a `found` discriminant that mean nothing to a
+ * key/value store, and a stored copy of them would be a frame pretending to be a record.
+ * This pair encodes the record itself and nothing else.
+ *
+ * ## It reuses the frame's own builders, deliberately
+ *
+ * `certificateToValue` / `capabilitiesToValue` and `parseCertificate` /
+ * `parseCapabilities` are the same functions the `records` response goes through. That is
+ * the whole point: **a record has one encoding in this repository, not one per transport.**
+ * A second builder would be a second thing to keep in step with the signature payloads,
+ * and the failure would be silent — a record that verifies over one wire and not the other.
+ *
+ * ## Encoded once, then carried opaquely
+ *
+ * These bytes are the record's identity. Whatever envelope carries them — a libp2p DHT
+ * `Record`, an RPC frame, a block — carries *these* bytes without decoding and re-encoding
+ * them. Re-encoding is the cost worth avoiding; wrapping is a length prefix and a copy.
+ *
+ * ## What this does NOT do
+ *
+ * It does not verify. A caller that decodes a record off an untrusted index must still
+ * check both signatures — `verifyCertificate` and `verifyCapabilityRecord` — exactly as it
+ * would for a record that arrived over RPC. Decoding proves the bytes were well-formed and
+ * says nothing whatever about who wrote them.
+ *
+ * @throws NotEncodableError if the record will not canonically encode, which is a defect in
+ * this package rather than a statement about any peer — see the type's own docblock.
+ */
+export function encodeNodeRecords(records: NodeRecords): Uint8Array<ArrayBuffer> {
+  const result = encodeCanonical({
+    certificate: certificateToValue(records.certificate),
+    capabilities: capabilitiesToValue(records.capabilities),
+  })
+  if (!result.ok) throw new NotEncodableError('node-records', result.error)
+  return result.bytes
+}
+
+/**
+ * Read back what {@link encodeNodeRecords} wrote, or `null` if it is not that.
+ *
+ * `null` covers every way the bytes can fail to be a record — not canonical CBOR, not a
+ * map, a missing half, a field of the wrong type. The caller cannot act differently on any
+ * of them, and a store returning bytes we cannot parse is one answer: *this is not a
+ * record*.
+ *
+ * **Half a record is not a record**, which is `parseResponse`'s rule at its own `records`
+ * branch and is repeated here rather than shared, because sharing it would mean routing a
+ * stored value through a frame parser. A certificate with no capabilities leaves discovery
+ * holding an identity with no claims; the reverse leaves claims with no identity.
+ */
+export function decodeNodeRecords(bytes: Uint8Array<ArrayBuffer>): NodeRecords | null {
+  let value: CanonicalValue
+  try {
+    value = decodeCanonical(bytes)
+  } catch {
+    return null // not canonical CBOR at all
+  }
+  // `asRecord` is this file's own narrowing, used by every parser above. Reusing it is
+  // what keeps "is this a map" answered one way rather than once per call site — it
+  // already refuses arrays, byte strings and CIDs, each of which is an `object` that is
+  // not a record.
+  const record = asRecord(value)
+  if (record === null) return null
+  const certificate = parseCertificate(record['certificate'])
+  const capabilities = parseCapabilities(record['capabilities'])
+  if (certificate === null || capabilities === null) return null
+  return { certificate, capabilities }
 }
