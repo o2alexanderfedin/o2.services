@@ -720,14 +720,14 @@ describe('VER-08/09/10 — a combining node signs what it merged and what it pro
   const stranger = new Uint8Array(32).fill(72)
 
   /** A node certified by `issuer`, holding its own seed. */
-  function enrolled(seed: number, issuer: Uint8Array = provider): ResultSigner {
+  async function enrolled(seed: number, issuer: Uint8Array = provider): Promise<ResultSigner> {
     const nodeSeed = new Uint8Array(32).fill(seed)
     const issued = new EnrollmentAuthority({
       providerPrivateKey: issuer,
       maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
       issuance: 'remembers-only-within-this-process',
     }).enrol(
-      requestEnrollment(nodeSeed, alice, {
+      await requestEnrollment(nodeSeed, alice, {
         operatorId: `op-${seed}`,
         discoverability: 'via-relay',
         relayIds: ['relay-1'],
@@ -778,7 +778,7 @@ describe('VER-08/09/10 — a combining node signs what it merged and what it pro
   }
 
   it('produces a statement that checks out against those inputs, in that order, and that result', async () => {
-    const signer = enrolled(21)
+    const signer = await enrolled(21)
     const node = await signingNode({ attest: signer })
     try {
       // **The frame's order is deliberately the descending one.** `fabricCombiner` is
@@ -832,7 +832,7 @@ describe('VER-08/09/10 — a combining node signs what it merged and what it pro
     // would let one peer present the same merge under any number of names. The input set
     // is the work's identity. This case is the consequence — one name, two merges, two
     // statements that do not substitute for each other.
-    const node = await signingNode({ attest: enrolled(22) })
+    const node = await signingNode({ attest: await enrolled(22) })
     try {
       const ab = [node.cids.a, node.cids.b]
       const ac = [node.cids.a, node.cids.c]
@@ -860,7 +860,7 @@ describe('VER-08/09/10 — a combining node signs what it merged and what it pro
     // problem is that this verifier never pinned that provider. A refusal naming the
     // wrong thing sends a reader to look at cryptography when the answer is their own
     // trust configuration.
-    const node = await signingNode({ attest: enrolled(23, stranger) })
+    const node = await signingNode({ attest: await enrolled(23, stranger) })
     try {
       const inputs = [node.cids.a, node.cids.b]
       const reply = await node.askCombine(inputs)
@@ -882,7 +882,7 @@ describe('VER-08/09/10 — a combining node signs what it merged and what it pro
     // combine it never ran. The sentinel here is the truthful reading of a reply that
     // produced no result, and it is what the parse supplies on the `found: false` arm.
     const capacity = new LocalCapacity({ nodeId: 'w0', maxConcurrent: 1 })
-    const busy = await signingNode({ attest: enrolled(24), capacity })
+    const busy = await signingNode({ attest: await enrolled(24), capacity })
     try {
       const held = capacity.offer({ shardId: 'held-by-this-test', nodeId: 'w0' })
       expect(held.accepted).toBe(true)
@@ -905,7 +905,7 @@ describe('VER-08/09/10 — a combining node signs what it merged and what it pro
       rpc: serverRpc,
       executor: inertExecutor('w1'),
       blockstore: store,
-      attest: enrolled(25),
+      attest: await enrolled(25),
       authorize: () => 'this node combines for nobody today',
     })
     const client = new RpcEndpoint(network.connect('client'), { timeoutMs: 5_000 })
@@ -930,7 +930,7 @@ describe('VER-08/09/10 — a combining node signs what it merged and what it pro
     // The two benchmark rigs pass this permanently, and every node does until Plan 19-15
     // gives the two factories real signers. It must be distinguishable from a signed
     // reply by reading one field, not by the field's absence.
-    const node = await signingNode({ attest: enrolled(26) })
+    const node = await signingNode({ attest: await enrolled(26) })
     const plain = await combineFabric({ workers: 1 })
     try {
       const a = partial('alpha')

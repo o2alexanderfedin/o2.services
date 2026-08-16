@@ -72,14 +72,14 @@ function authorityOver(
  * both signatures before it consults either budget — a fixture that faked them would
  * measure the refusal path and never reach the one this file is about.
  */
-function enrolOnce(
+async function enrolOnce(
   authority: EnrollmentAuthority,
   nodeSeedByte: number,
   userSeedByte: number,
   at: number,
-): EnrollmentResult {
+): Promise<EnrollmentResult> {
   return authority.enrol(
-    requestEnrollment(
+    await requestEnrollment(
       new Uint8Array(SEED_BYTES).fill(nodeSeedByte),
       new Uint8Array(SEED_BYTES).fill(userSeedByte),
       { operatorId: 'issuance-ops', discoverability: 'seed', relayIds: [] },
@@ -105,7 +105,7 @@ describe('AUTH-04 — the budget survives the object that spent it', () => {
     const spender = authorityOver(first, 3)
 
     for (let i = 1; i <= 3; i++) {
-      expect(enrolOnce(spender, i, i + 40, NOW).ok, `request ${String(i)}`).toBe(true)
+      expect((await enrolOnce(spender, i, i + 40, NOW)).ok, `request ${String(i)}`).toBe(true)
     }
     expect(spender.issuedToAnybodyWithin(NOW)).toBe(3)
 
@@ -114,7 +114,7 @@ describe('AUTH-04 — the budget survives the object that spent it', () => {
     const restarted = authorityOver(second, 3)
     expect(restarted.issuedToAnybodyWithin(NOW)).toBe(3)
 
-    const after = enrolOnce(restarted, 9, 49, NOW)
+    const after = await enrolOnce(restarted, 9, 49, NOW)
     expect(after.ok).toBe(false)
     if (after.ok) return
     expect(after.refusal.kind).toBe('issuance-budget-exhausted')
@@ -133,7 +133,7 @@ describe('AUTH-04 — the budget survives the object that spent it', () => {
    */
   it('does not read another directory', async () => {
     const mine = await FsIssuance.open(dir, { retainMs: DEFAULT_ISSUANCE_WINDOW_MS, now: NOW })
-    expect(enrolOnce(authorityOver(mine, 1), 1, 41, NOW).ok).toBe(true)
+    expect((await enrolOnce(authorityOver(mine, 1), 1, 41, NOW)).ok).toBe(true)
 
     const elsewhere = await mkdtemp(join(tmpdir(), 'o2-issuance-other-'))
     try {
@@ -142,7 +142,7 @@ describe('AUTH-04 — the budget survives the object that spent it', () => {
         now: NOW,
       })
       expect(theirs.issuedToAnybody()).toEqual([])
-      expect(enrolOnce(authorityOver(theirs, 1), 1, 41, NOW).ok).toBe(true)
+      expect((await enrolOnce(authorityOver(theirs, 1), 1, 41, NOW)).ok).toBe(true)
     } finally {
       await rm(elsewhere, { recursive: true, force: true })
     }
@@ -184,7 +184,7 @@ describe('AUTH-04 — the write precedes the reply', () => {
     const ledger = await FsIssuance.open(dir, { retainMs: DEFAULT_ISSUANCE_WINDOW_MS, now: NOW })
     const authority = authorityOver(ledger, 5)
 
-    const result = enrolOnce(authority, 1, 41, NOW)
+    const result = await enrolOnce(authority, 1, 41, NOW)
     const onDisk = readFileSync(join(dir, ISSUANCE_FILE), 'utf8')
 
     expect(result).not.toBeInstanceOf(Promise)
@@ -197,8 +197,8 @@ describe('AUTH-04 — the write precedes the reply', () => {
     const ledger = await FsIssuance.open(dir, { retainMs: DEFAULT_ISSUANCE_WINDOW_MS, now: NOW })
     const authority = authorityOver(ledger, 1)
 
-    expect(enrolOnce(authority, 1, 41, NOW).ok).toBe(true)
-    expect(enrolOnce(authority, 2, 42, NOW).ok).toBe(false)
+    expect((await enrolOnce(authority, 1, 41, NOW)).ok).toBe(true)
+    expect((await enrolOnce(authority, 2, 42, NOW)).ok).toBe(false)
 
     const reopened = await FsIssuance.open(dir, { retainMs: DEFAULT_ISSUANCE_WINDOW_MS, now: NOW })
     expect(reopened.issuedToAnybody()).toHaveLength(1)
@@ -259,9 +259,9 @@ describe('AUTH-04 — compaction does not widen either budget', () => {
       })
 
       expect(a.issuedToAnybodyWithin(NOW)).toBe(b.issuedToAnybodyWithin(NOW))
-      expect(enrolOnce(a, 1, 41, NOW).ok).toBe(enrolOnce(b, 1, 41, NOW).ok)
-      const lastA = enrolOnce(a, 2, 42, NOW)
-      const lastB = enrolOnce(b, 2, 42, NOW)
+      expect((await enrolOnce(a, 1, 41, NOW)).ok).toBe((await enrolOnce(b, 1, 41, NOW)).ok)
+      const lastA = await enrolOnce(a, 2, 42, NOW)
+      const lastB = await enrolOnce(b, 2, 42, NOW)
       expect(lastA.ok).toBe(false)
       expect(lastB.ok).toBe(false)
     } finally {

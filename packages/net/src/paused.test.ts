@@ -505,7 +505,7 @@ describe('a paused node still certifies — two settings, not one', () => {
       const outcome = await enrolOverRpc(
         rpc,
         node.nodeId,
-        requestEnrollment(joiner.priv, owner.priv, {
+        await requestEnrollment(joiner.priv, owner.priv, {
           operatorId: 'op-paused',
           discoverability: 'via-relay',
           relayIds: ['12D3KooWRelayOne'],

@@ -54,11 +54,11 @@ const OTHER_PROVIDER_SEED = new Uint8Array(SEED_BYTES).fill(0xdb)
 const USER_SEED = new Uint8Array(SEED_BYTES).fill(0xc1)
 
 /** A certificate for `subjectSeed`, issued by a chosen provider at a chosen instant. */
-function certificateFor(
+async function certificateFor(
   providerSeed: Uint8Array,
   subjectSeed: Uint8Array,
   at: number,
-): { readonly issuerKey: PublicKeyHex; readonly certificate: NodeCertificate } {
+): Promise<{ readonly issuerKey: PublicKeyHex; readonly certificate: NodeCertificate }> {
   const authority = new EnrollmentAuthority({
     providerPrivateKey: providerSeed,
     certificateLifetimeMs: 30 * 24 * 3_600_000,
@@ -66,7 +66,7 @@ function certificateFor(
     issuance: 'remembers-only-within-this-process',
   })
   const result = authority.enrol(
-    requestEnrollment(subjectSeed, USER_SEED, {
+    await requestEnrollment(subjectSeed, USER_SEED, {
       operatorId: 'harbour-ops',
       discoverability: 'seed',
       relayIds: [],
@@ -153,7 +153,7 @@ async function servedBy(options: {
 
 describe('AUTH-02 — a tab reaches a named verdict about a peer', () => {
   it('accepts a peer whose certificate chains to an issuer this tab pins', async () => {
-    const { issuerKey, certificate } = certificateFor(PROVIDER_SEED, SUBJECT_SEED, Date.now())
+    const { issuerKey, certificate } = await certificateFor(PROVIDER_SEED, SUBJECT_SEED, Date.now())
     const served = await servedBy({
       answer: () => recordsOf(certificate, SUBJECT_SEED),
       trustedIssuers: new Set([issuerKey]),
@@ -177,8 +177,8 @@ describe('AUTH-02 — a tab reaches a named verdict about a peer', () => {
     // Signed by a real provider, correctly, for the right subject — and simply not the
     // provider this tab pinned. That is the case a tab could not previously reach at all,
     // and it is fail-closed: the peer is connected and is still not in the block source.
-    const other = certificateFor(OTHER_PROVIDER_SEED, SUBJECT_SEED, Date.now())
-    const pinned = certificateFor(PROVIDER_SEED, SUBJECT_SEED, Date.now())
+    const other = await certificateFor(OTHER_PROVIDER_SEED, SUBJECT_SEED, Date.now())
+    const pinned = await certificateFor(PROVIDER_SEED, SUBJECT_SEED, Date.now())
     expect(other.issuerKey).not.toBe(pinned.issuerKey)
 
     const served = await servedBy({
@@ -205,7 +205,7 @@ describe('AUTH-02 — a tab reaches a named verdict about a peer', () => {
     // verifies perfectly and names a key this peer never proved possession of. A browser
     // reaching this verdict is the impersonation case, and it is the reason the gate is
     // not simply "did anything valid arrive".
-    const borrowed = certificateFor(PROVIDER_SEED, new Uint8Array(SEED_BYTES).fill(0xd8), Date.now())
+    const borrowed = await certificateFor(PROVIDER_SEED, new Uint8Array(SEED_BYTES).fill(0xd8), Date.now())
     const served = await servedBy({
       answer: () => recordsOf(borrowed.certificate, new Uint8Array(SEED_BYTES).fill(0xd8)),
       trustedIssuers: new Set([borrowed.issuerKey]),

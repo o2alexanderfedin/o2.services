@@ -50,7 +50,7 @@ interface Enrolled {
   readonly records: NodeRecords
 }
 
-function node(
+async function node(
   auth: EnrollmentAuthority,
   seed: number,
   options: {
@@ -59,11 +59,11 @@ function node(
     features?: readonly string[]
     sovereignFor?: readonly string[]
   } = {},
-): Enrolled {
+): Promise<Enrolled> {
   const key = keypair(seed)
   const userPrivateKey = options.userPrivateKey ?? alice.priv
   const enrolled = auth.enrol(
-    requestEnrollment(key.priv, userPrivateKey, {
+    await requestEnrollment(key.priv, userPrivateKey, {
       operatorId: options.operatorId ?? `op-${seed}`,
       discoverability: 'seed',
       relayIds: [],
@@ -107,8 +107,8 @@ async function indexOf(...nodes: readonly Enrolled[]): Promise<{ index: MemoryRe
 describe('SCHED-01 — discovery is the intersection of three facts', () => {
   it('finds executors from a data CID alone, with no peer list', async () => {
     const auth = authority()
-    const a = node(auth, 1)
-    const b = node(auth, 2)
+    const a = await node(auth, 1)
+    const b = await node(auth, 2)
     const { index, cid } = await indexOf(a, b)
 
     const found = await discoverExecutors({ inputCid: cid }, index, { trustedIssuers: trusted, now: NOW })
@@ -128,8 +128,8 @@ describe('SCHED-01 — discovery is the intersection of three facts', () => {
       issuance: 'remembers-only-within-this-process',
     })
     const auth = authority()
-    const honest = node(auth, 1)
-    const impostor = node(rogueAuthority, 2)
+    const honest = await node(auth, 1)
+    const impostor = await node(rogueAuthority, 2)
     const { index, cid } = await indexOf(honest, impostor)
 
     const found = await discoverExecutors({ inputCid: cid }, index, { trustedIssuers: trusted, now: NOW })
@@ -144,7 +144,7 @@ describe('SCHED-01 — discovery is the intersection of three facts', () => {
     // Planted violation: take a real node's certificate and pair it with a capability
     // record minted by an attacker. Each half verifies; the pairing must not.
     const auth = authority()
-    const honest = node(auth, 1)
+    const honest = await node(auth, 1)
     const attacker = keypair(94)
     const forged = publishCapabilities(attacker.priv, {
       features: ['simd128', 'bulk-memory', 'threads'],
@@ -167,7 +167,7 @@ describe('SCHED-01 — discovery is the intersection of three facts', () => {
 
   it('excludes a node whose capability record has a broken signature', async () => {
     const auth = authority()
-    const a = node(auth, 1)
+    const a = await node(auth, 1)
     const tampered: NodeRecords = {
       certificate: a.records.certificate,
       // Planted violation: claim a feature the node never signed for.
@@ -186,8 +186,8 @@ describe('SCHED-01 — discovery is the intersection of three facts', () => {
 
   it('excludes a node whose engine lacks a required feature, and names it', async () => {
     const auth = authority()
-    const modern = node(auth, 1, { features: ['simd128', 'bulk-memory'] })
-    const old = node(auth, 2, { features: ['bulk-memory'] })
+    const modern = await node(auth, 1, { features: ['simd128', 'bulk-memory'] })
+    const old = await node(auth, 2, { features: ['bulk-memory'] })
     const { index, cid } = await indexOf(modern, old)
 
     const found = await discoverExecutors(
@@ -206,7 +206,7 @@ describe('SCHED-01 — discovery is the intersection of three facts', () => {
 
   it('reports a provider with no published records rather than dropping it silently', async () => {
     const auth = authority()
-    const a = node(auth, 1)
+    const a = await node(auth, 1)
     const index = new MemoryRecordIndex()
     const cid = await inputCid()
     index.provide(cid, a.nodeKey)
@@ -227,7 +227,7 @@ describe('SCHED-01 — discovery is the intersection of three facts', () => {
       maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
       issuance: 'remembers-only-within-this-process',
     })
-    const a = node(auth, 1)
+    const a = await node(auth, 1)
     const { index, cid } = await indexOf(a)
 
     const later = NOW + 5000
@@ -244,8 +244,8 @@ describe('DATA-09 — providing sovereign data is not clearance to execute it', 
     // Both provide the block. Only one is cleared to execute for Alice — the other
     // holds the encrypted replica, which makes it a fine block source and an
     // impossible executor.
-    const cleared = node(auth, 1, { sovereignFor: [alice.pub] })
-    const replicaOnly = node(auth, 2, { sovereignFor: [] })
+    const cleared = await node(auth, 1, { sovereignFor: [alice.pub] })
+    const replicaOnly = await node(auth, 2, { sovereignFor: [] })
     const { index, cid } = await indexOf(cleared, replicaOnly)
 
     const found = await discoverExecutors(
@@ -262,7 +262,7 @@ describe('DATA-09 — providing sovereign data is not clearance to execute it', 
 
   it('does not let clearance for one owner leak into another', async () => {
     const auth = authority()
-    const forAlice = node(auth, 1, { sovereignFor: [alice.pub] })
+    const forAlice = await node(auth, 1, { sovereignFor: [alice.pub] })
     const { index, cid } = await indexOf(forAlice)
 
     const found = await discoverExecutors(
@@ -283,7 +283,7 @@ describe('NET-06 — the fallback chain keys on availability, never on node kind
 
   it('serves from a peer’s own index when that peer is reachable', async () => {
     const auth = authority()
-    const a = node(auth, 1)
+    const a = await node(auth, 1)
     const { index: local, cid } = await indexOf(a)
     const backbone = new MemoryRecordIndex()
 
@@ -301,7 +301,7 @@ describe('NET-06 — the fallback chain keys on availability, never on node kind
     // A browser tab that has not obtained a relay reservation: its records are real,
     // but no peer can reach it to ask, so the lookup delegates.
     const auth = authority()
-    const a = node(auth, 1)
+    const a = await node(auth, 1)
     const { index: backbone, cid } = await indexOf(a)
     const local = new MemoryRecordIndex()
 
@@ -327,7 +327,7 @@ describe('NET-06 — the fallback chain keys on availability, never on node kind
     // The symmetry assertion. If this behaved differently from the browser case
     // above, `available()` would be encoding a node tier rather than a state.
     const auth = authority()
-    const a = node(auth, 1)
+    const a = await node(auth, 1)
     const { index: peer, cid } = await indexOf(a)
     const serverLocal = new MemoryRecordIndex()
     serverLocal.provide(cid, a.nodeKey)
@@ -351,7 +351,7 @@ describe('NET-06 — the fallback chain keys on availability, never on node kind
     // Partial knowledge is the normal condition for a node that just joined. An
     // empty answer from a reachable peer is not authoritative.
     const auth = authority()
-    const a = node(auth, 1)
+    const a = await node(auth, 1)
     const { index: backbone, cid } = await indexOf(a)
 
     const chain = new FallbackRecordIndex([
@@ -431,7 +431,7 @@ describe('capability records are worthless alone and that is the design', () => 
 
   it('does not let a certificate for one node vouch for another', async () => {
     const auth = authority()
-    const real = node(auth, 1)
+    const real = await node(auth, 1)
     const attacker = keypair(98)
     const attackerRecord = publishCapabilities(attacker.priv, {
       features: ['simd128'],
@@ -486,7 +486,7 @@ describe('SCHED-01 — a node answers for what it holds, from its own store', ()
 
   it('answers for a block it holds and says nothing about one it does not', async () => {
     const auth = authority()
-    const a = node(auth, 1)
+    const a = await node(auth, 1)
     const { store, held, absent } = await stocked()
 
     const index = new SelfRecordIndex({
@@ -505,8 +505,8 @@ describe('SCHED-01 — a node answers for what it holds, from its own store', ()
 
   it('serves its own records and nobody else’s — it is not a directory', async () => {
     const auth = authority()
-    const a = node(auth, 1)
-    const b = node(auth, 2)
+    const a = await node(auth, 1)
+    const b = await node(auth, 2)
     const { store } = await stocked()
 
     const index = new SelfRecordIndex({
@@ -564,7 +564,7 @@ describe('SCHED-01 — a node answers for what it holds, from its own store', ()
 
   it('does not advertise a block it holds but would refuse to serve', async () => {
     const auth = authority()
-    const a = node(auth, 1)
+    const a = await node(auth, 1)
     const { store, held, alsoHeld } = await stocked()
 
     const index = new SelfRecordIndex({
@@ -584,7 +584,7 @@ describe('SCHED-01 — a node answers for what it holds, from its own store', ()
 
   it('exercises the stated absence rather than merely spelling it', async () => {
     const auth = authority()
-    const a = node(auth, 1)
+    const a = await node(auth, 1)
     const { store, held, alsoHeld } = await stocked()
 
     const index = new SelfRecordIndex({
@@ -602,7 +602,7 @@ describe('SCHED-01 — a node answers for what it holds, from its own store', ()
     // A registration's lifetime is a hold, not a process. A snapshot taken at
     // construction would advertise a block that became sovereign a second later.
     const auth = authority()
-    const a = node(auth, 1)
+    const a = await node(auth, 1)
     const { store, held } = await stocked()
 
     const registered = new Set<string>()
@@ -626,7 +626,7 @@ describe('SCHED-01 — a node answers for what it holds, from its own store', ()
     // rule that `FallbackRecordIndex` keys on a state and not on what kind of node
     // something is — so the chain is asserted with a `SelfRecordIndex` in it.
     const auth = authority()
-    const a = node(auth, 1)
+    const a = await node(auth, 1)
     const { store, held } = await stocked()
 
     const own = new SelfRecordIndex({

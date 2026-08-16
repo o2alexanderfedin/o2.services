@@ -1,4 +1,6 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
+import { EnrollmentAuthority, requestEnrollment, subtleUserSigner, verifyCertificate } from '@o2/core'
+import { SEED_BYTES } from '@o2/libp2p'
 import { describe, expect, it } from 'vitest'
 
 /**
@@ -9,8 +11,14 @@ import { describe, expect, it } from 'vitest'
  * that — the browser holds the private half and will only ever *use* it — and the owner
  * ruled on 2026-08-13 that this is the shape a visitor identity should take.
  *
- * **This file does not implement that. It measures whether it is possible**, because
- * three separate things have to hold and none of them was measured here before:
+ * **This file measured whether it is possible, and since 2026-08-16 it also measures the
+ * thing that was built on the answer.** The first block below is the original measurement
+ * and is unchanged; the second runs the *production* enrolment path over a key generated
+ * exactly this way, in the same three engines. The header's old sentence — *"this file does
+ * not implement that"* — is quoted rather than deleted because it was true when written,
+ * and what changed is `requestEnrollment`'s second parameter, not anything measured here.
+ *
+ * The three things that had to hold, none of which was measured here before:
  *
  * 1. `crypto.subtle` exists at all. It does **not** on a LAN origin —
  *    `insecure-context.browser.test.ts` records the outage that taught this repository
@@ -137,5 +145,80 @@ describe('a visitor owner key the page cannot read', () => {
     // Deriving a public key *from the public key bytes* yields something else entirely —
     // i.e. the bytes are not a seed, and no amount of local work makes them one.
     expect(Array.from(ed25519.getPublicKey(publicKey))).not.toEqual(Array.from(publicKey))
+  })
+})
+
+/**
+ * The production path over such a key — what the measurements above were for.
+ *
+ * The block above establishes engine capability. This one establishes that **this
+ * repository's own enrolment API accepts it**, which is a different claim and is the one
+ * that was blocking: `requestEnrollment` took `userPrivateKey: Uint8Array` until
+ * 2026-08-16, and a non-extractable `CryptoKey` can never produce those bytes. It now
+ * takes a `UserSigner`, and `subtleUserSigner` is the arm that adapts a `CryptoKeyPair`
+ * to it.
+ *
+ * **Why the assertions here are about the certificate rather than about the signature.**
+ * A signature that verifies is what the block above already measured. What could still
+ * have been wrong is everything around it: whether the exported public half is the string
+ * shape a `userKey` has to be, whether `possessionChallenge` bytes survive the round trip
+ * into `subtle.sign`, and whether the provider — which verifies with `@noble/curves` and
+ * has no idea WebCrypto exists — issues a certificate naming that key. Three engines,
+ * because that is where the two implementations actually differ.
+ */
+describe('a visitor owner key the page cannot read, carried through enrolment', () => {
+  /** The provider. A plain seed, because a provider is a server and holds bytes. */
+  const PROVIDER_SEED = new Uint8Array(SEED_BYTES).fill(0xe1)
+  const NODE_SEED = new Uint8Array(SEED_BYTES).fill(0xe2)
+  const NOW = 1_800_000_000_000
+
+  const authority = (): EnrollmentAuthority =>
+    new EnrollmentAuthority({
+      providerPrivateKey: PROVIDER_SEED,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+    })
+
+  it('gets a certificate naming a key this page cannot export', async () => {
+    const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+    if (!('privateKey' in pair)) throw new Error('expected a CryptoKeyPair')
+    // Restated inside this case rather than inherited from the block above, so that a
+    // future edit which made the key extractable would fail *here*, where the claim is.
+    await expect(crypto.subtle.exportKey('pkcs8', pair.privateKey)).rejects.toThrow()
+
+    const signer = await subtleUserSigner(pair)
+    const request = await requestEnrollment(NODE_SEED, signer, {
+      operatorId: 'visitor-op',
+      discoverability: 'via-relay',
+      relayIds: ['relay-1'],
+    })
+
+    const auth = authority()
+    const result = auth.enrol(request, NOW)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(`the provider refused a WebCrypto owner: ${result.reason}`)
+    expect(result.certificate.userKey).toBe(signer.userKey)
+
+    // And it verifies offline against the pinned provider, which is what a peer will do.
+    const verified = verifyCertificate(result.certificate, new Set([auth.issuerKey]), NOW)
+    expect(verified.ok).toBe(true)
+  })
+
+  it('refuses a signer whose two halves came from different keys', async () => {
+    // The `CryptoKeyPair` mix-up, which is the defect a browser build can actually make:
+    // one generation's private half beside another's public half. Nothing is malformed and
+    // no type catches it — the refusal is behavioural or it does not exist.
+    const first = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+    const second = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+    if (!('privateKey' in first) || !('publicKey' in second)) throw new Error('expected CryptoKeyPairs')
+
+    const crossed = await subtleUserSigner({ privateKey: first.privateKey, publicKey: second.publicKey })
+    await expect(
+      requestEnrollment(NODE_SEED, crossed, {
+        operatorId: 'visitor-op',
+        discoverability: 'seed',
+        relayIds: [],
+      }),
+    ).rejects.toThrow(/did not produce a signature that verifies/)
   })
 })

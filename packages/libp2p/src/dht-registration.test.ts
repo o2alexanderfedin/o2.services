@@ -32,7 +32,7 @@ interface Subject {
   readonly records: NodeRecords
 }
 
-function subject(seedByte: number): Subject {
+async function subject(seedByte: number): Promise<Subject> {
   const priv = new Uint8Array(32).fill(seedByte)
   const nodeKey = toHex(ed25519.getPublicKey(priv))
   const authority = new EnrollmentAuthority({
@@ -42,7 +42,7 @@ function subject(seedByte: number): Subject {
     issuance: 'remembers-only-within-this-process',
   })
   const enrolled = authority.enrol(
-    requestEnrollment(priv, new Uint8Array(32).fill(61), {
+    await requestEnrollment(priv, new Uint8Array(32).fill(61), {
       operatorId: `op-${seedByte}`,
       discoverability: 'seed',
       relayIds: [],
@@ -77,14 +77,14 @@ describe('the namespace is derived, not written twice', () => {
 describe('the validator makes a key ownable', () => {
   const validate = o2RecordValidator(clock)
 
-  it('accepts a node’s own record under its own key', () => {
-    const one = subject(31)
+  it('accepts a node’s own record under its own key', async () => {
+    const one = await subject(31)
     expect(() => validate(dhtKeyForNodeKey(one.nodeKey), encodeNodeRecords(one.records))).not.toThrow()
   })
 
-  it('REFUSES a genuinely signed record parked under somebody else’s key', () => {
-    const mine = subject(32)
-    const theirs = subject(33)
+  it('REFUSES a genuinely signed record parked under somebody else’s key', async () => {
+    const mine = await subject(32)
+    const theirs = await subject(33)
     // `theirs.records` is real and its signatures are valid. The only thing wrong is the
     // key. Plant that reddens this: drop the `certificate.nodeKey !== subject` clause.
     expect(() => validate(dhtKeyForNodeKey(mine.nodeKey), encodeNodeRecords(theirs.records))).toThrow(
@@ -92,9 +92,9 @@ describe('the validator makes a key ownable', () => {
     )
   })
 
-  it('refuses a record whose two halves name different nodes', () => {
-    const mine = subject(34)
-    const theirs = subject(35)
+  it('refuses a record whose two halves name different nodes', async () => {
+    const mine = await subject(34)
+    const theirs = await subject(35)
     // Certificate says `mine`, capabilities say `theirs`. Plant that reddens this: check
     // only the certificate. That plant is the two-spellings confusion arriving by the
     // back door — the reader would take `theirs`' claims as `mine`'s.
@@ -107,22 +107,22 @@ describe('the validator makes a key ownable', () => {
     )
   })
 
-  it('refuses bytes that are not a record at all', () => {
-    const one = subject(36)
+  it('refuses bytes that are not a record at all', async () => {
+    const one = await subject(36)
     expect(() => validate(dhtKeyForNodeKey(one.nodeKey), Uint8Array.from([1, 2, 3]))).toThrow(
       /not-a-record/,
     )
   })
 
-  it('refuses a key with no namespace', () => {
-    const one = subject(37)
+  it('refuses a key with no namespace', async () => {
+    const one = await subject(37)
     expect(() => validate(new TextEncoder().encode('no-slashes'), encodeNodeRecords(one.records))).toThrow(
       /key-has-no-namespace/,
     )
   })
 
-  it('refuses a record whose capability signature does not check', () => {
-    const one = subject(38)
+  it('refuses a record whose capability signature does not check', async () => {
+    const one = await subject(38)
     const tampered: NodeRecords = {
       certificate: one.records.certificate,
       capabilities: { ...one.records.capabilities, features: ['forged-feature'] },
@@ -135,8 +135,8 @@ describe('the validator makes a key ownable', () => {
     )
   })
 
-  it('refuses a record that has expired by its own dates', () => {
-    const one = subject(39)
+  it('refuses a record that has expired by its own dates', async () => {
+    const one = await subject(39)
     const late = o2RecordValidator(() => NOW + 2 * YEAR)
     // Plant that reddens this: pass a fixed `Date.now()` instead of the injected clock —
     // the case would then depend on the wall clock and never fail.
@@ -170,7 +170,7 @@ describe('publishing reports its outcome rather than throwing it', () => {
   }
 
   it('puts under the subject’s own key', async () => {
-    const one = subject(40)
+    const one = await subject(40)
     const keys: string[] = []
     const outcome = await publishRecords(
       dhtWith((key) => {
@@ -186,7 +186,7 @@ describe('publishing reports its outcome rather than throwing it', () => {
   })
 
   it('returns a refusal instead of throwing when the DHT rejects', async () => {
-    const one = subject(41)
+    const one = await subject(41)
     const outcome = await publishRecords(
       dhtWith(() => {
         throw new Error('no peers in routing table')
@@ -200,7 +200,7 @@ describe('publishing reports its outcome rather than throwing it', () => {
   })
 
   it('drains the query, because an unread put never happened', async () => {
-    const one = subject(42)
+    const one = await subject(42)
     let drained = false
     const outcome = await publishRecords(
       dhtWith(() => {

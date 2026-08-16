@@ -1397,7 +1397,7 @@ describe('AUTH-02 — the relay consults RelayAdmission at the reservation, and 
       issuance: 'remembers-only-within-this-process',
     })
     const issued = authority.enrol(
-      requestEnrollment(RIGHTFUL_SEED, USER_SEED, {
+      await requestEnrollment(RIGHTFUL_SEED, USER_SEED, {
         operatorId: 'harbour-ops',
         discoverability: 'seed',
         relayIds: [],

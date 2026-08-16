@@ -495,7 +495,7 @@ describe('VER-08/09/10 — a result signed in one process verifies in another', 
     // the real answer is this reader's own trust configuration. That distinction is the
     // one an operator acts on.
     const work0 = works[0] as ResultWork
-    const stranger = strangerSigner()
+    const stranger = await strangerSigner()
     const forged = signResult(stranger, work0)
     const refused = verifyResultAttestation(forged, work0, pinned, Date.now())
     expect(refused.ok).toBe(false)
@@ -631,13 +631,13 @@ describe('a node nobody enrolled says so, rather than being unable to answer', (
 })
 
 /** A signer certified by a provider this file's readers never pin. */
-function strangerSigner(): ResultSigner {
+async function strangerSigner(): Promise<ResultSigner> {
   const issued = new EnrollmentAuthority({
     providerPrivateKey: STRANGER_PROVIDER_SEED,
     maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
     issuance: 'remembers-only-within-this-process',
   }).enrol(
-    requestEnrollment(STRANGER_NODE_SEED, new Uint8Array(SEED_BYTES).fill(USER_SEEDS[0]), {
+    await requestEnrollment(STRANGER_NODE_SEED, new Uint8Array(SEED_BYTES).fill(USER_SEEDS[0]), {
       operatorId: 'stranger-ops',
       discoverability: 'via-relay',
       relayIds: [],

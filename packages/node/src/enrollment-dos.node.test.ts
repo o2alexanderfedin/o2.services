@@ -74,18 +74,30 @@ const NOW = 1_800_000_000_000
  * `requestEnrollment` performs the two public-key derivations and the two signatures, so
  * this call **is** the attacker's per-identity cost and nothing else is charged to them.
  */
-function freshRequest(): PendingEnrollment {
-  return requestEnrollment(ed25519.utils.randomSecretKey(), ed25519.utils.randomSecretKey(), {
+async function freshRequest(): Promise<PendingEnrollment> {
+  return await requestEnrollment(ed25519.utils.randomSecretKey(), ed25519.utils.randomSecretKey(), {
     operatorId: 'op-attacker',
     discoverability: 'seed',
     relayIds: [],
   })
 }
 
-/** Wall time of exactly one call, in ms. */
-function span(work: (index: number) => void, index: number): number {
+/**
+ * Wall time of exactly one call, in ms.
+ *
+ * **Awaits the arm, since 2026-08-16, and the direction of that change is the whole
+ * argument for it.** `requestEnrollment` became async when its user half turned into a
+ * signer port, so the attacker arm below is now a Promise; timing it without awaiting
+ * would have measured the *creation* of one. Awaiting adds one microtask turn to that arm
+ * and nothing to the provider arm — the file's own floor discussion puts a
+ * `performance.now()` tick at 0.5–0.75 µs against an arm that costs hundreds — and every
+ * assertion here is a **lower bound on `fastestA / fastestB`**, so anything added to `b`
+ * lowers the quotient. The change can therefore only make these cases harder to pass,
+ * never easier, which is the only direction an instrument may quietly move in.
+ */
+async function span(work: (index: number) => void | Promise<void>, index: number): Promise<number> {
   const started = performance.now()
-  work(index)
+  await work(index)
   return performance.now() - started
 }
 
@@ -110,16 +122,19 @@ function span(work: (index: number) => void, index: number): number {
  * the floor of a sample, so a quotient built on it **understates** the amplification it
  * claims, and the assertions are all lower bounds.
  */
-function pairedRatio(
+async function pairedRatio(
   samples: number,
-  a: (index: number) => void,
-  b: (index: number) => void,
-): number {
+  a: (index: number) => void | Promise<void>,
+  b: (index: number) => void | Promise<void>,
+): Promise<number> {
   let fastestA = Number.POSITIVE_INFINITY
   let fastestB = Number.POSITIVE_INFINITY
   for (let sample = 0; sample < samples; sample += 1) {
-    fastestA = Math.min(fastestA, span(a, sample))
-    fastestB = Math.min(fastestB, span(b, sample))
+    // Still strictly alternating and still sequential — `await` here suspends this loop,
+    // it does not overlap the arms. Two arms running concurrently would time each other's
+    // contention and the estimator's whole point is that they do not.
+    fastestA = Math.min(fastestA, await span(a, sample))
+    fastestB = Math.min(fastestB, await span(b, sample))
   }
   return fastestA / fastestB
 }
@@ -146,13 +161,13 @@ function authorityWithBudget(
 const SAMPLES = 36
 
 describe('AUTH-04 — what one unauthenticated enrolment attempt costs each side', () => {
-  it('makes a provider pay two signature verifications to refuse a request it was always going to refuse', () => {
+  it('makes a provider pay two signature verifications to refuse a request it was always going to refuse', async () => {
     const authority = authorityWithBudget(1)
-    expect(authority.enrol(freshRequest(), NOW).ok).toBe(true)
+    expect(authority.enrol(await freshRequest(), NOW).ok).toBe(true)
 
     // Minted **outside** the timed region on purpose: what is compared is the provider's
     // cost along two refusal paths, not the requester's cost to reach either.
-    const wellFormed = Array.from({ length: SAMPLES }, freshRequest)
+    const wellFormed = await Promise.all(Array.from({ length: SAMPLES }, freshRequest))
     // The same requests carrying a proof that is valid hex and the wrong length. Ed25519
     // rejects it on a length check before any curve arithmetic, so this arm is the
     // provider's floor: what a refusal costs when there is nothing to verify.
@@ -169,7 +184,7 @@ describe('AUTH-04 — what one unauthenticated enrolment attempt costs each side
     if (shortRefusal.ok) throw new Error('expected a refusal on the short proof')
     expect(shortRefusal.refusal.kind).toBe('bad-proof-of-possession')
 
-    const tax = pairedRatio(
+    const tax = await pairedRatio(
       SAMPLES,
       (i) => void authority.enrol(wellFormed[i]!, NOW),
       (i) => void authority.enrol(shortProof[i]!, NOW),
@@ -195,20 +210,20 @@ describe('AUTH-04 — what one unauthenticated enrolment attempt costs each side
     expect(tax).toBeGreaterThan(10)
   })
 
-  it('costs an attacker less to mint an identity than it costs the provider to refuse it', () => {
+  it('costs an attacker less to mint an identity than it costs the provider to refuse it', async () => {
     const authority = authorityWithBudget(1)
-    expect(authority.enrol(freshRequest(), NOW).ok).toBe(true)
+    expect(authority.enrol(await freshRequest(), NOW).ok).toBe(true)
 
-    const pool = Array.from({ length: SAMPLES }, freshRequest)
+    const pool = await Promise.all(Array.from({ length: SAMPLES }, freshRequest))
     const sink: EnrollmentRequest[] = []
 
     // Arm A: the provider refusing one attempt past its exhausted budget — two Ed25519
     // verifications. Arm B: the attacker minting the next attempt — two key derivations
     // and two signatures, under a user key this provider has never seen.
-    const perFreshIdentity = pairedRatio(
+    const perFreshIdentity = await pairedRatio(
       SAMPLES,
       (i) => void authority.enrol(pool[i]!, NOW),
-      () => void sink.push(freshRequest()),
+      async () => void sink.push(await freshRequest()),
     )
     expect(sink).toHaveLength(SAMPLES)
 
@@ -232,7 +247,7 @@ describe('AUTH-04 — what one unauthenticated enrolment attempt costs each side
     // host that wires `enrol` to a transport of its own gets no freshness.** `serveAgent` is
     // the only such wiring in this repository.
     const replayed = pool[0]!
-    const perReplay = pairedRatio(
+    const perReplay = await pairedRatio(
       SAMPLES,
       (i) => void authority.enrol(pool[i]!, NOW),
       () => void sink.push({ ...replayed }),
@@ -440,7 +455,7 @@ describe('AUTH-04 — the enrol branch beside the branch that is bounded', () =>
       // of eight by a bound the node states in the refusal, and an unauthenticated
       // enrolment meets no bound at all on the same frame-handling ladder.
       const enrolled = await Promise.all(
-        Array.from({ length: 8 }, () => enrolOverRpc(rig.caller, rig.provider, freshRequest())),
+        Array.from({ length: 8 }, async () => enrolOverRpc(rig.caller, rig.provider, await freshRequest())),
       )
       expect(enrolled.filter((outcome) => outcome.ok)).toHaveLength(8)
 
@@ -491,7 +506,7 @@ describe('AUTH-04 — what a burned window costs the node that did not burn it',
       // enrolled, pinned, or known to the provider — the frame is served because the
       // branch has nobody to ask.
       for (let i = 0; i < 3; i += 1) {
-        expect((await enrolOverRpc(attacker, 'provider', freshRequest())).ok).toBe(true)
+        expect((await enrolOverRpc(attacker, 'provider', await freshRequest())).ok).toBe(true)
       }
 
       // An honest node now, under a user key this provider has never seen, refused by the
@@ -499,7 +514,7 @@ describe('AUTH-04 — what a burned window costs the node that did not burn it',
       // different events with different next actions, and the text is asserted rather
       // than the kind alone because a refusal naming the wrong thing is a defect here
       // even when the request correctly fails.
-      const honest = await enrolOverRpc(attacker, 'provider', freshRequest())
+      const honest = await enrolOverRpc(attacker, 'provider', await freshRequest())
       if (honest.ok || honest.kind !== 'refused') throw new Error('expected a refusal')
       expect(honest.refusal.kind).toBe('issuance-budget-exhausted')
       expect(honest.reason).toContain('this provider has issued 3 certificates')

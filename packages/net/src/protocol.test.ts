@@ -71,7 +71,7 @@ function execFrame(moduleRecord: CanonicalValue): CanonicalValue {
 }
 
 /** The six fields as canonical values, so one at a time can be replaced. */
-function recordValue(overrides: { readonly [k: string]: CanonicalValue }): CanonicalValue {
+async function recordValue(overrides: { readonly [k: string]: CanonicalValue }): Promise<CanonicalValue> {
   return {
     name: record.name,
     cid: record.cid,
@@ -189,31 +189,31 @@ describe('a malformed module record refuses the whole frame, one field at a time
    * "this task arrived unsigned", and the provenance guard would then refuse it naming
    * the wrong problem.
    */
-  it('refuses a name that is not a string', () => {
-    expect(parseRequest(execFrame(recordValue({ name: 7 })))).toBeNull()
+  it('refuses a name that is not a string', async () => {
+    expect(parseRequest(execFrame(await recordValue({ name: 7 })))).toBeNull()
   })
 
-  it('refuses a cid that is not a CID', () => {
-    expect(parseRequest(execFrame(recordValue({ cid: 'bafy-not-a-cid' })))).toBeNull()
+  it('refuses a cid that is not a CID', async () => {
+    expect(parseRequest(execFrame(await recordValue({ cid: 'bafy-not-a-cid' })))).toBeNull()
   })
 
-  it('refuses a version that is not a non-negative integer', () => {
+  it('refuses a version that is not a non-negative integer', async () => {
     // Negative, specifically: a record offering version -1 is one no monotonic check
     // can order, so it would slip past the resolver's rollback protection.
-    expect(parseRequest(execFrame(recordValue({ version: -1 })))).toBeNull()
-    expect(parseRequest(execFrame(recordValue({ version: 1.5 })))).toBeNull()
+    expect(parseRequest(execFrame(await recordValue({ version: -1 })))).toBeNull()
+    expect(parseRequest(execFrame(await recordValue({ version: 1.5 })))).toBeNull()
   })
 
-  it('refuses an expiresAt that is not a finite number', () => {
-    expect(parseRequest(execFrame(recordValue({ expiresAt: 'soon' })))).toBeNull()
+  it('refuses an expiresAt that is not a finite number', async () => {
+    expect(parseRequest(execFrame(await recordValue({ expiresAt: 'soon' })))).toBeNull()
   })
 
-  it('refuses a signer that is not a string', () => {
-    expect(parseRequest(execFrame(recordValue({ signer: 42 })))).toBeNull()
+  it('refuses a signer that is not a string', async () => {
+    expect(parseRequest(execFrame(await recordValue({ signer: 42 })))).toBeNull()
   })
 
-  it('refuses a signature that is not a string', () => {
-    expect(parseRequest(execFrame(recordValue({ signature: null })))).toBeNull()
+  it('refuses a signature that is not a string', async () => {
+    expect(parseRequest(execFrame(await recordValue({ signature: null })))).toBeNull()
   })
 
   it('refuses a moduleRecord that is not a record at all', () => {
@@ -222,10 +222,10 @@ describe('a malformed module record refuses the whole frame, one field at a time
     expect(parseRequest(execFrame(9))).toBeNull()
   })
 
-  it('still admits the frame these cases were built from', () => {
+  it('still admits the frame these cases were built from', async () => {
     // The control. Every assertion above would pass against a parser that refused
     // every exec frame outright, so the uncorrupted frame is required to survive.
-    const parsed = parseRequest(execFrame(recordValue({})))
+    const parsed = parseRequest(execFrame(await recordValue({})))
     expect(parsed).not.toBeNull()
     if (parsed === null || parsed.kind !== 'exec') return
     expect(new SignedNameResolver([publisher.pub]).accept(parsed.task.moduleRecord!, NOW).ok).toBe(
@@ -303,7 +303,7 @@ describe('the offer answer states the node’s room, or states that it states no
  * because one that did not would fail verification as `bad-signature` — an accusation
  * against an honest peer for a defect in this encoder.
  */
-describe('what a node said about its own result survives the wire', () => {
+describe('what a node said about its own result survives the wire', async () => {
   const provider = keypair(31)
   const nodeSeed = new Uint8Array(32).fill(32)
   const userSeed = new Uint8Array(32).fill(33)
@@ -313,7 +313,7 @@ describe('what a node said about its own result survives the wire', () => {
     maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
     issuance: 'remembers-only-within-this-process',
   }).enrol(
-    requestEnrollment(nodeSeed, userSeed, {
+    await requestEnrollment(nodeSeed, userSeed, {
       operatorId: 'acme-ops',
       discoverability: 'via-relay',
       // Two, so an encoder that dropped or reordered the list has something to drop.
