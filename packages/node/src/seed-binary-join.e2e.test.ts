@@ -234,12 +234,30 @@ beforeAll(async () => {
   browser = await timed('chromium-launch', async () => chromium.launch())
 }, 240_000)
 
+/**
+ * **The budget is stated because its absence is arithmetically fatal, not marginal.**
+ *
+ * This hook carried no timeout until 2026-08-16 and therefore ran on vitest's 10 000 ms
+ * default — while `stopSeed` below waits **10 000 ms** for the seed to answer `SIGTERM`
+ * before escalating to `SIGKILL`. The teardown's *last* step could consume the whole
+ * hook budget on its own, before `context.close()`, `browser.close()` and the `rm` are
+ * counted at all, so a seed that is slow to exit could never be waited out. Measured: a
+ * whole `--project e2e` run at `(user+sys)/real` **0.347** failed this file with
+ * `Error: Hook timed out in 10000ms` while every one of its own 206 assertions passed —
+ * a file-level red over a green body, which is the least useful shape a failure has.
+ *
+ * 120 000 is not a new number: it is what `built-bundle`, `gated-admission`,
+ * `browser-enrollment`, `background-tab` and `colouring-demo` already use for a teardown
+ * of this shape, and it leaves 12× headroom over the inner `SIGTERM` wait. Every other
+ * `*.e2e.test.ts` in this directory sizes its `afterAll`; this file was the only one that
+ * did not.
+ */
 afterAll(async () => {
   for (const context of contexts) await context.close().catch(() => {})
   await browser?.close().catch(() => {})
   await stopSeed(seed)
   if (workdir !== undefined) await rm(workdir, { recursive: true, force: true })
-})
+}, 120_000)
 
 describe('NET-03 (runnable half) — the seed binary on a real socket, joined by real browsers', () => {
   it('bannered a relay address a browser can dial, with no certificate configured anywhere', () => {
