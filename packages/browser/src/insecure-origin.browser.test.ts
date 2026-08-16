@@ -105,7 +105,7 @@ describe('AUTH-01 — the identity path on an origin with no WebCrypto', () => {
     const outcome = await withoutSubtle(async () => {
       // Signing twice — the node over its own possession challenge, the user over the
       // `ownerProof` that `enrol` refuses by name without.
-      const request = requestEnrollment(nodeSeed, userPrivateKey, {
+      const request = await requestEnrollment(nodeSeed, userPrivateKey, {
         operatorId: OPERATOR_ID,
         discoverability: 'via-relay',
         relayIds: ['12D3KooWinsecureOriginRelayPlaceholder'],

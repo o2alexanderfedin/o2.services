@@ -4,17 +4,21 @@ import { fromHex, toHex } from './capability.ts'
 import { decodeX509Certificate } from './x509.ts'
 import {
   EnrollmentAuthority,
+  UserKeyMismatchError,
   challengeAnswerBytes,
   possessionChallenge,
   requestEnrollment,
   resolveReplicaSets,
+  subtleUserSigner,
   verifyCertificate,
 } from './enrollment.ts'
 import type {
+  EnrollmentResult,
   IssuanceBudget,
   IssuanceHistory,
   IssuanceLedger,
   NodeCertificate,
+  UserSigner,
 } from './enrollment.ts'
 
 /** AUTH-01, AUTH-02, AUTH-04, AUTH-05. */
@@ -49,9 +53,9 @@ function authority(
   })
 }
 
-function enrol(auth: EnrollmentAuthority, seed: number, opts: { operatorId?: string; relayIds?: string[]; at?: number } = {}) {
+async function enrol(auth: EnrollmentAuthority, seed: number, opts: { operatorId?: string; relayIds?: string[]; at?: number } = {}) {
   const node = keypair(seed)
-  const request = requestEnrollment(node.priv, alice.priv, {
+  const request = await requestEnrollment(node.priv, alice.priv, {
     operatorId: opts.operatorId ?? 'alice-op',
     discoverability: (opts.relayIds ?? ['relay-1']).length > 0 ? 'via-relay' : 'seed',
     relayIds: opts.relayIds ?? ['relay-1'],
@@ -65,13 +69,13 @@ function enrol(auth: EnrollmentAuthority, seed: number, opts: { operatorId?: str
  * Seeds are derived from `which` so a failure names the request it was, and the two
  * ranges are disjoint from every other fixture key in this file.
  */
-function underFreshUser(auth: EnrollmentAuthority, which: number, at: number = NOW) {
+async function underFreshUser(auth: EnrollmentAuthority, which: number, at: number = NOW) {
   const node = keypair(100 + which)
   const user = keypair(150 + which)
   return {
     userKey: user.pub,
     result: auth.enrol(
-      requestEnrollment(node.priv, user.priv, {
+      await requestEnrollment(node.priv, user.priv, {
         operatorId: `op-${which}`,
         discoverability: 'seed',
         relayIds: [],
@@ -114,9 +118,9 @@ function testLedger(preloaded: readonly (readonly [string, number])[] = []): Iss
 }
 
 describe('AUTH-01 — the private key never leaves the device', () => {
-  it('issues from a public key plus a proof of possession', () => {
+  it('issues from a public key plus a proof of possession', async () => {
     const auth = authority()
-    const { node, result } = enrol(auth, 1)
+    const { node, result } = await enrol(auth, 1)
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -125,17 +129,17 @@ describe('AUTH-01 — the private key never leaves the device', () => {
 
     // Nothing in the request carries a secret. If a provider could issue without
     // proof, it could impersonate every node it ever enrolled.
-    const request = requestEnrollment(node.priv, alice.priv, { operatorId: 'o', discoverability: 'seed', relayIds: [] })
+    const request = await requestEnrollment(node.priv, alice.priv, { operatorId: 'o', discoverability: 'seed', relayIds: [] })
     expect(Object.values(request).some((v) => v === toHex(node.priv))).toBe(false)
   })
 
-  it('refuses a request that cannot prove it holds the key', () => {
+  it('refuses a request that cannot prove it holds the key', async () => {
     const auth = authority()
     const victim = keypair(2)
     const attacker = keypair(3)
 
     // The attacker claims the victim's public key but signs with their own.
-    const forged = requestEnrollment(attacker.priv, alice.priv, { operatorId: 'o', discoverability: 'seed', relayIds: [] })
+    const forged = await requestEnrollment(attacker.priv, alice.priv, { operatorId: 'o', discoverability: 'seed', relayIds: [] })
     const result = auth.enrol({ ...forged, nodeKey: victim.pub }, NOW)
 
     expect(result.ok).toBe(false)
@@ -159,8 +163,9 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
     const auth = authority()
     const attackerNode = keypair(60)
 
-    // Hand-assembled, because `requestEnrollment` can no longer express it: the user
-    // key is derived from the private key it is given, not accepted as a field.
+    // Hand-assembled, because `requestEnrollment` cannot express it: the user key comes
+    // from whatever signs, never from a field, and a signer naming a key it cannot sign
+    // for is refused before a request is built at all.
     const challenge = possessionChallenge(attackerNode.pub, alice.pub)
     const forged = {
       nodeKey: attackerNode.pub,
@@ -188,7 +193,7 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
     expect(result.reason).toContain(alice.pub)
   })
 
-  it('does not let a refused cross-user request consume the victim’s window', () => {
+  it('does not let a refused cross-user request consume the victim’s window', async () => {
     const auth = authority({ maxPerWindow: 3 })
     const challengeFor = (node: { priv: Uint8Array; pub: string }) =>
       possessionChallenge(node.pub, alice.pub)
@@ -215,13 +220,13 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
     // costs nothing to do it before the limiter is touched, and doing it after is
     // what turned a forgeable field into a denial of service against its owner.
     expect(auth.issuedWithin(alice.pub, NOW)).toBe(0)
-    expect(enrol(auth, 80).result.ok).toBe(true)
+    expect((await enrol(auth, 80)).result.ok).toBe(true)
   })
 
-  it('names the key it holds, because that is the only key it can name', () => {
+  it('names the key it holds, because that is the only key it can name', async () => {
     const auth = authority()
     const node = keypair(81)
-    const request = requestEnrollment(node.priv, alice.priv, {
+    const request = await requestEnrollment(node.priv, alice.priv, {
       operatorId: 'alice-op',
       discoverability: 'seed',
       relayIds: [],
@@ -233,14 +238,14 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
     expect(result.certificate.userKey).toBe(alice.pub)
   })
 
-  it('cannot be handed a user key through its fields at all', () => {
+  it('cannot be handed a user key through its fields at all', async () => {
     const auth = authority()
     const node = keypair(82)
-    const request = requestEnrollment(node.priv, alice.priv, {
+    const request = await requestEnrollment(node.priv, alice.priv, {
       operatorId: 'alice-op',
       discoverability: 'seed',
       relayIds: [],
-      // @ts-expect-error userKey is derived from the private key, never supplied
+      // @ts-expect-error userKey comes from the signer, never supplied
       userKey: rogue.pub,
     })
 
@@ -264,12 +269,114 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
     expect(auth.issuedWithin(alice.pub, NOW)).toBe(1)
     expect(auth.issuedWithin(rogue.pub, NOW)).toBe(0)
   })
+
+  /**
+   * The same property, one layer down, where a **port** put it.
+   *
+   * When the second parameter was bytes, `userKey` was derived and a stranger's key was
+   * unspellable. A `UserSigner` supplies its own public half, so the guarantee had to
+   * change shape — and the shape it took catches strictly more, because derivation was
+   * never able to notice a signer holding one key and *claiming* another. That is not a
+   * hypothetical spelling: it is what a `CryptoKeyPair` assembled from two generations
+   * looks like, and the tab that does it would otherwise learn about it from a provider,
+   * a round trip later, as an accusation against the provider's own wiring.
+   */
+  it('refuses to build a request for a signer that cannot sign for the key it names', async () => {
+    const liar: UserSigner = {
+      // alice's public half…
+      userKey: alice.pub,
+      // …over rogue's signing key. Every individual value here is real; only the pairing
+      // is wrong, which is exactly why no type can catch it.
+      sign: async (message) => ed25519.sign(message, rogue.priv),
+    }
+
+    await expect(
+      requestEnrollment(keypair(83).priv, liar, {
+        operatorId: 'alice-op',
+        discoverability: 'seed',
+        relayIds: [],
+      }),
+    ).rejects.toThrow(UserKeyMismatchError)
+
+    // The refusal names the key it could not sign for, because an operator holding two
+    // key pairs needs to know which one the request was about.
+    await expect(
+      requestEnrollment(keypair(83).priv, liar, {
+        operatorId: 'alice-op',
+        discoverability: 'seed',
+        relayIds: [],
+      }),
+    ).rejects.toThrow(new RegExp(alice.pub))
+
+    // The positive control, in the same case: the identical signer over the key it does
+    // hold is built without complaint, so the arm above is not passing because
+    // `requestEnrollment` refuses every signer it is handed.
+    const honest: UserSigner = {
+      userKey: rogue.pub,
+      sign: async (message) => ed25519.sign(message, rogue.priv),
+    }
+    const request = await requestEnrollment(keypair(83).priv, honest, {
+      operatorId: 'rogue-op',
+      discoverability: 'seed',
+      relayIds: [],
+    })
+    expect(request.userKey).toBe(rogue.pub)
+    expect(authority().enrol(request, NOW).ok).toBe(true)
+  })
+
+  /**
+   * The arm the whole port exists for: a key `crypto.subtle` holds and this process
+   * cannot read.
+   *
+   * Runs in the **node** project as well as the browser one, deliberately.
+   * `ed25519-backend.ts` records that Node's `subtle` does real Ed25519 on this host, and
+   * `webcrypto-ed25519.browser.test.ts` measured the same in chromium, firefox and webkit
+   * — so the one thing left to establish is that `requestEnrollment` and `enrol` agree
+   * across the two implementations, and that is a claim about *this module* rather than
+   * about an engine.
+   *
+   * `extractable: false` is the point rather than a detail: the assertion below that
+   * `exportKey` refuses is what makes this a test about a key the page cannot read, and
+   * not merely about an alternative signing library.
+   */
+  it('builds a request from a non-extractable CryptoKey the process cannot read', async () => {
+    const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+    if (!('privateKey' in pair)) throw new Error('expected a CryptoKeyPair')
+    await expect(crypto.subtle.exportKey('pkcs8', pair.privateKey)).rejects.toThrow()
+
+    const signer = await subtleUserSigner(pair)
+    expect(signer.userKey).toHaveLength(64)
+
+    const request = await requestEnrollment(keypair(84).priv, signer, {
+      operatorId: 'visitor-op',
+      discoverability: 'via-relay',
+      relayIds: ['relay-1'],
+    })
+
+    // The certificate names the WebCrypto key, and a provider that has never heard of
+    // WebCrypto issues it: `enrol` verifies `ownerProof` with `@noble/curves`, so this
+    // passing is the cross-implementation agreement the design rests on.
+    const auth = authority()
+    const result = auth.enrol(request, NOW)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.certificate.userKey).toBe(signer.userKey)
+    expect(auth.issuedWithin(signer.userKey, NOW)).toBe(1)
+
+    // Nothing that crosses a wire is a `CryptoKey`. A signer that leaked its handle into
+    // the request would produce something `encodeCanonical` cannot encode, and the failure
+    // would surface as a codec refusal three layers away from the cause.
+    const { answering: _answering, ...wire } = request
+    for (const [field, value] of Object.entries(wire)) {
+      expect(typeof value === 'string' || Array.isArray(value), `${field} is not wire data`).toBe(true)
+    }
+  })
 })
 
 describe('AUTH-02 — verification is offline', () => {
-  it('verifies against a pinned provider key with no authority call', () => {
+  it('verifies against a pinned provider key with no authority call', async () => {
     const auth = authority()
-    const { result } = enrol(auth, 4)
+    const { result } = await enrol(auth, 4)
     // Asserted rather than merely guarded, here and below. A bare `if (!result.ok)
     // return` turns an issuer that stopped issuing into a green test that ran no
     // assertion at all — the whole body is skipped and nothing says so.
@@ -281,9 +388,9 @@ describe('AUTH-02 — verification is offline', () => {
     expect(verdict.ok).toBe(true)
   })
 
-  it('refuses a certificate from an unpinned issuer', () => {
+  it('refuses a certificate from an unpinned issuer', async () => {
     const auth = authority()
-    const { result } = enrol(auth, 5)
+    const { result } = await enrol(auth, 5)
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -293,9 +400,9 @@ describe('AUTH-02 — verification is offline', () => {
     expect(verdict.failure.kind).toBe('untrusted-issuer')
   })
 
-  it('refuses a certificate altered after signing', () => {
+  it('refuses a certificate altered after signing', async () => {
     const auth = authority()
-    const { result } = enrol(auth, 6, { operatorId: 'honest-op' })
+    const { result } = await enrol(auth, 6, { operatorId: 'honest-op' })
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -307,14 +414,14 @@ describe('AUTH-02 — verification is offline', () => {
     expect(verdict.failure.kind).toBe('bad-signature')
   })
 
-  it('refuses an expired or not-yet-valid certificate', () => {
+  it('refuses an expired or not-yet-valid certificate', async () => {
     const auth = new EnrollmentAuthority({
       providerPrivateKey: provider.priv,
       certificateLifetimeMs: 1_000,
       maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
       issuance: 'remembers-only-within-this-process',
     })
-    const { result } = enrol(auth, 7)
+    const { result } = await enrol(auth, 7)
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const anchors = new Set([auth.issuerKey])
@@ -326,12 +433,12 @@ describe('AUTH-02 — verification is offline', () => {
 })
 
 describe('AUTH-04 — enrollment is rate-limited per user key', () => {
-  it('permits up to the limit and then refuses, saying when to retry', () => {
+  it('permits up to the limit and then refuses, saying when to retry', async () => {
     const auth = authority({ maxPerWindow: 3, windowMs: 60_000 })
 
-    for (let i = 0; i < 3; i++) expect(enrol(auth, 10 + i).result.ok).toBe(true)
+    for (let i = 0; i < 3; i++) expect((await enrol(auth, 10 + i)).result.ok).toBe(true)
 
-    const fourth = enrol(auth, 99)
+    const fourth = await enrol(auth, 99)
     expect(fourth.result.ok).toBe(false)
     if (fourth.result.ok) return
     expect(fourth.result.refusal.kind).toBe('rate-limited')
@@ -342,24 +449,24 @@ describe('AUTH-04 — enrollment is rate-limited per user key', () => {
     expect(fourth.result.reason).toContain('limit 3')
   })
 
-  it('lets the window slide rather than blocking forever', () => {
+  it('lets the window slide rather than blocking forever', async () => {
     const auth = authority({ maxPerWindow: 2, windowMs: 60_000 })
-    enrol(auth, 20, { at: NOW })
-    enrol(auth, 21, { at: NOW })
-    expect(enrol(auth, 22, { at: NOW }).result.ok).toBe(false)
+    await enrol(auth, 20, { at: NOW })
+    await enrol(auth, 21, { at: NOW })
+    expect((await enrol(auth, 22, { at: NOW })).result.ok).toBe(false)
 
     // Past the window, the earlier issues no longer count.
-    expect(enrol(auth, 23, { at: NOW + 60_001 }).result.ok).toBe(true)
+    expect((await enrol(auth, 23, { at: NOW + 60_001 })).result.ok).toBe(true)
   })
 
-  it('counts per user key, so one user cannot exhaust another’s budget', () => {
+  it('counts per user key, so one user cannot exhaust another’s budget', async () => {
     const auth = authority({ maxPerWindow: 1 })
     const bob = keypair(50)
 
-    const first = requestEnrollment(keypair(30).priv, alice.priv, { operatorId: 'a', discoverability: 'seed', relayIds: [] })
+    const first = await requestEnrollment(keypair(30).priv, alice.priv, { operatorId: 'a', discoverability: 'seed', relayIds: [] })
     expect(auth.enrol(first, NOW).ok).toBe(true)
 
-    const second = requestEnrollment(keypair(31).priv, bob.priv, { operatorId: 'b', discoverability: 'seed', relayIds: [] })
+    const second = await requestEnrollment(keypair(31).priv, bob.priv, { operatorId: 'b', discoverability: 'seed', relayIds: [] })
     expect(auth.enrol(second, NOW).ok).toBe(true)
 
     expect(auth.issuedWithin(alice.pub, NOW)).toBe(1)
@@ -382,11 +489,14 @@ describe('AUTH-04 — enrollment is rate-limited per user key', () => {
  * identity. See `enrollment.ts`'s header for what that does and does not buy.
  */
 describe('AUTH-04 — a provider signs a stated number of certificates per window', () => {
-  it('refuses past its stated number however many free keygens the requester mints', () => {
+  it('refuses past its stated number however many free keygens the requester mints', async () => {
     // `maxPerWindow: 3` never binds here: every request names a different user key and
     // spends one of that key's three. The only thing that can refuse is the aggregate.
     const budgeted = authority({ maxPerWindow: 3, maxIssuedPerWindow: 5 })
-    const outcomes = Array.from({ length: 20 }, (_, i) => underFreshUser(budgeted, i).result)
+    // A sequential loop rather than `Promise.all`, because the budget is spent in the
+    // order requests are made and a reader has to be able to say which five got through.
+    const outcomes: EnrollmentResult[] = []
+    for (let i = 0; i < 20; i += 1) outcomes.push((await underFreshUser(budgeted, i)).result)
 
     expect(outcomes.filter((o) => o.ok)).toHaveLength(5)
     expect(budgeted.issuedToAnybodyWithin(NOW)).toBe(5)
@@ -399,16 +509,17 @@ describe('AUTH-04 — a provider signs a stated number of certificates per windo
     // states it has no aggregate budget. Without this the first half would be equally
     // well explained by twenty requests that were never going to succeed.
     const unbudgeted = authority({ maxPerWindow: 3 })
-    const same = Array.from({ length: 20 }, (_, i) => underFreshUser(unbudgeted, i).result)
+    const same: EnrollmentResult[] = []
+    for (let i = 0; i < 20; i += 1) same.push((await underFreshUser(unbudgeted, i)).result)
     expect(same.filter((o) => o.ok)).toHaveLength(20)
     expect(unbudgeted.issuedToAnybodyWithin(NOW)).toBe(20)
   })
 
-  it('names the provider’s own budget and says nothing about the requester', () => {
+  it('names the provider’s own budget and says nothing about the requester', async () => {
     const auth = authority({ maxIssuedPerWindow: 1 })
-    expect(underFreshUser(auth, 0).result.ok).toBe(true)
+    expect((await underFreshUser(auth, 0)).result.ok).toBe(true)
 
-    const second = underFreshUser(auth, 1)
+    const second = await underFreshUser(auth, 1)
     expect(second.result.ok).toBe(false)
     if (second.result.ok) return
 
@@ -428,16 +539,16 @@ describe('AUTH-04 — a provider signs a stated number of certificates per windo
     expect(second.result.reason).not.toContain(second.userKey)
   })
 
-  it('tells a requester their own window is full before it tells them the provider’s is', () => {
+  it('tells a requester their own window is full before it tells them the provider’s is', async () => {
     // Both budgets bind at once. Which reason is reported is the whole of this case:
     // the more specific true statement about *this* request wins.
     const auth = authority({ maxPerWindow: 2, maxIssuedPerWindow: 2 })
-    expect(enrol(auth, 120).result.ok).toBe(true)
-    expect(enrol(auth, 121).result.ok).toBe(true)
+    expect((await enrol(auth, 120)).result.ok).toBe(true)
+    expect((await enrol(auth, 121)).result.ok).toBe(true)
     expect(auth.issuedWithin(alice.pub, NOW)).toBe(2)
     expect(auth.issuedToAnybodyWithin(NOW)).toBe(2)
 
-    const hers = enrol(auth, 122).result
+    const hers = (await enrol(auth, 122)).result
     expect(hers.ok).toBe(false)
     if (hers.ok) return
     expect(hers.refusal.kind).toBe('rate-limited')
@@ -445,20 +556,20 @@ describe('AUTH-04 — a provider signs a stated number of certificates per windo
     // And a stranger, whose own window is empty, meets the aggregate instead — which
     // is what shows the ordering is an ordering rather than the aggregate being
     // unreachable.
-    const stranger = underFreshUser(auth, 7).result
+    const stranger = (await underFreshUser(auth, 7)).result
     expect(stranger.ok).toBe(false)
     if (stranger.ok) return
     expect(stranger.refusal.kind).toBe('issuance-budget-exhausted')
   })
 
-  it('slides the aggregate window rather than closing the provider forever', () => {
+  it('slides the aggregate window rather than closing the provider forever', async () => {
     const auth = authority({ maxPerWindow: 3, maxIssuedPerWindow: 2, windowMs: 60_000 })
-    expect(underFreshUser(auth, 10).result.ok).toBe(true)
-    expect(underFreshUser(auth, 11).result.ok).toBe(true)
-    expect(underFreshUser(auth, 12).result.ok).toBe(false)
+    expect((await underFreshUser(auth, 10)).result.ok).toBe(true)
+    expect((await underFreshUser(auth, 11)).result.ok).toBe(true)
+    expect((await underFreshUser(auth, 12)).result.ok).toBe(false)
 
     // Past the window, the earlier issuances no longer count against the provider.
-    expect(underFreshUser(auth, 13, NOW + 60_001).result.ok).toBe(true)
+    expect((await underFreshUser(auth, 13, NOW + 60_001)).result.ok).toBe(true)
     expect(auth.issuedToAnybodyWithin(NOW + 60_001)).toBe(1)
   })
 })
@@ -475,7 +586,7 @@ describe('AUTH-04 — a provider signs a stated number of certificates per windo
 describe('AUTH-04 — the issuance history belongs to the host, not to the authority', () => {
   const providerOptions = { providerPrivateKey: provider.priv, windowMs: 60_000 } as const
 
-  it('counts issuances it never made, because the budget was never its own', () => {
+  it('counts issuances it never made, because the budget was never its own', async () => {
     const stranger = keypair(200)
     const ledger = testLedger([
       [alice.pub, NOW - 1_000],
@@ -495,18 +606,18 @@ describe('AUTH-04 — the issuance history belongs to the host, not to the autho
     expect(auth.issuedToAnybodyWithin(NOW)).toBe(3)
 
     // And both budgets *bind* on it, which is the assertion this plan exists for.
-    const hers = enrol(auth, 131).result
+    const hers = (await enrol(auth, 131)).result
     expect(hers.ok).toBe(false)
     if (hers.ok) return
     expect(hers.refusal.kind).toBe('rate-limited')
 
-    const theirs = underFreshUser(auth, 30).result
+    const theirs = (await underFreshUser(auth, 30)).result
     expect(theirs.ok).toBe(false)
     if (theirs.ok) return
     expect(theirs.refusal.kind).toBe('issuance-budget-exhausted')
   })
 
-  it('hands a second authority over the same ledger everything the first issued', () => {
+  it('hands a second authority over the same ledger everything the first issued', async () => {
     // The restart, as far as one process can show it: a new authority object, the same
     // host-owned history. The `'remembers-only-within-this-process'` control below is
     // the same sequence against a heap that is not shared, and it is the behaviour
@@ -515,12 +626,12 @@ describe('AUTH-04 — the issuance history belongs to the host, not to the autho
     const options = { ...providerOptions, maxPerWindow: 5, maxIssuedPerWindow: 2 } as const
 
     const first = new EnrollmentAuthority({ ...options, issuance: ledger })
-    expect(underFreshUser(first, 31).result.ok).toBe(true)
-    expect(underFreshUser(first, 32).result.ok).toBe(true)
+    expect((await underFreshUser(first, 31)).result.ok).toBe(true)
+    expect((await underFreshUser(first, 32)).result.ok).toBe(true)
 
     const second = new EnrollmentAuthority({ ...options, issuance: ledger })
     expect(second.issuedToAnybodyWithin(NOW)).toBe(2)
-    const after = underFreshUser(second, 33).result
+    const after = (await underFreshUser(second, 33)).result
     expect(after.ok).toBe(false)
     if (after.ok) return
     expect(after.refusal.kind).toBe('issuance-budget-exhausted')
@@ -530,17 +641,17 @@ describe('AUTH-04 — the issuance history belongs to the host, not to the autho
       ...options,
       issuance: 'remembers-only-within-this-process',
     })
-    expect(underFreshUser(forgetful, 31).result.ok).toBe(true)
-    expect(underFreshUser(forgetful, 32).result.ok).toBe(true)
+    expect((await underFreshUser(forgetful, 31)).result.ok).toBe(true)
+    expect((await underFreshUser(forgetful, 32)).result.ok).toBe(true)
     const restarted = new EnrollmentAuthority({
       ...options,
       issuance: 'remembers-only-within-this-process',
     })
     expect(restarted.issuedToAnybodyWithin(NOW)).toBe(0)
-    expect(underFreshUser(restarted, 33).result.ok).toBe(true)
+    expect((await underFreshUser(restarted, 33)).result.ok).toBe(true)
   })
 
-  it('records every issuance where the host can see it, by user key and in the aggregate', () => {
+  it('records every issuance where the host can see it, by user key and in the aggregate', async () => {
     const ledger = testLedger()
     const auth = new EnrollmentAuthority({
       ...providerOptions,
@@ -549,18 +660,18 @@ describe('AUTH-04 — the issuance history belongs to the host, not to the autho
       issuance: ledger,
     })
 
-    expect(enrol(auth, 132).result.ok).toBe(true)
-    expect(underFreshUser(auth, 34).result.ok).toBe(true)
+    expect((await enrol(auth, 132)).result.ok).toBe(true)
+    expect((await underFreshUser(auth, 34)).result.ok).toBe(true)
 
     expect(ledger.issuedTo(alice.pub)).toEqual([NOW])
     expect(ledger.issuedToAnybody()).toEqual([NOW, NOW])
     // A refusal consumes nothing, so the ledger is a record of certificates rather than
     // of attempts — which is the property the per-user ordering above rests on.
-    expect(underFreshUser(auth, 35, NOW).result.ok).toBe(true)
+    expect((await underFreshUser(auth, 35, NOW)).result.ok).toBe(true)
     expect(ledger.writes).toHaveLength(3)
   })
 
-  it('records synchronously, which is why the serving branch takes no capacity slot', () => {
+  it('records synchronously, which is why the serving branch takes no capacity slot', async () => {
     // `agent.ts` records that `enrol` is fully synchronous and that this is *why* the
     // enrol branch takes no capacity slot. So the write is asserted visible on the line
     // after the call, with no `await` anywhere in this case.
@@ -583,7 +694,7 @@ describe('AUTH-04 — the issuance history belongs to the host, not to the autho
     })
 
     const result = auth.enrol(
-      requestEnrollment(keypair(133).priv, alice.priv, {
+      await requestEnrollment(keypair(133).priv, alice.priv, {
         operatorId: 'alice-op',
         discoverability: 'seed',
         relayIds: [],
@@ -596,12 +707,12 @@ describe('AUTH-04 — the issuance history belongs to the host, not to the autho
     expect(ledger.writes).toEqual([[alice.pub, NOW]])
   })
 
-  it('reproduces the per-process behaviour exactly when a caller asks for it by name', () => {
+  it('reproduces the per-process behaviour exactly when a caller asks for it by name', async () => {
     // What licenses the one-line sentinel written at every other construction site in
     // this repository: on the sentinel, the existing rate-limit readings are unchanged.
     const auth = authority({ maxPerWindow: 3, windowMs: 60_000 })
-    for (let i = 0; i < 3; i++) expect(enrol(auth, 140 + i).result.ok).toBe(true)
-    const fourth = enrol(auth, 143).result
+    for (let i = 0; i < 3; i++) expect((await enrol(auth, 140 + i)).result.ok).toBe(true)
+    const fourth = (await enrol(auth, 143)).result
     expect(fourth.ok).toBe(false)
     if (fourth.ok) return
     expect(fourth.refusal.kind).toBe('rate-limited')
@@ -609,14 +720,14 @@ describe('AUTH-04 — the issuance history belongs to the host, not to the autho
     expect(auth.issuedToAnybodyWithin(NOW)).toBe(3)
 
     // Past the window it slides, exactly as before.
-    expect(enrol(auth, 144, { at: NOW + 60_001 }).result.ok).toBe(true)
+    expect((await enrol(auth, 144, { at: NOW + 60_001 })).result.ok).toBe(true)
   })
 })
 
 describe('AUTH-05 — certificates chain to a user key, forming a replica set', () => {
-  it('groups an owner’s nodes and reports whether redundancy is available', () => {
+  it('groups an owner’s nodes and reports whether redundancy is available', async () => {
     const auth = authority({ maxPerWindow: 10 })
-    const certs = [enrol(auth, 60).result, enrol(auth, 61).result]
+    const certs = [(await enrol(auth, 60)).result, (await enrol(auth, 61)).result]
       .filter((r): r is Extract<typeof r, { ok: true }> => r.ok)
       .map((r) => r.certificate)
 
@@ -629,20 +740,20 @@ describe('AUTH-05 — certificates chain to a user key, forming a replica set', 
     expect(sets[0]!.canVerifyWithinOwnerDomain).toBe(true)
   })
 
-  it('reports a single-node owner as unable to verify within its domain', () => {
+  it('reports a single-node owner as unable to verify within its domain', async () => {
     const auth = authority()
-    const { result } = enrol(auth, 70)
+    const { result } = await enrol(auth, 70)
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const sets = resolveReplicaSets([result.certificate], new Set([auth.issuerKey]), NOW)
     expect(sets[0]!.canVerifyWithinOwnerDomain).toBe(false)
   })
 
-  it('will not let an unverifiable certificate inflate a replica count', () => {
+  it('will not let an unverifiable certificate inflate a replica count', async () => {
     // The dangerous case: a forged extra node making an owner-attested result look
     // like an owner-domain verified one.
     const auth = authority()
-    const { result } = enrol(auth, 80)
+    const { result } = await enrol(auth, 80)
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const forged: NodeCertificate = { ...result.certificate, nodeKey: keypair(81).pub }
@@ -654,13 +765,13 @@ describe('AUTH-05 — certificates chain to a user key, forming a replica set', 
 })
 
 describe('all nodes have equal functionality', () => {
-  it('issues an identical certificate however the node is discovered', () => {
+  it('issues an identical certificate however the node is discovered', async () => {
     // The certificate says how a node is found and nothing about what it may do.
     // A relay-discovered peer and a seed differ in one field's value — never in
     // shape, weight, or which checks apply.
     const auth = authority({ maxPerWindow: 10 })
-    const relayed = enrol(auth, 90, { relayIds: ['relay-1'] }).result
-    const direct = enrol(auth, 91, { relayIds: [] }).result
+    const relayed = (await enrol(auth, 90, { relayIds: ['relay-1'] })).result
+    const direct = (await enrol(auth, 91, { relayIds: [] })).result
     expect(relayed.ok && direct.ok).toBe(true)
     if (!relayed.ok || !direct.ok) return
 
@@ -674,12 +785,12 @@ describe('all nodes have equal functionality', () => {
     expect(verifyCertificate(direct.certificate, anchors, NOW).ok).toBe(true)
   })
 
-  it('signs the relay set, so a shared dependency cannot be hidden', () => {
+  it('signs the relay set, so a shared dependency cannot be hidden', async () => {
     // Quorum path-diversity reads relayIds. If they were unsigned, a node could
     // understate its discovery dependencies and slip into a quorum it should not
     // share.
     const auth = authority()
-    const { result } = enrol(auth, 92, { relayIds: ['relay-1'] })
+    const { result } = await enrol(auth, 92, { relayIds: ['relay-1'] })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const understated = { ...result.certificate, relayIds: [] }
@@ -706,9 +817,9 @@ describe('AUTH-01 — an enrolment challenge is minted once and spent once', () 
   const NONCE_TTL = 60_000
 
   /** A request that answers `minted`, signed by the node that request names. */
-  function answering(auth: EnrollmentAuthority, seed: number, at: number) {
+  async function answering(auth: EnrollmentAuthority, seed: number, at: number) {
     const node = keypair(seed)
-    const pending = requestEnrollment(node.priv, alice.priv, {
+    const pending = await requestEnrollment(node.priv, alice.priv, {
       operatorId: 'alice-op',
       discoverability: 'seed',
       relayIds: [],
@@ -717,9 +828,9 @@ describe('AUTH-01 — an enrolment challenge is minted once and spent once', () 
     return { node, minted, request: { ...pending, freshness: pending.answering(minted) } }
   }
 
-  it('refuses a request that answers no challenge, and states the window it needed', () => {
+  it('refuses a request that answers no challenge, and states the window it needed', async () => {
     const auth = authority()
-    const pending = requestEnrollment(keypair(200).priv, alice.priv, {
+    const pending = await requestEnrollment(keypair(200).priv, alice.priv, {
       operatorId: 'alice-op',
       discoverability: 'seed',
       relayIds: [],
@@ -739,9 +850,9 @@ describe('AUTH-01 — an enrolment challenge is minted once and spent once', () 
     expect(refused?.reason).toContain(`${NONCE_TTL}ms`)
   })
 
-  it('spends a challenge by deleting it, so the identical answer fails the second time', () => {
+  it('spends a challenge by deleting it, so the identical answer fails the second time', async () => {
     const auth = authority()
-    const { request } = answering(auth, 201, NOW)
+    const { request } = await answering(auth, 201, NOW)
 
     expect(auth.outstandingChallenges(NOW)).toBe(1)
     expect(auth.redeemChallenge(request, NOW)).toBeNull()
@@ -755,9 +866,9 @@ describe('AUTH-01 — an enrolment challenge is minted once and spent once', () 
     expect(replayed?.refusal).toEqual({ kind: 'stale-challenge', ttlMs: NONCE_TTL })
   })
 
-  it('refuses an answer signed by a key other than the one the request names', () => {
+  it('refuses an answer signed by a key other than the one the request names', async () => {
     const auth = authority()
-    const { minted, request } = answering(auth, 202, NOW)
+    const { minted, request } = await answering(auth, 202, NOW)
     const impostor = keypair(203)
 
     // A well-formed signature over the right nonce and the right two keys, by somebody who
@@ -781,10 +892,10 @@ describe('AUTH-01 — an enrolment challenge is minted once and spent once', () 
     expect(auth.redeemChallenge(request, NOW)).toBeNull()
   })
 
-  it('refuses an answer transplanted onto a request naming different keys', () => {
+  it('refuses an answer transplanted onto a request naming different keys', async () => {
     const auth = authority()
-    const first = answering(auth, 204, NOW)
-    const second = answering(auth, 205, NOW)
+    const first = await answering(auth, 204, NOW)
+    const second = await answering(auth, 205, NOW)
 
     // `second`'s request, carrying `first`'s answer. Both answers are genuine and both
     // nonces are live — what fails is the binding: `challengeAnswerBytes` signs the nonce
@@ -794,14 +905,14 @@ describe('AUTH-01 — an enrolment challenge is minted once and spent once', () 
     expect(auth.redeemChallenge(transplanted, NOW)?.refusal.kind).toBe('bad-proof-of-possession')
   })
 
-  it('refuses a challenge answered after its window, and stops counting it as outstanding', () => {
+  it('refuses a challenge answered after its window, and stops counting it as outstanding', async () => {
     const auth = authority()
-    const { request } = answering(auth, 206, NOW)
+    const { request } = await answering(auth, 206, NOW)
 
     expect(auth.outstandingChallenges(NOW + NONCE_TTL - 1)).toBe(1)
     expect(auth.redeemChallenge(request, NOW + NONCE_TTL - 1)).toBeNull()
 
-    const later = answering(auth, 207, NOW)
+    const later = await answering(auth, 207, NOW)
     expect(auth.outstandingChallenges(NOW + NONCE_TTL)).toBe(0)
     expect(auth.redeemChallenge(later.request, NOW + NONCE_TTL)?.refusal).toEqual({
       kind: 'stale-challenge',
@@ -821,9 +932,9 @@ describe('AUTH-01 — an enrolment challenge is minted once and spent once', () 
     expect(auth.outstandingChallenges(NOW + NONCE_TTL)).toBe(1)
   })
 
-  it('gives a restarted provider none of its predecessor’s outstanding challenges', () => {
+  it('gives a restarted provider none of its predecessor’s outstanding challenges', async () => {
     const before = authority()
-    const { request } = answering(before, 208, NOW)
+    const { request } = await answering(before, 208, NOW)
 
     // A second authority over the same signing key and the same issuance ledger — which is
     // what a restarted provider is. It holds no challenge, because challenges live in this
@@ -838,7 +949,7 @@ describe('AUTH-01 — an enrolment challenge is minted once and spent once', () 
 
     // The cost of that, stated so it is not mistaken for a fault: one extra round trip for
     // an honest joiner, which asks the successor for a challenge and enrols.
-    const afterRestart = answering(restarted, 209, NOW)
+    const afterRestart = await answering(restarted, 209, NOW)
     expect(restarted.redeemChallenge(afterRestart.request, NOW)).toBeNull()
     expect(restarted.enrol(afterRestart.request, NOW).ok).toBe(true)
   })
@@ -873,8 +984,8 @@ describe('X509-01 — a provider can issue the profile\'s X.509 form alongside t
     })
   }
 
-  it('issues no X.509 form by default', () => {
-    const { result } = enrol(authority(), 220)
+  it('issues no X.509 form by default', async () => {
+    const { result } = await enrol(authority(), 220)
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.certificate.x509).toBeUndefined()
@@ -884,8 +995,8 @@ describe('X509-01 — a provider can issue the profile\'s X.509 form alongside t
     expect(verifyCertificate(result.certificate, new Set([provider.pub]), NOW + 1).ok).toBe(true)
   })
 
-  it('issues a form its own verifier accepts, carrying the envelope\'s fields', () => {
-    const { node, result } = enrol(x509Authority(), 221, { operatorId: 'alice-op', relayIds: ['relay-2', 'relay-1'] })
+  it('issues a form its own verifier accepts, carrying the envelope\'s fields', async () => {
+    const { node, result } = await enrol(x509Authority(), 221, { operatorId: 'alice-op', relayIds: ['relay-2', 'relay-1'] })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const { x509 } = result.certificate
@@ -909,12 +1020,12 @@ describe('X509-01 — a provider can issue the profile\'s X.509 form alongside t
     expect(decoded.certificate.version).toBe(2)
   })
 
-  it('refuses a certificate whose X.509 form was grafted from another node', () => {
+  it('refuses a certificate whose X.509 form was grafted from another node', async () => {
     // The stranger's move rather than the provider's, and it is refused for the profile's
     // own reason rather than for a signature reason — the gate runs before the envelope
     // signature, so the operator is told which half of the statement is wrong.
-    const mine = enrol(x509Authority(), 222)
-    const theirs = enrol(x509Authority(), 223)
+    const mine = await enrol(x509Authority(), 222)
+    const theirs = await enrol(x509Authority(), 223)
     expect(mine.result.ok && theirs.result.ok).toBe(true)
     if (!mine.result.ok || !theirs.result.ok) return
     const grafted: NodeCertificate = { ...mine.result.certificate, x509: theirs.result.certificate.x509 as string }

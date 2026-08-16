@@ -102,7 +102,7 @@ const PINNED: ReadonlySet<PublicKeyHex> = new Set([PROVIDER_KEY])
 const ISSUED_AT = 1_800_000_000_000
 
 /** Wrap `inner` so it signs what it produced, as a node this provider enrolled. */
-function attesting(inner: Executor, seed: number): { executor: Executor; nodeKey: PublicKeyHex } {
+async function attesting(inner: Executor, seed: number): Promise<{ executor: Executor; nodeKey: PublicKeyHex }> {
   const nodeSeed = new Uint8Array(32).fill(seed)
   const issued = new EnrollmentAuthority({
     providerPrivateKey: PROVIDER,
@@ -110,7 +110,7 @@ function attesting(inner: Executor, seed: number): { executor: Executor; nodeKey
     maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
     issuance: 'remembers-only-within-this-process',
   }).enrol(
-    requestEnrollment(nodeSeed, OWNER, {
+    await requestEnrollment(nodeSeed, OWNER, {
       operatorId: `op-${inner.nodeId}`,
       discoverability: 'via-relay',
       relayIds: ['relay-1'],
@@ -223,7 +223,7 @@ describe('what an agreement claims', () => {
  */
 describe('an agreement says what each replica signed', () => {
   it('hands a reader a statement it can check without trusting the requestor', async () => {
-    const a = attesting(honest('a'), 1)
+    const a = await attesting(honest('a'), 1)
     const r = await executeVerified(task, [a.executor])
     expect(r.status).toBe('agreed')
     if (r.status !== 'agreed') return
@@ -247,8 +247,8 @@ describe('an agreement says what each replica signed', () => {
     // positional correspondence can drift with nothing able to notice. Here the two
     // halves come off one array in one expression, so this case is what fails if the
     // ids and the signatures are ever assembled separately.
-    const a = attesting(honest('a'), 1)
-    const c = attesting(honest('c'), 3)
+    const a = await attesting(honest('a'), 1)
+    const c = await attesting(honest('c'), 3)
     // `b` is a replica nobody enrolled. The sentinel is its truthful statement, not a
     // degraded reading of a signature that failed.
     const r = await executeVerified(task, [a.executor, honest('b'), c.executor])
@@ -281,8 +281,8 @@ describe('an agreement says what each replica signed', () => {
     // either way. Attestations on a disagreement would invite somebody to choose the
     // side with the better-signed nodes, which is precisely what this module's header
     // forbids: divergence is surfaced, never voted away.
-    const a = attesting(honest('a'), 1)
-    const c = attesting(liar('c', 999), 3)
+    const a = await attesting(honest('a'), 1)
+    const c = await attesting(liar('c', 999), 3)
     const r = await executeVerified(task, [a.executor, c.executor])
     expect(r.status).toBe('disagreed')
     if (r.status !== 'disagreed') return

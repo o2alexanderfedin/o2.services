@@ -26,14 +26,14 @@ const alice = new Uint8Array(32).fill(81)
 const NOW = 1_800_000_000_000
 const PINNED: ReadonlySet<string> = new Set([toHex(ed25519.getPublicKey(provider))])
 
-function enrolled(seed: number): ResultSigner {
+async function enrolled(seed: number): Promise<ResultSigner> {
   const nodeSeed = new Uint8Array(32).fill(seed)
   const result = new EnrollmentAuthority({
     providerPrivateKey: provider,
     maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
     issuance: 'remembers-only-within-this-process',
   }).enrol(
-    requestEnrollment(nodeSeed, alice, {
+    await requestEnrollment(nodeSeed, alice, {
       operatorId: `op-${seed}`,
       discoverability: 'via-relay',
       relayIds: ['relay-1'],
@@ -72,7 +72,7 @@ function inner(nodeId: string, calls: { count: number } = { count: 0 }): Executo
 
 describe('the wrapper signs what the inner executor returned', () => {
   it('produces an attestation that verifies against that exact task and output', async () => {
-    const signer = enrolled(1)
+    const signer = await enrolled(1)
     const task = await aTask(2)
     const executor = attestResults(inner('server-1'), signer)
 
@@ -103,7 +103,7 @@ describe('the wrapper signs what the inner executor returned', () => {
   })
 
   it('passes a failure through untouched, because a failure attests nothing', async () => {
-    const signer = enrolled(2)
+    const signer = await enrolled(2)
     const failing: Executor = {
       nodeId: 'server-2',
       execute: () => Promise.resolve({ ok: false, reason: 'the guest trapped' }),
@@ -119,7 +119,7 @@ describe('the wrapper signs what the inner executor returned', () => {
 
   it('calls the inner executor exactly once and returns its output and fuel', async () => {
     const calls = { count: 0 }
-    const executor = attestResults(inner('server-3', calls), enrolled(3))
+    const executor = attestResults(inner('server-3', calls), await enrolled(3))
 
     const outcome = await executor.execute(await aTask(1))
 
@@ -134,7 +134,7 @@ describe('the wrapper signs what the inner executor returned', () => {
 describe('the sentinel is a configuration, not a hole', () => {
   it('shows the two configurations differing in one run', async () => {
     const task = await aTask(3)
-    const signing = await attestResults(inner('server-4'), enrolled(4)).execute(task)
+    const signing = await attestResults(inner('server-4'), await enrolled(4)).execute(task)
     const silent = await attestResults(inner('server-4'), 'signs-nothing').execute(task)
 
     expect(signing.ok && silent.ok).toBe(true)
@@ -159,7 +159,7 @@ describe('the sentinel is a configuration, not a hole', () => {
 
 describe('composing the wrapper moves no identity', () => {
   it('keeps the inner executor node id, rather than deriving one from the certificate', async () => {
-    const signer = enrolled(6)
+    const signer = await enrolled(6)
     const bare = inner('12D3KooWHPSVMPEezVCXvka2ahwT26JGL8EBr61LpGEU3ujHQM9Q')
     const wrapped = attestResults(bare, signer)
 
@@ -169,8 +169,8 @@ describe('composing the wrapper moves no identity', () => {
     expect(wrapped.nodeId).not.toBe(signer.certificate.nodeKey)
   })
 
-  it('refuses at composition when the seed and the certificate name different keys', () => {
-    const signer = enrolled(7)
+  it('refuses at composition when the seed and the certificate name different keys', async () => {
+    const signer = await enrolled(7)
     const somebodyElse = new Uint8Array(32).fill(99)
 
     // Once, where the two values were put together — not once per task, which would

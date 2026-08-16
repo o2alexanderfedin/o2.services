@@ -49,6 +49,7 @@ import {
   isStartBrowserLabel,
   publishCapabilities,
   requestEnrollment,
+  subtleUserSigner,
   verifyCapabilityRecord,
   verifyCertificate,
 } from '@o2/core'
@@ -413,19 +414,38 @@ export interface BrowserNodeOptions {
    * blocks from any peer"* remains a true description of the **default** tab; what is no
    * longer true is that it is the only tab available.
    *
-   * **`userPrivateKey`, not a `userKey` hex string, and the difference is load-bearing.**
-   * `EnrollmentAuthority.enrol` requires an `ownerProof` — the *user's* signature over
-   * the same challenge the node signs — and refuses by name as `bad-owner-proof` without
-   * it. A public key cannot sign, so a node configured with one would be refused on every
-   * attempt. `requestEnrollment` derives `userKey` from these bytes rather than accepting
-   * it as a field, so naming somebody else's user key is not a thing this option can be
-   * asked to do.
+   * **Something that can *sign*, not a `userKey` hex string, and the difference is
+   * load-bearing.** `EnrollmentAuthority.enrol` requires an `ownerProof` — the *user's*
+   * signature over the same challenge the node signs — and refuses by name as
+   * `bad-owner-proof` without it. A public key cannot sign, so a node configured with one
+   * would be refused on every attempt. `requestEnrollment` takes the `userKey` from
+   * whatever signs rather than accepting it as a field, so naming somebody else's user key
+   * is not a thing this option can be asked to do.
+   *
+   * **A `CryptoKeyPair` is accepted here, and on this tier it is the better answer.** Bytes
+   * in a tab can be read by whatever served the page; a pair from
+   * `crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])` cannot be —
+   * `webcrypto-ed25519.browser.test.ts` measures `exportKey` on the private half being
+   * refused in chromium, firefox and webkit alike. Handed one, the composition below turns
+   * it into a `UserSigner` through `@o2/core`'s `subtleUserSigner` and the private half
+   * never enters this package's memory at all.
+   *
+   * **What that costs, so it is chosen rather than discovered:** a browser-held key cannot
+   * be reconstructed from bytes, so it does not move between devices and does not survive
+   * losing the origin's storage. Bytes remain the right answer for a key a person owns
+   * across machines — which is why the union has two arms rather than a replacement.
+   *
+   * **And it needs a secure context.** `crypto.subtle` is `undefined` on
+   * `http://<host>.local` (`insecure-context.browser.test.ts` records that outage), so a
+   * LAN visitor cannot *create* such a pair — `localhost`, `127.0.0.1` and HTTPS can. This
+   * option does not probe for that: a caller can only fill this arm holding a pair, which
+   * they can only hold where `subtle` worked.
    *
    * `discoverability` and `relayIds` are **absent on purpose**, as they are in the Node
    * tier: they are derived from what this node can actually do, at the composition below.
    */
   readonly enrollment?: {
-    readonly userPrivateKey: Uint8Array
+    readonly userPrivateKey: Uint8Array | CryptoKeyPair
     readonly operatorId: string
     readonly providerAddr: string
   }
@@ -635,9 +655,15 @@ async function resolveCertificate(parts: {
   }
 
   // Signs a local structure and touches no network, so it depends on nothing from the
-  // dial. The middle argument is the user's *private* key: `userKey` is derived inside,
-  // and the same bytes sign the `ownerProof` the authority refuses enrollment without.
-  const request = requestEnrollment(identity.seed, enrollment.userPrivateKey, {
+  // dial. The middle argument is what holds the user's *private* half: `userKey` comes
+  // from it rather than from a field, and it signs the `ownerProof` the authority refuses
+  // enrollment without. A `CryptoKeyPair` becomes a `UserSigner` here — the one place this
+  // package converts, so nothing downstream has to know which arm the visitor took.
+  const user =
+    enrollment.userPrivateKey instanceof Uint8Array
+      ? enrollment.userPrivateKey
+      : await subtleUserSigner(enrollment.userPrivateKey)
+  const request = await requestEnrollment(identity.seed, user, {
     operatorId: enrollment.operatorId,
     discoverability: canRelay ? 'seed' : 'via-relay',
     relayIds: canRelay ? [] : [...relayPeerIds],

@@ -70,18 +70,26 @@ const NOW = 1_800_000_000_000
  * aggregate budget is the only thing left to spend. `requestEnrollment` performs the two public
  * key derivations and the two signatures, so this call **is** the attacker's per-identity cost.
  */
-function freshRequest(): EnrollmentRequest {
-  return requestEnrollment(ed25519.utils.randomSecretKey(), ed25519.utils.randomSecretKey(), {
+async function freshRequest(): Promise<EnrollmentRequest> {
+  return await requestEnrollment(ed25519.utils.randomSecretKey(), ed25519.utils.randomSecretKey(), {
     operatorId: 'op-residual',
     discoverability: 'seed',
     relayIds: [],
   })
 }
 
-/** Wall time of exactly one call, in ms. */
-function span(work: (index: number) => void, index: number): number {
+/**
+ * Wall time of exactly one call, in ms.
+ *
+ * Awaits the arm for the reason `enrollment-dos.node.test.ts`'s copy states in full: the
+ * attacker arm became a Promise when `requestEnrollment` took a signer port, and timing it
+ * unawaited would have measured the creation of one. The added microtask lands on `b`
+ * only, and every assertion here is a lower bound on `a ÷ b`, so it can only make the
+ * reading harder to pass.
+ */
+async function span(work: (index: number) => void | Promise<void>, index: number): Promise<number> {
   const started = performance.now()
-  work(index)
+  await work(index)
   return performance.now() - started
 }
 
@@ -95,12 +103,18 @@ function span(work: (index: number) => void, index: number): number {
  * one-sided — it can only add — so the cheapest of `samples` calls is the closest reading of the
  * work itself. Its own record shows the summing estimator inverting a 3.0 to 0.44 under load.
  */
-function pairedRatio(samples: number, a: (index: number) => void, b: (index: number) => void): number {
+async function pairedRatio(
+  samples: number,
+  a: (index: number) => void | Promise<void>,
+  b: (index: number) => void | Promise<void>,
+): Promise<number> {
   let fastestA = Number.POSITIVE_INFINITY
   let fastestB = Number.POSITIVE_INFINITY
   for (let sample = 0; sample < samples; sample += 1) {
-    fastestA = Math.min(fastestA, span(a, sample))
-    fastestB = Math.min(fastestB, span(b, sample))
+    // `await` suspends this loop; it does not overlap the arms. Alternating and sequential
+    // is the estimator, and running them concurrently would time each other's contention.
+    fastestA = Math.min(fastestA, await span(a, sample))
+    fastestB = Math.min(fastestB, await span(b, sample))
   }
   return fastestA / fastestB
 }
@@ -202,11 +216,11 @@ describe('AUTH-04 — the enrolment cost this phase does not remove', () => {
    * **If a figure here came out materially different, that would be a finding about the method
    * and not an improvement to claim.** Nothing this phase added is on the path either arm runs.
    */
-  it('still costs a provider more to refuse an identity than it costs an attacker to mint one', () => {
+  it('still costs a provider more to refuse an identity than it costs an attacker to mint one', async () => {
     const authority = authorityWithBudget(1)
-    expect(authority.enrol(freshRequest(), NOW).ok).toBe(true)
+    expect(authority.enrol(await freshRequest(), NOW).ok).toBe(true)
 
-    const pool = Array.from({ length: SAMPLES }, freshRequest)
+    const pool = await Promise.all(Array.from({ length: SAMPLES }, freshRequest))
     const sink: EnrollmentRequest[] = []
 
     // The positive control. Both arms must be shown reaching the path claimed for them, or the
@@ -215,15 +229,15 @@ describe('AUTH-04 — the enrolment cost this phase does not remove', () => {
     if (overBudget.ok) throw new Error('expected a refusal past the budget')
     expect(overBudget.refusal.kind).toBe('issuance-budget-exhausted')
 
-    const perFreshIdentity = pairedRatio(
+    const perFreshIdentity = await pairedRatio(
       SAMPLES,
       (i) => void authority.enrol(pool[i] as EnrollmentRequest, NOW),
-      () => void sink.push(freshRequest()),
+      async () => void sink.push(await freshRequest()),
     )
     expect(sink).toHaveLength(SAMPLES)
 
     const replayed = pool[0] as EnrollmentRequest
-    const perReplay = pairedRatio(
+    const perReplay = await pairedRatio(
       SAMPLES,
       (i) => void authority.enrol(pool[i] as EnrollmentRequest, NOW),
       () => void sink.push({ ...replayed }),

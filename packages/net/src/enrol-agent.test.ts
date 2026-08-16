@@ -99,8 +99,8 @@ function buildFabric(options: { readonly issues: boolean }): {
   return { rpc, authority, providerId, network }
 }
 
-function buildRequest(nodeSeed: Uint8Array, userSeed: Uint8Array = user.priv): PendingEnrollment {
-  return requestEnrollment(nodeSeed, userSeed, {
+async function buildRequest(nodeSeed: Uint8Array, userSeed: Uint8Array = user.priv): Promise<PendingEnrollment> {
+  return await requestEnrollment(nodeSeed, userSeed, {
     operatorId: 'op-a',
     discoverability: 'via-relay',
     relayIds: ['12D3KooWRelayOne'],
@@ -112,7 +112,7 @@ describe('a node obtains a certificate by asking, over the fabric protocol', () 
     const { rpc, authority, providerId } = buildFabric({ issues: true })
     const node = keypair(83)
 
-    const outcome = await enrolOverRpc(rpc, providerId, buildRequest(node.priv))
+    const outcome = await enrolOverRpc(rpc, providerId, await buildRequest(node.priv))
 
     expect(outcome).toMatchObject({ ok: true, certificate: { issuer: authority.issuerKey } })
     if (!outcome.ok) throw new Error('expected a certificate')
@@ -125,7 +125,7 @@ describe('a node obtains a certificate by asking, over the fabric protocol', () 
   it('refuses a request whose proof of possession was signed by a different key', async () => {
     const { rpc, providerId } = buildFabric({ issues: true })
     const node = keypair(84)
-    const genuine = buildRequest(node.priv)
+    const genuine = await buildRequest(node.priv)
     // The correct challenge bytes, signed by somebody who does not hold `nodeKey`.
     // A well-formed signature over the right message by the wrong key is the case
     // worth measuring: a malformed hex string would be refused by arithmetic rather
@@ -171,7 +171,7 @@ describe('a node obtains a certificate by asking, over the fabric protocol', () 
   it('refuses a request the named user never consented to, naming the user', async () => {
     const { rpc, providerId } = buildFabric({ issues: true })
     const node = keypair(87)
-    const genuine = buildRequest(node.priv)
+    const genuine = await buildRequest(node.priv)
     // Possession stays genuine; only the owner's consent is forged.
     const withoutConsent: PendingEnrollment = {
       ...genuine,
@@ -203,7 +203,7 @@ describe('AUTH-04 — the limit holds, and states itself', () => {
 
     // Twenty distinct node keys, all naming ONE user key — the axis the limiter keys on.
     for (let i = 1; i <= 20; i++) {
-      const outcome = await enrolOverRpc(rpc, providerId, buildRequest(new Uint8Array(32).fill(i)))
+      const outcome = await enrolOverRpc(rpc, providerId, await buildRequest(new Uint8Array(32).fill(i)))
       if (outcome.ok) accepted.push(outcome)
       else if (outcome.kind === 'refused') refused.push(outcome)
       else throw new Error(`unexpected outcome: ${outcome.kind} — ${outcome.reason}`)
@@ -268,7 +268,7 @@ describe('AUTH-04 — the limit holds, and states itself', () => {
       const outcome = await enrolOverRpc(
         rpc,
         providerId,
-        buildRequest(new Uint8Array(32).fill(100 + i), new Uint8Array(32).fill(140 + i)),
+        await buildRequest(new Uint8Array(32).fill(100 + i), new Uint8Array(32).fill(140 + i)),
       )
       if (outcome.ok) accepted.push(outcome)
     }
@@ -291,11 +291,11 @@ describe('AUTH-04 — the limit holds, and states itself', () => {
   it('gives a second authority its own budget for the same user key', async () => {
     const first = buildFabric({ issues: true })
     for (let i = 1; i <= 6; i++) {
-      await enrolOverRpc(first.rpc, first.providerId, buildRequest(new Uint8Array(32).fill(i)))
+      await enrolOverRpc(first.rpc, first.providerId, await buildRequest(new Uint8Array(32).fill(i)))
     }
 
     const second = buildFabric({ issues: true })
-    const outcome = await enrolOverRpc(second.rpc, second.providerId, buildRequest(keypair(90).priv))
+    const outcome = await enrolOverRpc(second.rpc, second.providerId, await buildRequest(keypair(90).priv))
     expect(outcome.ok).toBe(true)
   })
 })
@@ -304,7 +304,7 @@ describe('a failure says which of three things went wrong', () => {
   it('names that the answering node issues no certificates', async () => {
     const { rpc, providerId } = buildFabric({ issues: false })
 
-    const outcome = await enrolOverRpc(rpc, providerId, buildRequest(keypair(85).priv))
+    const outcome = await enrolOverRpc(rpc, providerId, await buildRequest(keypair(85).priv))
 
     expect(outcome).toMatchObject({ ok: false, kind: 'unanswerable' })
     if (outcome.ok || outcome.kind !== 'unanswerable') throw new Error('expected unanswerable')
@@ -315,7 +315,7 @@ describe('a failure says which of three things went wrong', () => {
   it('names a peer that cannot be reached, rather than throwing', async () => {
     const { rpc } = buildFabric({ issues: true })
 
-    const outcome = await enrolOverRpc(rpc, 'nobody-is-listening-here', buildRequest(keypair(86).priv))
+    const outcome = await enrolOverRpc(rpc, 'nobody-is-listening-here', await buildRequest(keypair(86).priv))
 
     expect(outcome).toMatchObject({ ok: false, kind: 'unreachable' })
     if (outcome.ok || outcome.kind !== 'unreachable') throw new Error('expected unreachable')
@@ -349,7 +349,7 @@ describe('an observed enrolment request is not a replayable byte string', () => 
     const joiner = new RecordingEndpoint(network.connect('recording-joiner'), { timeoutMs: 1_000 })
     const node = keypair(91)
 
-    const honest = await enrolOverRpc(joiner, providerId, buildRequest(node.priv))
+    const honest = await enrolOverRpc(joiner, providerId, await buildRequest(node.priv))
     expect(honest.ok).toBe(true)
 
     // The last frame the joiner sent is the enrolment itself. Asserted rather than
@@ -383,7 +383,7 @@ describe('an observed enrolment request is not a replayable byte string', () => 
    */
   it('refuses a well-formed frame that answers no challenge at all', async () => {
     const { rpc, providerId } = buildFabric({ issues: true })
-    const unfreshened = buildRequest(keypair(92).priv)
+    const unfreshened = await buildRequest(keypair(92).priv)
     expect(unfreshened.freshness).toBe('answers-no-challenge')
 
     const answered = parseResponse(
@@ -479,8 +479,8 @@ describe('the requester checks that the answer is about the request', () => {
 
   const VICTIM_RELAYS = ['12D3KooWRelayOne', '12D3KooWRelayTwo']
 
-  function victimRequest(relayIds: readonly string[] = VICTIM_RELAYS): PendingEnrollment {
-    return requestEnrollment(victimNode.priv, victimUser.priv, {
+  async function victimRequest(relayIds: readonly string[] = VICTIM_RELAYS): Promise<PendingEnrollment> {
+    return await requestEnrollment(victimNode.priv, victimUser.priv, {
       operatorId: 'victim-op',
       discoverability: 'via-relay',
       relayIds,
@@ -522,14 +522,14 @@ describe('the requester checks that the answer is about the request', () => {
     rpc.substitute = await realCertificateValueFor(
       network,
       providerId,
-      requestEnrollment(decoyNode.priv, victimUser.priv, {
+      await requestEnrollment(decoyNode.priv, victimUser.priv, {
         operatorId: 'victim-op',
         discoverability: 'via-relay',
         relayIds: VICTIM_RELAYS,
       }),
     )
 
-    expect(await enrolOverRpc(rpc, providerId, victimRequest())).toMatchObject({
+    expect(await enrolOverRpc(rpc, providerId, await victimRequest())).toMatchObject({
       ok: false,
       kind: 'unratified',
       field: 'nodeKey',
@@ -542,14 +542,14 @@ describe('the requester checks that the answer is about the request', () => {
     rpc.substitute = await realCertificateValueFor(
       network,
       providerId,
-      requestEnrollment(victimNode.priv, decoyUser.priv, {
+      await requestEnrollment(victimNode.priv, decoyUser.priv, {
         operatorId: 'victim-op',
         discoverability: 'via-relay',
         relayIds: VICTIM_RELAYS,
       }),
     )
 
-    expect(await enrolOverRpc(rpc, providerId, victimRequest())).toMatchObject({
+    expect(await enrolOverRpc(rpc, providerId, await victimRequest())).toMatchObject({
       ok: false,
       kind: 'unratified',
       field: 'userKey',
@@ -562,14 +562,14 @@ describe('the requester checks that the answer is about the request', () => {
     rpc.substitute = await realCertificateValueFor(
       network,
       providerId,
-      requestEnrollment(victimNode.priv, victimUser.priv, {
+      await requestEnrollment(victimNode.priv, victimUser.priv, {
         operatorId: 'somebody-elses-operator',
         discoverability: 'via-relay',
         relayIds: VICTIM_RELAYS,
       }),
     )
 
-    expect(await enrolOverRpc(rpc, providerId, victimRequest())).toMatchObject({
+    expect(await enrolOverRpc(rpc, providerId, await victimRequest())).toMatchObject({
       ok: false,
       kind: 'unratified',
       field: 'operatorId',
@@ -582,14 +582,14 @@ describe('the requester checks that the answer is about the request', () => {
     rpc.substitute = await realCertificateValueFor(
       network,
       providerId,
-      requestEnrollment(victimNode.priv, victimUser.priv, {
+      await requestEnrollment(victimNode.priv, victimUser.priv, {
         operatorId: 'victim-op',
         discoverability: 'via-relay',
         relayIds: [...VICTIM_RELAYS, '12D3KooWRelayThree'],
       }),
     )
 
-    expect(await enrolOverRpc(rpc, providerId, victimRequest())).toMatchObject({
+    expect(await enrolOverRpc(rpc, providerId, await victimRequest())).toMatchObject({
       ok: false,
       kind: 'unratified',
       field: 'relayIds',
@@ -604,7 +604,7 @@ describe('the requester checks that the answer is about the request', () => {
     const outcome = await enrolOverRpc(
       side,
       providerId,
-      requestEnrollment(decoyNode.priv, decoyUser.priv, {
+      await requestEnrollment(decoyNode.priv, decoyUser.priv, {
         operatorId: 'somebody-elses-operator',
         discoverability: 'seed',
         relayIds: [],
@@ -619,7 +619,7 @@ describe('the requester checks that the answer is about the request', () => {
 
   it('accepts an honest answer', async () => {
     const { network, providerId } = buildFabric({ issues: true })
-    const outcome = await enrolOverRpc(victimEndpoint(network), providerId, victimRequest())
+    const outcome = await enrolOverRpc(victimEndpoint(network), providerId, await victimRequest())
 
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) throw new Error('expected a certificate')
@@ -635,7 +635,7 @@ describe('the requester checks that the answer is about the request', () => {
     const { network, providerId } = buildFabric({ issues: true })
     const descending = ['12D3KooWRelayTwo', '12D3KooWRelayOne']
 
-    const outcome = await enrolOverRpc(victimEndpoint(network), providerId, victimRequest(descending))
+    const outcome = await enrolOverRpc(victimEndpoint(network), providerId, await victimRequest(descending))
 
     expect(outcome.ok).toBe(true)
     if (!outcome.ok) throw new Error('expected a certificate')

@@ -114,7 +114,7 @@ async function fabricOf(options: {
     const nodeKey = toHex(ed25519.getPublicKey(priv))
 
     const enrolled = authority.enrol(
-      requestEnrollment(priv, userPriv, {
+      await requestEnrollment(priv, userPriv, {
         operatorId: `op-${i}`,
         discoverability: 'seed',
         relayIds: [],
@@ -274,7 +274,7 @@ describe('SCHED-01 — providers unions across peers, because each answers only 
     const priv = new Uint8Array(32).fill(99)
     const subject = toHex(ed25519.getPublicKey(priv))
     const enrolled = authority.enrol(
-      requestEnrollment(priv, new Uint8Array(32).fill(61), {
+      await requestEnrollment(priv, new Uint8Array(32).fill(61), {
         operatorId: 'op-subject',
         discoverability: 'seed',
         relayIds: [],
@@ -359,7 +359,7 @@ describe('SCHED-01 — providers unions across peers, because each answers only 
       issuance: 'remembers-only-within-this-process',
     })
     const enrolled = authority.enrol(
-      requestEnrollment(priv, new Uint8Array(32).fill(61), {
+      await requestEnrollment(priv, new Uint8Array(32).fill(61), {
         operatorId: 'op-answering',
         discoverability: 'seed',
         relayIds: [],
@@ -498,7 +498,7 @@ describe('DATA-05 — a provider answer is not a side channel around an egress r
     })
     const userPriv = new Uint8Array(32).fill(61)
     const enrolled = authority.enrol(
-      requestEnrollment(priv, userPriv, {
+      await requestEnrollment(priv, userPriv, {
         operatorId: 'op-guarded',
         discoverability: 'seed',
         relayIds: [],

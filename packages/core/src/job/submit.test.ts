@@ -2791,17 +2791,17 @@ interface Enrolled {
 /** Distinct node seeds, so no two fixture nodes share a key by accident. */
 let nodeSeedCounter = 100
 
-function enrol(
+async function enrol(
   nodeId: string,
   operatorId: string,
   relayIds: readonly string[],
   providerPrivateKey: Uint8Array = PROVIDER_KEY,
   issuedAt: number = Date.now(),
-): Enrolled {
+): Promise<Enrolled> {
   nodeSeedCounter += 1
   const nodeSeed = new Uint8Array(32).fill(nodeSeedCounter)
   const issued = authorityFor(providerPrivateKey).enrol(
-    requestEnrollment(nodeSeed, OWNER_KEY, { operatorId, discoverability: 'via-relay', relayIds }),
+    await requestEnrollment(nodeSeed, OWNER_KEY, { operatorId, discoverability: 'via-relay', relayIds }),
     issuedAt,
   )
   if (!issued.ok) throw new Error(`fixture failed to enrol ${nodeId}: ${JSON.stringify(issued.refusal)}`)
@@ -2818,11 +2818,11 @@ function enrol(
  * thing that needs a seed here, and it needs it to be one that is *named* by other
  * members, which is what `nodeId` supplies.
  */
-function enrolSeed(nodeId: string, operatorId: string): Enrolled {
+async function enrolSeed(nodeId: string, operatorId: string): Promise<Enrolled> {
   nodeSeedCounter += 1
   const nodeSeed = new Uint8Array(32).fill(nodeSeedCounter)
   const issued = authorityFor(PROVIDER_KEY).enrol(
-    requestEnrollment(nodeSeed, OWNER_KEY, { operatorId, discoverability: 'seed', relayIds: [] }),
+    await requestEnrollment(nodeSeed, OWNER_KEY, { operatorId, discoverability: 'seed', relayIds: [] }),
     Date.now(),
   )
   if (!issued.ok) throw new Error(`fixture failed to enrol ${nodeId}: ${JSON.stringify(issued.refusal)}`)
@@ -2893,7 +2893,7 @@ function signingSomethingElse(node: Enrolled): Executor {
 
 describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested', () => {
   it('reads owner-attested when one verified replica ran it', async () => {
-    const solo = enrol('solo', 'op-solo', ['relay-solo'])
+    const solo = await enrol('solo', 'op-solo', ['relay-solo'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -2916,8 +2916,8 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
   })
 
   it('reads owner-domain when two verified replicas share an operator', async () => {
-    const one = enrol('bob-1', 'op-bob', ['relay-1'])
-    const two = enrol('bob-2', 'op-bob', ['relay-2'])
+    const one = await enrol('bob-1', 'op-bob', ['relay-1'])
+    const two = await enrol('bob-2', 'op-bob', ['relay-2'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -2942,8 +2942,8 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
   })
 
   it('reads independent when two verified replicas answer under different operators', async () => {
-    const a = enrol('a', 'op-a', ['relay-a'])
-    const b = enrol('b', 'op-b', ['relay-b'])
+    const a = await enrol('a', 'op-a', ['relay-a'])
+    const b = await enrol('b', 'op-b', ['relay-b'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -2968,8 +2968,8 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
   })
 
   it('excludes a replica whose signature is over a different output, and says so', async () => {
-    const a = enrol('a', 'op-a', ['relay-a'])
-    const b = enrol('b', 'op-b', ['relay-b'])
+    const a = await enrol('a', 'op-a', ['relay-a'])
+    const b = await enrol('b', 'op-b', ['relay-b'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -3002,11 +3002,11 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
   })
 
   it('excludes a replica answering under a certificate this requestor did not place with', async () => {
-    const a = enrol('a', 'op-a', ['relay-a'])
-    const b = enrol('b', 'op-b', ['relay-b'])
+    const a = await enrol('a', 'op-a', ['relay-a'])
+    const b = await enrol('b', 'op-b', ['relay-b'])
     // `b`'s second identity: its own certificate, from the same provider, naming an
     // operator this requestor never placed anything with.
-    const bElsewhere = enrol('b', 'op-elsewhere', ['relay-b'])
+    const bElsewhere = await enrol('b', 'op-elsewhere', ['relay-b'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -3038,9 +3038,9 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
     // Same node key, a fresher certificate from the same provider. Byte equality would
     // refuse an honest node for having renewed; `nodeKey` plus the pinned issuer accepts
     // it.
-    const a = enrol('a', 'op-a', ['relay-a'], PROVIDER_KEY, Date.now() - 60_000)
+    const a = await enrol('a', 'op-a', ['relay-a'], PROVIDER_KEY, Date.now() - 60_000)
     const renewed = authorityFor(PROVIDER_KEY).enrol(
-      requestEnrollment(a.signer.nodeSeed, OWNER_KEY, {
+      await requestEnrollment(a.signer.nodeSeed, OWNER_KEY, {
         operatorId: 'op-a',
         discoverability: 'via-relay',
         relayIds: ['relay-a', 'relay-a2'],
@@ -3073,9 +3073,9 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
   })
 
   it('builds the receipt from the replicas that agreed, never from the nodes that were placed', async () => {
-    const a = enrol('a', 'op-a', ['relay-a'])
-    const b = enrol('b', 'op-b', ['relay-b'])
-    const c = enrol('c', 'op-c', ['relay-c'])
+    const a = await enrol('a', 'op-a', ['relay-a'])
+    const b = await enrol('b', 'op-b', ['relay-b'])
+    const c = await enrol('c', 'op-c', ['relay-c'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -3133,7 +3133,7 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
   })
 
   it('reports a shard that never agreed as holding no attestation, not as owner-attested', async () => {
-    const a = enrol('a', 'op-a', ['relay-a'])
+    const a = await enrol('a', 'op-a', ['relay-a'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -3158,11 +3158,11 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
   })
 
   it('reports the job at its weakest shard, not its strongest and not its first', async () => {
-    const a = enrol('a', 'op-a', ['relay-a'])
-    const b = enrol('b', 'op-b', ['relay-b'])
+    const a = await enrol('a', 'op-a', ['relay-a'])
+    const b = await enrol('b', 'op-b', ['relay-b'])
     // Alice holds one node, so her sovereign shard runs once — owner-attested. The
     // public shard ahead of it agrees across two operators — independent.
-    const alice = enrol('alice-1', 'op-alice', ['relay-alice'])
+    const alice = await enrol('alice-1', 'op-alice', ['relay-alice'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -3200,8 +3200,8 @@ describe('VER-08/VER-09/VER-10 — every shard says how strongly it was attested
  */
 describe('VER-03/VER-04 — a public shard wanting verification gets a composed quorum, or the caller’s answer', () => {
   it('composes across two operators on independent paths, and the shard is not degraded', async () => {
-    const a = enrol('a', 'op-a', ['relay-a'])
-    const b = enrol('b', 'op-b', ['relay-b'])
+    const a = await enrol('a', 'op-a', ['relay-a'])
+    const b = await enrol('b', 'op-b', ['relay-b'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -3228,8 +3228,8 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
   })
 
   it('degrades by default when one operator holds every candidate, and carries the composer’s reason', async () => {
-    const one = enrol('bob-1', 'op-bob', ['relay-1'])
-    const two = enrol('bob-2', 'op-bob', ['relay-2'])
+    const one = await enrol('bob-1', 'op-bob', ['relay-1'])
+    const two = await enrol('bob-2', 'op-bob', ['relay-2'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -3265,8 +3265,8 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
   })
 
   it('refuses the same shard on the same fabric when the caller asked for refusal', async () => {
-    const one = enrol('bob-1', 'op-bob', ['relay-1'])
-    const two = enrol('bob-2', 'op-bob', ['relay-2'])
+    const one = await enrol('bob-1', 'op-bob', ['relay-1'])
+    const two = await enrol('bob-2', 'op-bob', ['relay-2'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -3293,8 +3293,8 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
   })
 
   it('degrades when every member depends on one relay, and names the relay', async () => {
-    const a = enrol('a', 'op-a', ['relay-shared'])
-    const b = enrol('b', 'op-b', ['relay-shared'])
+    const a = await enrol('a', 'op-a', ['relay-shared'])
+    const b = await enrol('b', 'op-b', ['relay-shared'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -3341,9 +3341,9 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
     // same two peers, same redundancy, same dial. So a difference in the verdict can only
     // have come from whether the seed is the relay the other two depend on.
     const relayIsCandidate = async (seedNodeId: string): Promise<ShardResult> => {
-      const seed = enrolSeed(seedNodeId, 'op-relay')
-      const a = enrol('a', 'op-a', ['relay-shared'])
-      const b = enrol('b', 'op-b', ['relay-shared'])
+      const seed = await enrolSeed(seedNodeId, 'op-relay')
+      const a = await enrol('a', 'op-a', ['relay-shared'])
+      const b = await enrol('b', 'op-b', ['relay-shared'])
       const r = await submitJob(
         {
           moduleCid: MODULE_CID,
@@ -3389,7 +3389,7 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
   })
 
   it('attempts no quorum at redundancy 1, because there is no verification to compose one for', async () => {
-    const a = enrol('a', 'op-a', ['relay-a'])
+    const a = await enrol('a', 'op-a', ['relay-a'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -3421,8 +3421,8 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
     // `insufficient-operators` — correctly, and uselessly, because one operator is the
     // whole point of a sovereign shard. The strict arm is what makes this case bite: if
     // the shard reached the composer it would come back refused rather than agreed.
-    const one = enrol('carol-1', 'op-carol', ['relay-1'])
-    const two = enrol('carol-2', 'op-carol', ['relay-2'])
+    const one = await enrol('carol-1', 'op-carol', ['relay-1'])
+    const two = await enrol('carol-2', 'op-carol', ['relay-2'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -3451,7 +3451,7 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
     // A requestor holding no certificates cannot compose anything, and refusing its job
     // would break every caller that builds descriptors through `publicNodes`. It is not
     // a silent degradation: the receipt says the named absence on every shard.
-    const a = enrol('a', 'op-a', ['relay-a'])
+    const a = await enrol('a', 'op-a', ['relay-a'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,
@@ -3479,8 +3479,8 @@ describe('VER-03/VER-04 — a public shard wanting verification gets a composed 
   })
 
   it('does not pre-declare a strength: a composed quorum whose second member cannot be checked reads the absence', async () => {
-    const a = enrol('a', 'op-a', ['relay-a'])
-    const b = enrol('b', 'op-b', ['relay-b'])
+    const a = await enrol('a', 'op-a', ['relay-a'])
+    const b = await enrol('b', 'op-b', ['relay-b'])
     const r = await submitJob(
       {
         moduleCid: MODULE_CID,

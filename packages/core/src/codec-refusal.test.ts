@@ -90,14 +90,14 @@ function expectNotEncodable(
 }
 
 describe('a certificate that will not encode is not a certificate with a bad signature', () => {
-  function certificate(overrides: Partial<NodeCertificate> = {}): NodeCertificate {
+  async function certificate(overrides: Partial<NodeCertificate> = {}): Promise<NodeCertificate> {
     const auth = new EnrollmentAuthority({
       providerPrivateKey: provider.priv,
       maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
       issuance: 'remembers-only-within-this-process',
     })
     const issued = auth.enrol(
-      requestEnrollment(node.priv, owner.priv, {
+      await requestEnrollment(node.priv, owner.priv, {
         operatorId: 'op',
         discoverability: 'seed',
         relayIds: [],
@@ -108,11 +108,11 @@ describe('a certificate that will not encode is not a certificate with a bad sig
     return { ...issued.certificate, ...overrides }
   }
 
-  it('names the codec and the field, instead of accusing the issuer of forging it', () => {
+  it('names the codec and the field, instead of accusing the issuer of forging it', async () => {
     const anchors = new Set([provider.pub])
     // "Never expires", written the obvious way. Every other field is untouched and
     // the signature is the real one the authority produced.
-    const forever = certificate({ expiresAt: Number.POSITIVE_INFINITY })
+    const forever = await certificate({ expiresAt: Number.POSITIVE_INFINITY })
 
     expectNotEncodable(
       outcomeOf(() => verifyCertificate(forever, anchors, NOW)),
@@ -121,9 +121,9 @@ describe('a certificate that will not encode is not a certificate with a bad sig
     )
   })
 
-  it('still calls a real forgery bad-signature', () => {
+  it('still calls a real forgery bad-signature', async () => {
     const anchors = new Set([provider.pub])
-    const forged = certificate({ operatorId: 'someone-else' })
+    const forged = await certificate({ operatorId: 'someone-else' })
 
     const verdict = verifyCertificate(forged, anchors, NOW)
     expect(verdict.ok).toBe(false)
@@ -263,28 +263,28 @@ describe('a challenge that will not encode is not a node failing to prove posses
       maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
       issuance: 'remembers-only-within-this-process',
     })
-  const valid = () =>
-    requestEnrollment(node.priv, owner.priv, {
+  const valid = async () =>
+    await requestEnrollment(node.priv, owner.priv, {
       operatorId: 'op',
       discoverability: 'seed',
       relayIds: [],
     })
 
-  it('names the codec and the field, instead of bad-proof-of-possession', () => {
-    const request = { ...valid(), nodeKey: Number.NaN as unknown as PublicKeyHex }
+  it('names the codec and the field, instead of bad-proof-of-possession', async () => {
+    const request = { ...(await valid()), nodeKey: Number.NaN as unknown as PublicKeyHex }
 
     expectNotEncodable(outcomeOf(() => auth().enrol(request, NOW)), 'challenge', 'nodeKey')
   })
 
-  it('names the codec and the field, instead of bad-owner-proof', () => {
-    const request = { ...valid(), userKey: Number.NEGATIVE_INFINITY as unknown as PublicKeyHex }
+  it('names the codec and the field, instead of bad-owner-proof', async () => {
+    const request = { ...(await valid()), userKey: Number.NEGATIVE_INFINITY as unknown as PublicKeyHex }
 
     expectNotEncodable(outcomeOf(() => auth().enrol(request, NOW)), 'challenge', 'userKey')
   })
 
-  it('still refuses a request that genuinely did not prove possession', () => {
+  it('still refuses a request that genuinely did not prove possession', async () => {
     const stranger = keypair(74)
-    const request = { ...valid(), proofOfPossession: toHex(ed25519.sign(new Uint8Array(8), stranger.priv)) }
+    const request = { ...(await valid()), proofOfPossession: toHex(ed25519.sign(new Uint8Array(8), stranger.priv)) }
 
     const result = auth().enrol(request, NOW)
     expect(result.ok).toBe(false)
@@ -293,9 +293,9 @@ describe('a challenge that will not encode is not a node failing to prove posses
     expect(result.reason).toContain('did not prove possession of its key')
   })
 
-  it('still refuses a request the named user did not consent to', () => {
+  it('still refuses a request the named user did not consent to', async () => {
     const stranger = keypair(75)
-    const request = { ...valid(), ownerProof: toHex(ed25519.sign(new Uint8Array(8), stranger.priv)) }
+    const request = { ...(await valid()), ownerProof: toHex(ed25519.sign(new Uint8Array(8), stranger.priv)) }
 
     const result = auth().enrol(request, NOW)
     expect(result.ok).toBe(false)

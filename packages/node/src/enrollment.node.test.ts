@@ -494,11 +494,11 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
 
     // Reproducible node seeds: a failure names which request it was.
     const outcomes = await Promise.all(
-      Array.from({ length: 20 }, (_, i) =>
+      Array.from({ length: 20 }, async (_, i) =>
         enrolOverRpc(
           client.rpc,
           provider.peerId,
-          requestEnrollment(new Uint8Array(SEED_BYTES).fill(i + 1), BURST_USER_SEED, {
+          await requestEnrollment(new Uint8Array(SEED_BYTES).fill(i + 1), BURST_USER_SEED, {
             operatorId: 'burst-ops',
             discoverability: 'seed',
             relayIds: [],
@@ -562,11 +562,11 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
     await client.dial(provider.multiaddrs[0] as string)
 
     const outcomes = await Promise.all(
-      Array.from({ length: 20 }, (_, i) =>
+      Array.from({ length: 20 }, async (_, i) =>
         enrolOverRpc(
           client.rpc,
           provider.peerId,
-          requestEnrollment(
+          await requestEnrollment(
             new Uint8Array(SEED_BYTES).fill(i + 1),
             new Uint8Array(SEED_BYTES).fill(i + 101),
             { operatorId: 'cost-ops', discoverability: 'seed', relayIds: [] },
@@ -614,13 +614,13 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
     // Exhaust the first provider's budget for this user key, one request at a time so the
     // refusal below cannot be an artefact of concurrency.
     const againstFirst: EnrolOutcome[] = []
-    for (let i = 1; i <= 7; i++) againstFirst.push(await enrolOverRpc(client.rpc, first.peerId, requestFor(i)))
+    for (let i = 1; i <= 7; i++) againstFirst.push(await enrolOverRpc(client.rpc, first.peerId, await requestFor(i)))
     expect(againstFirst.some((o) => !o.ok && o.kind === 'refused')).toBe(true)
 
     // The eighth node key, refused by the first provider and accepted by the second.
-    const refusedByFirst = await enrolOverRpc(client.rpc, first.peerId, requestFor(8))
+    const refusedByFirst = await enrolOverRpc(client.rpc, first.peerId, await requestFor(8))
     expect(refusedByFirst.ok).toBe(false)
-    const acceptedBySecond = await enrolOverRpc(client.rpc, second.peerId, requestFor(8))
+    const acceptedBySecond = await enrolOverRpc(client.rpc, second.peerId, await requestFor(8))
     expect(acceptedBySecond.ok).toBe(true)
   }, 180_000)
 })

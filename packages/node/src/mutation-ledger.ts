@@ -689,18 +689,23 @@ export const MUTATIONS: readonly Mutation[] = [
     why:
       'AUTH-04, the caller-side half. `enrol` refuses a hand-assembled request naming a ' +
       'user who did not sign, but `requestEnrollment` is the path every honest node takes, ' +
-      'and it closes the same hole by *derivation* rather than by refusal: the user key ' +
-      'comes from the private key it is handed, so naming a stranger is not something the ' +
-      'function can be asked to do. Make it honour a supplied field and a rogue enrols ' +
-      'under a victim’s identity through the front door — mislabelling the certificate ' +
-      'and, because the per-owner limiter keys on that same field, spending the victim’s ' +
-      'enrollment window too. Restored as a `??` fallback rather than a deletion, because ' +
-      '“accept it if the caller bothered to pass one” is the shape a convenience edit ' +
-      'leaves behind.',
+      'and it closes the same hole one step earlier: the user key comes from whatever holds ' +
+      'the private half, so naming a stranger is not something the function can be asked to ' +
+      'do. Make it honour a supplied field and a rogue enrols under a victim’s identity ' +
+      'through the front door — mislabelling the certificate and, because the per-owner ' +
+      'limiter keys on that same field, spending the victim’s enrollment window too. ' +
+      'Restored as a `??` fallback rather than a deletion, because “accept it if the caller ' +
+      'bothered to pass one” is the shape a convenience edit leaves behind. ' +
+      '**Retargeted 2026-08-16**, when the second parameter became a `UserSigner` so a ' +
+      'visitor’s key could be a non-extractable `CryptoKey`: the derivation moved down into ' +
+      '`seedUserSigner` and the line this plants on is now the read of it. The property, the ' +
+      'catching case and the mechanism are all unchanged — a rogue `userKey` in `fields` is ' +
+      'inert because the local below overwrites it in the returned spread, and planting this ' +
+      'line is what makes the local itself rogue.',
     file: 'packages/core/src/enrollment.ts',
-    find: '  const userKey = toHex(ed25519.getPublicKey(userPrivateKey))',
+    find: '  const userKey = signer.userKey',
     replace:
-      '  const userKey = (fields as { userKey?: PublicKeyHex }).userKey ?? toHex(ed25519.getPublicKey(userPrivateKey))',
+      '  const userKey = (fields as { userKey?: PublicKeyHex }).userKey ?? signer.userKey',
     caughtBy: ['packages/core/src/enrollment.test.ts'],
     signature: 'cannot be handed a user key through its fields at all',
     signatureSource: 'test-title',

@@ -45,13 +45,13 @@ function authorityFor(providerKey: Uint8Array): EnrollmentAuthority {
 }
 
 /** A real node identity: a seed and the certificate a real authority issued for it. */
-function enrolled(
+async function enrolled(
   seed: number,
   issuer: Uint8Array = provider.priv,
-): { nodeSeed: Uint8Array; certificate: NodeCertificate } {
+): Promise<{ nodeSeed: Uint8Array; certificate: NodeCertificate }> {
   const node = keypair(seed)
   const result = authorityFor(issuer).enrol(
-    requestEnrollment(node.priv, alice.priv, {
+    await requestEnrollment(node.priv, alice.priv, {
       operatorId: `op-${seed}`,
       discoverability: 'via-relay',
       relayIds: ['relay-1'],
@@ -82,7 +82,7 @@ async function work(overrides: Partial<ResultWork> = {}): Promise<ResultWork> {
 
 describe('a stranger holding only the provider key can check a result', () => {
   it('accepts a statement a certified node signed over this exact work', async () => {
-    const node = enrolled(1)
+    const node = await enrolled(1)
     const task = await work()
 
     const attestation = signResult(node, task)
@@ -98,7 +98,7 @@ describe('a stranger holding only the provider key can check a result', () => {
   })
 
   it('carries the whole certificate, so nothing has to be fetched to check it', async () => {
-    const node = enrolled(2)
+    const node = await enrolled(2)
     const attestation = signResult(node, await work())
     // The reader is given the issuer, the validity window and the signing key without
     // resolving anything. A bare node key would need an out-of-band lookup, and a
@@ -112,7 +112,7 @@ describe('a stranger holding only the provider key can check a result', () => {
 
 describe('the statement is bound to the work, the answer and the signer', () => {
   it('does not verify against a different partition of the same input', async () => {
-    const node = enrolled(3)
+    const node = await enrolled(3)
     const shard0 = await work({ partitionIndex: 0 })
     const shard1 = { ...shard0, partitionIndex: 1 }
 
@@ -126,7 +126,7 @@ describe('the statement is bound to the work, the answer and the signer', () => 
   })
 
   it('does not verify against a different module or input', async () => {
-    const node = enrolled(4)
+    const node = await enrolled(4)
     const task = await work()
 
     const attestation = signResult(node, task)
@@ -142,7 +142,7 @@ describe('the statement is bound to the work, the answer and the signer', () => 
   })
 
   it('does not verify against a different answer', async () => {
-    const node = enrolled(5)
+    const node = await enrolled(5)
     const task = await work()
 
     const attestation = signResult(node, task)
@@ -155,8 +155,8 @@ describe('the statement is bound to the work, the answer and the signer', () => 
   })
 
   it("does not verify as another node's, even with that node's own certificate", async () => {
-    const a = enrolled(6)
-    const b = enrolled(7)
+    const a = await enrolled(6)
+    const b = await enrolled(7)
     const task = await work()
 
     // A's signature presented under B's certificate.
@@ -171,8 +171,8 @@ describe('the statement is bound to the work, the answer and the signer', () => 
   })
 
   it('gives two nodes different bytes to sign for the same shard and the same answer', async () => {
-    const a = enrolled(17)
-    const b = enrolled(18)
+    const a = await enrolled(17)
+    const b = await enrolled(18)
     const task = await work()
 
     // This — not the case above — is the reading that `nodeKey`-in-the-challenge
@@ -189,7 +189,7 @@ describe('the statement is bound to the work, the answer and the signer', () => 
 
 describe('each of the three questions is refused by its own name', () => {
   it('names the issuer, not the signature, when the provider is not pinned', async () => {
-    const stranger = enrolled(8, rogueProvider.priv)
+    const stranger = await enrolled(8, rogueProvider.priv)
     const task = await work()
 
     // The result signature here is perfectly good. Only the issuer is unpinned.
@@ -209,7 +209,7 @@ describe('each of the three questions is refused by its own name', () => {
   })
 
   it('says it does not trust the issuer before it says the peer forged anything', async () => {
-    const stranger = enrolled(19, rogueProvider.priv)
+    const stranger = await enrolled(19, rogueProvider.priv)
     const task = await work()
 
     // Both questions fail: the provider is not pinned AND the signature is for other
@@ -236,7 +236,7 @@ describe('each of the three questions is refused by its own name', () => {
   })
 
   it('forwards expiry under its own name too', async () => {
-    const node = enrolled(9)
+    const node = await enrolled(9)
     const task = await work()
     const attestation = signResult(node, task)
 
@@ -263,8 +263,8 @@ describe('each of the three questions is refused by its own name', () => {
   })
 
   it('gives the three refusals three distinguishable kinds', async () => {
-    const node = enrolled(10)
-    const stranger = enrolled(11, rogueProvider.priv)
+    const node = await enrolled(10)
+    const stranger = await enrolled(11, rogueProvider.priv)
     const task = await work()
 
     const kinds = [
@@ -280,7 +280,7 @@ describe('each of the three questions is refused by its own name', () => {
 
 describe('a node can only sign for a key it holds', () => {
   it('refuses a seed whose public half the certificate does not name', async () => {
-    const node = enrolled(12)
+    const node = await enrolled(12)
     const somebodyElse = keypair(13)
     const task = await work()
 
@@ -290,7 +290,7 @@ describe('a node can only sign for a key it holds', () => {
   })
 
   it('derives the signing key rather than accepting one', async () => {
-    const node = enrolled(14)
+    const node = await enrolled(14)
     const task = await work()
     // There is no field on `ResultSigner` through which a caller could name another
     // node's key — the same discipline `requestEnrollment` applies to `userKey`.
@@ -301,7 +301,7 @@ describe('a node can only sign for a key it holds', () => {
 
 describe('the challenges are domain-separated and order-honest', () => {
   it('gives exec and combine different bytes for the same values', async () => {
-    const node = enrolled(15)
+    const node = await enrolled(15)
     const task = await work()
     const nodeKey = node.certificate.nodeKey
 
@@ -312,7 +312,7 @@ describe('the challenges are domain-separated and order-honest', () => {
   })
 
   it('signs a combine over its inputs in merge order, never sorted', async () => {
-    const node = enrolled(16)
+    const node = await enrolled(16)
     const nodeKey = node.certificate.nodeKey
     const resultCid = await cid('merged')
     // Two orderings of one input set. A combine's output depends on input order, so

@@ -68,7 +68,7 @@ const UNKNOWN_VALUE = {
   nested: { flag: true, absent: null },
 }
 
-function records(extensions: readonly CapabilityExtension[]): NodeRecords {
+async function records(extensions: readonly CapabilityExtension[]): Promise<NodeRecords> {
   const authority = new EnrollmentAuthority({
     providerPrivateKey: provider.priv,
     maxPerWindow: 50,
@@ -77,7 +77,7 @@ function records(extensions: readonly CapabilityExtension[]): NodeRecords {
   })
   const key = keypair(212)
   const enrolled = authority.enrol(
-    requestEnrollment(key.priv, owner.priv, {
+    await requestEnrollment(key.priv, owner.priv, {
       operatorId: 'op-wire',
       discoverability: 'seed',
       relayIds: [],
@@ -106,8 +106,8 @@ function records(extensions: readonly CapabilityExtension[]): NodeRecords {
  * `publishCapabilities`, which sorts before it signs — so a list that reaches the parser
  * out of order can only be built by writing the frame directly, which is what this does.
  */
-const frameWith = (extensions: CanonicalValue): CanonicalValue => {
-  const frame = entriesOf(encodeResponse({ kind: 'records', records: records([]) }))
+const frameWith = async (extensions: CanonicalValue): Promise<CanonicalValue> => {
+  const frame = entriesOf(encodeResponse({ kind: 'records', records: await records([]) }))
   const capabilities = entriesOf(frame.get('capabilities'))
   capabilities.set('extensions', extensions)
   frame.set('capabilities', frameOf(capabilities))
@@ -134,8 +134,8 @@ function roundTrip(source: NodeRecords): NodeRecords {
 }
 
 describe('the wire codec preserves extensions it cannot interpret', () => {
-  it('carries an unknown extension through unchanged, and the record still verifies', () => {
-    const source = records([{ id: UNKNOWN, critical: false, value: UNKNOWN_VALUE }])
+  it('carries an unknown extension through unchanged, and the record still verifies', async () => {
+    const source = await records([{ id: UNKNOWN, critical: false, value: UNKNOWN_VALUE }])
     const parsed = roundTrip(source)
 
     expect(parsed.capabilities.extensions).toEqual(source.capabilities.extensions)
@@ -144,8 +144,8 @@ describe('the wire codec preserves extensions it cannot interpret', () => {
     expect(verifyCapabilityRecord(parsed.capabilities, NOW)).toBe(true)
   })
 
-  it('re-encodes byte-identically, so a relayed record is the record that was signed', () => {
-    const source = records([
+  it('re-encodes byte-identically, so a relayed record is the record that was signed', async () => {
+    const source = await records([
       { id: 'urn:o2:z-last', critical: true, value: 'z' },
       { id: UNKNOWN, critical: false, value: UNKNOWN_VALUE },
     ])
@@ -156,8 +156,8 @@ describe('the wire codec preserves extensions it cannot interpret', () => {
     expect(Array.from(again.bytes)).toEqual(Array.from(first.bytes))
   })
 
-  it('puts the extensions on the wire at all — a frame without them is the defect', () => {
-    const source = records([{ id: UNKNOWN, critical: false, value: UNKNOWN_VALUE }])
+  it('puts the extensions on the wire at all — a frame without them is the defect', async () => {
+    const source = await records([{ id: UNKNOWN, critical: false, value: UNKNOWN_VALUE }])
     // Read the frame rather than the parse, so an encoder that dropped the field and a
     // parser that re-invented it could not cancel each other out.
     const frame = entriesOf(encodeResponse({ kind: 'records', records: source }))
@@ -166,15 +166,15 @@ describe('the wire codec preserves extensions it cannot interpret', () => {
     ])
   })
 
-  it('omits the key entirely when there are no extensions', () => {
-    const frame = entriesOf(encodeResponse({ kind: 'records', records: records([]) }))
+  it('omits the key entirely when there are no extensions', async () => {
+    const frame = entriesOf(encodeResponse({ kind: 'records', records: await records([]) }))
     // Not `extensions: []`. A node that uses none produces the frame it produced before
     // the field existed, which is the same rule `certificateToValue` states for `x509`.
     expect(entriesOf(frame.get('capabilities')).has('extensions')).toBe(false)
   })
 
-  it('accepts a frame with no extensions key, because every older peer sends one', () => {
-    const source = records([])
+  it('accepts a frame with no extensions key, because every older peer sends one', async () => {
+    const source = await records([])
     const encoded = encodeResponse({ kind: 'records', records: source })
     const parsed = parseResponse(encoded)
     expect(parsed?.kind === 'records' ? parsed.records?.capabilities.extensions : null).toEqual([])
@@ -198,10 +198,10 @@ describe('the wire codec preserves extensions it cannot interpret', () => {
  * same answer on every peer for records that are cryptographically identical.
  */
 describe('the parsed extension list is canonically ordered, whatever order it arrived in', () => {
-  it('sorts a deliberately unsorted wire list by id', () => {
+  it('sorts a deliberately unsorted wire list by id', async () => {
     expect(
       parsedIds(
-        frameWith([
+        await frameWith([
           { id: 'urn:o2:z', critical: false, value: 1 },
           { id: 'urn:o2:a', critical: true, value: 2 },
           { id: 'urn:o2:m', critical: false, value: 3 },
@@ -210,14 +210,14 @@ describe('the parsed extension list is canonically ordered, whatever order it ar
     ).toEqual(['urn:o2:a', 'urn:o2:m', 'urn:o2:z'])
   })
 
-  it('orders by UTF-8 bytes, not by UTF-16 code units, so a non-JS peer agrees', () => {
+  it('orders by UTF-8 bytes, not by UTF-16 code units, so a non-JS peer agrees', async () => {
     // `\u{10000}` is one astral code point; JS stores it as the surrogate pair
     // `𐀀`, and `'\uD800' < '＀'` — so `<` puts the astral id FIRST while
     // its UTF-8 bytes (`f0 90 80 80`) put it after `＀`'s (`ef bc 80`). Two JS peers
     // would always have agreed with each other and disagreed with everyone else.
     expect(
       parsedIds(
-        frameWith([
+        await frameWith([
           { id: 'urn:o2:\u{10000}', critical: false, value: 1 },
           { id: 'urn:o2:＀', critical: false, value: 2 },
         ]),
@@ -234,8 +234,8 @@ describe('the parsed extension list is canonically ordered, whatever order it ar
    * was the order `unhonouredCritical` reported its ids in, and the order any future
    * hash/CID/dedupe over a parsed record would have seen.
    */
-  it('undoes a relay reordering of a signed list, and the record still verifies', () => {
-    const source = records([
+  it('undoes a relay reordering of a signed list, and the record still verifies', async () => {
+    const source = await records([
       { id: 'urn:o2:z-last', critical: true, value: 'z' },
       { id: UNKNOWN, critical: false, value: UNKNOWN_VALUE },
     ])
@@ -260,47 +260,47 @@ describe('the parsed extension list is canonically ordered, whatever order it ar
 })
 
 describe('what the extension parser refuses, and why refusing beats dropping', () => {
-  it('refuses an extension list that is not a list', () => {
-    expect(parseResponse(frameWith({ id: 'x', critical: false, value: 1 }))).toBe(null)
+  it('refuses an extension list that is not a list', async () => {
+    expect(parseResponse(await frameWith({ id: 'x', critical: false, value: 1 }))).toBe(null)
   })
 
-  it('refuses an extension with a wrong-typed id or criticality', () => {
-    expect(parseResponse(frameWith([{ id: 7, critical: false, value: 1 }]))).toBe(null)
-    expect(parseResponse(frameWith([{ id: 'x', critical: 'yes', value: 1 }]))).toBe(null)
+  it('refuses an extension with a wrong-typed id or criticality', async () => {
+    expect(parseResponse(await frameWith([{ id: 7, critical: false, value: 1 }]))).toBe(null)
+    expect(parseResponse(await frameWith([{ id: 'x', critical: 'yes', value: 1 }]))).toBe(null)
   })
 
-  it('refuses an extension with no value key, which is not the same as a null value', () => {
-    expect(parseResponse(frameWith([{ id: 'x', critical: false }]))).toBe(null)
-    expect(parseResponse(frameWith([{ id: 'x', critical: false, value: null }]))).not.toBe(null)
+  it('refuses an extension with no value key, which is not the same as a null value', async () => {
+    expect(parseResponse(await frameWith([{ id: 'x', critical: false }]))).toBe(null)
+    expect(parseResponse(await frameWith([{ id: 'x', critical: false, value: null }]))).not.toBe(null)
   })
 
-  it('refuses an extension carrying a fourth key rather than dropping it', () => {
+  it('refuses an extension carrying a fourth key rather than dropping it', async () => {
     // The envelope is closed BECAUSE `value` is open: anything a later build needs to
     // say goes inside `value`, never as a sibling of it. So a fourth key is a frame this
     // build cannot represent, and dropping it would recreate the exact defect this seam
     // removes — one level further down, where it would be harder to find.
-    expect(parseResponse(frameWith([{ id: 'x', critical: false, value: 1, extra: 'dropped?' }]))).toBe(
+    expect(parseResponse(await frameWith([{ id: 'x', critical: false, value: 1, extra: 'dropped?' }]))).toBe(
       null,
     )
   })
 
-  it('refuses a capability record carrying a top-level key this build does not know', () => {
+  it('refuses a capability record carrying a top-level key this build does not know', async () => {
     // The seam is now the sanctioned way to add a field, so a new TOP-LEVEL key is a
     // mistake rather than a later build talking — and dropping it is precisely the silent
     // damage this change removes. `parseCertificate` is deliberately not strict in the
     // same way: `NodeCertificate` has no seam, so refusing unknown keys there would
     // forbid extension rather than direct it.
-    const frame = entriesOf(encodeResponse({ kind: 'records', records: records([]) }))
+    const frame = entriesOf(encodeResponse({ kind: 'records', records: await records([]) }))
     const capabilities = entriesOf(frame.get('capabilities'))
     capabilities.set('memoryMib', 4096)
     frame.set('capabilities', frameOf(capabilities))
     expect(parseResponse(frameOf(frame))).toBe(null)
   })
 
-  it('refuses duplicate ids on the wire', () => {
+  it('refuses duplicate ids on the wire', async () => {
     expect(
       parseResponse(
-        frameWith([
+        await frameWith([
           { id: 'urn:o2:twice', critical: false, value: 1 },
           { id: 'urn:o2:twice', critical: true, value: 2 },
         ]),
