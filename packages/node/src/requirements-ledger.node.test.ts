@@ -1103,11 +1103,35 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // base64 fixtures and one protocol spec whose match is incidental. No `@ipshipyard/
   // libp2p-auto-tls` dependency exists in any `package.json`. The row is not stale; the
   // open leg is a hosting decision, which is what `tier-or-configuration` means.
+  //
+  // **Second witness arrived 2026-08-16, and the `reread` date deliberately did not move**
+  // — the rule this register set for `BENCH-06` on 2026-08-14, applied to the row it fits
+  // just as well. `seed-binary-join.e2e.test.ts` began title-naming this row because the
+  // *reservations* clause acquired something it did not have: the real `bin/seed.ts`
+  // binary, spawned as its own process on real sockets, joined by two real Chromium
+  // contexts that fetch `/bootstrap.json`, reserve, and find each other — with the
+  // reservation read back **over HTTP from the seed process**, so the reading cannot come
+  // from an in-process object the harness already held. The previous witness,
+  // `relaying.node.test.ts`, asserts a browser-dialable listen address; it does not put a
+  // browser on it.
+  //
+  // **That is the clause that was never in question.** What holds this row open is
+  // `auto-acquires a TLS certificate`, and no spec written on this host can acquire it:
+  // AutoTLS proves control of a publicly reachable address to `registration.libp2p.direct`,
+  // which a private host behind NAT with no public DNS name cannot do, and
+  // `@ipshipyard/libp2p-auto-tls` is still in no `package.json`. Re-checked 2026-08-16 in
+  // the pessimistic direction, as on 2026-08-11, and unchanged.
+  //
+  // So the clock stays at 2026-08-11. Moving it would buy days of silence on the strength
+  // of the half that was already met, which is the overclaim this register exists to catch.
   {
     id: 'NET-03',
     because: 'tier-or-configuration',
     reread: '2026-08-11',
-    witnesses: ['packages/node/src/relaying.node.test.ts'],
+    witnesses: [
+      'packages/node/src/relaying.node.test.ts',
+      'packages/node/src/seed-binary-join.e2e.test.ts',
+    ],
   },
   {
     id: 'NET-06',
@@ -1191,11 +1215,34 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // reason the row is here. A register whose countdown can be reset by improving the half
   // that was never in question is a register that rewards the overclaim it exists to catch.
   // So: witness added, clock untouched.
+  //
+  // **Third witness arrived 2026-08-16, clock untouched for the third time, same reason.**
+  // `bench-process-ladder.node.test.ts` title-names this row because the same-machine half
+  // gained a *ladder*: three rungs of 1, 2 and 4 real `bin/agent.ts` processes, each
+  // binding its own listening socket on its own port, with a real job dispatched across
+  // them and the derived label asserted at every rung. The second witness proved the label
+  // follows one rung's announcements; this one proves it follows them as the process count
+  // moves, and that the rungs run at all.
+  //
+  // **It measures the half that was never in question, and it is explicit about it.** The
+  // ladder's own docblock records three runs whose between-run variation exceeds their
+  // between-rung variation — including one taken under an unrelated LLVM build where every
+  // absolute figure tripled — so it asserts no trend, and it states in its printed output
+  // that separate processes give separate address spaces and real loopback sockets but not
+  // separate kernels, clocks, hardware or OS builds. That is the `vitest.config.ts:716`
+  // ruling carried into the process tier rather than quietly left behind at the engine one.
+  //
+  // The distinct-machine half is untouched, still structural, and still the only reason
+  // this row is here. Witness added, clock untouched.
   {
     id: 'BENCH-06',
     because: 'experiment-not-run',
     reread: '2026-08-11',
-    witnesses: ['packages/bench/src/harness.test.ts', 'packages/node/src/bench-fabric.node.test.ts'],
+    witnesses: [
+      'packages/bench/src/harness.test.ts',
+      'packages/node/src/bench-fabric.node.test.ts',
+      'packages/node/src/bench-process-ladder.node.test.ts',
+    ],
   },
   // **The one entry with no witness at all**, and it is the honest reading rather than a
   // gap in the scan: no spec in this repository title-names `AOT-03`. Every other entry
