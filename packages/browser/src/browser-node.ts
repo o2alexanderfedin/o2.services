@@ -104,6 +104,7 @@ import { IdbBlockstore } from './idb-blockstore.ts'
 import { IdbIdentityStore } from './idb-identity-store.ts'
 import { IdbIssuance } from './idb-issuance.ts'
 import { IdbSovereignCids } from './idb-sovereign-cids.ts'
+import { installSubtleDigestFallback } from './subtle-digest-fallback.ts'
 import { VisibilityGovernor } from './visibility-governor.ts'
 import { browserWorkerExecutor } from './worker-executor.ts'
 import type { WorkerExecutor } from '@o2/core'
@@ -1245,6 +1246,17 @@ export class BrowserNode {
     options: BrowserNodeOptions,
     undo: (() => Promise<void> | void)[],
   ): Promise<BrowserNode> {
+    // Before anything hashes. A LAN origin — `http://10.144.82.249:5173`, what a phone
+    // reaches this page on — is not a secure context, so `crypto.subtle` is `undefined`
+    // there. `@libp2p/kad-dht` computes every Kademlia ID through
+    // `multiformats/hashes/sha2`, whose browser entry is `crypto.subtle.digest`, so
+    // `createLibp2p` below threw `Cannot read properties of undefined (reading 'digest')`
+    // out of `RoutingTable.start` and the tab never joined. `hash.ts` removed that
+    // dependency from the imports this repository writes; this removes it from the ones it
+    // does not. No-op in a secure context and in Node — see the module's own docblock for
+    // why it installs `digest` and deliberately nothing else.
+    installSubtleDigestFallback()
+
     const blockstoreName = options.blockstoreName ?? DEFAULT_BLOCKSTORE_NAME
     const store = await IdbBlockstore.open(blockstoreName)
     undo.push(() => store.close())

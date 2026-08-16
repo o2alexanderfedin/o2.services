@@ -642,3 +642,79 @@ describe('NET-06 — any node can be asked, and answers truthfully', () => {
     }
   })
 })
+
+/**
+ * CHURN-04 — a node that submits work is also a node that can run it.
+ *
+ * Every fixture above hands `rpcAdmission` a **requestor that is not in its own
+ * candidate pool** (`fabric.requestorRpc`), and `bin/bench.ts:1885` is built the same
+ * way. That is what kept this defect invisible: the local node was never offered to.
+ *
+ * In this fabric it always is. A browser tab submits *and* executes, so
+ * `demo/main.ts`'s `runColouring` puts the tab in the pool it places over. Measured
+ * 2026-08-16, with `admit` wired there for the first time: every shard of every run
+ * carried the rejection
+ *
+ *     unreachable: rpc send to 12D3KooW…Fx9ig failed: Can not dial self
+ *
+ * against the submitter's own id, so a two-tab job at `redundancy: 2` reached one
+ * replica and `job.complete` was false. Four e2e files and six cases went red — DEMO-01,
+ * NET-06, and VER-09/VER-10's three — none of which had changed.
+ *
+ * "Can not dial self" is the transport telling the truth. The bug is asking it: a node
+ * does not learn its own capacity over a wire, and the answer it would give a peer is
+ * sitting in the same process.
+ */
+describe('CHURN-04 — a requestor that is also an executor answers for itself', () => {
+  it('admits the local node from its own capacity port, without dialling self', async () => {
+    const network = new MemoryNetwork()
+    const rpc = new RpcEndpoint(network.connect('self'), { timeoutMs: 5_000 })
+    try {
+      const local = new LocalCapacity({ nodeId: rpc.localId, maxConcurrent: 8 })
+      const admit = rpcAdmission(rpc, { local })
+      const decision = await admit({ shardId: '0', nodeId: rpc.localId })
+      expect(decision.accepted).toBe(true)
+    } finally {
+      rpc.close()
+    }
+  })
+
+  it('refuses for itself when its own capacity port refuses, in that port’s words', async () => {
+    const network = new MemoryNetwork()
+    const rpc = new RpcEndpoint(network.connect('self'), { timeoutMs: 5_000 })
+    try {
+      // One slot, and it is taken by a *different* shard, so the refusal is the
+      // over-committed arm rather than the already-in-flight one.
+      const local = new LocalCapacity({ nodeId: rpc.localId, maxConcurrent: 1 })
+      expect(local.offer({ shardId: 'busy', nodeId: rpc.localId }).accepted).toBe(true)
+      const admit = rpcAdmission(rpc, { local })
+      const decision = await admit({ shardId: '0', nodeId: rpc.localId })
+      expect(decision.accepted).toBe(false)
+      if (decision.accepted) return
+      // The local port's own sentence, not a transport error — this is the
+      // distinction the defect erased.
+      expect(decision.reason).toContain('over-committed')
+      expect(decision.reason).not.toContain('dial self')
+    } finally {
+      rpc.close()
+    }
+  })
+
+  it('names the omission rather than reporting a dial failure when no local port was given', async () => {
+    const network = new MemoryNetwork()
+    const rpc = new RpcEndpoint(network.connect('self'), { timeoutMs: 5_000 })
+    try {
+      const admit = rpcAdmission(rpc)
+      const decision = await admit({ shardId: '0', nodeId: rpc.localId })
+      // Still a refusal — a caller that supplied nothing gets no capacity it did not
+      // state. What changes is that the reason names the wiring gap instead of
+      // blaming the transport, which is what sent this investigation to the wrong layer.
+      expect(decision.accepted).toBe(false)
+      if (decision.accepted) return
+      expect(decision.reason).toContain('no local capacity port')
+      expect(decision.reason).not.toContain('dial self')
+    } finally {
+      rpc.close()
+    }
+  })
+})

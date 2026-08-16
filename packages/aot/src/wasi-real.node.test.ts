@@ -43,13 +43,22 @@ import {
  *
  * ## The fixture
  *
- * `tools/aot/fixtures/r1/hello.wasm` — committed, and rebuilt with
- * `npm run aot:lift -- tools/aot/fixtures/elf/hello_static`. It lived in `/tmp` until
- * 2026-08-02, which is how this file's five cases went inert (deficiency D21). Produced by
- * the lift recorded in
- * `tools/aot/lift.node.test.ts`. Skips cleanly when absent, for the same reason the ELF
- * fixtures do: `/tmp` does not survive a reboot and a suite that fails because a
- * scratch directory was cleaned is a suite people learn to ignore.
+ * `tools/aot/fixtures/r1/hello.wasm` — **not committed**, and this line said it was until
+ * 2026-08-16. `git check-ignore -v` resolves the path to `.gitignore:64`
+ * (`tools/aot/fixtures/r1/`), and `git ls-files tools/aot/fixtures/` does not list it: git
+ * has never known the file. The correction matters because the word "committed" is what a
+ * reader would take as the assurance that the gate below is normally closed, and it is not
+ * — on a fresh clone the artifact is absent and **all five cases here skip**. It is
+ * rebuilt with `npm run aot:lift -- tools/aot/fixtures/elf/hello_static`, or pointed at
+ * with `O2_LIFTED_WASM`.
+ *
+ * What was true and stays true is the *reason the path moved*: it lived in `/tmp` until
+ * 2026-08-02, which is how this file's five cases went inert once (deficiency D21).
+ * Producing it under `tools/aot/fixtures/` fixed that — a reboot no longer silences the
+ * file — but it did not make the artifact tracked, and the two are not the same claim.
+ * Produced by the lift recorded in `tools/aot/lift.node.test.ts`. Skips cleanly when
+ * absent, for the same reason the ELF fixtures do: a suite that fails because a scratch
+ * directory was cleaned is a suite people learn to ignore.
  */
 
 const ARTIFACT =

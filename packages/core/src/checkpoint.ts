@@ -40,6 +40,10 @@ import type { CID } from 'multiformats/cid'
 import { canonicalCid, decodeCanonical } from './canonical/encode.ts'
 import type { CanonicalValue } from './canonical/encode.ts'
 import type { Blockstore } from './ports.ts'
+// Type-only, and therefore not a cycle at runtime: `job/submit.ts` imports this module's
+// values, and this import is erased. The interface stays where it is defined because
+// `checkpoint-optout-scope.node.test.ts` reads that file as "the definition".
+import type { CheckpointSink } from './job/submit.ts'
 
 /** One shard that is finished and whose answer is retrievable by CID. */
 export interface CompletedShard {
@@ -217,6 +221,76 @@ export function remainingWork(checkpoint: JobCheckpoint): readonly number[] {
 /** True when every shard is answered and the job needs no further dispatch. */
 export function isComplete(checkpoint: JobCheckpoint): boolean {
   return remainingWork(checkpoint).length === 0
+}
+
+/** A handle the store would not give back, and `readCheckpoint`'s own sentence for why. */
+export interface UnconfirmedHandle {
+  readonly handle: CID
+  readonly reason: string
+}
+
+/**
+ * A {@link CheckpointSink} that keeps what it published and what the store would not
+ * confirm. Returned by {@link checkpointsInto}.
+ */
+export interface StoredCheckpoints extends CheckpointSink {
+  /** Handles whose block read back, oldest first — the chain, in the order it was written. */
+  readonly confirmed: readonly CID[]
+  /** Handles whose block did not read back, with the reason it did not. */
+  readonly unconfirmed: readonly UnconfirmedHandle[]
+  /** The newest **confirmed** handle — what a second requestor would be handed. `null` until one is. */
+  newest(): CID | null
+}
+
+/**
+ * A checkpoint sink whose destination is a blockstore — CHURN-03's write half.
+ *
+ * ## What this adds, given that the block is already written
+ *
+ * `checkpointLogOf` calls `writeCheckpoint` and *then* `publish`, so by the time a sink
+ * sees a handle the bytes are already in the store. A sink is therefore not what makes a
+ * checkpoint durable. What it can do — and what nothing before it did — is establish that
+ * the bytes **came back**, by reading the handle out of the same store through the same
+ * validating reader a resume would use. A handle whose block does not resolve is a resume
+ * nobody can perform, so counting it would be publishing a promise the store cannot keep.
+ *
+ * The CID is a hash of the content, so a block that reads back and validates *is* this
+ * checkpoint; nothing further is compared, and a field-by-field comparison here would be
+ * comparing a value against its own hash.
+ *
+ * ## It reports rather than throws, and that is not leniency
+ *
+ * `publish` is awaited inside `checkpointLogOf`'s serialised chain, and that chain is one
+ * promise: a rejection from any `publish` rejects every later `record` on it too. So a
+ * sink that threw would convert one missing block into a dead job. Browsers evict
+ * IndexedDB silently under storage pressure — `idb-blockstore.ts` calls a missing block "a
+ * normal condition, not corruption" — which makes that the *expected* case in the browser
+ * tier, not the exceptional one. The refusal is recorded in {@link StoredCheckpoints.unconfirmed}
+ * and the job carries on.
+ *
+ * ## What it does not do
+ *
+ * It publishes nowhere but into its own lists. A handle is a mutable pointer and a
+ * blockstore is content-addressed, so there is no stable key in `store` under which the
+ * *newest* handle could be found again — a returning tab can read a checkpoint it is
+ * handed and cannot discover one it is not. Making the newest handle discoverable needs a
+ * mutable key space this port does not have, and inventing one here would be claiming a
+ * capability the store does not provide.
+ */
+export function checkpointsInto(store: Blockstore): StoredCheckpoints {
+  const confirmed: CID[] = []
+  const unconfirmed: UnconfirmedHandle[] = []
+
+  return {
+    confirmed,
+    unconfirmed,
+    newest: (): CID | null => confirmed[confirmed.length - 1] ?? null,
+    async publish(handle: CID): Promise<void> {
+      const read = await readCheckpoint(handle, store)
+      if (read.ok) confirmed.push(handle)
+      else unconfirmed.push({ handle, reason: read.reason })
+    },
+  }
 }
 
 /**

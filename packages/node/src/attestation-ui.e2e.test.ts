@@ -489,6 +489,38 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
    * implied by the weaker one*. Asserted as a pair on one screen rather than across two
    * runs, because two runs of the same page differing in the label is a comparison, and one
    * run showing the weaker label while withholding the stronger is the property.
+   *
+   * ## This case is load-sensitive, and the regime is measured rather than left to be hit
+   *
+   * **The fixture has no redundancy slack by construction.** Two nodes at
+   * `redundancy = min(2, 1 + peers)` means *every* cube needs *both* of them to come back
+   * inside the dispatch budget; one straggler drops a cube to one replica, which drops
+   * `Verification cost` below 2.00× and degrades the label to `owner-attested` — correctly,
+   * because that is what the fabric actually achieved. The case then reads a true statement
+   * about a run it did not want.
+   *
+   * Six runs on 2026-08-16, same commit, and the discriminator is the process's CPU share:
+   *
+   * | `(user+sys)/real` | rung times | cost | label |
+   * |---|---|---|---|
+   * | 0.385 | 8.5 – 12.2 s | 1.50× | `owner-attested` — FAILS |
+   * | ~0.4 (15 s probe) | 3.6 – 11.2 s | 1.88× | FAILS |
+   * | 0.674 (48 burners) | 1.5 – 2.4 s | 2.00× | `owner-domain` — passes |
+   * | idle | 1.8 – 3.1 s | 2.00× | passes |
+   *
+   * The search itself is deterministic and identical in every one of them — `8 found /
+   * 8 out of budget`, `2 / 14`, `3 / 13`, `0 / 16` byte for byte — so only the clock moved.
+   *
+   * **Two things this is NOT, both ruled out by measurement rather than by argument.** It is
+   * not admission: across 416 offers to 7 nodes every one was accepted, `slots 64 /
+   * inFlight 0`, and not a single refusal was recorded, so `JobSpec.admit` never excluded
+   * anybody. And it is not the offer probe's budget: at `probeTimeoutMs` 15 000, 7.5× the
+   * default, it failed the same way.
+   *
+   * **CPU burners do not reproduce it on this host** and that is worth knowing before
+   * someone tries: 24 and 48 spinning shell loops both *raised* the run's share (0.674) and
+   * it passed, because macOS deprioritises them against the browser and node processes.
+   * What produces the failing regime here is a real competing workload, not a synthetic one.
    */
   it('VER-10 — reads owner-domain for two machines of one owner, and withholds independent', async () => {
     const provider = await startProvider('provider-domain')
@@ -526,7 +558,26 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
     // **The label, in the kernel's words rather than transcribed** — the same rule the
     // three cases around this one follow, so the page cannot drift into describing one
     // result differently from the fabric that produced it.
-    expect(report).toContain(OWNER_DOMAIN)
+    //
+    // The message carries the discriminator, because without it this red is
+    // `expected '1 peer(s) · 16 cubes per rung…' to contain 'owner-domain agreement…'`
+    // and separating "the label is wrong" from "the host was too slow to place two
+    // replicas" costs a full investigation — it cost one on 2026-08-16. `Verification
+    // cost` is the number that settles it and the page already prints it.
+    const cost = /Verification cost ([0-9.]+)×/.exec(report)?.[1] ?? 'unread'
+    const rungs = [...report.matchAll(/^n = .*?(\d+)ms$/gm)].map((m) => m[1]).join(',')
+    expect(
+      report,
+      `expected the owner-domain label; the run settled at verification cost ${cost}× with ` +
+        `rung times [${rungs}]ms. **2.00× and a wrong label is a defect in the label.** ` +
+        `Anything BELOW 2.00× is a run that failed to place or collect two replicas per ` +
+        `cube, which degrades the label correctly — measured 2026-08-16 as a CPU-share ` +
+        `effect and not an admission one: 0.385 share failed at 1.50× with rungs 8.5–12.2 s, ` +
+        `0.674 share passed at 2.00× with rungs 1.5–2.4 s, and across 416 offers to 7 nodes ` +
+        `every single one was accepted with slots 64 / inFlight 0, so nothing was ever ` +
+        `refused. Re-run this file under \`/usr/bin/time -p\` and read (user+sys)/real ` +
+        `before touching the fixture.`,
+    ).toContain(OWNER_DOMAIN)
     expect(report).toContain('2 replicas')
     expect(report).toContain('1 operator')
 

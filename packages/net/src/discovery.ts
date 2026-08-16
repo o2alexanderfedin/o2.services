@@ -152,8 +152,29 @@ export class RpcRecordIndex implements RecordIndex {
  */
 export const DEFAULT_PROBE_TIMEOUT_MS = 2_000
 
+/**
+ * The local node's own capacity, for the offer it cannot send itself.
+ *
+ * Structural rather than `LocalCapacity` so `@o2/net` does not depend on the class —
+ * `would` is the *non-reserving* read, which is exactly what `serveAgent`'s `offer`
+ * branch calls for a remote peer, so the local node answers by the same rule as
+ * everybody else.
+ */
+export interface LocalAdmission {
+  would(offer: Offer): Admission
+}
+
 export interface AdmissionOptions {
   readonly probeTimeoutMs?: number
+  /**
+   * How this node answers an offer addressed to **itself**.
+   *
+   * Optional because a pure requestor — `bin/bench.ts:1885`, and every fixture in
+   * `discovery.test.ts` — is never in the pool it places over, so it is never asked.
+   * Supply it wherever a node submits work it can also run, which in this fabric is
+   * every browser tab.
+   */
+  readonly local?: LocalAdmission
 }
 
 /**
@@ -173,8 +194,27 @@ export function rpcAdmission(
   options: AdmissionOptions = {},
 ): (offer: Offer) => Promise<Admission> {
   const probeTimeoutMs = options.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS
+  const local = options.local
 
   const ask = async (offer: Offer): Promise<Admission> => {
+    // **A node does not learn its own capacity over a wire.** The transport refuses to
+    // dial self — correctly — so asking produced `unreachable: … Can not dial self`
+    // against the submitter's own id, or, on a transport that merely drops it, a full
+    // `probeTimeoutMs` of silence per shard. Either way the local node was refused
+    // every shard of every job, which is invisible while the requestor sits outside
+    // its own pool and fatal the moment it does not: measured 2026-08-16, a two-tab
+    // demo run at `redundancy: 2` reached one replica and `job.complete` was false.
+    if (offer.nodeId === rpc.localId) {
+      return (
+        local?.would(offer) ?? {
+          accepted: false,
+          reason:
+            'no local capacity port was supplied to rpcAdmission, so this node cannot answer ' +
+            'an offer addressed to itself',
+          capacity: 'states-no-capacity',
+        }
+      )
+    }
     let body: CanonicalValue
     try {
       body = await rpc.request(offer.nodeId, encodeRequest({ kind: 'offer', shardId: offer.shardId }))

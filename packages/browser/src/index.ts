@@ -44,6 +44,11 @@ export type {
   TabNameRecord,
   TabStartReport,
 } from './tab-api.ts'
+// `subtle-digest-fallback.ts` is deliberately absent from this barrel, for the reason
+// `worker-factory.ts` above is: it has exactly one caller, `BrowserNode.#compose`, which
+// imports it directly. Exporting it "for a host application that wires libp2p itself"
+// would add three symbols with no call path — which is precisely what
+// `reachability-guard.node.test.ts` reddens on, and it watched this file do it.
 export { VisibilityGovernor } from './visibility-governor.ts'
 export type { Sleep, VisibilityGovernorOptions, VisibilitySource } from './visibility-governor.ts'
 

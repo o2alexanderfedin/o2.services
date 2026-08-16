@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { ShardAttestation, ShardQuorum } from '@o2/core'
 import { describeQuorum } from '@o2/core'
@@ -370,5 +371,60 @@ describe('the colouring formatter, with no DOM', () => {
     expect(COLOURING_STOP_ABSENCE_IDS).toContain('colouring/best-n')
     expect(COLOURING_STOP_ABSENCE_IDS).not.toContain('colouring/verify-verdict')
     expect(COLOURING_STOP_ABSENCE_IDS).not.toContain('colouring/verify-violation')
+  })
+})
+
+/**
+ * CHURN-04 — **the colouring run is a production supplier of `JobSpec.admit`.**
+ *
+ * `admit` is optional, and `submit.ts` grants a lease renewal *only* against evidence
+ * obtained through it: where it is absent there is no probe, so nothing is renewed and
+ * every lease lapses on time. Until 2026-08-16 the only production caller that supplied
+ * one was `packages/node/src/bin/bench.ts`, and it did so behind `--discover` — so on an
+ * ordinary run of anything an operator starts, the renewal path was unreachable.
+ *
+ * **A source-text reading, deliberately, and its limit is stated.** What is missing is
+ * not a mechanism — `submit.test.ts`'s renewal pair proves the biconditional against a
+ * probe, and `net/src/discovery.test.ts` proves `rpcAdmission` over a real fabric — it is
+ * a *caller*. No runtime assertion can observe "some shipped entry point supplies this"
+ * without starting the entry point, and `runColouring` needs a browser, a relay and peers.
+ * The claim under test is about the shipped source, so the source is what is read. That
+ * makes this the same weaker instrument `browser-node-contract.node.test.ts` accepts for
+ * its own structural half, and it is not allowed to stand in for behaviour.
+ *
+ * Node-only: reads a real source file off disk.
+ */
+describe('CHURN-04 — the shipped colouring run supplies admission control', () => {
+  const source = readFileSync(new URL('../demo/main.ts', import.meta.url), 'utf8')
+
+  it('read the file it claims to have read', () => {
+    // Anti-vacuity: a mis-resolved URL would throw, but an empty or wrong file would let
+    // every `not.toContain` below pass while proving nothing.
+    expect(source).toContain('async runColouring(options)')
+    expect(source).toContain('submitJobWithEgress(')
+  })
+
+  it('passes rpcAdmission over this tab’s own rpc into the job spec, with a local port', () => {
+    const wiring = source
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('admit:'))
+    // **The `local` half is not decoration and this assertion is why it is named here.**
+    // This line read `admit: rpcAdmission(node.rpc),` from `c1f95a2` until 2026-08-16, and
+    // in that form it refused *this tab* every shard of every job: `rpcAdmission` asked the
+    // submitting node about itself over RPC and the transport answered `Can not dial self`.
+    // A tab is always in the pool it places over, so a two-tab run at `redundancy: 2`
+    // reached one replica and four e2e files went red. Widening this back to a prefix match
+    // would let the same omission return silently, which is the whole reason the expectation
+    // is an equality over the trimmed line rather than a `toContain`.
+    expect(wiring).toEqual(['admit: rpcAdmission(node.rpc, { local: node.admission }),'])
+  })
+
+  it('imports rpcAdmission from @o2/net rather than reimplementing the probe', () => {
+    // `rpcAdmission` is the one place that turns "you did not answer" into a refusal with
+    // a stated reason. A second implementation on this page would be a second answer to
+    // the question `submit.ts` treats as evidence of a task still being in flight.
+    const imports = source.slice(0, source.indexOf("} from '@o2/net'"))
+    expect(imports).toContain('rpcAdmission')
   })
 })
