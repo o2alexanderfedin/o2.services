@@ -109,9 +109,14 @@ new module.
   (`packages/core/src/sovereignty.ts:191`) compares `ownerId` and
   `canExecuteSovereign` — two plain values — and never reads the `certificate` it
   carries. The cryptography is upstream at discovery.
-- **Peers are verified.** `peer-verifier.ts:450` returns every connected peer when no
-  issuer is pinned, and nothing is pinned by default. `BrowserNodeOptions` has no
-  `trustedIssuers` field at all.
+- **Peers are verified.** `PeerVerifier` returns every connected peer when no issuer is
+  pinned — `peer-verifier.ts:415` returns the verifier early on an empty anchor set — and
+  nothing is pinned by default. **The last clause of this bullet read *"`BrowserNodeOptions`
+  has no `trustedIssuers` field at all"* and is FALSE as of 2026-08-14** (corrected
+  2026-08-16): the field exists at `browser-node.ts:242`, `PeerVerifier` reads it
+  (`peer-verifier.ts:299`), and `demo/main.ts:550` passes it — but only once the tab has
+  enrolled, so on the visitor path the pinned set is still empty and the fail-open above is
+  what a visitor gets. The capability is built; the visitor wiring is what is missing.
 - **Results are attributable.** `attestResults` returns `inner` unchanged for
   `'signs-nothing'` (`attesting-executor.ts:85-86`), and an unverifiable receipt does
   not fail a shard (`submit.ts:1132-1145`). Attestation is a report, not a gate.
@@ -120,6 +125,14 @@ new module.
 
 `.planning/THREAT-MODEL.md:59` lists forged-node-certificate as **built** —
 *"Offline verification against pinned provider keys"*. True where anchors are pinned.
-**The default node pins nothing, `PeerVerifier` fails open, and the browser tier has
-no `trustedIssuers` field.** The row states a mechanism; the deployed posture is the
-opposite. Not corrected here — recorded.
+**The default node pins nothing and `PeerVerifier` fails open.** The row states a
+mechanism; the deployed posture is the opposite. Not corrected here — recorded.
+
+**Amended 2026-08-16.** This sentence also read *"and the browser tier has no
+`trustedIssuers` field"*, which was true when written and became false on 2026-08-14 —
+see §6. The divergence it reports is unchanged and is not narrowed by that: a field that
+exists and is passed only by an already-enrolled tab still leaves every visitor
+fail-open, which is exactly the posture this section says the threat-model row
+contradicts. `demo/main.ts:302` already carries the same correction against the same
+quoted sentence, so the code knew and this document did not — which is the failure mode
+this file exists to prevent in the next design round.
