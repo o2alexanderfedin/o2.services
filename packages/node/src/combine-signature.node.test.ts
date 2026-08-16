@@ -103,14 +103,14 @@ let workdir: string
 const running: FabricNode[] = []
 
 /** A node certificate issued by `issuerSeed`, over a fresh node seed. */
-function enrol(seed: number, issuerSeed: Uint8Array = PROVIDER_SEED): ResultSigner {
+async function enrol(seed: number, issuerSeed: Uint8Array = PROVIDER_SEED): Promise<ResultSigner> {
   const nodeSeed = new Uint8Array(32).fill(seed)
   const issued = new EnrollmentAuthority({
     providerPrivateKey: issuerSeed,
     maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
     issuance: 'remembers-only-within-this-process',
   }).enrol(
-    requestEnrollment(nodeSeed, USER_SEED, {
+    await requestEnrollment(nodeSeed, USER_SEED, {
       operatorId: `operator-${seed}`,
       discoverability: 'via-relay',
       relayIds: [],
@@ -238,7 +238,7 @@ function inputsOf(
 
 describe('VER-08/09/10 — every combine in a real tree carries its producer’s signature', () => {
   it('verifies against the provider’s public key alone, for every combine in the tree', async () => {
-    const signers = [enrol(11), enrol(12)]
+    const signers = [await enrol(11), await enrol(12)]
     const { requestor, tree, executorIds } = await standUp(signers)
 
     const outcome = await executeReduce({
@@ -316,7 +316,7 @@ describe('VER-08/09/10 — every combine in a real tree carries its producer’s
     // provider certified. The only thing wrong is that this requestor never pinned that
     // provider, and saying `bad-result-signature` would accuse a peer of forging while
     // the real answer is the reader's own trust configuration.
-    const { requestor, tree, executorIds } = await standUp([enrol(21, STRANGER_SEED)])
+    const { requestor, tree, executorIds } = await standUp([await enrol(21, STRANGER_SEED)])
 
     const outcome = await executeReduce({
       tree,
@@ -350,7 +350,7 @@ describe('VER-08/09/10 — every combine in a real tree carries its producer’s
     // Both statements came off the wire from real nodes, so this is a reading about what
     // was signed rather than about two objects a test built. The two level-1 combines
     // merge disjoint leaf sets, and the requestor holds both statements.
-    const { requestor, tree, executorIds } = await standUp([enrol(31), enrol(32)])
+    const { requestor, tree, executorIds } = await standUp([await enrol(31), await enrol(32)])
 
     const outcome = await executeReduce({
       tree,

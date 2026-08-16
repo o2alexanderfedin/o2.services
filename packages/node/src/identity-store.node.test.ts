@@ -146,23 +146,24 @@ describe('AUTH-01 — loadOrCreateSeed reads back', () => {
  * nulls from one that validates; the round trip is the positive control that tells them
  * apart.
  */
-describe('AUTH-01 — the certificate on disk', () => {
+describe('AUTH-01 — the certificate on disk', async () => {
   const NODE_SEED = new Uint8Array(SEED_BYTES).fill(0xa1)
   const USER_SEED = new Uint8Array(SEED_BYTES).fill(0xa2)
   const PROVIDER_SEED = new Uint8Array(SEED_BYTES).fill(0xa3)
   const OTHER_NODE_SEED = new Uint8Array(SEED_BYTES).fill(0xa4)
 
   /** A genuinely signed certificate, over a request built by the production helper. */
-  const issue = (seed: Uint8Array, relayIds: readonly string[] = []): NodeCertificate => {
+  const issue = async (seed: Uint8Array, relayIds: readonly string[] = []): Promise<NodeCertificate> => {
     const authority = new EnrollmentAuthority({
       providerPrivateKey: PROVIDER_SEED,
       maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
       issuance: 'remembers-only-within-this-process',
     })
-    // Three parameters. `userKey` is derived from the user's PRIVATE key inside
-    // `requestEnrollment`, never passed as a field — which is also why
-    // `FabricNodeOptions.enrollment` has to carry a private key rather than a hex one.
-    const request = requestEnrollment(seed, USER_SEED, {
+    // Three parameters, and the middle one is what *signs* rather than a key name:
+    // `requestEnrollment` takes `userKey` from the signer, never as a field — which is
+    // also why `FabricNodeOptions.enrollment` has to carry something that holds the
+    // private half (bytes, or a `CryptoKeyPair`) rather than a hex public key.
+    const request = await requestEnrollment(seed, USER_SEED, {
       operatorId: 'harbour-ops',
       discoverability: relayIds.length === 0 ? 'seed' : 'via-relay',
       relayIds,
@@ -178,7 +179,7 @@ describe('AUTH-01 — the certificate on disk', () => {
   }
 
   it('round-trips all nine fields through disk unchanged', async () => {
-    const certificate = issue(NODE_SEED, ['relay-b', 'relay-a'])
+    const certificate = await issue(NODE_SEED, ['relay-b', 'relay-a'])
     await saveCertificate(dir, certificate)
 
     const loaded = await loadCertificate(dir)
@@ -224,13 +225,13 @@ describe('AUTH-01 — the certificate on disk', () => {
    * `discoverability` one below both go red, the `parseKeyHex` one does not.
    */
   it('returns null when a required field is missing', async () => {
-    const { signature: _dropped, ...withoutSignature } = issue(NODE_SEED)
+    const { signature: _dropped, ...withoutSignature } = await issue(NODE_SEED)
     await plant(withoutSignature)
     expect(await loadCertificate(dir)).toBeNull()
 
     // Dropping `issuer` is refused too — by whichever layer sees it first, which is the
     // point of having both.
-    const { issuer: _alsoDropped, ...withoutIssuer } = issue(NODE_SEED)
+    const { issuer: _alsoDropped, ...withoutIssuer } = await issue(NODE_SEED)
     await plant(withoutIssuer)
     expect(await loadCertificate(dir)).toBeNull()
   })
@@ -258,7 +259,7 @@ describe('AUTH-01 — the certificate on disk', () => {
     // `PublicKeyHex` is a string held in `Set`s and `Map`s, and `toHex` only ever emits
     // lowercase, so one key with two spellings is two identities to every string-keyed
     // structure here — including `verifyCertificate`'s `trustedIssuers.has(issuer)`.
-    const real = issue(NODE_SEED)
+    const real = await issue(NODE_SEED)
     await plant({ ...real, issuer: real.issuer.toUpperCase() })
     expect(await loadCertificate(dir)).toBeNull()
   })
@@ -268,7 +269,7 @@ describe('AUTH-01 — the certificate on disk', () => {
    * `loadCertificate` accepts is a certificate that PARSED, never one that is trusted.
    */
   it('loads a certificate whose signature was altered, and verifyCertificate still refuses it by name', async () => {
-    const certificate = issue(NODE_SEED)
+    const certificate = await issue(NODE_SEED)
     const trusted = new Set([certificate.issuer])
 
     // Positive control first: intact, from disk, verifies.
@@ -293,8 +294,8 @@ describe('AUTH-01 — the certificate on disk', () => {
   })
 
   it('leaves no partial file behind after writing', async () => {
-    await saveCertificate(dir, issue(NODE_SEED))
-    await saveCertificate(dir, issue(OTHER_NODE_SEED))
+    await saveCertificate(dir, await issue(NODE_SEED))
+    await saveCertificate(dir, await issue(OTHER_NODE_SEED))
     expect((await readdir(dir)).filter((name) => name.startsWith('.tmp-'))).toStrictEqual([])
     expect(await readdir(dir)).toContain(CERTIFICATE_FILE)
   })

@@ -118,7 +118,7 @@ async function fabricOf(options: { workers: number; maxConcurrent?: number }): P
     const nodeKey = toHex(ed25519.getPublicKey(priv))
 
     const enrolled = authority.enrol(
-      requestEnrollment(priv, userPriv, {
+      await requestEnrollment(priv, userPriv, {
         operatorId: `op-${i}`,
         discoverability: 'seed',
         relayIds: [],

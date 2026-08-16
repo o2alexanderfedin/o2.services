@@ -1251,7 +1251,25 @@ describe('MR-04 — a paused process answers after the request that asked for it
         `whole --project node run at 0.355 produced exactly this. A floor that has moved while ` +
         `standUp and map have NOT is the combine, and that is the defect this guard exists to catch.`,
     ).toBeGreaterThan(healthyCombineMs * TIMEOUT_MARGIN)
-    expect(pausedDispatchMs).toBeGreaterThanOrEqual(RPC_TIMEOUT_MS)
+    // One libuv tick of slack, and it is a **clock** claim being relaxed rather than a
+    // behavioural one. This read `>= RPC_TIMEOUT_MS` until 2026-08-16 and failed at
+    // *"expected 1499.6706249999997 to be greater than or equal to 1500"* — 0.33 ms short,
+    // on an otherwise green solo run. That is not the dispatch returning early; it is
+    // libuv's cached loop time and `performance.now()` disagreeing, because a timer fires
+    // on the former and this span is measured with the latter.
+    //
+    // Measured on this host rather than argued: `setTimeout(1500)` × 40 fired **early by up
+    // to 0.7347 ms** against `performance.now()`, 1 sample in 40, min 1499.2653 ms. Node
+    // offers no guarantee the two agree, so an assertion that they do is a claim about the
+    // runtime and not about this code.
+    //
+    // Nothing behavioural can hide in the tick. An early return is the *healthy* dispatch,
+    // measured at 434–543 ms in the very run that produced the 1499.67 — three orders of
+    // magnitude from this boundary. The slack is sized from the clock measurement above,
+    // not from the observed deficit, which is the difference between reading a bound and
+    // widening one.
+    const TIMER_RESOLUTION_MS = 1
+    expect(pausedDispatchMs).toBeGreaterThanOrEqual(RPC_TIMEOUT_MS - TIMER_RESOLUTION_MS)
     expect(pauseMs).toBeGreaterThan(RPC_TIMEOUT_MS)
 
     // The mapper's budget against the run's slowest `exec` dispatch — the guard this file

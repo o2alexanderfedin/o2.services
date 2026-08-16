@@ -176,12 +176,12 @@ async function servedBy(options: {
 }
 
 /** A certificate for `subjectSeed`, issued by the fixture provider at a chosen instant. */
-function certificateFor(
+async function certificateFor(
   subjectSeed: Uint8Array,
   userSeed: Uint8Array,
   at: number,
   lifetimeMs = 30 * 24 * 3_600_000,
-): { readonly authority: EnrollmentAuthority; readonly certificate: NodeCertificate } {
+): Promise<{ readonly authority: EnrollmentAuthority; readonly certificate: NodeCertificate }> {
   const authority = new EnrollmentAuthority({
     providerPrivateKey: PROVIDER_SEED,
     certificateLifetimeMs: lifetimeMs,
@@ -189,7 +189,7 @@ function certificateFor(
     issuance: 'remembers-only-within-this-process',
   })
   const result = authority.enrol(
-    requestEnrollment(subjectSeed, userSeed, {
+    await requestEnrollment(subjectSeed, userSeed, {
       operatorId: 'harbour-ops',
       discoverability: 'seed',
       relayIds: [],
@@ -216,7 +216,7 @@ function recordsOf(certificate: NodeCertificate, subjectSeed: Uint8Array): NodeR
 
 /** The pinned issuer set every hand-built case uses. */
 const PINNED = new Set<PublicKeyHex>([
-  certificateFor(FIXTURE_SEED, USER_SEED, Date.now()).authority.issuerKey,
+  (await certificateFor(FIXTURE_SEED, USER_SEED, Date.now())).authority.issuerKey,
 ])
 
 // ---------------------------------------------------------------------------------
@@ -403,7 +403,7 @@ describe('AUTH-02 — the kernel’s four refusal names arrive through this clas
    * hardcoded `{kind: 'untrusted-issuer', …}`.
    */
   it('refuses a tampered signature as bad-signature, naming the certificate’s node key', async () => {
-    const { certificate } = certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
+    const { certificate } = await certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
     const last = certificate.signature.slice(-1)
     const tampered: NodeCertificate = {
       ...certificate,
@@ -423,7 +423,7 @@ describe('AUTH-02 — the kernel’s four refusal names arrive through this clas
 
   it('refuses an expired certificate as expired, with both expiresAt and now populated', async () => {
     const issuedAt = Date.now() - 60_000
-    const { certificate } = certificateFor(FIXTURE_SEED, USER_SEED, issuedAt, 1_000)
+    const { certificate } = await certificateFor(FIXTURE_SEED, USER_SEED, issuedAt, 1_000)
     expect(certificate.expiresAt).toBeLessThan(Date.now())
 
     const served = await servedBy({
@@ -442,7 +442,7 @@ describe('AUTH-02 — the kernel’s four refusal names arrive through this clas
 
   it('refuses a not-yet-valid certificate as not-yet-valid, with both issuedAt and now populated', async () => {
     const issuedAt = Date.now() + 600_000
-    const { certificate } = certificateFor(FIXTURE_SEED, USER_SEED, issuedAt)
+    const { certificate } = await certificateFor(FIXTURE_SEED, USER_SEED, issuedAt)
     expect(certificate.issuedAt).toBeGreaterThan(Date.now())
 
     const served = await servedBy({
@@ -472,7 +472,7 @@ describe('AUTH-02 — the five peer-level refusals', () => {
    */
   it('refuses a certificate borrowed from another node as nodeKey-mismatch, naming both keys', async () => {
     const borrower = await identityFromSeed(BORROWED_SEED)
-    const { certificate } = certificateFor(BORROWED_SEED, USER_SEED, Date.now())
+    const { certificate } = await certificateFor(BORROWED_SEED, USER_SEED, Date.now())
     expect(certificate.nodeKey).toBe(borrower.nodeKey)
 
     const served = await servedBy({
@@ -551,7 +551,7 @@ describe('AUTH-02 — a node that pins nobody does no verification work at all',
    * in `start`.
    */
   it('issues zero records requests and has no verdicts, beside a pinning verifier that issues one', async () => {
-    const { certificate } = certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
+    const { certificate } = await certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
 
     const pinsNobody = await servedBy({
       answer: () => recordsOf(certificate, FIXTURE_SEED),
@@ -595,7 +595,7 @@ describe('AUTH-02 — one verification per connection', () => {
    * calls — and it is one.
    */
   it('computes a verdict once per peer and returns the same object', async () => {
-    const { certificate } = certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
+    const { certificate } = await certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
     const served = await servedBy({
       answer: () => recordsOf(certificate, FIXTURE_SEED),
       trustedIssuers: PINNED,
@@ -616,7 +616,7 @@ describe('AUTH-02 — one verification per connection', () => {
    * disconnect handler.
    */
   it('drops the cached verdict on peer:disconnect and verifies again on reconnect', async () => {
-    const { certificate } = certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
+    const { certificate } = await certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
     const served = await servedBy({
       answer: () => recordsOf(certificate, FIXTURE_SEED),
       trustedIssuers: PINNED,
@@ -649,7 +649,7 @@ describe('AUTH-02 — a peer connected before the verifier existed still gets a 
    * from `start`.
    */
   it('verifies a peer already present in peers() at construction, with no connect event', async () => {
-    const { certificate } = certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
+    const { certificate } = await certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
     const served = await servedBy({
       answer: () => recordsOf(certificate, FIXTURE_SEED),
       trustedIssuers: PINNED,
@@ -689,7 +689,7 @@ describe('AUTH-02 — a peer that enrols after connecting stops being excluded',
    * the production failure.
    */
   it('re-asks a peer whose refusal could change, and takes it once it holds a certificate', async () => {
-    const { certificate } = certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
+    const { certificate } = await certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
     let holdsCertificate = false
     const served = await servedBy({
       answer: () => (holdsCertificate ? recordsOf(certificate, FIXTURE_SEED) : null),
@@ -731,7 +731,7 @@ describe('AUTH-02 — a peer that enrols after connecting stops being excluded',
    */
   it('never re-asks a refusal that cannot change, however often the gate is read', async () => {
     const borrower = await identityFromSeed(BORROWED_SEED)
-    const { certificate } = certificateFor(BORROWED_SEED, USER_SEED, Date.now())
+    const { certificate } = await certificateFor(BORROWED_SEED, USER_SEED, Date.now())
     const served = await servedBy({
       answer: () => recordsOf(certificate, BORROWED_SEED),
       trustedIssuers: PINNED,
@@ -791,7 +791,7 @@ describe('AUTH-02 — a peer that enrols after connecting stops being excluded',
    * branch from `#refresh`.
    */
   it('asks about a peer that appeared in peers() without a connect event', async () => {
-    const { certificate } = certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
+    const { certificate } = await certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
     let visible = false
     const served = await servedBy({
       answer: () => recordsOf(certificate, FIXTURE_SEED),
@@ -857,10 +857,10 @@ describe('AUTH-02 — an acceptance stops being one when the certificate under i
    * `not.toContain` at the expired clock fails with the peer still in the verified set.
    */
   it('drops a settled acceptance out of the verified set the instant its expiresAt passes, and re-asks', async () => {
-    const first = certificateFor(FIXTURE_SEED, USER_SEED, T0, LIFETIME_MS).certificate
+    const first = (await certificateFor(FIXTURE_SEED, USER_SEED, T0, LIFETIME_MS)).certificate
     // A renewal the peer obtains **without reconnecting** — same node key, same pinned
     // issuer, a later window. This is the sequence `FINAL`'s docblock already describes.
-    const renewed = certificateFor(FIXTURE_SEED, USER_SEED, first.expiresAt, LIFETIME_MS).certificate
+    const renewed = (await certificateFor(FIXTURE_SEED, USER_SEED, first.expiresAt, LIFETIME_MS)).certificate
     expect(first.expiresAt).toBe(T0 + LIFETIME_MS)
     expect(renewed.expiresAt).toBeGreaterThan(first.expiresAt)
 
@@ -937,8 +937,8 @@ describe('AUTH-02 — an acceptance stops being one when the certificate under i
    * `unreachable` verdict is produced by `RpcEndpoint`'s timer on the production path.
    */
   it('keeps an expired acceptance out of the verified set when the re-ask times out, and takes the peer back when it answers again', async () => {
-    const first = certificateFor(FIXTURE_SEED, USER_SEED, T0, LIFETIME_MS).certificate
-    const renewed = certificateFor(FIXTURE_SEED, USER_SEED, first.expiresAt, LIFETIME_MS).certificate
+    const first = (await certificateFor(FIXTURE_SEED, USER_SEED, T0, LIFETIME_MS)).certificate
+    const renewed = (await certificateFor(FIXTURE_SEED, USER_SEED, first.expiresAt, LIFETIME_MS)).certificate
 
     let releaseParkedAnswer = (): void => {}
     const parked = new Promise<NodeRecords | null>((resolve) => {
@@ -1023,7 +1023,7 @@ describe('AUTH-02 — a slow answer cannot overwrite a newer one', () => {
    */
   it('discards an answer from an ask that a disconnect and reconnect superseded', async () => {
     const identity = await identityFromSeed(FIXTURE_SEED)
-    const { certificate } = certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
+    const { certificate } = await certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
     const network = new MemoryNetwork()
     const serverRpc = new RpcEndpoint(network.connect(identity.peerId))
     const clientRpc = new RpcEndpoint(network.connect('the-verifier'))
@@ -1094,7 +1094,7 @@ describe('AUTH-02 — stopping removes the listeners', () => {
    * Reddened by making `stop()` a no-op — the second peer acquires a verdict too.
    */
   it('produces a verdict for a connect before stop, and none for a connect after it', async () => {
-    const { certificate } = certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
+    const { certificate } = await certificateFor(FIXTURE_SEED, USER_SEED, Date.now())
     const served = await servedBy({
       answer: () => recordsOf(certificate, FIXTURE_SEED),
       trustedIssuers: PINNED,

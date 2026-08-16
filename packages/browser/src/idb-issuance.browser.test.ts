@@ -103,7 +103,7 @@ describe('AUTH-04 — a tab that reloads has not been handed its budget back', (
     })
 
     for (let i = 1; i <= 2; i++) {
-      const request = requestEnrollment(
+      const request = await requestEnrollment(
         new Uint8Array(32).fill(i),
         new Uint8Array(32).fill(i + 40),
         { operatorId: 'tab-ops', discoverability: 'via-relay', relayIds: ['relay-1'] },
@@ -125,7 +125,7 @@ describe('AUTH-04 — a tab that reloads has not been handed its budget back', (
         issuance: reopened,
       })
       const refused = after.enrol(
-        requestEnrollment(new Uint8Array(32).fill(9), new Uint8Array(32).fill(49), {
+        await requestEnrollment(new Uint8Array(32).fill(9), new Uint8Array(32).fill(49), {
           operatorId: 'tab-ops',
           discoverability: 'via-relay',
           relayIds: ['relay-1'],

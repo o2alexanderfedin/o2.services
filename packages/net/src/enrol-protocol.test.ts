@@ -49,8 +49,8 @@ function authority(seed: Uint8Array = provider.priv): EnrollmentAuthority {
  * the fixture cannot accidentally build a request the authority would refuse for a
  * reason unrelated to what is under test.
  */
-function buildRequest(): EnrollmentRequest {
-  const pending = requestEnrollment(node.priv, user.priv, {
+async function buildRequest(): Promise<EnrollmentRequest> {
+  const pending = await requestEnrollment(node.priv, user.priv, {
     operatorId: 'op-a',
     discoverability: 'via-relay',
     relayIds: ['12D3KooWRelayOne', '12D3KooWRelayTwo'],
@@ -78,8 +78,8 @@ function requestFieldsOf(encoded: CanonicalValue): { [k: string]: CanonicalValue
 }
 
 describe('the enrol request survives the wire intact', () => {
-  it('round-trips every field, including relayIds order and the two proofs', () => {
-    const request = buildRequest()
+  it('round-trips every field, including relayIds order and the two proofs', async () => {
+    const request = await buildRequest()
     const parsed = parseRequest(encodeRequest({ kind: 'enrol', request }))
     expect(parsed).toStrictEqual({ kind: 'enrol', request })
   })
@@ -111,16 +111,16 @@ describe('the enrol request survives the wire intact', () => {
   ] as const
 
   for (const field of FIELDS) {
-    it(`refuses a request with ${field} missing, rather than defaulting it`, () => {
-      const encoded = encodeRequest({ kind: 'enrol', request: buildRequest() })
+    it(`refuses a request with ${field} missing, rather than defaulting it`, async () => {
+      const encoded = encodeRequest({ kind: 'enrol', request: await buildRequest() })
       const fields = requestFieldsOf(encoded)
       delete fields[field]
       expect(parseRequest({ kind: 'enrol', request: fields })).toBeNull()
     })
   }
 
-  it('refuses a discoverability this build does not know', () => {
-    const encoded = encodeRequest({ kind: 'enrol', request: buildRequest() })
+  it('refuses a discoverability this build does not know', async () => {
+    const encoded = encodeRequest({ kind: 'enrol', request: await buildRequest() })
     const fields = requestFieldsOf(encoded)
     fields['discoverability'] = 'whenever-it-feels-like-it'
     expect(parseRequest({ kind: 'enrol', request: fields })).toBeNull()
@@ -132,9 +132,9 @@ describe('a certificate crosses the wire without being laundered', () => {
    * The positive control for the two negative behaviours below. If the parser corrupted
    * every certificate, "tampering is refused" would pass for entirely the wrong reason.
    */
-  it('a valid certificate survives the round trip and still verifies', () => {
+  it('a valid certificate survives the round trip and still verifies', async () => {
     const issuer = authority()
-    const result = issuer.enrol(buildRequest(), NOW)
+    const result = issuer.enrol(await buildRequest(), NOW)
     expect(result.ok).toBe(true)
 
     const parsed = parseResponse(encodeResponse({ kind: 'enrol', result }))
@@ -156,9 +156,9 @@ describe('a certificate crosses the wire without being laundered', () => {
     ['operatorId', 'op-somebody-else'],
     ['expiresAt', NOW + 999_999_999],
   ] as const) {
-    it(`refuses a certificate whose ${field} was altered on the wire, as bad-signature`, () => {
+    it(`refuses a certificate whose ${field} was altered on the wire, as bad-signature`, async () => {
       const issuer = authority()
-      const result = issuer.enrol(buildRequest(), NOW)
+      const result = issuer.enrol(await buildRequest(), NOW)
       if (!result.ok) throw new Error('expected issuance to succeed')
 
       const encoded = encodeResponse({ kind: 'enrol', result }) as {
@@ -177,10 +177,10 @@ describe('a certificate crosses the wire without being laundered', () => {
     })
   }
 
-  it('names the issuer it does not trust, rather than refusing anonymously', () => {
+  it('names the issuer it does not trust, rather than refusing anonymously', async () => {
     const pinned = authority()
     const foreign = authority(otherProvider.priv)
-    const result = foreign.enrol(buildRequest(), NOW)
+    const result = foreign.enrol(await buildRequest(), NOW)
     if (!result.ok) throw new Error('expected issuance to succeed')
 
     const parsed = parseResponse(encodeResponse({ kind: 'enrol', result }))
@@ -204,10 +204,10 @@ describe('a certificate crosses the wire without being laundered', () => {
    * rather than merely another foreign one, and it is asserted before the verdict is
    * read so the test cannot pass while measuring something else.
    */
-  it('refuses a self-signed certificate, naming the node that signed for itself', () => {
+  it('refuses a self-signed certificate, naming the node that signed for itself', async () => {
     const pinned = authority()
     const selfSigned = authority(node.priv)
-    const result = selfSigned.enrol(buildRequest(), NOW)
+    const result = selfSigned.enrol(await buildRequest(), NOW)
     if (!result.ok) throw new Error('expected issuance to succeed')
 
     const parsed = parseResponse(encodeResponse({ kind: 'enrol', result }))
@@ -364,9 +364,9 @@ describe('X509-04 — the X.509 form survives the wire, and a malformed one is n
     })
   }
 
-  it('carries the form across the wire intact, so the certificate still verifies', () => {
+  it('carries the form across the wire intact, so the certificate still verifies', async () => {
     const issuer = x509Authority()
-    const result = issuer.enrol(buildRequest(), NOW)
+    const result = issuer.enrol(await buildRequest(), NOW)
     if (!result.ok) throw new Error('expected issuance to succeed')
     expect(result.certificate.x509).toBeDefined()
 
@@ -377,9 +377,9 @@ describe('X509-04 — the X.509 form survives the wire, and a malformed one is n
     expect(verifyCertificate(parsed.result.certificate, new Set([issuer.issuerKey]), NOW).ok).toBe(true)
   })
 
-  it('refuses the whole frame when the x509 field is not a string, rather than dropping it', () => {
+  it('refuses the whole frame when the x509 field is not a string, rather than dropping it', async () => {
     const issuer = x509Authority()
-    const result = issuer.enrol(buildRequest(), NOW)
+    const result = issuer.enrol(await buildRequest(), NOW)
     if (!result.ok) throw new Error('expected issuance to succeed')
 
     const encoded = encodeResponse({ kind: 'enrol', result }) as { readonly [k: string]: CanonicalValue }
@@ -389,12 +389,12 @@ describe('X509-04 — the X.509 form survives the wire, and a malformed one is n
     expect(parseResponse({ ...encoded, certificate })).toBeNull()
   })
 
-  it('lets an altered form reach the gate, which refuses it by the profile\'s own name', () => {
+  it('lets an altered form reach the gate, which refuses it by the profile\'s own name', async () => {
     // Altered on the **encoded** value, which is the shape a peer actually controls. The
     // parser accepts it — a well-formed lie is still well-formed — and the refusal comes
     // from the profile rather than from the signature, because the gate runs first.
     const issuer = x509Authority()
-    const result = issuer.enrol(buildRequest(), NOW)
+    const result = issuer.enrol(await buildRequest(), NOW)
     if (!result.ok) throw new Error('expected issuance to succeed')
 
     const encoded = encodeResponse({ kind: 'enrol', result }) as { readonly [k: string]: CanonicalValue }

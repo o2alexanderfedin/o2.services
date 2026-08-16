@@ -586,14 +586,14 @@ describe('VER-08/09/10 — what a combine produced and what its producer signed 
   const PINNED: ReadonlySet<string> = new Set([toHex(ed25519.getPublicKey(provider))])
 
   /** A node this fixture's provider certified, holding its own seed. */
-  function enrolled(seed: number): ResultSigner {
+  async function enrolled(seed: number): Promise<ResultSigner> {
     const nodeSeed = new Uint8Array(32).fill(seed)
     const issued = new EnrollmentAuthority({
       providerPrivateKey: provider,
       maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
       issuance: 'remembers-only-within-this-process',
     }).enrol(
-      requestEnrollment(nodeSeed, alice, {
+      await requestEnrollment(nodeSeed, alice, {
         operatorId: `op-${seed}`,
         discoverability: 'via-relay',
         relayIds: ['relay-1'],
@@ -615,7 +615,7 @@ describe('VER-08/09/10 — what a combine produced and what its producer signed 
       decode: decodeCanonical,
       liveNodes: () => live,
     })
-    const signer = enrolled(11)
+    const signer = await enrolled(11)
 
     const outcome = await executeReduce({
       tree,
@@ -691,7 +691,7 @@ describe('VER-08/09/10 — what a combine produced and what its producer signed 
     const { contributions } = await storePartials(store, 4)
     const tree = deriveReduceTree(contributions)
     const live = new Set(['n1', 'n2', 'n3'])
-    const signer = enrolled(12)
+    const signer = await enrolled(12)
     const honest = localDispatch({
       blockstore: store,
       combiner: fabricCombiner,

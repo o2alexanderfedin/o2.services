@@ -74,14 +74,14 @@ const authority = (): EnrollmentAuthority =>
   })
 
 /** An enrolled node whose capability record carries exactly these extensions. */
-function node(
+async function node(
   auth: EnrollmentAuthority,
   seed: number,
   extensions: readonly CapabilityExtension[],
-): { nodeKey: string; records: NodeRecords } {
+): Promise<{ nodeKey: string; records: NodeRecords }> {
   const key = keypair(seed)
   const enrolled = auth.enrol(
-    requestEnrollment(key.priv, owner.priv, {
+    await requestEnrollment(key.priv, owner.priv, {
       operatorId: `op-${seed}`,
       discoverability: 'seed',
       relayIds: [],
@@ -312,7 +312,7 @@ describe('the extension seam is covered by the signature', () => {
 describe('what a reader does with an extension it has never heard of', () => {
   it('qualifies a node whose unknown extension is not critical — this is forward compatibility', async () => {
     const auth = authority()
-    const later = node(auth, 21, [{ id: UNKNOWN, critical: false, value: { cells: ['8a2a1072b59ffff'] } }])
+    const later = await node(auth, 21, [{ id: UNKNOWN, critical: false, value: { cells: ['8a2a1072b59ffff'] } }])
     const { index, cid } = await indexOf(later)
 
     const found = await discoverExecutors({ inputCid: cid }, index, { trustedIssuers: trusted, now: NOW })
@@ -328,7 +328,7 @@ describe('what a reader does with an extension it has never heard of', () => {
 
   it('refuses an unknown CRITICAL extension by a name that blames this build, not the signature', async () => {
     const auth = authority()
-    const later = node(auth, 22, [{ id: UNKNOWN, critical: true, value: { policy: 'refuse' } }])
+    const later = await node(auth, 22, [{ id: UNKNOWN, critical: true, value: { policy: 'refuse' } }])
     const { index, cid } = await indexOf(later)
 
     const found = await discoverExecutors({ inputCid: cid }, index, { trustedIssuers: trusted, now: NOW })
@@ -351,7 +351,7 @@ describe('what a reader does with an extension it has never heard of', () => {
 
   it('names every critical extension it does not understand, not just the first', async () => {
     const auth = authority()
-    const later = node(auth, 23, [
+    const later = await node(auth, 23, [
       { id: 'urn:o2:unknown-a', critical: true, value: null },
       { id: 'urn:o2:unknown-b', critical: true, value: null },
       { id: 'urn:o2:unknown-c', critical: false, value: null },
@@ -369,7 +369,7 @@ describe('what a reader does with an extension it has never heard of', () => {
 
   it('qualifies a node whose critical extension this reader declares it understands', async () => {
     const auth = authority()
-    const later = node(auth, 24, [{ id: UNKNOWN, critical: true, value: { policy: 'refuse' } }])
+    const later = await node(auth, 24, [{ id: UNKNOWN, critical: true, value: { policy: 'refuse' } }])
     const { index, cid } = await indexOf(later)
 
     const found = await discoverExecutors({ inputCid: cid }, index, {
@@ -384,7 +384,7 @@ describe('what a reader does with an extension it has never heard of', () => {
 
   it('understands nothing by default, so the omission of the option fails closed', async () => {
     const auth = authority()
-    const later = node(auth, 25, [{ id: UNKNOWN, critical: true, value: null }])
+    const later = await node(auth, 25, [{ id: UNKNOWN, critical: true, value: null }])
     const { index, cid } = await indexOf(later)
 
     // No `understands`. The default is the empty registry this build ships with, so the

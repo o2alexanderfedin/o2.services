@@ -350,6 +350,11 @@ export {
   possessionChallenge,
   requestEnrollment,
   resolveReplicaSets,
+  // The WebCrypto arm of `UserSigner`: turns a non-extractable `CryptoKey` pair into the
+  // thing `requestEnrollment` asks for, so a visitor's owner key can be one the page that
+  // rendered it cannot read. Both platform tiers call this when their `enrollment` option
+  // is handed a `CryptoKeyPair` rather than bytes.
+  subtleUserSigner,
   verifyCertificate,
 } from './enrollment.ts'
 export type {
@@ -375,6 +380,9 @@ export type {
   NodeCertificate,
   Discoverability,
   ReplicaSet,
+  // The user's half of an enrolment as a *capability to sign* rather than as key material
+  // — the port `crypto.subtle` fits through, and the reason `requestEnrollment` is async.
+  UserSigner,
 } from './enrollment.ts'
 
 // The third signing leg — a result the node that produced it signed. VER-08, VER-09,

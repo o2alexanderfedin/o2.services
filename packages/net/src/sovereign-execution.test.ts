@@ -57,7 +57,7 @@ const SEED = 'seed'
 /** Alice's sovereign row. Distinctive bytes, so a match in a frame means something. */
 const SOVEREIGN_ROW = { ssn: '123-45-6789', salary: 87_000, dob: '1984-02-29' }
 
-function sovereignBytes(): Uint8Array<ArrayBuffer> {
+async function sovereignBytes(): Promise<Uint8Array<ArrayBuffer>> {
   const encoded = encodeCanonical(SOVEREIGN_ROW)
   if (!encoded.ok) throw new Error('fixture not encodable')
   return encoded.bytes
@@ -113,7 +113,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
 
   const seedStore = new MemoryBlockstore()
   const moduleCid = await seedStore.put(options.module)
-  const inputCid = await seedStore.put(sovereignBytes())
+  const inputCid = await seedStore.put(await sovereignBytes())
   const index = new MemoryRecordIndex()
   const seedRpc = new RpcEndpoint(network.connect(SEED), { timeoutMs: 5_000 })
   serveAgent({
@@ -135,9 +135,9 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
 
   const certificates: NodeCertificate[] = []
 
-  const enrol = (priv: Uint8Array, userPriv: Uint8Array, operatorId: string): NodeCertificate => {
+  const enrol = async (priv: Uint8Array, userPriv: Uint8Array, operatorId: string): Promise<NodeCertificate> => {
     const result = authority.enrol(
-      requestEnrollment(priv, userPriv, { operatorId, discoverability: 'seed', relayIds: [] }),
+      await requestEnrollment(priv, userPriv, { operatorId, discoverability: 'seed', relayIds: [] }),
       NOW,
     )
     if (!result.ok) throw new Error(`fixture enrolment failed: ${result.reason}`)
@@ -150,7 +150,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
     const nodeId = toHex(ed25519.getPublicKey(priv))
     // Same operator for both: one person's own machines are one operator, which is
     // exactly why their agreement is owner-domain and not independent.
-    const certificate = enrol(priv, aliceUserPriv, 'alice-op')
+    const certificate = await enrol(priv, aliceUserPriv, 'alice-op')
     const capabilities = publishCapabilities(priv, {
       features: ['bulk-memory'],
       sovereignFor: [aliceUserKey],
@@ -162,10 +162,10 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
 
     // The tap wraps the transport, so it is the node's only exit by construction.
     const guard = new EgressGuard(network.connect(nodeId), aliceUserKey)
-    guard.guard('alice-row', sovereignBytes())
+    guard.guard('alice-row', await sovereignBytes())
 
     const local = new MemoryBlockstore()
-    await local.put(sovereignBytes())
+    await local.put(await sovereignBytes())
     const rpc = new RpcEndpoint(guard, { timeoutMs: 5_000 })
     const store = new FetchingBlockstore(local, new RpcBlockSource(rpc, () => [SEED]))
     // DATA-09: the serving-side gate, wrapped exactly the way `fabric-node.ts`/
@@ -206,10 +206,10 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
   // Bob's node: provides the block, cleared for nobody.
   const bobPriv = new Uint8Array(32).fill(99)
   const foreignKey = toHex(ed25519.getPublicKey(bobPriv))
-  const bobCertificate = enrol(bobPriv, bobUserPriv, 'bob-op')
+  const bobCertificate = await enrol(bobPriv, bobUserPriv, 'bob-op')
   const bobRpc = new RpcEndpoint(network.connect(foreignKey), { timeoutMs: 5_000 })
   const bobStore = new MemoryBlockstore()
-  await bobStore.put(sovereignBytes())
+  await bobStore.put(await sovereignBytes())
   serveAgent({
     paused: 'never-pauses',
     rpc: bobRpc,
@@ -525,7 +525,7 @@ describe('Phase 12 — sovereignty wired onto submitJob', () => {
         kind: 'block',
         cid: fabric.inputCid,
       })
-      expect(blockReply).toEqual({ kind: 'block', found: true, bytes: sovereignBytes() })
+      expect(blockReply).toEqual({ kind: 'block', found: true, bytes: await sovereignBytes() })
     } finally {
       fabric.close()
     }
@@ -613,11 +613,11 @@ describe('a hold survives an exec that never took one', () => {
     // always succeeds and the test is never about a missing block.
     const served = new MemoryBlockstore()
     const moduleCid = await served.put(MODULE_ECHOES_INPUT)
-    const inputCid = await served.put(sovereignBytes())
+    const inputCid = await served.put(await sovereignBytes())
 
     // The node's LOCAL-ONLY tier, which is what declares a payload sovereign.
     const sovereignInputs = new MemoryBlockstore()
-    if (options.sovereignInputsHoldsIt) await sovereignInputs.put(sovereignBytes())
+    if (options.sovereignInputsHoldsIt) await sovereignInputs.put(await sovereignBytes())
 
     const guard = new EgressGuard(network.connect(nodeId), OWNER)
     const rpc = new RpcEndpoint(guard, { timeoutMs: 5_000 })
@@ -675,7 +675,7 @@ describe('a hold survives an exec that never took one', () => {
       const label = node.inputCid.toString()
       // A third party declares the payload sovereign for the life of a job, exactly
       // as `submitJobWithEgress` does.
-      const jobHold = node.guard.guard(label, sovereignBytes())
+      const jobHold = node.guard.guard(label, await sovereignBytes())
 
       const publicReply = await node.exec({
         moduleCid: node.moduleCid,
@@ -724,7 +724,7 @@ describe('a hold survives an exec that never took one', () => {
     const node = await servingNode({ sovereignInputsHoldsIt: false })
     try {
       const label = node.inputCid.toString()
-      node.guard.guard(label, sovereignBytes())
+      node.guard.guard(label, await sovereignBytes())
 
       await node.exec({
         moduleCid: node.moduleCid,

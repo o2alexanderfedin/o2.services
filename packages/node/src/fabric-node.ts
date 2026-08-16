@@ -104,6 +104,7 @@ import {
   isStartBrowserLabel,
   publishCapabilities,
   requestEnrollment,
+  subtleUserSigner,
   verifyCapabilityRecord,
   verifyCertificate,
 } from '@o2/core'
@@ -288,14 +289,23 @@ export interface FabricNodeOptions {
    * node one operator, or every node its own, and Phase 19 would inherit a meaningless
    * anti-affinity rule.
    *
-   * **`userPrivateKey`, not a `userKey` hex string, and the difference is load-bearing.**
-   * `EnrollmentAuthority.enrol` requires an `ownerProof`: the *user's* signature over the
-   * same challenge bytes the node signs, refused by name as `bad-owner-proof` when it is
-   * absent or wrong. That proof can only be produced by whoever holds the user's private
-   * half, so a node configured with a public key alone could name a user key and would be
-   * refused on every attempt. `requestEnrollment` accordingly **derives** `userKey` from
-   * this value rather than accepting it as a field, so naming somebody else's user key is
-   * not a thing this option can be asked to do. Consent is a value here, not a check.
+   * **Something that can *sign*, not a `userKey` hex string, and the difference is
+   * load-bearing.** `EnrollmentAuthority.enrol` requires an `ownerProof`: the *user's*
+   * signature over the same challenge bytes the node signs, refused by name as
+   * `bad-owner-proof` when it is absent or wrong. That proof can only be produced by
+   * whoever holds the user's private half, so a node configured with a public key alone
+   * could name a user key and would be refused on every attempt. `requestEnrollment`
+   * accordingly takes `userKey` from **whatever signs** rather than accepting it as a
+   * field, so naming somebody else's user key is not a thing this option can be asked to
+   * do. Consent is a value here, not a check.
+   *
+   * **A `CryptoKeyPair` is accepted too, and on this tier that is the unusual case rather
+   * than the expected one.** The union exists because the browser tier's visitor key is a
+   * non-extractable `CryptoKey` (see `BrowserNodeOptions` for the measurement), and one
+   * enrolment API serves both tiers — which is this project's whole bet. A backbone
+   * operator normally fills the bytes arm, because a key from a file survives a restart and
+   * moves between machines, and a WebCrypto pair generated in-process does neither. The arm
+   * is here for a host that already holds its key inside `subtle` — not as an upgrade path.
    *
    * That makes this the one option on this interface that takes key material, and it is
    * deliberately **not** reachable from argv: `issuesCertificates` above is a boolean and
@@ -323,7 +333,7 @@ export interface FabricNodeOptions {
    * field with two answers.
    */
   readonly enrollment?: {
-    readonly userPrivateKey: Uint8Array
+    readonly userPrivateKey: Uint8Array | CryptoKeyPair
     readonly operatorId: string
     readonly providerAddr: string
   }
@@ -1105,10 +1115,15 @@ async function resolveCertificate(parts: {
   // `relayIds` both fall out of `canRelay`, which is derived from the listen list for
   // precisely the reason the module comment's "why relaying is derived" section gives.
   //
-  // Three arguments, and the middle one is the user's *private* key: `userKey` is derived
-  // inside, and the same bytes sign the `ownerProof` the authority refuses enrollment
-  // without.
-  const request = requestEnrollment(identity.seed, enrollment.userPrivateKey, {
+  // Three arguments, and the middle one is what holds the user's *private* half: `userKey`
+  // comes from it rather than from a field, and it signs the `ownerProof` the authority
+  // refuses enrollment without. A `CryptoKeyPair` becomes a `UserSigner` here — the one
+  // place this package converts, so nothing downstream has to know which arm was taken.
+  const user =
+    enrollment.userPrivateKey instanceof Uint8Array
+      ? enrollment.userPrivateKey
+      : await subtleUserSigner(enrollment.userPrivateKey)
+  const request = await requestEnrollment(identity.seed, user, {
     operatorId: enrollment.operatorId,
     discoverability: canRelay ? 'seed' : 'via-relay',
     relayIds: canRelay ? [] : [...relayPeerIds],

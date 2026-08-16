@@ -660,7 +660,7 @@ async function combineFabric(workers: readonly FixtureWorker[]) {
     // fixed fixture epoch would make every certificate here `not-yet-valid` or `expired`
     // and every reading below the named absence for a reason unrelated to attestation.
     const enrolled = authority.enrol(
-      requestEnrollment(nodeSeed, FIXTURE_USER_SEED, {
+      await requestEnrollment(nodeSeed, FIXTURE_USER_SEED, {
         operatorId: worker.operatorId,
         discoverability: 'seed',
         relayIds: [],
