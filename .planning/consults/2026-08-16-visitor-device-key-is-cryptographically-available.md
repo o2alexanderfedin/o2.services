@@ -62,31 +62,75 @@ read it — so a polyfill would supply the API shape without the property, which
 worse than absence because it looks safe. `subtle-digest-fallback.ts` installs `digest` and
 deliberately nothing else for the same family of reason.
 
-## What is actually blocking, now that cryptography is not
+## What was blocking — and what it cost to remove, **BUILT 2026-08-16**
 
-`requestEnrollment` (`packages/core/src/enrollment.ts:398`) takes `userPrivateKey: Uint8Array`
-and uses it for exactly two things — `ed25519.getPublicKey` at `:407` and
-`ed25519.sign(challenge, …)` at `:417`. A non-extractable `CryptoKey` performs both happily
-and **can never produce those bytes**. So the enrolment API structurally excludes the one key
-shape the owner's ruling permits. Same at `BrowserNodeOptions.enrollment.userPrivateKey`.
+`requestEnrollment` took `userPrivateKey: Uint8Array` and used it for exactly two things:
+`ed25519.getPublicKey` and `ed25519.sign(challenge, …)`. A non-extractable `CryptoKey`
+performs both happily and **can never produce those bytes**, so the enrolment API
+structurally excluded the one key shape the owner's ruling permits.
 
-**The next decomposed piece is therefore a signer port**, not a design:
+That is now removed. `requestEnrollment(nodePrivateKey, user: UserSigner | Uint8Array,
+fields)` is async; `subtleUserSigner` adapts a `CryptoKeyPair`, `seedUserSigner` is the
+backbone's arm, and `BrowserNodeOptions`/`FabricNodeOptions` `enrollment.userPrivateKey`
+takes `Uint8Array | CryptoKeyPair`. Landed as `61368d4` + `a37d647` on
+`feature/enrolment-signer-port`.
 
 ```ts
 interface UserSigner { readonly userKey: PublicKeyHex; sign(message: Uint8Array): Promise<Uint8Array> }
 ```
 
-Its cost, measured so the next round budgets it rather than discovers it: **2 production call
-sites** (`browser-node.ts:640`, `fabric-node.ts:1111`) but roughly **15 test files** call
-`requestEnrollment(`, and WebCrypto signing is async, so the function must become async and
-every caller must `await`. The additive alternative — a second exported function — is worse
-here, because an export with no production caller is what `reachability-guard.node.test.ts`
-reddens on, which is the same trap that has caught this work before.
+**The estimate above was right about the shape and wrong about nothing except the count** —
+41 files, not 15, because helper fixtures cascade. Recorded because an estimate nobody
+re-checks is a number that ages into folklore.
+
+### Four things the tree said that the plan did not
+
+Each was a guard reporting a real consequence, and each was fixed at its cause. They are
+listed because they are the reusable part: *this* is what a change to a signing API costs
+in *this* repository.
+
+1. **CRYPTO-01.** `one-crypto-implementation.node.test.ts` reported `enrollment.ts` **by
+   path** as a second file performing WebCrypto Ed25519 operations; exactly one is
+   permitted. The `subtle.exportKey`/`subtle.sign` pair moved to `ed25519-backend.ts` as
+   `subtleKeyPairSigner`. `enrollment.ts` keeps its "pure module, one stated exception"
+   header — by re-measurement rather than by assertion.
+2. **The reachability collision bound** read 17 against 16: two object-literal `sign`
+   methods in one file. Not raised. Once the WebCrypto call moved out, that arm has nothing
+   left to implement and delegates as a property, so the bound reads 16 with nothing
+   renamed to please it.
+3. **The enrolment-cost ratio, and this is the substantive one.** Verifying the `ownerProof`
+   locally on **both** arms put one `ed25519.verify` into the attacker's mint, and
+   `enrollment-dos.node.test.ts` priced it at once: *"expected 1.2203070223189196 to be
+   greater than 1.5"*, down from a recorded 2.96–3.16. Those floors are lower bounds on an
+   exposure this repository has **not** removed, so halving one by accident and restating it
+   would have been moving a cost model sideways. The check now runs only where a *caller*
+   supplied the pairing; on the seed arm the module derives the key itself, so the check
+   could only fail if noble disagreed with noble. **Derivation and verification are
+   alternatives, not a stack.**
+4. **AUTH-04's caller-side guard changed shape and catches strictly more.** `userKey` used
+   to be *derived*, making a stranger's key unspellable. A signer supplies its own public
+   half, so the guarantee is a check — `UserKeyMismatchError` — which also catches a
+   `CryptoKeyPair` whose halves came from two generations. Derivation never could.
+
+### What is measured, and in which engines
+
+`webcrypto-ed25519.browser.test.ts` gained a second block that runs the **production**
+path: a non-extractable pair whose `exportKey('pkcs8', …)` is refused, through
+`subtleUserSigner` → `requestEnrollment` → `EnrollmentAuthority.enrol` → `verifyCertificate`.
+Green in chromium, firefox and webkit; `--project browser` reads **294/294 files, 5076/5076
+tests**. The provider verifies with `@noble/curves` and has no idea WebCrypto exists, which
+is the cross-implementation agreement the whole piece rested on.
 
 ## What this file does NOT establish
 
 It says nothing about **where the key lives across sessions** (IndexedDB stores `CryptoKey`
 handles structurally, unmeasured here), nothing about **whether accepting a certificate should
 pin its issuer** — the objection that killed round 2, and the one genuinely open policy
-question — and nothing about a UI. It establishes that the cryptography is available and that
-the API, not the platform, is what stands in the way.
+question — and nothing about a UI. It established that the cryptography is available and that
+the API, not the platform, was what stood in the way; the API has since been changed, and
+those three remain exactly as open as they were.
+
+**So task #21's remaining work is not cryptographic and never was after this file.** A tab can
+hold a key it cannot read and get a certificate for it today. What is undecided is policy
+(issuer pinning), persistence (does an IndexedDB-stored `CryptoKey` handle survive a session
+— **unmeasured**), and presentation.
