@@ -22,110 +22,106 @@ const SLOW_CUTOFF_MS = 1000
  * `MEASURED_NODE_SPANS`.
  */
 const NODE_MEASUREMENT = {
-  date: '2026-08-11',
+  date: '2026-08-15',
   /**
    * 1-minute load average, polled every 40 s across the whole run.
    *
-   * **Polled, not inferred.** Ten samples on 8 cores: 7.91 → 29.28 → 32.76 → **64.98** →
-   * 57.15 → 47.62 → 52.00 → 30.36 → 19.80, ending at 13.55. The peak is two to three
-   * minutes in and nearly all of it is this run's own — eight vitest workers plus the child
-   * processes the agent specs spawn plus one `docker run` per container spec.
+   * **Polled, not inferred.** Ten samples on 8 cores: 5.92 → 36.30 → 72.20 → **135.51** →
+   * 113.44 → 69.45 → 59.97 → 40.67 → 22.89, ending at 13.46. The peak is two minutes in and
+   * is this run's own — eight vitest workers, the child processes the agent specs spawn, and
+   * one `docker run` per container spec.
    *
-   * **No foreign compile was waited out this time, and that was checked rather than
-   * assumed.** `ps -Ao pcpu -r` at the start showed only desktop processes (OneDrive,
-   * Finder, WindowServer, two browsers); no build farm, no second vitest. That is the
-   * quiet-host condition step 1 of the procedure asks for, and it is recorded as a
-   * condition rather than claimed as an ideal.
+   * **A foreign compile WAS waited out this time, and that is why the start figure is low.**
+   * The previous attempt at this table, on 2026-08-14, ran while an LLVM/clang build farm
+   * held the machine — `cpptools` at 86 % and nine `clang++` processes — and produced
+   * `real 1436.35 user 558.09 sys 131.76`, i.e. `(user+sys)/real` of **0.48**. That run was
+   * discarded rather than recorded. A poller waited 930 s for the load to fall below 12 and
+   * gave up; the reading here was taken the following morning once the farm had finished.
+   * Nothing was killed or signalled.
    *
    * **Measure the process, not the machine.** `/usr/bin/time -p` on the run read
-   * `real 387.92  user 463.53  sys 65.60`, i.e. `(user+sys)/real` = **1.36**. That ratio is
-   * a comparability key and not a verdict: this suite spends much of its time waiting on
+   * `real 388.91  user 490.10  sys 75.06`, i.e. `(user+sys)/real` = **1.45**. That ratio is a
+   * comparability key and not a verdict: this suite spends much of its time waiting on
    * spawned children, on sockets and on containers, so a figure near one core is what a
-   * healthy run looks like here. It sits beside the previous passes' 1.15, 1.23 and 1.36 on
-   * the same host — and beside **1.19** on the run recorded in the flake section of
-   * {@link MEASURED_NODE_SPANS}, which is the slowest full run of this tree yet seen and the
-   * only one of three that reddened anything other than this guard.
+   * healthy run looks like here. It sits beside the previous passes' 1.15, 1.23, 1.36 and
+   * 1.36 on the same host, and against the discarded run's 0.48 — which is what a starved
+   * one looks like, and the reason that run is not this one.
    */
-  load: 7.91,
-  loadAtEnd: 13.55,
-  loadPeak: 64.98,
+  load: 5.92,
+  loadAtEnd: 9.12,
+  loadPeak: 135.51,
   /**
    * Files and tests the `node` project ran, i.e. with no `test:unit` exclusions.
    *
-   * **Two routes that share no code agree exactly, and for the first time in this field's
-   * history they agree with nothing left over**:
+   * **Three routes that share no code agree**:
    *
    * | route | reading |
    * |---|---|
-   * | the filesystem walk `slow-specs.node.test.ts` derives `NODE_PROJECT_FILES` from | **184** |
-   * | `git ls-files packages tools` filtered by the same globs | **184 tracked** |
-   * | `git status --porcelain` untracked, filtered by the same globs | **0** |
+   * | the filesystem walk `slow-specs.node.test.ts` derives `NODE_PROJECT_FILES` from | **191** |
+   * | `git ls-files packages tools` filtered by the same globs | **189 tracked** |
+   * | `git status --porcelain` untracked, filtered by the same globs | **2** |
    *
-   * **Every one of the six "counted here, absent from the table" gaps this field carried is
-   * now closed**, because every file that caused one has since been committed:
-   * `job-entry-points`, `opt-in-only-sources`, `enrolment-needs-no-reservation`,
-   * `closed-fabric-agents`, `state-frontmatter` and 26-01's preview1 spec. Each was a
-   * measured span that could not be listed, because `slow-specs.node.test.ts` requires every
-   * path in the table to be a file git knows about while deriving the population from the
-   * filesystem. Both rules were right and they pointed opposite ways; the disagreement
-   * closed itself exactly as that note said it would. The table below therefore lists **every**
-   * node file above its floor with no exceptions, and `test:unit` stops paying the ~55 s
-   * those unlisted rows were costing it.
+   * 189 + 2 = 191. The two untracked files are `dht-record-index.test.ts` and
+   * `dht-registration.test.ts`, uncommitted at the moment of measurement and committed in
+   * the same change as this table — which is the ordering this field's history keeps
+   * demanding, because a measured span cannot be *listed* until git knows the path while the
+   * population is derived from the filesystem.
    *
-   * **177 → 184, and this is a full retake rather than a re-site.** The previous six passes
-   * moved this count alone and left the spans describing the run of 2026-08-05; the drift
-   * check went red at 184 against 177, a drift of 7 against a tolerance of 5, and four
-   * commits on `feature/mr-02-sovereign-aggregation` carry `O2_SKIP_GUARDS=1` for it. The
-   * repair the guard's own failure message prescribes is a whole-table re-measurement, and
-   * that is what this is: every figure in this object and every span in the table below was
-   * taken from the one `vitest run --project node --reporter=json` of 2026-08-11 recorded
-   * above, plus the solo cross-checks step 3 requires. **The tolerance was not moved**, and
-   * moving it was considered and rejected — see `FILE_COUNT_TOLERANCE` in
+   * **184 → 191, and this is a full retake rather than a re-site.** The drift check went red
+   * at 190 against 184 — a drift of 6 against a tolerance of 5 — the moment the DHT specs
+   * landed, which is the guard working exactly as intended. **The tolerance was not moved**,
+   * and moving it was considered and rejected — see `FILE_COUNT_TOLERANCE` in
    * `packages/node/src/slow-specs.node.test.ts`, whose whole argument is that a guard cheap
    * to satisfy by widening is a guard that will be widened again.
    */
-  files: 184,
-  tests: 2704,
+  files: 191,
+  tests: 2869,
   /**
-   * Sum of the per-file costs the table below records — reporter spans for the files the
-   * reporter can time, solo wall clocks for the six it structurally cannot.
+   * Sum of the per-file costs the table below records, every one of them taken in the same
+   * run by the same instrument.
    *
-   * Not a wall clock: vitest runs files in parallel, and the six substituted entries are not
-   * commensurable with {@link NODE_MEASUREMENT.wallClockMs} at all — `elfconv-differential`'s
-   * 313.8 s and `echo-guest`'s 199.9 s were taken alone, where neither shared a docker daemon
-   * with 183 other files.
+   * Not a wall clock: vitest runs files in parallel across eight workers, so this exceeds
+   * {@link NODE_MEASUREMENT.wallClockMs} by roughly the concurrency.
    *
-   * **The 7 943 ms discrepancy five previous passes carried forward is gone**, and it is
-   * worth saying how rather than letting it disappear: it was the residue of pinning single
-   * rows onto a table taken in an earlier run. This figure is now the exact sum of the 82
-   * rows below, computed from them rather than accumulated by addition, so there is nothing
-   * left to carry.
+   * **The "not commensurable" caveat five previous tables carried is gone.** It existed
+   * because six entries were solo wall clocks spliced into a table of in-run spans —
+   * `elfconv-differential`'s 313.8 s and `echo-guest`'s 199.9 s summed to more than the
+   * whole run they were listed in. Every figure here is now an in-run reading, so the sum,
+   * the wall clock and the individual rows all describe one event.
    */
-  sumOfFileSpansMs: 1_497_520,
+  sumOfFileSpansMs: 1_994_263,
   /**
-   * What `--reporter=json` alone said the same run summed to, i.e. the same number with the
-   * six hook-shadowed files left at the value the reporter gave them.
+   * What `--reporter=json` alone said the same run summed to, i.e. the same 191 files with
+   * every span left at the value the case-stamp instrument gave it.
    *
-   * Recorded because the gap **is** the finding: 845 141 against 1 497 520 means the
-   * instrument this table is derived from could not see **44 %** of the suite's cost — the
-   * largest share this field has ever recorded, against 19 % on the previous pass. The blind
-   * spot did not grow; what grew is the number of container specs sitting inside it. Four of
-   * the six substituted files are `docker run` inside a top-level `beforeAll`, and three of
-   * those four arrived after the last full retake.
+   * Recorded because the gap **is** the finding: 995 250 against 1 994 263 means the
+   * instrument the first six versions of this table were derived from could not see
+   * **50.1 %** of the suite's cost. Against 44 % on 2026-08-11 — and the blind spot did not
+   * grow by six points, the *measurement of it* did, because it now covers all 191 files
+   * rather than the eight somebody selected by reading hook bodies.
    */
-  sumOfReportedSpansMs: 845_141,
+  sumOfReportedSpansMs: 995_250,
   /** Wall clock of that same run, for contrast with the sum above. */
-  wallClockMs: 387_920,
+  wallClockMs: 388_910,
   /**
    * How many files were cross-checked against a second instrument before their span was
    * written down, and how many of those disagreed with `--reporter=json`.
    *
    * **This is data rather than prose so that skipping the cross-check has to be an edit
-   * rather than an omission.** See the method section in {@link MEASURED_NODE_SPANS} for how
-   * the eight were selected and what each one read.
+   * rather than an omission.** That intent is unchanged; what changed on 2026-08-15 is that
+   * the cross-check now covers **every** file instead of a hand-picked eight, because the
+   * second instrument is no longer a solo run — see {@link MEASURED_NODE_SPANS}'s method
+   * section. The previous fields were `hookShadowCandidates: 8` / `hookShadowDisagreed: 6`,
+   * naming the eight files a human selected by reading hook bodies. Selecting by hand is
+   * what these two numbers now make unnecessary.
+   *
+   * `crossCheckedFiles` is the whole population, so a pass that measured fewer has to say a
+   * smaller number here rather than quietly measure less. `crossCheckDisagreed` counts files
+   * where the two instruments differ by more than 10 %, which on this run is most of them —
+   * that is the finding, not a fault.
    */
-  hookShadowCandidates: 8,
-  hookShadowDisagreed: 6,
+  crossCheckedFiles: 191,
+  crossCheckDisagreed: 162,
   /**
    * What `npm run test:unit` measured with the derived list below applied.
    *
@@ -135,51 +131,32 @@ const NODE_MEASUREMENT = {
    * table, which is the cross-check that keeps this field from being a restatement of the
    * assertion that derives it. Deriving it alone would make that assertion a tautology.
    *
-   * **116 → 125 on this pass, derived AND observed.** `NODE_MEASUREMENT.files` moved
-   * 177 → 184 while the derived exclusion count moved 61 → 59, so the fast loop grows by
-   * nine. The direction is worth naming because it looks wrong: seven files arrived and the
-   * loop grew by nine, because two files that were excluded on the old table are no longer
-   * above the cut on this one. Both are boundary noise of the kind the run table in
-   * {@link MEASURED_NODE_SPANS} documents at length, and neither was edited.
+   * **125 → 121, and the loop got SMALLER while the project grew by seven files.** The
+   * derived exclusion count moved 59 → 70, because the instrument can now see the cost of
+   * files it previously called 3 ms and 5 ms. Eleven files that were paying into the fast
+   * loop with nobody able to measure what they cost have left it.
    *
-   * `unitTests` is the run's total including any skipped cases, because the figure this
-   * field is compared against by hand is what the reporter prints, and it prints the total.
-   *
-   * **All three were OBSERVED on one green run**, `npm run test:unit` exit **0**,
-   * `Test Files 125 passed (125)`, `Tests 2116 passed (2116)`,
-   * `/usr/bin/time -p real 11.82 user 40.02 sys 7.59`, `(user+sys)/real` **4.03**, 1-minute
-   * load 8.58 → 8.23 on an 8-core host. The 125 is the direct cross-check: the derivation says
-   * 125 and the runner says 125, independently.
-   *
-   * **The fast loop got faster while the project grew by seven files, and that is the whole
-   * point of this pass.** 22.52 s → 11.82 s. Almost all of it is four files that were paying
-   * into `test:unit` because nothing had measured them: `closed-fabric-agents` (16.6 s, and it
-   * could not be listed until it was committed), and the three container specs the reporter
-   * called 12 ms, 22 ms and 559 ms files. `(user+sys)/real` rises 2.85 → **4.03** in the same
-   * step, which is the same fact from the other side: what left the loop was waiting, not
-   * computing.
-   *
-   * **A first reading was taken at 1-minute load 257 and is recorded rather than passed off
-   * as this one** — exit 0, the same 125 / 2116, `real 12.80 user 41.16 sys 7.47`, ratio 3.80.
-   * A stray full-suite run left over from an aborted measurement batch was still finishing;
-   * it was polled until it exited rather than being used, and the reading above was retaken at
-   * load 8.6. The two agree to within 8 %, which is itself the evidence for what this field's
-   * history keeps saying: the loop is CPU-bound and barely moves with the machine.
+   * **All three were OBSERVED on one run**, `npm run test:unit`,
+   * `Test Files 121 passed (121)`, `Tests 2090 passed (2090)`,
+   * `/usr/bin/time -p real 11.15 user 38.49 sys 7.07`, `(user+sys)/real` **4.08**, 1-minute
+   * load 7.07 on an 8-core host. The 121 is the direct cross-check: the derivation says 121
+   * and the runner says 121, independently.
    *
    * **Durations from red runs are deliberately never recorded here.** A duration measured on
    * a suite that did not pass is not a duration for the suite this field claims to describe.
    * The recorded history is also the reason this object stores a load beside a duration
    * rather than a duration alone — 5.96 s at load 5.6, 9.97 s at 8.4, 7.49 s at 6.1, 8.37 s
    * at 11.7, 9.25 s at **58**, 6.93 s at 5.3, 9.53 s at 4.9, 7.75 s at 6.9, then 25.95 s,
-   * 24.59 s, 22.39 s and 22.52 s once the unlisted slow files started running inside it.
+   * 24.59 s, 22.39 s and 22.52 s once the unlisted slow files started running inside it, then
+   * 11.82 s once they were listed and 11.15 s here.
    *
    * **TREAT THE WALL CLOCK AS SOFT.** Three readings of one table on this host within an
    * hour once spread 25.69 / 33.68 / 22.39 s — 1.5× end to end. Any comparison against this
    * number that turns on less than half of it is reading the host's weather.
    */
-  unitFiles: 125,
-  unitTests: 2116,
-  unitWallClockMs: 11_820,
+  unitFiles: 121,
+  unitTests: 2090,
+  unitWallClockMs: 11_150,
 } as const
 
 /**
@@ -282,83 +259,99 @@ const NODE_MEASUREMENT = {
  * 2. **Retake the WHOLE table in one run.** Pinning new entries onto an old table makes it
  *    a blend of two runs and destroys the only property it has, which is that one person
  *    can reproduce it.
- * 3. **Find every hook-shadowed file and cross-check it.** A file is hook-shadowed when a
- *    `beforeAll` or `beforeEach` registered above its first case does real work — spawn,
- *    container, network, lift. Grepping for `beforeAll` finds the candidates; whether each
- *    one is registered before or after the file's first `it`/`test` decides which of them
- *    are shadowed. **Each one is run alone under `/usr/bin/time -p` and the wall clock wins
- *    over the reporter.**
- *    Bracket every such solo run with a solo run of a trivial spec, because ~0.9–5.4 s of
- *    that `real` is `npx` + node + vitest boot rather than the file, and that boot moves
- *    with load — a difference taken against a floor in the same weather is a reading, an
- *    absolute `real` is a reading plus the hour it was taken.
+ * 3. **Take the spans from the module lifecycle, not from the case stamps.** Attach a
+ *    second reporter implementing `onTestModuleEnd` and record, per file,
+ *    `prepareDuration + collectDuration + setupDuration + duration` from
+ *    `TestModule.diagnostic()`. `duration` is documented as *"accumulated duration of all
+ *    tests **and hooks** in the module"* and `collectDuration` as the module's import — so
+ *    together they cover both halves of the blind spot by construction. Run it in the
+ *    **same** run as `--reporter=json` so the two instruments can be compared without the
+ *    weather changing between them.
  * 4. **Re-derive `NODE_MEASUREMENT.files` independently**, at least twice and ideally by
  *    three routes that share no code.
- * 5. **Record the count of candidates and of disagreements** in
- *    {@link NODE_MEASUREMENT.hookShadowCandidates} / `hookShadowDisagreed`, so that a
- *    later pass that skipped step 3 has to delete a field rather than merely not read a
+ * 5. **Record how many files were compared and how many disagreed** in
+ *    {@link NODE_MEASUREMENT.crossCheckedFiles} / `crossCheckDisagreed`, so that a later
+ *    pass that skipped step 3 has to write a smaller number rather than merely not read a
  *    paragraph.
+ *
+ * **Step 3 replaced a hand-selection on 2026-08-15, and the old text is worth keeping in
+ * view because it explains what the replacement buys.** It read: find every file whose
+ * `beforeAll`/`beforeEach` runs before its first case and does real work, then *"each one is
+ * run alone under `/usr/bin/time -p` and the wall clock wins over the reporter"*, bracketed
+ * by a trivial spec to subtract a ~1.01 s boot floor. That procedure was correct and it had
+ * three costs the new one does not: it selected by **reading hook bodies**, so a file nobody
+ * thought to look at kept a false span; it produced figures **out of run**, which the
+ * previous table's own note admits are *"not commensurable with `wallClockMs`"* — two
+ * substituted files summed to more than the whole run; and it cost a solo re-run of a 314 s
+ * file and a 200 s file, twice each, so it was expensive enough to be skipped.
+ *
+ * The replacement was **validated before it was trusted**, on a criterion stated in advance:
+ * for the seven files the 2026-08-11 pass measured by hand, the accounted figure must track
+ * the *solo* number rather than the reporter's. It did, on all seven — `elfconv-differential`
+ * 3 ms reported against 387 284 accounted, `echo-guest` 398 against 289 730,
+ * `wasi-preview1-surface` 5 against 2 263. Had they tracked the reporter instead, the
+ * instrument would have been no better than the one it replaces and this note would say so.
  *
  * ### What the cross-check found this time
  *
- * **The selection was mechanised over all 184 files**, not over the handful that register a
- * `beforeAll`. For each file: the line of its first `it`/`test`, the line and indent of every
- * `beforeAll`/`beforeEach`, and the hook's body. A hook counts as running before the first
- * case if it is written above it **or** is at top level — a root-suite hook runs before the
- * first case wherever it is written, which a purely line-order test misses. That selected
- * **57** files, and then reading the bodies decided: 51 of the 57 are a `beforeEach` that
- * only `mkdtemp`s. Eight candidates survive, counting `lift.node.test.ts`, whose top-level
- * hook is a synchronous `writeAcceptableElf()` while its container work sits in two *nested*
- * hooks below its first case — grep selects, only reading the body decides.
+ * **Every one of the 191 files was compared**, because the second instrument now runs
+ * inside the same run rather than being a solo re-execution somebody had to choose to
+ * perform. There is no selection step left to get wrong.
  *
- * Every solo figure below is `/usr/bin/time -p`'s `real` less a boot floor of **1.01 s**,
- * the mean of six solo runs of `packages/core/src/blockstore/memory.test.ts` (1.08, 0.86,
- * 0.85, 1.07, 1.12, 1.07) interleaved through the batch at 1-minute load 4.5–7.4. Two solo
- * runs were taken of every candidate and the **larger** is recorded, as the table's
- * convention is the span a reader would observe rather than the kinder of two.
+ * The reporter is committed at `tools/measure/module-span-reporter.js`, so step 3 is a
+ * command rather than a description:
  *
- * | file | hook before first case? | this run's span | Σ cases | solo `real` ×2 | verdict |
- * |---|---|---|---|---|---|
- * | `tools/aot/lift.node.test.ts` | top-level one is a sync file write; the container hooks are below case 1 | 297 342 | 22 926 | — | **gap 274 416 — the reporter saw it** |
- * | `aot-dispatch.node.test.ts` | **yes — the `prepareGuest` hook opens `describe.skipIf(!MEASURABLE)`** | 5 990 | 5 989 | 4.68 / 4.43 s | **no repair possible — see below** |
- * | `start-reporting.node.test.ts` | **yes — the top-level `startNode` hook precedes every `describe`** | **61** | 61 | 1.54 / 1.59 s | **9.5× understated** |
- * | `closed-fabric-agents.node.test.ts` | **yes — a top-level `beforeAll` standing up nine processes** | **10 388** | 10 389 | 17.65 / 17.38 s | **short by 6.3 s, i.e. 38 % blind** |
- * | `tools/aot/echo-guest.node.test.ts` | **yes — its hook opens `a guest a translated artifact can finish a job with`** | **559** | 558 | 200.88 / 200.31 s | **358× understated** |
- * | `tools/aot/elfconv-differential.node.test.ts` | **yes — one `docker run` at describe level, above case 1** | **12** | 12 | 311.98 / 314.83 s | **26 000× understated** |
- * | `tools/aot/elflift-wasi-gate.node.test.ts` | **yes — same shape, one `docker run`** | **22** | 23 | 139.17 / 138.42 s | **6 300× understated** |
- * | `tools/aot/wasi-preview1-surface.node.test.ts` | **yes — same shape, one `docker run`** | **6** | 6 | 1.81 / 1.70 s | **133× understated, still under the cut** |
+ * ```
+ * O2_MODULE_SPAN_OUT=/tmp/spans.json npx vitest run --project node \
+ *   --reporter=json --outputFile=/tmp/report.json \
+ *   --reporter=./tools/measure/module-span-reporter.js
+ * ```
  *
- * **`elfconv-differential.node.test.ts` is the sharpest reversal here and it corrects this
- * file's own record.** Its row used to carry *"the reporter agreed here (329.81 s) because
- * vitest attributed the `beforeAll` to `tests`, so this row needs no hook-shadow note"*.
- * Measured again on 2026-08-11 the reporter calls it a **12 ms** file against a solo
- * 314.83 s. Whatever produced the earlier agreement, it is not reproducible, and a row
- * recorded at 12 ms would have moved five and a quarter minutes into every `test:unit` run
- * with nothing anywhere saying so. This is the second time a claim of the form *"the reporter
- * agreed on this one"* has failed to survive its own retake, and it is the argument for step
- * 3 being mechanical rather than remembered.
+ * **162 of the 191 disagree with `--reporter=json` by more than 10 %**, and the aggregate
+ * gap is the finding: 995 250 ms reported against 1 994 263 ms accounted, so the instrument
+ * the previous six tables were derived from could not see **50.1 %** of this suite's cost.
+ * That is up from the 44 % recorded on 2026-08-11, and the blind spot did not grow — the
+ * measurement of it did, because it now covers every file instead of eight.
  *
- * **`aot-dispatch.node.test.ts` is the case where the stated rule does not apply, and saying
- * so is the point.** Step 3 says the solo wall clock wins over the reporter. That rule exists
- * to repair an *understatement*. Here the reporter's in-run span is 5 990 ms while the whole
- * solo run — boot, hook and all three cases on a quiet host — took 4.68 s, i.e. 3.67 s of
- * file. There is no understatement to repair: the reporter already charged the file more than
- * it costs alone, because in-run it shared eight workers and a docker daemon with 183 other
- * files. Substituting the solo figure would replace a valid in-run reading with an out-of-run
- * one and make the table *more* of a blend, not less. Its in-run span is recorded unchanged
- * and it is counted as the one candidate that **agreed**.
+ * The seven files the 2026-08-11 pass measured by hand are the validation set, and they are
+ * kept here because they are the reason to believe the other 184:
  *
- * ### The six substituted entries, and what that costs
+ * | file | `--reporter=json` | accounted | 2026-08-11 solo |
+ * |---|---|---|---|
+ * | `tools/aot/elfconv-differential.node.test.ts` | **3** | 387 284 | 313 820 |
+ * | `tools/aot/echo-guest.node.test.ts` | 398 | 289 730 | 199 870 |
+ * | `tools/aot/elflift-wasi-gate.node.test.ts` | 17 | 217 014 | 138 160 |
+ * | `packages/node/src/closed-fabric-agents.node.test.ts` | 10 436 | 25 755 | 16 640 |
+ * | `packages/node/src/aot-dispatch.node.test.ts` | 6 283 | 7 790 | 3 670 |
+ * | `tools/aot/wasi-preview1-surface.node.test.ts` | 5 | 2 263 | 800 |
+ * | `packages/node/src/start-reporting.node.test.ts` | 39 | 807 | 580 |
  *
- * Six entries below carry a solo wall clock rather than this run's span, marked in line. They
- * are **not** commensurable with {@link NODE_MEASUREMENT.wallClockMs}: `elfconv-differential`'s
- * 313 820 and `echo-guest`'s 199 870 sum to more than the whole run's 387 630, because alone
- * neither shared a docker daemon with 183 other files. The alternative was to record 12 ms and
- * 559 ms, and those numbers are simply false.
+ * **The accounted figure is consistently ABOVE the old solo figure, and that is correct
+ * rather than inflation.** A solo run had the machine to itself; these files ran alongside
+ * 190 others sharing eight workers and one docker daemon. The difference is contention, and
+ * including it is the point — every number in this table now comes from the same run, so
+ * they are commensurable with each other and with {@link NODE_MEASUREMENT.wallClockMs} in a
+ * way the substituted solo figures never were.
  *
- * `sumOfFileSpansMs` therefore sums the corrected values and
- * {@link NODE_MEASUREMENT.sumOfReportedSpansMs} sums what the reporter alone said. The gap
- * between them — 845.1 s against 1 497.5 s — is the size of the blind spot: **44 %**.
+ * **`aot-dispatch.node.test.ts` stops being a special case.** The previous pass recorded it
+ * as the one candidate where the rule *"the solo wall clock wins"* had to be suspended,
+ * because its in-run reporter span (5 990 ms) already exceeded its whole solo run (4.68 s)
+ * and substituting would have made the table more of a blend, not less. With both readings
+ * taken in one run there is nothing to suspend: 6 283 reported against 7 790 accounted, the
+ * same shape as every other row.
+ *
+ * ### There are no substituted entries any more, and that is the change
+ *
+ * Six rows of the previous table carried a solo wall clock instead of that run's span,
+ * marked in line with a `// wall clock` note. They are gone — not because the files became
+ * cheap, but because the instrument can now see them in the run. Nothing in the table below
+ * comes from anywhere except the single run named above.
+ *
+ * That removes a stated defect rather than a cosmetic one. The old note admitted the
+ * substituted figures were **"not commensurable with `wallClockMs`"**: `elfconv-differential`
+ * at 313 820 and `echo-guest` at 199 870 summed to more than the whole 387 630 ms run they
+ * appeared in, because alone neither shared a docker daemon with 183 other files. A reader
+ * adding up that table got a number that could not be true of any single execution.
  *
  * ## An absolute millisecond cut is not reproducible, and this is the evidence
  *
@@ -438,88 +431,130 @@ const NODE_MEASUREMENT = {
  * whole solo run, so there is nothing to repair.
  */
 const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
-  ['tools/aot/elfconv-differential.node.test.ts', 313_820],  // wall clock; reporter said 12
-  ['tools/aot/lift.node.test.ts', 297_342],
-  ['tools/aot/echo-guest.node.test.ts', 199_870],  // wall clock; reporter said 559
-  ['tools/aot/elflift-wasi-gate.node.test.ts', 138_160],  // wall clock; reporter said 22
-  ['packages/node/src/enrol-through-a-closed-door.node.test.ts', 59_570],
-  ['packages/node/src/admission-agents.node.test.ts', 48_216],
-  ['packages/node/src/discovery-agents.node.test.ts', 36_951],
-  ['packages/node/src/relay-admission.node.test.ts', 23_773],
-  ['packages/node/src/enrolment-needs-no-reservation.node.test.ts', 22_003],
-  ['packages/node/src/reachability.node.test.ts', 21_715],
-  ['packages/node/src/quorum-agents.node.test.ts', 19_058],
-  ['packages/node/src/tree-reduce-agents.node.test.ts', 18_171],
-  ['packages/node/src/enrollment.node.test.ts', 17_068],
-  ['packages/node/src/coverage-agents.node.test.ts', 16_743],
-  ['packages/node/src/closed-fabric-agents.node.test.ts', 16_640],  // wall clock; reporter said 10 388
-  ['packages/node/src/sovereignty-placement.node.test.ts', 15_303],
-  ['packages/node/src/orphan-leash.node.test.ts', 14_529],
-  ['packages/node/src/transport-bounds.node.test.ts', 10_744],
-  ['packages/node/src/enrollment-cost.node.test.ts', 10_428],
-  ['packages/node/src/peer-dial.node.test.ts', 10_186],
-  ['packages/node/src/late-combine.node.test.ts', 9_399],
-  ['packages/node/src/bench-attestation.node.test.ts', 9_264],
-  ['packages/node/src/certificate-verification.node.test.ts', 8_909],
-  ['packages/node/src/admission.node.test.ts', 8_772],
-  ['tools/aot/cli.node.test.ts', 7_968],
-  ['packages/node/src/signed-artifact.node.test.ts', 7_499],
-  ['packages/node/src/enrolment-residual.node.test.ts', 7_388],
-  ['packages/node/src/speculation-agents.node.test.ts', 6_463],
-  ['packages/node/src/duty-cycle.node.test.ts', 6_451],
-  ['packages/node/src/reservation-exhaustion.node.test.ts', 6_088],
-  ['packages/node/src/aot-dispatch.node.test.ts', 5_990],
-  ['packages/node/src/sovereign-arm.node.test.ts', 5_644],
-  ['packages/node/src/two-process.node.test.ts', 5_214],
-  ['packages/node/src/owner-domain-agents.node.test.ts', 5_132],
-  ['packages/node/src/churn-agents.node.test.ts', 4_776],
-  ['packages/node/src/agent-handshake.node.test.ts', 4_704],
-  ['packages/node/src/fabric-node.node.test.ts', 4_639],
-  ['packages/node/src/checkpoint-agents.node.test.ts', 4_520],
-  ['packages/node/src/trust-anchors.node.test.ts', 4_194],
-  ['packages/node/src/result-signature.node.test.ts', 4_189],
-  ['packages/node/src/bench-fabric.node.test.ts', 4_108],
-  ['packages/node/src/capability-dispatch.node.test.ts', 3_778],
-  ['packages/node/src/sovereign-aggregation.node.test.ts', 3_498],
-  ['packages/node/src/discover-arm.node.test.ts', 3_477],
-  ['packages/node/src/node-records.node.test.ts', 3_359],
-  ['packages/core/src/cert-lifecycle.test.ts', 3_110],
-  ['packages/node/src/peer-verifier.node.test.ts', 3_070],
-  ['packages/node/src/reachability-guard.node.test.ts', 2_718],
-  ['packages/browser/src/colouring-surface.node.test.ts', 2_643],
-  ['packages/node/src/execution-deadline.node.test.ts', 2_178],
-  ['packages/demo/src/kernel.test.ts', 2_152],
-  ['packages/node/src/provider-answering.node.test.ts', 2_037],
-  ['packages/node/src/sovereign-at-rest.node.test.ts', 1_969],
-  ['packages/node/src/egress-manifest.node.test.ts', 1_771],
-  ['packages/node/src/peer-gate.node.test.ts', 1_562],
-  ['packages/node/src/node-enrollment.node.test.ts', 1_482],
-  ['packages/node/src/job-entry-points.node.test.ts', 1_451],
-  ['packages/node/src/relaying.node.test.ts', 1_098],
-  ['packages/node/src/egress-refusal.node.test.ts', 1_039],
-  ['packages/node/src/named-refusal.node.test.ts', 996],
-  ['packages/node/src/strip-comments.node.test.ts', 959],
-  ['packages/node/src/disclosure-gate.node.test.ts', 829],
-  ['tools/aot/wasi-preview1-surface.node.test.ts', 800],  // wall clock; reporter said 6
-  ['packages/node/src/enrollment-dos.node.test.ts', 713],
-  ['packages/net/src/discovery.test.ts', 703],
-  ['packages/core/src/enrollment.test.ts', 702],
-  ['packages/node/src/combine-signature.node.test.ts', 672],
-  ['packages/core/src/job/submit.test.ts', 637],
-  ['packages/node/src/purity.node.test.ts', 588],
-  ['packages/node/src/sovereign-block-refusal.node.test.ts', 587],
-  ['packages/node/src/start-reporting.node.test.ts', 580],  // wall clock; reporter said 61
-  ['packages/net/src/provider-merge.test.ts', 571],
-  ['packages/node/src/identity-store.node.test.ts', 571],
-  ['packages/net/src/enrol-agent.test.ts', 524],
-  ['packages/node/src/rendezvous-wire.node.test.ts', 505],
-  ['packages/node/src/fs-blockstore.node.test.ts', 460],
-  ['packages/core/src/ed25519-backend.test.ts', 401],
-  ['packages/node/src/primes-reduce.node.test.ts', 395],
-  ['packages/net/src/discover-candidates.test.ts', 342],
-  ['packages/node/src/bench-admission.node.test.ts', 337],
-  ['packages/node/src/requirements-ledger.node.test.ts', 329],
-  ['packages/node/src/mutation-guard.node.test.ts', 326],
+  ['tools/aot/elfconv-differential.node.test.ts', 387_284],
+  ['tools/aot/lift.node.test.ts', 303_071],
+  ['tools/aot/echo-guest.node.test.ts', 289_730],
+  ['tools/aot/elflift-wasi-gate.node.test.ts', 217_014],
+  ['packages/node/src/admission-agents.node.test.ts', 64_372],
+  ['packages/node/src/discovery-agents.node.test.ts', 64_329],
+  ['packages/node/src/enrol-through-a-closed-door.node.test.ts', 60_358],
+  ['packages/node/src/coverage-agents.node.test.ts', 41_003],
+  ['packages/node/src/tree-reduce-agents.node.test.ts', 34_459],
+  ['packages/node/src/quorum-agents.node.test.ts', 27_671],
+  ['packages/node/src/reachability.node.test.ts', 26_312],
+  ['packages/node/src/closed-fabric-agents.node.test.ts', 25_755],
+  ['packages/node/src/enrollment.node.test.ts', 25_730],
+  ['packages/node/src/relay-admission.node.test.ts', 23_698],
+  ['packages/node/src/sovereign-arm.node.test.ts', 22_687],
+  ['packages/node/src/enrolment-needs-no-reservation.node.test.ts', 21_376],
+  ['packages/node/src/enrollment-cost.node.test.ts', 17_473],
+  ['packages/node/src/sovereignty-placement.node.test.ts', 16_569],
+  ['packages/node/src/late-combine.node.test.ts', 15_789],
+  ['packages/node/src/peer-gate.node.test.ts', 14_979],
+  ['packages/node/src/orphan-leash.node.test.ts', 14_410],
+  ['packages/node/src/peer-verifier.node.test.ts', 13_295],
+  ['packages/node/src/transport-bounds.node.test.ts', 11_056],
+  ['packages/node/src/bench-attestation.node.test.ts', 10_748],
+  ['packages/node/src/peer-dial.node.test.ts', 10_256],
+  ['packages/node/src/admission.node.test.ts', 9_189],
+  ['packages/browser/src/colouring-surface.node.test.ts', 9_136],
+  ['packages/node/src/duty-cycle.node.test.ts', 8_379],
+  ['packages/node/src/agent-handshake.node.test.ts', 8_285],
+  ['packages/node/src/enrolment-residual.node.test.ts', 7_834],
+  ['packages/node/src/aot-dispatch.node.test.ts', 7_790],
+  ['packages/node/src/speculation-agents.node.test.ts', 7_326],
+  ['packages/node/src/certificate-verification.node.test.ts', 7_230],
+  ['packages/node/src/two-process.node.test.ts', 6_903],
+  ['tools/aot/cli.node.test.ts', 6_537],
+  ['packages/core/src/cert-lifecycle.test.ts', 6_332],
+  ['packages/node/src/reservation-exhaustion.node.test.ts', 6_254],
+  ['packages/node/src/result-signature.node.test.ts', 5_631],
+  ['packages/node/src/churn-agents.node.test.ts', 5_470],
+  ['packages/node/src/node-enrollment.node.test.ts', 5_401],
+  ['packages/node/src/bench-fabric.node.test.ts', 5_166],
+  ['packages/node/src/signed-artifact.node.test.ts', 4_945],
+  ['packages/node/src/checkpoint-agents.node.test.ts', 4_914],
+  ['packages/node/src/combine-signature.node.test.ts', 4_778],
+  ['packages/node/src/sovereign-aggregation.node.test.ts', 4_736],
+  ['packages/node/src/owner-domain-agents.node.test.ts', 4_718],
+  ['packages/node/src/fabric-node.node.test.ts', 4_661],
+  ['packages/demo/src/kernel.test.ts', 4_450],
+  ['packages/node/src/capability-dispatch.node.test.ts', 4_417],
+  ['tools/aot/docker-gate.node.test.ts', 4_411],
+  ['packages/node/src/trust-anchors.node.test.ts', 4_344],
+  ['packages/node/src/reachability-guard.node.test.ts', 4_167],
+  ['packages/node/src/relaying.node.test.ts', 4_014],
+  ['packages/node/src/node-records.node.test.ts', 3_293],
+  ['packages/node/src/discover-arm.node.test.ts', 2_855],
+  ['packages/node/src/execution-deadline.node.test.ts', 2_591],
+  ['packages/node/src/provider-answering.node.test.ts', 2_420],
+  ['packages/node/src/sovereign-at-rest.node.test.ts', 2_277],
+  ['tools/aot/wasi-preview1-surface.node.test.ts', 2_263],
+  ['packages/node/src/opt-in-only-sources.node.test.ts', 2_207],
+  ['packages/node/src/named-refusal.node.test.ts', 1_803],
+  ['packages/node/src/job-entry-points.node.test.ts', 1_715],
+  ['packages/core/src/enrollment.test.ts', 1_634],
+  ['packages/node/src/egress-refusal.node.test.ts', 1_461],
+  ['packages/node/src/egress-manifest.node.test.ts', 1_443],
+  ['packages/node/src/vocabulary.node.test.ts', 1_288],
+  ['packages/node/src/disclosure-gate.node.test.ts', 1_226],
+  ['packages/node/src/sovereign-block-refusal.node.test.ts', 1_188],
+  ['packages/node/src/requirements-ledger.node.test.ts', 1_073],
+  ['packages/node/src/strip-comments.node.test.ts', 1_009],
+  ['packages/node/src/start-unwind.node.test.ts', 940],
+  ['packages/node/src/relayed-job.node.test.ts', 920],
+  ['packages/node/src/rendezvous-wire.node.test.ts', 886],
+  ['packages/net/src/provider-merge.test.ts', 859],
+  ['packages/node/src/start-reporting.node.test.ts', 807],
+  ['packages/node/src/bench-admission.node.test.ts', 766],
+  ['packages/net/src/discovery.test.ts', 758],
+  ['packages/core/src/job/submit.test.ts', 752],
+  ['packages/node/src/acceptance-traceability.node.test.ts', 726],
+  ['packages/node/src/node-identity.node.test.ts', 697],
+  ['packages/node/src/purity.node.test.ts', 676],
+  ['packages/node/src/enrollment-dos.node.test.ts', 633],
+  ['packages/node/src/seed-enrollment-provider.node.test.ts', 612],
+  ['packages/net/src/enrol-agent.test.ts', 592],
+  ['packages/node/src/mutation-guard.node.test.ts', 585],
+  ['packages/libp2p/src/dht-registration.test.ts', 567],
+  ['packages/net/src/distributed.test.ts', 531],
+  ['packages/demo/src/kernel-build.node.test.ts', 527],
+  ['packages/node/src/fs-issuance.node.test.ts', 509],
+  ['packages/net/src/discover-candidates.test.ts', 502],
+  ['packages/aot/src/wasi-executor.test.ts', 500],
+  ['packages/node/src/identity-store.node.test.ts', 482],
+  ['packages/aot/src/wasi-real.node.test.ts', 477],
+  ['packages/net/src/reduce-job.test.ts', 472],
+  ['packages/core/src/ed25519-backend.test.ts', 460],
+  ['packages/node/src/checkpoint-optout-scope.node.test.ts', 457],
+  ['packages/node/src/fs-blockstore.node.test.ts', 452],
+  ['packages/demo/src/pi-build.node.test.ts', 450],
+  ['packages/net/src/sovereign-execution.test.ts', 441],
+  ['packages/net/src/sovereign-egress.test.ts', 424],
+  ['packages/node/src/pi-reduce.node.test.ts', 414],
+  ['packages/libp2p/src/identity.test.ts', 403],
+  ['packages/node/src/commit-scope.node.test.ts', 398],
+  ['packages/net/src/paused.test.ts', 391],
+  ['packages/core/src/executor/attesting-executor.test.ts', 371],
+  ['packages/net/src/remote-executor-contract.test.ts', 364],
+  ['packages/node/src/constants.node.test.ts', 361],
+  ['packages/core/src/discovery.test.ts', 360],
+  ['packages/net/src/reduce-sovereign.test.ts', 350],
+  ['packages/net/src/capability-extension-wire.test.ts', 346],
+  ['packages/net/src/start-report.test.ts', 341],
+  ['packages/libp2p/src/dht-record-index.test.ts', 339],
+  ['packages/net/src/commit-reveal-wire.test.ts', 337],
+  ['packages/node/src/one-crypto-implementation.node.test.ts', 336],
+  ['packages/net/src/capability-authorizer.test.ts', 335],
+  ['packages/core/src/result-attestation.test.ts', 334],
+  ['packages/net/src/churn.test.ts', 329],
+  ['packages/node/src/primes-reduce.node.test.ts', 326],
+  ['packages/core/src/job/verify.test.ts', 324],
+  ['packages/core/src/executor/worker-executor.test.ts', 323],
+  ['packages/aot/src/abi-router.test.ts', 315],
+  ['packages/net/src/combine.test.ts', 311],
+  ['packages/core/src/reduce.test.ts', 307],
+  ['packages/node/src/slow-specs.node.test.ts', 306],
 ]
 
 /**

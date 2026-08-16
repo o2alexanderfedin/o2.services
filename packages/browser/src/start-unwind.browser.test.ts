@@ -104,6 +104,7 @@ interface Leaks {
 async function measuringLeaks<T>(body: () => Promise<T>): Promise<{ result: T; leaks: Leaks }> {
   const realSet = globalThis.setInterval
   const realClear = globalThis.clearInterval
+  const realClearTimeout = globalThis.clearTimeout
   const realAdd = document.addEventListener.bind(document)
   const realRemove = document.removeEventListener.bind(document)
   const intervals = new Set<unknown>()
@@ -118,6 +119,22 @@ async function measuringLeaks<T>(body: () => Promise<T>): Promise<{ result: T; l
     intervals.delete(id)
     realClear(id)
   }) as typeof realClear
+  // `clearTimeout` counts as clearing an interval, and this half was missing until
+  // 2026-08-15. `setTimeout` and `setInterval` share ONE map of active timers in the HTML
+  // spec, so either clear method cancels either kind — and `@libp2p/kad-dht`'s
+  // `ClosestPeers` does exactly that: `setInterval` at `routing-table/closest-peers.ts:72`,
+  // `clearTimeout(this.timeout)` at `:83`. Without this hook the probe watched the arm and
+  // missed the disarm, and reported a timer that had genuinely stopped as a leak.
+  //
+  // **Verified rather than taken from the spec**: in Chromium 151, `setInterval(fn, 10)`
+  // followed by `clearTimeout(id)` produced 0 ticks over 120 ms.
+  //
+  // This does not weaken the guard. A timer nobody cleared is still counted; what changed
+  // is that a timer cleared through the other name is no longer miscounted as uncleared.
+  globalThis.clearTimeout = ((id?: Parameters<typeof realClearTimeout>[0]) => {
+    intervals.delete(id)
+    realClearTimeout(id)
+  }) as typeof realClearTimeout
   document.addEventListener = ((type: string, listener: unknown, options?: unknown) => {
     if (type === 'visibilitychange') listeners.add(listener)
     realAdd(type as 'visibilitychange', listener as EventListener, options as boolean)
@@ -133,6 +150,7 @@ async function measuringLeaks<T>(body: () => Promise<T>): Promise<{ result: T; l
   } finally {
     globalThis.setInterval = realSet
     globalThis.clearInterval = realClear
+    globalThis.clearTimeout = realClearTimeout
     document.addEventListener = realAdd
     document.removeEventListener = realRemove
   }

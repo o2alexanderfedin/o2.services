@@ -81,6 +81,7 @@ import { noise } from '@chainsafe/libp2p-noise'
 import { circuitRelayServer, circuitRelayTransport } from '@libp2p/circuit-relay-v2'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { identify, identifyPush } from '@libp2p/identify'
+import { kadDHT } from '@libp2p/kad-dht'
 import { ping } from '@libp2p/ping'
 import { tcp } from '@libp2p/tcp'
 import { webSockets } from '@libp2p/websockets'
@@ -103,6 +104,7 @@ import {
   isStartBrowserLabel,
   publishCapabilities,
   requestEnrollment,
+  verifyCapabilityRecord,
   verifyCertificate,
 } from '@o2/core'
 import type {
@@ -114,6 +116,7 @@ import type {
   NodeCertificate,
   NodeSovereignty,
   PublicKeyHex,
+  RecordIndex,
   ResultAttestor,
   SelfRecordIndexOptions,
   StartOutcome,
@@ -127,6 +130,7 @@ import {
   GovernedExecutor,
   RpcBlockSource,
   RpcEndpoint,
+  RpcRecordIndex,
   UNREACHABLE_PROVIDER,
   authorizeCapability,
   encodeRequest,
@@ -144,8 +148,12 @@ import { FsSovereignCids } from './sovereign-cids.ts'
 import type { SovereignCids } from '@o2/net'
 import {
   LIBP2P_INBOUND_CONNECTION_THRESHOLD,
+  DHT_QUERY_TIMEOUT_MS,
+  DhtRecordIndex,
   LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS,
   Libp2pTransport,
+  O2_KAD_PROTOCOL,
+  O2_RECORD_NAMESPACE,
   RELAY_DATA_LIMIT_BYTES,
   RELAY_DURATION_LIMIT_MS,
   RELAY_MAX_RESERVATIONS,
@@ -156,7 +164,9 @@ import {
   generateSeed,
   identityFromSeed,
   nodeKeyForPeerId,
+  o2RecordValidator,
   peerIdForNodeKey,
+  publishRecords,
 } from '@o2/libp2p'
 import type { NodeIdentity, PeerVerdict, RelayAdmission } from '@o2/libp2p'
 import {
@@ -1352,6 +1362,15 @@ export class FabricNode {
   /** Local blocks plus network fallback. This is what the executor reads from. */
   readonly blockstore: FetchingBlockstore
   /**
+   * Who advertises a block, and what a node's signed records say — SCHED-01, NET-06.
+   *
+   * The **asking** index, reaching past this node's own connections through the DHT and
+   * falling back to the peers it is connected to. Deliberately not the same object as the
+   * one `serveAgent` answers from: see the composition site for why a serving index that
+   * walked the DHT would not terminate.
+   */
+  readonly recordIndex: RecordIndex
+  /**
    * The local tier, without network fallback.
    *
    * Typed as the port, not as the adapter: nothing outside this file needs to know
@@ -1444,6 +1463,8 @@ export class FabricNode {
    * verdict would be new public surface with no production caller.
    */
   readonly #verifier: PeerVerifier
+  /** See {@link registrationRefusal}. Mutable because it is written once, after start. */
+  #registrationRefusal: string | undefined
   /**
    * BROW-02 — what this node has been told about how starting went, including its own row.
    *
@@ -1474,6 +1495,7 @@ export class FabricNode {
     rpc: RpcEndpoint
     egress: EgressGuard
     blockstore: FetchingBlockstore
+    recordIndex: RecordIndex
     store: Blockstore
     executor: GovernedExecutor
     counter: CountingExecutor
@@ -1497,6 +1519,7 @@ export class FabricNode {
     this.rpc = parts.rpc
     this.egress = parts.egress
     this.blockstore = parts.blockstore
+    this.recordIndex = parts.recordIndex
     this.store = parts.store
     this.executor = parts.executor
     this.#counter = parts.counter
@@ -1804,6 +1827,33 @@ export class FabricNode {
         identify: identify(),
         identifyPush: identifyPush(),
         ping: ping(),
+        // SCHED-01 / NET-06 — the fabric's own keyspace, on its own wire.
+        //
+        // **`clientMode` is stated, and that is a correctness requirement rather than a
+        // style rule.** Left unset, `@libp2p/kad-dht` installs a `self:peer:update`
+        // listener that promotes to server mode on any address passing
+        // `!isPrivate(ma) && !Circuit.exactMatch(ma)` — measured 2026-08-14, see
+        // `.planning/consults/2026-08-14-kad-dht-server-mode-promotion.md`. That predicate
+        // reads the *relay's* address for a relayed peer, so an unset `clientMode` makes a
+        // node's DHT role follow whichever relay answered first, with nothing in the code
+        // saying so. Here it follows the same fact the relay server follows.
+        //
+        // **`canRelay` means "binds a listening socket", NOT "a browser can dial me".**
+        // The same measurement showed the default `/ip4/127.0.0.1/tcp/0` satisfies
+        // `canRelay` and does *not* satisfy kad's own promotion predicate, because
+        // loopback is private. A node serving records to its LAN peers over TCP is the
+        // intent here; reachability from a tab is a separate question this flag does not
+        // answer and does not claim to.
+        dht: kadDHT({
+          protocol: O2_KAD_PROTOCOL,
+          clientMode: !canRelay,
+          // Mandatory, not optional: kad-dht dispatches a validator on the key's
+          // namespace and `put` throws `No validator available for key type "o2"`
+          // without one. It is also the gate that makes `/o2/<nodeKey>` ownable — see
+          // `o2RecordValidator`'s own doc for what a disinterested storer can and
+          // cannot check.
+          validators: { [O2_RECORD_NAMESPACE]: o2RecordValidator(() => Date.now()) },
+        }),
         ...(canRelay
           ? {
               relay: circuitRelayServer({
@@ -2131,6 +2181,40 @@ export class FabricNode {
     // lands succeeds without reconnecting and with no invalidation step anywhere.
     const blockstore = new FetchingBlockstore(store, new RpcBlockSource(rpc, () => verifier.verifiedPeers))
 
+    // SCHED-01 / NET-06 — this node's *asking* index, reaching past its own connections.
+    //
+    // **The serving side is untouched**: `serveAgent` still gets `index: records`, the
+    // `SelfRecordIndex` built from this node's own store. That separation is load-bearing.
+    // If the serving index were this one, a peer asking us about node X would make us walk
+    // the DHT on X's behalf — the recursive-fetch shape `Blockstore.has`'s docblock
+    // records, where two nodes pointed at each other handed one another the same pending
+    // promise and neither could ever answer. `SelfRecordIndex` answers about itself and
+    // nothing else, which is what terminates.
+    //
+    // Both composition arguments are required by the type, so this cannot be built to
+    // answer *less* than the RPC index alone already answers.
+    const pinnedIssuers = new Set(options.trustedIssuers ?? [])
+    const rpcIndex = new RpcRecordIndex(rpc, () => verifier.verifiedPeers)
+    const recordIndex = new DhtRecordIndex({
+      dht: libp2p.services.dht,
+      providersFrom: rpcIndex,
+      recordsFallback: rpcIndex,
+      // A DHT is untrusted transport: a value proves nothing by being stored, only by
+      // verifying. The `nodeKey` clause is the one that matters here — both signatures can
+      // be valid on a record that is simply about somebody else, and a DHT read is exactly
+      // where that arrives, because the key is chosen by whoever wrote the value.
+      verify: (nodeKey, found) =>
+        found.certificate.nodeKey === nodeKey &&
+        verifyCertificate(found.certificate, pinnedIssuers, Date.now()).ok &&
+        verifyCapabilityRecord(found.capabilities, Date.now()),
+      timeoutMs: DHT_QUERY_TIMEOUT_MS,
+      // Without this a lookup yields a node key libp2p holds no address for, and the
+      // candidate is undialable — a successful discovery that cannot be acted on.
+      addresses: (info) => {
+        void libp2p.peerStore.merge(info.id, { multiaddrs: info.multiaddrs }).catch(() => {})
+      },
+    })
+
     // The node's own peer id is its executor id, so a disagreement names the
     // machine that produced the dissenting result.
     //
@@ -2343,6 +2427,7 @@ export class FabricNode {
       rpc,
       egress,
       blockstore,
+      recordIndex,
       store,
       executor,
       counter,
@@ -2504,6 +2589,31 @@ export class FabricNode {
       attest: attestor,
     })
 
+    // SCHED-01 / NET-06 — registration. This node puts its own signed records into the
+    // fabric's keyspace under its own key, so a peer that has never met it can still find
+    // out what it can run.
+    //
+    // **Published from the same object that serves them.** `records` is the
+    // `SelfRecordIndex` handed to `serveAgent` above, so what goes into the DHT and what
+    // this node answers over RPC cannot come to disagree — there is one source, read twice.
+    //
+    // **Not awaited, and failure is not fatal.** At this line `createLibp2p` has started
+    // but no peer has necessarily connected, so the routing table may well be empty and the
+    // put will time out. That is a normal start, not a broken one: the node still serves
+    // records over RPC to anyone who asks it directly, which is exactly what it did before
+    // this line existed. `publishRecords` returns its refusal rather than throwing for the
+    // same reason — a node whose DHT is not reachable yet is a working node.
+    // A node holding no certificate has nothing to register: there is no signed statement
+    // of who it is, so there is no record for the keyspace to be about. It still serves.
+    if (certificate !== null) {
+      const own = await records.recordsFor(certificate.nodeKey)
+      if (own !== undefined) {
+        void publishRecords(libp2p.services.dht, own).then((outcome) => {
+          if (outcome.kind === 'refused') node.noteRegistrationRefused(outcome.reason)
+        })
+      }
+    }
+
     return node
   }
 
@@ -2520,6 +2630,25 @@ export class FabricNode {
    */
   get verifiedPeers(): readonly string[] {
     return this.#verifier.verifiedPeers
+  }
+
+  /**
+   * Why this node's records are not in the keyspace, or `undefined` if nothing refused.
+   *
+   * Registration happens on the way up and cannot fail a start — see the publish site. So
+   * the refusal has to land *somewhere a reader can find it*, or a node that silently never
+   * registered is indistinguishable from one that did. This is that somewhere.
+   *
+   * `undefined` covers two different states on purpose, because no caller can act
+   * differently on them: the put succeeded, or it has not finished yet.
+   */
+  get registrationRefusal(): string | undefined {
+    return this.#registrationRefusal
+  }
+
+  /** Recorded by the start path's publish; see {@link registrationRefusal}. */
+  noteRegistrationRefused(reason: string): void {
+    this.#registrationRefusal = reason
   }
 
   /**

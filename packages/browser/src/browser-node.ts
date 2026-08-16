@@ -28,6 +28,8 @@ import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { circuitRelayTransport } from '@libp2p/circuit-relay-v2'
 import { identify, identifyPush } from '@libp2p/identify'
+import { kadDHT } from '@libp2p/kad-dht'
+import { ping } from '@libp2p/ping'
 import { webRTC } from '@libp2p/webrtc'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
@@ -47,6 +49,8 @@ import {
   isStartBrowserLabel,
   publishCapabilities,
   requestEnrollment,
+  verifyCapabilityRecord,
+  verifyCertificate,
 } from '@o2/core'
 import type {
   Blockstore,
@@ -55,6 +59,7 @@ import type {
   NodeCertificate,
   NodeSovereignty,
   PublicKeyHex,
+  RecordIndex,
   ResultAttestor,
   SelfRecordIndexOptions,
   StartOutcome,
@@ -62,12 +67,18 @@ import type {
   StartReportingConsent,
 } from '@o2/core'
 import {
+  DHT_QUERY_TIMEOUT_MS,
+  DhtRecordIndex,
   Libp2pTransport,
+  O2_KAD_PROTOCOL,
+  O2_RECORD_NAMESPACE,
   PeerVerifier,
   audienceKeyOf,
   generateSeed,
   identityFromSeed,
+  o2RecordValidator,
   peerIdForNodeKey,
+  publishRecords,
 } from '@o2/libp2p'
 import type { NodeIdentity, PeerVerdict } from '@o2/libp2p'
 import {
@@ -77,6 +88,7 @@ import {
   GovernedExecutor,
   RpcBlockSource,
   RpcEndpoint,
+  RpcRecordIndex,
   UNREACHABLE_PROVIDER,
   authorizeCapability,
   enrolOverRpc,
@@ -279,10 +291,13 @@ export interface BrowserNodeOptions {
    *
    * **The absence is a consequence of topology, not of tier, and that is the whole
    * correction.** Measured 2026-08-06: this module imports only `circuitRelayTransport` from
-   * `@libp2p/circuit-relay-v2` — never `circuitRelayServer` — and `#compose` passes
-   * `services: { identify: identify(), identifyPush: identifyPush() }`, which is the entire
-   * services list. A `BrowserNode` therefore **runs no relay server, grants no reservation,
-   * and has no reservation to gate.** The same fact is stated on the answering side by the
+   * `@libp2p/circuit-relay-v2` — never `circuitRelayServer`. **The services list gained a
+   * `dht` on 2026-08-15 and this paragraph used to say the list was `identify` and
+   * `identifyPush` and nothing else; that is corrected rather than deleted, because the
+   * argument runs through it.** The claim it was making is unaffected: `circuitRelayServer`
+   * is still never imported here, and a `kadDHT` service grants no reservation. A
+   * `BrowserNode` therefore still **runs no relay server, grants no reservation, and has no
+   * reservation to gate.** The same fact is stated on the answering side by the
    * named-absence sentinel this factory passes as `serveAgent`'s `reservations` hook. The tab
    * is not being trusted less; it is not holding a door.
    *
@@ -864,6 +879,15 @@ export class BrowserNode {
   /** IndexedDB plus network fallback — what the executor reads from. */
   readonly blockstore: FetchingBlockstore
   readonly store: IdbBlockstore
+  /** See {@link registrationRefusal}. Written once, after start. */
+  #registrationRefusal: string | undefined
+  /**
+   * Who advertises a block, and what a node's signed records say — SCHED-01, NET-06.
+   *
+   * The **asking** index. Same composition as the backbone's, deliberately: a tab differs
+   * in what it can listen on, never in what it may ask.
+   */
+  readonly recordIndex: RecordIndex
   /**
    * This tab's durable sovereign-CID set — DATA-10.
    *
@@ -1012,6 +1036,7 @@ export class BrowserNode {
   }
 
   private constructor(parts: {
+    recordIndex: RecordIndex
     libp2p: Libp2p
     transport: Libp2pTransport
     rpc: RpcEndpoint
@@ -1037,6 +1062,7 @@ export class BrowserNode {
     this.egress = parts.egress
     this.blockstore = parts.blockstore
     this.store = parts.store
+    this.recordIndex = parts.recordIndex
     this.sovereignCids = parts.sovereignCids
     this.identityStore = parts.identityStore
     this.certificate = parts.certificate
@@ -1263,7 +1289,39 @@ export class BrowserNode {
       transports: [webSockets(), webRTC(), circuitRelayTransport()],
       connectionEncrypters: [noise()],
       streamMuxers: [yamux()],
-      services: { identify: identify(), identifyPush: identifyPush() },
+      services: {
+        identify: identify(),
+        identifyPush: identifyPush(),
+        // Required BY the DHT rather than chosen: `KadDHTComponents` declares `ping`, so
+        // `kadDHT()` does not type-check without it. It is a liveness probe and grants
+        // nothing — the argument above about holding no door is untouched.
+        ping: ping(),
+        // SCHED-01 / NET-06 — the same private keyspace the backbone uses, on the same
+        // wire, so a tab and a backbone node are peers in one DHT rather than two.
+        //
+        // **`clientMode: true`, stated, and the value is the conservative one on purpose.**
+        // Measured 2026-08-14: left unset, kad-dht promotes on any address passing
+        // `!isPrivate(ma) && !Circuit.exactMatch(ma)`, and a tab's `/webrtc` listen address
+        // is `<relay>/p2p-circuit/webrtc/p2p/<self>` — a WebRTC multiaddr, not an exact
+        // Circuit match. So an unset `clientMode` would make this tab a DHT **server** when
+        // its relay happens to be public and a client when the relay is on a LAN, with
+        // nothing in the code saying so. See
+        // `.planning/consults/2026-08-14-kad-dht-server-mode-promotion.md`.
+        //
+        // **Why client rather than server, stated as a limit rather than a conclusion.**
+        // Whether a tab can usefully *answer* a query is unmeasured: kad-dht registers its
+        // handler without `runOnLimitedConnection` — the string appears nowhere in
+        // `@libp2p/kad-dht@16.4.0`'s source — so a relayed inbound connection would not
+        // negotiate the protocol at all, and whether a WebRTC-upgraded one does has not
+        // been read here. Declaring server mode on that basis would put a possibly
+        // unanswerable peer into every routing table. A client still **puts** its own
+        // record and **reads** everyone else's, which is what this tier needs.
+        dht: kadDHT({
+          protocol: O2_KAD_PROTOCOL,
+          clientMode: true,
+          validators: { [O2_RECORD_NAMESPACE]: o2RecordValidator(() => Date.now()) },
+        }),
+      },
       ...(options.allowPrivateAddrs === true
         ? { connectionGater: { denyDialMultiaddr: async () => false } }
         : {}),
@@ -1419,6 +1477,27 @@ export class BrowserNode {
       store,
       withholdingFrom(egressDisposition),
     )
+
+    // SCHED-01 / NET-06 — this tab's *asking* index, reaching past the peers it happens to
+    // be connected to. Byte-identical composition to `fabric-node.ts`'s, which is the
+    // point: a tab differs from a backbone node in what it can LISTEN on, never in what it
+    // may ask. The serving side stays `records` — see the node tier for why a serving index
+    // that walked the DHT would not terminate.
+    const pinnedIssuers = new Set(options.trustedIssuers ?? [])
+    const rpcIndex = new RpcRecordIndex(rpc, () => verifier.verifiedPeers)
+    const recordIndex = new DhtRecordIndex({
+      dht: libp2p.services.dht,
+      providersFrom: rpcIndex,
+      recordsFallback: rpcIndex,
+      verify: (nodeKey, found) =>
+        found.certificate.nodeKey === nodeKey &&
+        verifyCertificate(found.certificate, pinnedIssuers, Date.now()).ok &&
+        verifyCapabilityRecord(found.capabilities, Date.now()),
+      timeoutMs: DHT_QUERY_TIMEOUT_MS,
+      addresses: (info) => {
+        void libp2p.peerStore.merge(info.id, { multiaddrs: info.multiaddrs }).catch(() => {})
+      },
+    })
 
     // AUTH-01 — the provider signing key, persisted so a node that issues certificates
     // stays the same issuer across a reload. Generated and stored on first use rather
@@ -1760,6 +1839,7 @@ export class BrowserNode {
       egress,
       blockstore,
       store,
+      recordIndex,
       sovereignCids,
       identityStore,
       certificate,
@@ -1956,7 +2036,44 @@ export class BrowserNode {
       // which is the failure Phases 16 and 17 each shipped once.
       attest: attestor,
     })
+
+    // SCHED-01 / NET-06 — registration, and a tab does it too.
+    //
+    // `clientMode: true` above says this tab does not ANSWER queries; it does not stop it
+    // WRITING one. A kad client puts to the servers closest to the key, which is exactly
+    // what makes a tab findable by a peer that has never met it — the gap
+    // `rendezvous.ts` opens with: *"no tab can be dialled cold, and none of them will ever
+    // announce itself."* This is the announcement.
+    //
+    // Published from the same object that serves them, so what a peer reads from the DHT
+    // and what this tab answers over RPC cannot come to disagree. Not awaited and not
+    // fatal, for the reason given at the Node factory's identical line.
+    if (certificate !== null) {
+      const own = await records.recordsFor(certificate.nodeKey)
+      if (own !== undefined) {
+        void publishRecords(libp2p.services.dht, own).then((outcome) => {
+          if (outcome.kind === 'refused') node.noteRegistrationRefused(outcome.reason)
+        })
+      }
+    }
+
     return node
+  }
+
+  /**
+   * Why this tab's records are not in the keyspace, or `undefined` if nothing refused.
+   *
+   * A tab is the case this reading matters most for: it is behind a relay, its routing
+   * table may be empty for a while after start, and a silent failure would be
+   * indistinguishable from a successful registration nobody can find.
+   */
+  get registrationRefusal(): string | undefined {
+    return this.#registrationRefusal
+  }
+
+  /** Recorded by the start path's publish; see {@link registrationRefusal}. */
+  noteRegistrationRefused(reason: string): void {
+    this.#registrationRefusal = reason
   }
 
   get peerId(): string {

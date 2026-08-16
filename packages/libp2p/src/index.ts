@@ -78,3 +78,29 @@ export {
   peerIdForNodeKey,
 } from './identity.ts'
 export type { NodeIdentity } from './identity.ts'
+
+// The fabric's index answered by a Kademlia DHT — SCHED-01, NET-06. Both composition
+// arguments on `DhtRecordIndexOptions` are required, so an instance that answers less
+// than today's fabric is a compile error rather than a review comment.
+export {
+  DHT_QUERY_TIMEOUT_MS,
+  DhtRecordIndex,
+  O2_KAD_PROTOCOL,
+  O2_KEY_PREFIX,
+  dhtKeyForNodeKey,
+} from './dht-record-index.ts'
+export type {
+  DhtRecordIndexOptions,
+  ProviderAddressSink,
+  RecordVerifier,
+} from './dht-record-index.ts'
+
+// Registration — the write half. The validator is what makes `/o2/<nodeKey>` ownable:
+// only the holder of that key's secret can put a record there, enforced by every storer.
+export {
+  O2_RECORD_NAMESPACE,
+  RecordRefused,
+  o2RecordValidator,
+  publishRecords,
+} from './dht-registration.ts'
+export type { PublishOutcome, RecordRefusal } from './dht-registration.ts'
