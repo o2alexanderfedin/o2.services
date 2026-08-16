@@ -997,11 +997,35 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   //   noticed for five days. Fourth instance in one sweep. **An id here is a promise to
   //   re-read a row by hand, and nothing in this file counts how long the promise has been
   //   outstanding** — which is the one thing that would have caught all four.
+  // **Re-read 2026-08-16, and the leg this row was kept for is CLOSED — the entry stays for
+  // a narrower reason.** The sentence above says the open leg is an *argument value*: renewal
+  // is conditional on `JobSpec.admit`, and *"only `bin/bench.ts --discover` — off by default —
+  // supplies it in production"*. That stopped being true on 2026-08-16.
+  // `browser/demo/main.ts#runColouring` now passes `admit: rpcAdmission(node.rpc)` with no flag
+  // in front of it, so an ordinary visitor's cube ladder probes lease holders and renews on
+  // evidence. The owner's 2026-08-15 ruling — a capability reachable only behind an
+  // off-by-default flag is not shipped — is what makes that a change of state rather than a
+  // second instance of the same one.
+  //
+  // **What is still not driven, stated so the row is not read as closed.** The *renewal* the
+  // probe grants is proven by `packages/core/src/lease.test.ts` and by `submit.test.ts`'s
+  // renewal pair, both against fixtures. Nothing measures a renewal happening on a live tab
+  // fabric — that needs a peer tab held past a lease deadline while still executing, which no
+  // spec in this repository stages. So `because` reads true on its second word only, exactly
+  // as the AUTH-02 row below does, and the promise this id carries is now to drive *that*.
+  //
+  // The new witness is the weaker of the two on purpose and says so in its own docblock: it is
+  // a source-text reading of the shipped call, not a measurement of a renewal. It is here
+  // because it is the only instrument that sees whether a production caller still exists, and
+  // that is the fact the previous sentence got wrong for eleven days.
   {
     id: 'CHURN-04',
     because: 'entry-point-not-driven',
-    reread: '2026-08-05',
-    witnesses: ['packages/core/src/lease.test.ts'],
+    reread: '2026-08-16',
+    witnesses: [
+      'packages/core/src/lease.test.ts',
+      'packages/browser/src/colouring-surface.node.test.ts',
+    ],
   },
   // ── The pre-existing entries ───────────────────────────────────────────────────────
   // **Re-read 2026-08-14, and the promise this entry carries was partly discharged rather

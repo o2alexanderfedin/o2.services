@@ -178,6 +178,14 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   'browser/probeEnvironment',
   'browser/readConsent',
   'browser/revokeConsent',
+  // CHURN-03, 2026-08-16. `main.ts#runColouring` — a member of the same `api` literal as
+  // `runPi` and `verifyAnswer` — passes `checkpointsInto(node.store)` as `SubmitOptions.checkpoints`,
+  // which is what closes criterion 7's write half. It is hidden by the same `window.o2`
+  // assignment as everything else on this list and by nothing else: there is one caller, it is
+  // cross-file, and it is in the literal. Not read off the source — the derived case named it
+  // verbatim, *"expected [ 'core/checkpointsInto' ] to deeply equal []"*, which is the G14
+  // defence doing its job for the third recorded time.
+  'core/checkpointsInto',
   'core/describeStartReport',
   'core/startReportFromCounts',
   'demo/answerOf',
@@ -479,8 +487,17 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * production anchor read, called from `main.ts#start`, hidden by the same `window.o2` assignment as
  * the fifteen `browser/` entries it sits among. No new cause class and no new mechanism: had the
  * graph been able to trace that one assignment, this entry would not exist.
+ *
+ * **Raised 43 → 44, measured 2026-08-16.** One `global-object-hop` entrant, `core/checkpointsInto`,
+ * arriving by the same route as the last one: the derived case went red first and named it —
+ * *"expected [ 'core/checkpointsInto' ] to deeply equal []"* — and the register was edited to agree
+ * with a measurement. It is CHURN-03's checkpoint sink, called from `main.ts#runColouring`, hidden
+ * by the same `window.o2` assignment as everything else on that list. No new cause class and no new
+ * mechanism: had the graph been able to trace that one assignment, this entry would not exist
+ * either. **The direction is worth stating** — this raise records wiring debt being *paid*, not
+ * incurred: the symbol exists solely to give criterion 7's write half a production caller.
  */
-export const DISPOSITION_CEILING = 43
+export const DISPOSITION_CEILING = 44
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {

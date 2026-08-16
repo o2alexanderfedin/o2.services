@@ -179,6 +179,10 @@ export type {
 export {
   checkpointChain,
   checkpointOf,
+  // CHURN-03's write half. Exported because the only store in the fabric that outlives
+  // its process is a browser tab's, and `browser/demo/main.ts` is outside this package —
+  // a sink it cannot import is a sink no shipped entry point can supply.
+  checkpointsInto,
   isComplete,
   readCheckpoint,
   recoverCheckpoint,
@@ -191,6 +195,8 @@ export type {
   CompletedShard,
   JobCheckpoint,
   RecoveredCheckpoint,
+  StoredCheckpoints,
+  UnconfirmedHandle,
 } from './checkpoint.ts'
 
 // Start outcomes and the blocking metric — BROW-02.
