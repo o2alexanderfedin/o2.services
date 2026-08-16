@@ -1223,14 +1223,32 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     reread: '2026-08-11',
     witnesses: [],
   },
+  // **Re-read 2026-08-16, and the sentence that kept it here is gone.** The row's own
+  // words were *"the browser tier's composition is present and its runtime behaviour is
+  // **unmeasured** — no tab has ever executed a translated artifact"*, and
+  // `packages/node/src/aot-tab.e2e.test.ts` now measures exactly that: a live Chromium tab
+  // running a real `BrowserNode`, handed the lifted echo guest over a direct WebSocket,
+  // routing it to its WASI arm and echoing the value back — with a source-compiled module
+  // through the same tab's native arm beside it, so the reading is about the router rather
+  // than about one arm answering everything.
+  //
+  // **It stays in the register anyway, and the reason is a condition on the evidence.**
+  // The new file is `describe.skipIf` on a gitignored artifact — the identical condition
+  // this row already carries for `aot-dispatch.node.test.ts` — and it is one engine, not
+  // the three the `browser` project runs. Ticking AOT-04's box is a decision for whoever
+  // owns the phase, taken against the row rather than against this comment; what is
+  // recorded here is that the *stated* gap is closed and the promise is now to decide,
+  // not to measure. Understating is the safe direction and the direction AOT-03 already
+  // takes for its own half.
   {
     id: 'AOT-04',
     because: 'tier-or-configuration',
-    reread: '2026-08-11',
+    reread: '2026-08-16',
     witnesses: [
       'packages/aot/src/admission.test.ts',
       'packages/aot/src/wasi-executor.test.ts',
       'packages/node/src/aot-dispatch.node.test.ts',
+      'packages/node/src/aot-tab.e2e.test.ts',
       'packages/node/src/fabric-node.node.test.ts',
     ],
   },
