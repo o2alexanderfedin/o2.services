@@ -165,9 +165,10 @@ function extensionLiterals(source: string): readonly string[] {
  *
  * Two signals, unioned, because there are two ways to write one and each misses the other:
  *
- * - a **non-empty `extensions: [ … ]` literal**, which is how both current production
- *   signers write theirs (`browser-node.ts`, `fabric-node.ts` — both `[]`), and which
- *   catches a producer that never names the type because TypeScript infers it structurally;
+ * - an **`extensions: [ … ]` literal carrying at least one `id:`**, which is how both current
+ *   production signers write theirs (`browser-node.ts`, `fabric-node.ts` — both `[]`), and
+ *   which catches a producer that never names the type because TypeScript infers it
+ *   structurally;
  * - **naming `CapabilityExtension`** outside {@link SEAM_FILES}, which catches a producer
  *   that builds its list in a helper, a variable, or a `.map`.
  *
@@ -176,9 +177,24 @@ function extensionLiterals(source: string): readonly string[] {
  * read-syntax-not-reachability limit `requirements-ledger.node.test.ts` states about
  * itself, and the error is in the same direction: this can miss a producer, so the guard
  * under-fires rather than crying wolf. It cannot invent one.
+ *
+ * **The `id:` requirement is a correction, and the paragraph above is why it had to be
+ * made.** Until 2026-08-17 the first signal fired on ANY non-empty `extensions` array, and
+ * `packages/node/src/local-acme.ts` — a local ACME certificate authority, nothing to do with
+ * this seam — writes `extensions: [new BasicConstraintsExtension(…), new
+ * KeyUsagesExtension(…)]` because that is what `@peculiar/x509` calls the X.509 extension
+ * list. The guard reported it as the fabric's first extension producer and demanded the
+ * reader be wired for it. That is the guard crying wolf, which this docblock says it cannot
+ * do — so the detector was wrong, not the docblock.
+ *
+ * A `CapabilityExtension` is an object literal with an `id`; an X.509 extension is a class
+ * instance built with `new`. Requiring an `id:` inside the literal separates them and leaves
+ * every case in the self-test corpus below unchanged. It does widen the miss: a producer
+ * writing `extensions: [makeExtension()]` now escapes the first signal. That is the accepted
+ * direction of error, and the second signal still catches it whenever the type is named.
  */
 function producesExtension(relative: string, source: string): boolean {
-  if (extensionLiterals(source).some((inner) => inner.trim() !== '')) return true
+  if (extensionLiterals(source).some((inner) => /\bid\s*:/.test(inner))) return true
   return !SEAM_FILES.includes(relative) && /\bCapabilityExtension\b/.test(source)
 }
 
@@ -244,6 +260,24 @@ describe('the extension seam cannot grow a producer before it grows a reader', (
     // The empty case both current signers write, and the seam's own files.
     expect(producesExtension('packages/x/src/y.ts', 'extensions: [],')).toBe(false)
     expect(producesExtension(SEAM_FILES[0] ?? '', 'readonly extensions: readonly CapabilityExtension[]')).toBe(false)
+    // An X.509 extension list, which is a different thing that shares the word. This exact
+    // shape — from `packages/node/src/local-acme.ts` — was read as the fabric's first
+    // extension producer until 2026-08-17 and failed the whole node project for it.
+    expect(
+      producesExtension(
+        'packages/x/src/y.ts',
+        'extensions: [new BasicConstraintsExtension(true, 1, true), ' +
+          'new KeyUsagesExtension(KeyUsageFlags.keyCertSign, true)],',
+      ),
+    ).toBe(false)
+    // …and the same list once it carries a SAN, whose entries DO have a `type`/`value` shape
+    // but still no `id`.
+    expect(
+      producesExtension(
+        'packages/x/src/y.ts',
+        "extensions: [new SubjectAlternativeNameExtension([{ type: 'dns', value: domain }])],",
+      ),
+    ).toBe(false)
 
     expect(readsUnderstands('packages/net/src/discover-candidates.ts', 'understands: options.understands')).toBe(true)
     expect(readsUnderstands(REGISTRY_FILE, 'const understands = options.understands ?? new Set()')).toBe(false)

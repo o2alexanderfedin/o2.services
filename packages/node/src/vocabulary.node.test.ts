@@ -258,6 +258,21 @@ const EXEMPT_LINES: readonly LineExemption[] = [
     phrase: 'credit evaluation',
     reason: 'the lending sense: a due-diligence workload example, not a fabric currency',
   },
+  // The ACME sense: RFC 8555 §8.1 names the random value a certificate authority issues for a
+  // challenge `token`, and `acme-client` reads the field by that name off the JSON. It is a
+  // wire field, so it cannot be reworded the way the prose entries above were.
+  //
+  // Reduced to ONE occurrence before being exempted, which is the part worth stating. The
+  // module first carried the word six times — a field declaration, two reads, a construction
+  // and a comment. All five of those are renamed to `issuedValue`; the single line below is
+  // the JSON key and nothing else. An exemption over a protocol field is auditable; six over
+  // a codebase's own identifiers would be a whitelist.
+  {
+    file: 'packages/node/src/local-acme.ts',
+    phrase: 'token: authz.challenge.issuedValue',
+    reason:
+      "RFC 8555's challenge field name on the wire, where acme-client reads it — the certificate sense, and the only occurrence left after the module's own identifiers were renamed",
+  },
 ]
 
 /**
