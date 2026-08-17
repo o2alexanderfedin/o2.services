@@ -49,6 +49,13 @@ import type { EgressDisposition } from './sovereign-egress.ts'
  * `peers` is a thunk rather than an array so the source always reflects the live
  * connection set — a peer that arrives after construction is usable, and one that
  * has gone away is not retried forever.
+ *
+ * **It emits `block` frames and nothing else, and that is load-bearing rather than
+ * incidental.** `serveAgent`'s combine branch fetches its inputs through a
+ * `FetchingBlockstore` over this class, so whatever this emits is what a combine
+ * provokes on a peer. A `combine` frame here would let a combine re-enter a combine and
+ * reopen the recursion the block branch's `has` gate exists to close. Pinned by
+ * `named-refusal.test.ts`, which reads the kinds off the wire.
  */
 export class RpcBlockSource implements BlockSource {
   readonly #rpc: RpcEndpoint
@@ -1099,6 +1106,12 @@ export function serveAgent(options: AgentOptions): void {
       // says so in its own refusal text (*"not held and not obtainable"*); that branch is
       // fetching inputs it was asked to **compute over**, which is a different question
       // from "do you have this".
+      //
+      // **That branch is safe because of this gate, and the dependency is asserted rather
+      // than reasoned.** `runCombine` fetches with a bare `get`, so on a mutually-wired
+      // pair it would deadlock exactly as this branch did — except that its fetch leaves
+      // as a `block` frame and lands here, one hop and done. Removing this gate reddens
+      // the combine cases in `named-refusal.test.ts` too, not only the block ones.
       //
       // The race between `has` and `get` is benign and worth stating: a block evicted in
       // that window makes this answer `bytes: null`, which is a *stated* miss and exactly

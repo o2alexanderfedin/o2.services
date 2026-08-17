@@ -1,8 +1,8 @@
 ---
-status: investigating
+status: resolved
 trigger: "Three tracked defects: #78 (imageIsPresent does not retry ETIMEDOUT -> 7 silent skips), #79 (speculation-agents straggler bound is absolute wall-clock, no load gate), #59 (slow-specs failure message names --reporter=json, the instrument that lies)"
 created: 2026-08-05T13:35:00Z
-updated: 2026-08-05T13:35:00Z
+updated: 2026-08-17T12:16:00Z
 ---
 
 ## Current Focus
@@ -10,7 +10,7 @@ updated: 2026-08-05T13:35:00Z
 hypothesis: (multi-defect session; per-defect focus below)
 test: read each site by symbol before forming hypotheses
 expecting: three independent confirmations or refutations
-next_action: Read tools/aot/lift.node.test.ts imageIsPresent() in full, including its docblock
+next_action: none — closed 2026-08-17; `imageIsPresent()` no longer exists, see "Verified in the tree" below
 
 ## Symptoms
 
@@ -128,3 +128,28 @@ files_changed:
   - packages/node/src/speculation-agents.node.test.ts
   - packages/node/src/slow-specs.node.test.ts
 commit: 4f8a8cf
+
+## Verified in the tree, 2026-08-17 — and #78 has since been superseded
+
+This record sat at `status: investigating` for twelve days **with a complete Resolution and a
+commit hash under it**, and its `next_action` pointed at a function that no longer exists.
+The frontmatter was never moved; nothing in the process moves it. Closed today, after
+checking the tree rather than trusting the block above.
+
+- **`4f8a8cf` exists** — *"fix(test): three instruments that could report a green they had
+  not measured"*, 2026-08-05, and its message states all three fixes.
+- **#78 was superseded seven days after it was fixed.** `imageIsPresent()` is gone. On
+  2026-08-12 the whole predicate moved to `tools/aot/docker-gate.ts`, which asks the daemon
+  first and the image second and asks the daemon *again* when an inspect fails. The five call
+  sites that each carried their own copy now share it. `lift.node.test.ts` reaches it through
+  `gateOnImage` / `isRunnable` / `describeGate`, and the docblock there carries the measured
+  three-row table that motivated the move — including the row this session found, a daemon
+  whose socket *refuses* being reported as a missing image. So the fix is not merely present:
+  it was generalised, and the stale `next_action` would have sent a reader to a dead symbol.
+- **#79 is present**: `packages/node/src/speculation-agents.node.test.ts` builds
+  `inFlightAtJudgement` and calls production `stragglers()` at the scheduler's own judgement
+  instant, which is the fix this session described.
+- **#59 is present**: `slow-specs.node.test.ts`'s drift message names the three-step
+  procedure and the solo `/usr/bin/time -p` step, and says in its own words that
+  `--reporter=json` "is step 2 of that procedure and is not sufficient alone". That file runs
+  **EXIT=0, 9 passed** today.
