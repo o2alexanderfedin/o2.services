@@ -1,11 +1,19 @@
-import { MemoryBlockstore, MemoryNetwork, encodeCanonical } from '@o2/core'
-import type { Blockstore, ExecutionOutcome, Executor, RecordIndex, Task } from '@o2/core'
+import { MemoryBlockstore, MemoryNetwork, decodeCanonical, encodeCanonical } from '@o2/core'
+import type {
+  Blockstore,
+  CanonicalValue,
+  ExecutionOutcome,
+  Executor,
+  RecordIndex,
+  Task,
+  Transport,
+} from '@o2/core'
 import { describe, expect, it } from 'vitest'
 import { EgressGuard } from './egress.ts'
 import { RpcEndpoint } from './rpc.ts'
 import { RpcBlockSource, serveAgent } from './agent.ts'
 import { FetchingBlockstore } from './block.ts'
-import { encodeRequest, parseResponse } from './protocol.ts'
+import { encodeRequest, parseRequest, parseResponse } from './protocol.ts'
 
 /**
  * NET-10 — `serveAgent` refuses by name, on both branches whose reply can carry a
@@ -76,6 +84,56 @@ class CountingGuard extends EgressGuard {
   }
 }
 
+/**
+ * A `Transport` that writes down the *kind* of every request frame that leaves it.
+ *
+ * Innermost of the three wrappers a node is built from — transport → this → `EgressGuard`
+ * → `RpcEndpoint` — so what it records is what actually went out, after the guard has had
+ * its say rather than before. It records nothing about replies: `k === 'res'` frames are
+ * skipped, so a node's own answers do not appear in its outbound list and a count means
+ * "requests this node originated".
+ *
+ * It exists for one claim that is otherwise a reading of the call graph rather than a
+ * measurement — see the final `describe` in this file.
+ */
+class RecordingTransport implements Transport {
+  /** Request kinds emitted, in order. `unparseable` rather than a silent drop. */
+  readonly sentKinds: string[] = []
+  readonly #inner: Transport
+
+  constructor(inner: Transport) {
+    this.#inner = inner
+  }
+
+  get localId(): string {
+    return this.#inner.localId
+  }
+
+  get peers(): readonly string[] {
+    return this.#inner.peers
+  }
+
+  async send(to: string, message: Uint8Array<ArrayBuffer>): Promise<void> {
+    // Decoding is deliberately not wrapped in a swallow. Every frame on this path is
+    // one `RpcEndpoint` just encoded, so a throw here is a fault in the encoder and
+    // hiding it would make this instrument report an absence it never measured.
+    const frame = decodeCanonical(message)
+    if (frame !== null && typeof frame === 'object' && !Array.isArray(frame)) {
+      const record = frame as Record<string, CanonicalValue>
+      if (record['k'] === 'req') {
+        const body = record['body']
+        const request = body === undefined ? null : parseRequest(body)
+        this.sentKinds.push(request === null ? 'unparseable' : request.kind)
+      }
+    }
+    await this.#inner.send(to, message)
+  }
+
+  onMessage(handler: (from: string, message: Uint8Array<ArrayBuffer>) => void): () => void {
+    return this.#inner.onMessage(handler)
+  }
+}
+
 /** An executor that runs nothing — the pre-scan does not care what produced the outcome. */
 function stubExecutor(nodeId: string): Executor {
   return {
@@ -99,6 +157,13 @@ interface Node {
    * built to resemble it.
    */
   readonly served: Blockstore
+  /**
+   * The kinds of request frame this node has put on the wire itself, in order.
+   *
+   * Replies are not here — see {@link RecordingTransport} — so this answers "what did
+   * serving provoke", which is the question the combine cases at the foot of this file ask.
+   */
+  readonly sentKinds: readonly string[]
   close(): void
 }
 
@@ -122,7 +187,8 @@ interface Faulty {
 }
 
 function servingNode(nodeId: string, faulty: Faulty = {}): Node {
-  const guard = new CountingGuard(network.connect(nodeId), OWNER_ID)
+  const recorder = new RecordingTransport(network.connect(nodeId))
+  const guard = new CountingGuard(recorder, OWNER_ID)
   const rpc = new RpcEndpoint(guard, { timeoutMs: 2_000 })
   const store = new MemoryBlockstore()
   const served =
@@ -152,6 +218,7 @@ function servingNode(nodeId: string, faulty: Faulty = {}): Node {
     guard,
     store,
     served,
+    sentKinds: recorder.sentKinds,
     close() {
       rpc.close()
     },
@@ -444,6 +511,183 @@ describe('a node answers for what it holds, not for what its peers might hold', 
     } finally {
       holder.close()
       asker.close()
+    }
+  })
+})
+
+/**
+ * The `combine` branch keeps its network fallback, and that is safe **because** the
+ * `block` branch above is gated. This is where that dependency is asserted.
+ *
+ * ## The gap this closes, stated as it was recorded
+ *
+ * `runCombine` fetches its inputs with a bare `options.blockstore.get(cid)` — no `has`
+ * gate, deliberately, because that branch is fetching inputs it was asked to *compute
+ * over* rather than answering "do you have this". In production that store is a
+ * `FetchingBlockstore`, so a combine **can** go to the network, and on a mutually-wired
+ * pair that is the exact ingredient the block branch's deadlock was made of.
+ *
+ * The disposition recorded on 2026-08-17 was that the residual is bounded rather than
+ * open, and the argument was:
+ *
+ * > `RpcBlockSource.fetch` only ever emits `{ kind: 'block', cid }` — it has no path that
+ * > emits a `combine`. So a combine-triggered fetch arrives at the peer as a `block`
+ * > request, which the gated branch answers `bytes: null` immediately without re-entering
+ * > the network. A combine cycle therefore terminates in one hop; combine cannot recurse
+ * > into combine.
+ *
+ * That argument is correct and it was **a reading of the call graph, not a measurement** —
+ * its own note said so. Which left the coupling covered on one side only: removing the
+ * `has` gate reddens the block cases above, while making a `combine` reachable from
+ * `RpcBlockSource` reddened nothing at all. The three cases below close the second side
+ * and measure the first.
+ *
+ * ## Why the hop count is asserted as frames rather than inferred from the timing
+ *
+ * A prompt answer is consistent with one hop and also with several fast ones. The
+ * `sentKinds` list is the direct reading: it says what the serving node put on the wire
+ * while the combine was in its hands, so "one hop, and that hop was a `block`" is one
+ * assertion over observed frames rather than two inferences over a clock.
+ *
+ * Non-vacuity of the combine branch itself is not re-derived here — `combine.test.ts`
+ * drives a successful merge over a `FetchingBlockstore` and every refusal arm beside it.
+ * What is new here, and exists nowhere else, is the **cycle**: every topology in that file
+ * points its workers at one origin that serves a bare `MemoryBlockstore`, so no fixture in
+ * the tree had two nodes naming each other across a combine until this one.
+ */
+describe('a combine over a mutually-wired pair terminates in one hop, by name', () => {
+  /** A well-formed partial, the shape `fabricCombiner` merges. Distinct per `key`. */
+  function partial(key: string): ReturnType<typeof encoded> {
+    return encoded({ counts: { [key]: 1 }, rows: 1 })
+  }
+
+  /** A combine frame naming `inputCids`, at the first level above the leaves. */
+  function combineFrame(inputCids: readonly Awaited<ReturnType<MemoryBlockstore['put']>>[]) {
+    return encodeRequest({ kind: 'combine', combineId: 'tree-node-a', inputCids, level: 1 })
+  }
+
+  it('refuses an unobtainable input by name at the chain’s cost, not the deadline’s', async () => {
+    // Chain: A -> B -> C, C with no fallback. The control, and it shares every ingredient
+    // with the cycle except the cycle — so a slow reading here would mean combines are
+    // slow and the claim under test is about something else.
+    const chainC = servingNode('combine-chain-c')
+    const chainB = servingNode('combine-chain-b', { fetchesFrom: () => [chainC.nodeId] })
+    const chainA = servingNode('combine-chain-a', { fetchesFrom: () => [chainB.nodeId] })
+    // Cycle: A <-> B, which is what any two peers of one mesh are.
+    const cycleA = servingNode('combine-cycle-a', { fetchesFrom: () => ['combine-cycle-b'] })
+    const cycleB = servingNode('combine-cycle-b', { fetchesFrom: () => ['combine-cycle-a'] })
+    // Ten times the serving nodes' own 2 000 ms budget, so the *inner* bound is what any
+    // deadlock reads against. At an equal budget the requestor would give up first and the
+    // failure would be a throw rather than the two numbers that name the defect.
+    const rpc = new RpcEndpoint(network.connect('requestor-combine-cycle'), { timeoutMs: 20_000 })
+    try {
+      // Held by nobody: both CIDs are computed from bytes no node in this case ever stores.
+      const orphan = new MemoryBlockstore()
+      const absentOne = await orphan.put(partial('nobody-holds-this'))
+      const absentTwo = await orphan.put(partial('nor-this'))
+      const frame = combineFrame([absentOne, absentTwo])
+
+      const chainAt = Date.now()
+      const chainReply = parseResponse(await rpc.request(chainA.nodeId, frame))
+      const chainMs = Date.now() - chainAt
+
+      const cycleAt = Date.now()
+      const cycleReply = parseResponse(await rpc.request(cycleA.nodeId, frame))
+      const cycleMs = Date.now() - cycleAt
+
+      // Both refuse by name. Asserted on both arms so promptness cannot be bought by an
+      // arm that answered something else — an `error` frame, or bytes it invented.
+      for (const [label, reply] of [
+        ['chain', chainReply],
+        ['cycle', cycleReply],
+      ] as const) {
+        expect(reply?.kind, label).toBe('combine')
+        if (reply?.kind !== 'combine') return
+        expect(reply.resultCid, label).toBeNull()
+        // The first input, because the loop is sequential with an early return.
+        expect(reply.reason, label).toBe(
+          `combine input ${absentOne.toString()} not held and not obtainable`,
+        )
+      }
+
+      // The claim about cost. Comparative within one run, so the machine, the load and the
+      // I/O weather cancel between the arms rather than being assumed away.
+      expect(cycleMs).toBeLessThan(chainMs + 500)
+      // And a floor under the pair, so a change that made BOTH arms wait out the inner
+      // 2 000 ms budget could not satisfy the comparison by moving them together.
+      expect(cycleMs).toBeLessThan(1_000)
+
+      // The claim about shape, read off the wire rather than off the clock: while the
+      // combine was in its hands the cycle's node emitted exactly one request, and that
+      // request was a `block`. One frame is the early return; `block` is what keeps the
+      // recursion out, because it lands on the gated branch one peer over.
+      expect(cycleA.sentKinds).toEqual(['block'])
+      expect(chainA.sentKinds).toEqual(['block'])
+      // And the peer it landed on answered out of its own holdings without asking anyone,
+      // which is the gate doing the work this whole case attributes to it.
+      expect(cycleB.sentKinds).toEqual([])
+      expect(chainB.sentKinds).toEqual([])
+    } finally {
+      chainA.close()
+      chainB.close()
+      chainC.close()
+      cycleA.close()
+      cycleB.close()
+      rpc.close()
+    }
+  })
+
+  it('still completes a combine whose inputs its peer holds, so the gate did not simply stop answering', async () => {
+    // The positive control the case above cannot supply. Without it, a combine branch that
+    // refused everything — or a block gate that served nothing — would pass every
+    // assertion there. Same mutually-wired pair, inputs the peer really has.
+    const holder = servingNode('combine-holder', { fetchesFrom: () => ['combine-asker'] })
+    const asker = servingNode('combine-asker', { fetchesFrom: () => ['combine-holder'] })
+    const rpc = new RpcEndpoint(network.connect('requestor-combine-held'), { timeoutMs: 20_000 })
+    try {
+      const alpha = await holder.store.put(partial('alpha'))
+      const beta = await holder.store.put(partial('beta'))
+
+      const reply = parseResponse(await rpc.request(asker.nodeId, combineFrame([alpha, beta])))
+
+      expect(reply?.kind).toBe('combine')
+      if (reply?.kind !== 'combine') return
+      expect(reply.reason, reply.reason).toBe('')
+      expect(reply.resultCid).not.toBeNull()
+
+      // Both inputs were fetched, both as `block` frames. Two rather than one is what
+      // distinguishes a merge that really pulled its inputs from one that returned early.
+      expect(asker.sentKinds).toEqual(['block', 'block'])
+    } finally {
+      holder.close()
+      asker.close()
+      rpc.close()
+    }
+  })
+
+  it('emits nothing but `block` frames from RpcBlockSource, which is what holds the hop count at one', async () => {
+    // The structural half, asserted directly on the class rather than through a combine,
+    // so it reddens even if `serveAgent`'s combine branch is rewritten or removed. This is
+    // the assertion whose absence was the recorded gap: until it existed, giving
+    // `RpcBlockSource` a path that emits a `combine` frame reopened the recursion the two
+    // cases above rely on being closed, and nothing in the tree would have gone red.
+    const missing = servingNode('frames-missing')
+    const holder = servingNode('frames-holder')
+    const recorder = new RecordingTransport(network.connect('requestor-frames'))
+    const rpc = new RpcEndpoint(recorder, { timeoutMs: 2_000 })
+    try {
+      const cid = await holder.store.put(encoded(PUBLIC_ROW))
+      const source = new RpcBlockSource(rpc, () => [missing.nodeId, holder.nodeId])
+
+      // Anti-vacuity: the walk really ran, over two peers, and ended in the bytes. A
+      // source that emitted nothing at all would satisfy an "all frames are blocks"
+      // assertion perfectly.
+      expect(await source.fetch(cid)).toEqual(encoded(PUBLIC_ROW))
+      expect(recorder.sentKinds).toEqual(['block', 'block'])
+    } finally {
+      missing.close()
+      holder.close()
+      rpc.close()
     }
   })
 })
