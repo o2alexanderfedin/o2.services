@@ -197,6 +197,23 @@ const RELINKABLE = existsSync(LINK_SCRIPT) && existsSync(join(BUILD_ROOT, 'obj')
  * They also came apart here. The lift was byte-identical across four runs while the module
  * doing the lifting was NOT byte-identical across three links — so run determinism held over
  * a build that did not reproduce, and nothing in the tree would have noticed.
+ *
+ * ## How far up the chain this was measured, and where the measurement stops
+ *
+ * The case below relinks from fixed objects, which takes about a minute and is therefore what
+ * runs by default. Above it, measured once by hand rather than on every run because it costs
+ * ten minutes:
+ *
+ *   - **The 40 LLVM archives reproduce.** `build-wasi/` deleted, all 1239 targets rebuilt,
+ *     every archive compared: **40 identical, 0 differing.**
+ *   - **And the module reproduces through them.** Relinking against the freshly built
+ *     archives gives `33b6ba7f…` again — the same module, end to end from a rebuilt
+ *     toolchain.
+ *
+ * What is NOT covered: the 27 elfconv objects in `obj/`. Those come out of the containerised
+ * gate (`elflift-wasi-port.sh`) rather than from this script, so their reproducibility is a
+ * separate question and is currently unmeasured. Naming that here rather than letting "the
+ * build reproduces" be read as covering it.
  */
 describe('AOTW-06 — building the module twice gives the same module', () => {
   it.runIf(RELINKABLE)(
