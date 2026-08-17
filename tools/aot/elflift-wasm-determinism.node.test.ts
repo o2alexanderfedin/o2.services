@@ -56,8 +56,15 @@ import { describeGate, gateOnImage, isRunnable } from './docker-gate.ts'
  * differs.
  *
  * Nor does it claim the wasm arm is deterministic across HOSTS. That needs a second machine,
- * which is what AOT-03 is blocked on. What is measured is: deterministic across runs, in one
- * process each time, on this host.
+ * which is what AOT-03 is blocked on. What is measured HERE is: deterministic across runs, in
+ * one process each time, on this host, on one engine.
+ *
+ * **The engine half is measured next door.** `packages/aot/src/elflift-cross-engine.browser.
+ * test.ts` runs the same lift on Chromium, Firefox and WebKit and asserts the digest this
+ * file records, so the pair together reads "four engines, one answer". Three engines on one
+ * host are still not three machines — `vitest.config.ts` carries an owner ruling saying so —
+ * but they are three independent implementations of the specification, which is the part of
+ * the cross-host question that does not need a second box to ask.
  */
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
@@ -76,11 +83,14 @@ const RUNNER = join(REPO, 'tools', 'aot', 'run-elflift-wasm.mjs')
 const IMAGE = 'ghcr.io/yomaytk/elfconv:arm64'
 
 function missing (): string[] {
-  return [
+  // Typed as tuples rather than left to inference: a bare array literal widens to
+  // `string[][]`, and destructuring one of those hands `existsSync` a `string | undefined`.
+  const required: ReadonlyArray<readonly [path: string, why: string]> = [
     [MODULE, 'elflift.wasm — run tools/aot/link-elflift-wasm.sh'],
     [ELF, 'the AArch64 fixture'],
     [SEMANTICS, 'the remill semantics bitcode']
   ]
+  return required
     .filter(([path]) => !existsSync(path))
     .map(([path, why]) => `${why} (${path})`)
 }
@@ -175,6 +185,69 @@ describe('AOTW-06 — a lift inside the wasm module repeats itself; the native o
   })
 })
 
+const LINK_SCRIPT = join(REPO, 'tools', 'aot', 'link-elflift-wasm.sh')
+const RELINKABLE = existsSync(LINK_SCRIPT) && existsSync(join(BUILD_ROOT, 'obj')) &&
+  existsSync(join(BUILD_ROOT, 'lib'))
+
+/**
+ * Running the same bytes twice and building the same bytes twice are different properties,
+ * and this repository needs both: an artifact addressed by the hash of its content is only
+ * addressable if the same inputs produce that hash again.
+ *
+ * They also came apart here. The lift was byte-identical across four runs while the module
+ * doing the lifting was NOT byte-identical across three links — so run determinism held over
+ * a build that did not reproduce, and nothing in the tree would have noticed.
+ *
+ * ## How far up the chain this was measured, and where the measurement stops
+ *
+ * The case below relinks from fixed objects, which takes about a minute and is therefore what
+ * runs by default. Above it, measured once by hand rather than on every run because it costs
+ * ten minutes:
+ *
+ *   - **The 40 LLVM archives reproduce.** `build-wasi/` deleted, all 1239 targets rebuilt,
+ *     every archive compared: **40 identical, 0 differing.**
+ *   - **And the module reproduces through them.** Relinking against the freshly built
+ *     archives gives `33b6ba7f…` again — the same module, end to end from a rebuilt
+ *     toolchain.
+ *
+ * What is NOT covered: the 27 elfconv objects in `obj/`. Those come out of the containerised
+ * gate (`elflift-wasi-port.sh`) rather than from this script, so their reproducibility is a
+ * separate question and is currently unmeasured. Naming that here rather than letting "the
+ * build reproduces" be read as covering it.
+ */
+describe('AOTW-06 — building the module twice gives the same module', () => {
+  it.runIf(RELINKABLE)(
+    'links byte-identically from the same objects',
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), 'o2-relink-'))
+      const hashes = ['a', 'b'].map((tag) => {
+        const out = join(dir, `elflift.${tag}.wasm`)
+        const run = spawnSync('bash', [LINK_SCRIPT], {
+          encoding: 'utf8',
+          timeout: 900_000,
+          cwd: REPO,
+          env: { ...process.env, OUTPUT: out }
+        })
+        expect(run.status, `link stderr:\n${run.stderr ?? ''}`).toBe(0)
+        return createHash('sha256').update(readFileSync(out)).digest('hex')
+      })
+
+      process.stdout.write(
+        `[build-reproducibility] ${hashes.map((h) => h.slice(0, 16)).join(' vs ')}\n`
+      )
+      expect(hashes[0]).toBe(hashes[1])
+    },
+    1_800_000
+  )
+
+  it('says why it skipped, when it skips', () => {
+    if (!RELINKABLE) {
+      process.stdout.write('[build-reproducibility] SKIPPED: no obj/ or lib/ to link from\n')
+    }
+    expect(typeof RELINKABLE).toBe('boolean')
+  })
+})
+
 const IMAGE_GATE = gateOnImage(IMAGE)
 const NATIVE_RUNNABLE = isRunnable(IMAGE_GATE) && existsSync(ELF)
 
@@ -221,8 +294,8 @@ describe('AOTW-06 — the native arm, which is what makes the comparison a findi
 
       const hashes = (run.stdout ?? '')
         .split('\n')
-        .map((line) => line.trim().split(/\s+/)[0])
-        .filter((h) => h !== undefined && h.length === 64)
+        .map((line) => line.trim().split(/\s+/)[0] ?? '')
+        .filter((h) => h.length === 64)
 
       expect(hashes.length).toBe(2)
       process.stdout.write(
