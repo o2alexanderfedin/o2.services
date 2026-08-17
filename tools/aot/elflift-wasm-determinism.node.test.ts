@@ -56,8 +56,15 @@ import { describeGate, gateOnImage, isRunnable } from './docker-gate.ts'
  * differs.
  *
  * Nor does it claim the wasm arm is deterministic across HOSTS. That needs a second machine,
- * which is what AOT-03 is blocked on. What is measured is: deterministic across runs, in one
- * process each time, on this host.
+ * which is what AOT-03 is blocked on. What is measured HERE is: deterministic across runs, in
+ * one process each time, on this host, on one engine.
+ *
+ * **The engine half is measured next door.** `packages/aot/src/elflift-cross-engine.browser.
+ * test.ts` runs the same lift on Chromium, Firefox and WebKit and asserts the digest this
+ * file records, so the pair together reads "four engines, one answer". Three engines on one
+ * host are still not three machines — `vitest.config.ts` carries an owner ruling saying so —
+ * but they are three independent implementations of the specification, which is the part of
+ * the cross-host question that does not need a second box to ask.
  */
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
@@ -76,11 +83,14 @@ const RUNNER = join(REPO, 'tools', 'aot', 'run-elflift-wasm.mjs')
 const IMAGE = 'ghcr.io/yomaytk/elfconv:arm64'
 
 function missing (): string[] {
-  return [
+  // Typed as tuples rather than left to inference: a bare array literal widens to
+  // `string[][]`, and destructuring one of those hands `existsSync` a `string | undefined`.
+  const required: ReadonlyArray<readonly [path: string, why: string]> = [
     [MODULE, 'elflift.wasm — run tools/aot/link-elflift-wasm.sh'],
     [ELF, 'the AArch64 fixture'],
     [SEMANTICS, 'the remill semantics bitcode']
   ]
+  return required
     .filter(([path]) => !existsSync(path))
     .map(([path, why]) => `${why} (${path})`)
 }
@@ -267,8 +277,8 @@ describe('AOTW-06 — the native arm, which is what makes the comparison a findi
 
       const hashes = (run.stdout ?? '')
         .split('\n')
-        .map((line) => line.trim().split(/\s+/)[0])
-        .filter((h) => h !== undefined && h.length === 64)
+        .map((line) => line.trim().split(/\s+/)[0] ?? '')
+        .filter((h) => h.length === 64)
 
       expect(hashes.length).toBe(2)
       process.stdout.write(
