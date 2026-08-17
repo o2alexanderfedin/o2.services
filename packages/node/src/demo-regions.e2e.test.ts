@@ -572,10 +572,21 @@ describe('the page, with the fabric stopped', () => {
       return null
     }
 
+    // **The mechanism has no members as of 2026-08-17, and that is asserted rather than left
+    // to be discovered.** `primes/per-shard` was the last one; `TabPrimesRun` gained `perShard`
+    // and it became an ordinary reading. Everything below this line is therefore quantified
+    // over an empty set today — which is exactly why the count is pinned: a region that claims
+    // a permanent absence has to be added deliberately, and whoever adds it gets a red here
+    // naming the number rather than a silently-vacuous guard that would have passed anyway.
+    const permanent = REGIONS.filter((region) => region.permanentlyUnavailable !== undefined)
+    expect(
+      permanent.map((region) => region.id),
+      'a region claims a permanent absence. The mechanism is supported and currently unused — add the id here with the reason it can never have a reading, and check that `unjustified` below really refuses it',
+    ).toEqual([])
+
     // Quantified over the CATALOGUE rather than over elements on the page, so the claim is
     // checked whether or not anybody has drawn the surface yet.
-    for (const region of REGIONS) {
-      if (region.permanentlyUnavailable === undefined) continue
+    for (const region of permanent) {
       const problem = unjustified(region.id, region.source)
       if (problem !== null) problems.push(problem)
     }

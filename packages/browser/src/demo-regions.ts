@@ -721,10 +721,17 @@ export const REGIONS: readonly Region[] = [
   // have it. That guard was written so the day Option A landed it would go red and drag this
   // surface back onto the board rather than let it stay quietly absent. It did exactly that.
   //
-  // **N9 is still `permanentlyUnavailable`, and it is the one that did not move.**
-  // `TabPrimesRun` carries the total and not the shard rows, which is as true now as it was
-  // under Option B. Wiring a workload does not turn every absence on its surface into a
-  // reading, and treating it as if it did is the easy mistake here.
+  // **N9 was the one that did not move, and it moved on 2026-08-17 too.** It was
+  // `permanentlyUnavailable` because `TabPrimesRun` carried the total and not the shard rows —
+  // which wiring the workload did not change by itself. Rather than leave the surface with one
+  // permanent absence, `perShard` was added to the reading: derived from this tab's own shard
+  // results, so its agreement with the aggregate the combine nodes returned is a real check on
+  // the reduce rather than a restatement of one number.
+  //
+  // **`permanentlyUnavailable` now has NO members anywhere in this catalogue.** The mechanism
+  // stays — the field, `render.ts`'s handling of it, and the guards in both directions — and
+  // `demo-regions.e2e.test.ts` asserts the set is empty, so the next region to claim a
+  // permanent absence has to be added deliberately and cannot arrive unnoticed.
   // =====================================================================================
   {
     id: 'primes/n-arg', // N1
@@ -815,22 +822,19 @@ export const REGIONS: readonly Region[] = [
     id: 'primes/per-shard', // N9
     surface: 'primes',
     kind: 'reading',
-    // **The pattern for "the mockup drew something the reading does not carry."** The
-    // mockup's per-shard table is not available from any `TabApi` shape. It is not silently
-    // dropped and it is not filled with plausible rows: it states which reading it would
-    // need. The same treatment applies anywhere else a mockup panel outruns the contract.
-    source: 'TabApi.runPrimes().perShard — no such field exists on any reading this page receives',
+    // **This was the pattern for "the mockup drew something the reading does not carry",
+    // and it stopped being one on 2026-08-17.** Its `source` read *"no such field exists on
+    // any reading this page receives"* and it carried `permanentlyUnavailable`, which was
+    // true and stayed true through Option A — wiring the workload did not, by itself, give
+    // the page shard rows. So the field was added: `TabPrimesRun.perShard` is derived from
+    // this tab's own shard results rather than from the aggregate, which is what makes the
+    // table worth drawing at all. A decomposition of one number would agree with that number
+    // by construction and check nothing.
+    source: 'TabApi.runPrimes().perShard',
     absence: {
-      initial:
-        'No per-shard counts: the reading this page receives carries the total and not the shard rows.',
-      stopped:
-        'No per-shard counts: the reading this page receives carries the total and not the shard rows.',
-      unavailable:
-        'No per-shard counts: the reading this page receives carries the total and not the shard rows.',
-    },
-    permanentlyUnavailable: {
-      reason:
-        'the field does not exist on any TabApi return type, so the row has no reading to wait for',
+      initial: 'No per-shard counts: this workload has not been run in this tab.',
+      stopped: "No per-shard counts: this tab's node is stopped.",
+      unavailable: 'No per-shard counts: no shard of this run reported one.',
     },
   },
   {
