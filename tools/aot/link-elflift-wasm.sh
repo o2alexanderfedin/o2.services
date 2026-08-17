@@ -29,13 +29,14 @@
 # filesystem underneath, the last two need no change at all — write `/in.elf` from the host,
 # call, read `/out.bc` back.
 #
-# So `MODE=command` is the default and links exactly what exists today. `MODE=reactor` is
-# available for once the shim lands, and is the shape this should end up in.
+# So `LINK_MODE=command` is the default and links exactly what exists today.
+# `LINK_MODE=reactor` is available for once the shim lands, and is the shape this should
+# end up in.
 #
 # Usage:
 #
 #   bash tools/aot/link-elflift-wasm.sh 2>&1 | tee /tmp/link.log
-#   MODE=reactor bash tools/aot/link-elflift-wasm.sh
+#   LINK_MODE=reactor bash tools/aot/link-elflift-wasm.sh
 #
 # Exit codes: 50 no objects, 51 no LLVM archives, 52 no glog/gflags, 53 link failed,
 # 54 linked but produced nothing.
@@ -47,7 +48,11 @@ WASI_SDK="$ROOT/wasi-sdk"
 OBJ=${OBJ:-$ROOT/obj}
 LIB="$ROOT/lib"
 OUTPUT=${OUTPUT:-$ROOT/elflift.wasm}
-MODE=${MODE:-command}
+# `LINK_MODE`, not `MODE`. A bare `MODE` is one of the most commonly occupied names in a
+# process environment — vitest exports `MODE=test` from Vite — and this script read it, so
+# running the link from a spec died on `MODE must be command or reactor, got test`. Measured,
+# not guessed at: that is exactly how the build-reproducibility case first failed.
+LINK_MODE=${LINK_MODE:-command}
 
 CLANGXX="$WASI_SDK/bin/clang++"
 [ -x "$CLANGXX" ] || { echo "no $CLANGXX — run build-wasi-llvm.sh first" >&2; exit 28; }
@@ -62,7 +67,7 @@ ls "$LIB"/libglog*.a > /dev/null 2>&1 || { echo "no glog in $LIB — run build-w
 
 echo "objects:       $OBJECTS"
 echo "LLVM archives: $LLVM_ARCHIVES"
-echo "mode:          $MODE"
+echo "mode:          $LINK_MODE"
 
 # --whole-archive is deliberately NOT used: the point of linking against archives is that the
 # linker pulls only the members it needs, and elfconv references a small corner of LLVM.
@@ -83,10 +88,25 @@ LINK_FLAGS=(
   # for LLVM-based tools; it costs nothing until touched.
   -Wl,-z,stack-size=16777216
   -Wl,--gc-sections
-  -Wl,--strip-debug
+  # `--strip-all`, not `--strip-debug`, and the difference is reproducibility rather than
+  # size. Measured: linking the same objects three times with `--strip-debug` produced three
+  # different modules — e8cc1885…, 7407e0c0…, ac233833… — all exactly 13 565 617 bytes with
+  # every section the same size. The first differing byte, 8 087 429, is the first byte of
+  # the `name` section: CODE and DATA are identical across links, and only the 5.4 MiB of
+  # debug names vary. `--strip-debug` does not remove that section.
+  #
+  # With `--strip-all` the same three links give one hash, 33b6ba7f…, at 8 087 408 bytes, and
+  # the module lifts to the identical bitcode (d7b67545…) — so the names were carrying the
+  # nondeterminism and nothing else.
+  #
+  # **This removes the symptom, not the cause.** wasm-ld still emits those names in an order
+  # that is not stable across runs; anyone who needs a named build back should expect it to be
+  # unreproducible until that is chased upstream. A content-addressed artifact cannot ship
+  # 5.4 MiB of names that change every link, so stripping is the right default either way.
+  -Wl,--strip-all
 )
 
-case "$MODE" in
+case "$LINK_MODE" in
   reactor)
     LINK_FLAGS+=(
       -mexec-model=reactor
@@ -99,7 +119,7 @@ case "$MODE" in
   command)
     ;;
   *)
-    echo "MODE must be command or reactor, got $MODE" >&2
+    echo "LINK_MODE must be command or reactor, got $LINK_MODE" >&2
     exit 1
     ;;
 esac
