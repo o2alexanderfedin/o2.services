@@ -75,6 +75,13 @@ echo "mode:          $MODE"
 LINK_FLAGS=(
   --target=wasm32-wasi
   -O2
+  # wasm-ld's default shadow stack is 64 KiB, and LLVM's passes recurse deeply over the IR --
+  # far past that on a 650 KiB statically-linked input. There is no guard page in a wasm
+  # linear memory, so the overflow does not fault at the point of overrun: the stack pointer
+  # walks down past zero and the next write lands out of bounds, which is what the first real
+  # lift reported after completing all 845 analysis steps. 16 MiB is the size Emscripten uses
+  # for LLVM-based tools; it costs nothing until touched.
+  -Wl,-z,stack-size=16777216
   -Wl,--gc-sections
   -Wl,--strip-debug
 )

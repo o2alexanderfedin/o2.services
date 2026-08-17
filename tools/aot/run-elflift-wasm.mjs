@@ -23,9 +23,25 @@
 //
 //   node tools/aot/run-elflift-wasm.mjs --help
 //   node tools/aot/run-elflift-wasm.mjs --elf <path> --out <path> [--arch aarch64]
+//                                       [--semantics <aarch64.bc>]
+//
+// ## The semantics bitcode
+//
+// remill lifts through a bitcode file describing the source ISA's instruction semantics, and
+// `Util.cpp` finds it by searching paths baked in at compile time — which here are paths
+// inside the container elfconv was built in: `/root/elfconv/build/.../AArch64/Runtime`,
+// `/usr/local/share/remill/16.0/semantics`, and so on. None of them exist in this sandbox.
+//
+// `Lift.cpp` provides the way out through `--bitcode_path`, and its name is misleading in a
+// way that cost a run: it is not a path to the bitcode file. `LoadArchSemantics` passes it
+// through as a `sem_dirs` entry, and `_FindSemanticsBitcodeFile` then looks for
+// `<dir>/<arch>.bc` inside it. So what goes in is the DIRECTORY, and the file has to be named
+// for the architecture — `aarch64.bc`, not whatever the host called it. Both are arranged
+// below, which is why the mounted name is derived from `--arch`.
 //
 // Exit codes: 60 module missing, 61 input ELF missing, 62 the module trapped,
-// 63 the module exited non-zero, 64 it exited 0 but produced no bitcode.
+// 63 the module exited non-zero, 64 it exited 0 but produced no bitcode,
+// 65 semantics file missing.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { argv, exit, hrtime } from 'node:process'
@@ -48,6 +64,7 @@ function parseArgs (raw) {
     else if (a === '--elf') out.elf = raw[++i]
     else if (a === '--out') out.out = raw[++i]
     else if (a === '--arch') out.arch = raw[++i]
+    else if (a === '--semantics') out.semantics = raw[++i]
     else if (a === '--target-arch') out.targetArch = raw[++i]
     else out.passthrough.push(a)
   }
@@ -69,6 +86,7 @@ const dir = new Map()
 const IN_NAME = 'in.elf'
 const OUT_NAME = 'out.bc'
 
+
 let wasmArgs
 if (opts.elf === undefined) {
   // No input: pass whatever was given straight through. `--help` lands here, and so does any
@@ -85,9 +103,23 @@ if (opts.elf === undefined) {
     `--arch=${opts.arch}`,
     `--target_elf=/work/${IN_NAME}`,
     `--bc_out=/work/${OUT_NAME}`,
-    `--target_arch=${opts.targetArch}`,
-    ...opts.passthrough
+    `--target_arch=${opts.targetArch}`
   ]
+  if (opts.semantics !== undefined) {
+    if (!existsSync(opts.semantics)) {
+      console.error(`no semantics bitcode at ${opts.semantics}`)
+      exit(65)
+    }
+    // The name is not cosmetic: remill searches the directory for `<arch>.bc`.
+    dir.set(`${opts.arch}.bc`, new File(readFileSync(opts.semantics)))
+    wasmArgs.push('--bitcode_path=/work')
+  }
+  // glog otherwise tries to open a log file under a directory that does not exist in the
+  // sandbox and prints four lines of COULD NOT CREATE A LOGGINGFILE before continuing.
+  // Sending its output to stderr is both quieter and the right destination here — there is
+  // nowhere for a log file to usefully persist.
+  wasmArgs.push('--logtostderr=1')
+  wasmArgs.push(...opts.passthrough)
 }
 
 const stdoutLines = []
