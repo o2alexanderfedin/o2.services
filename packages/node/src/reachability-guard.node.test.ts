@@ -1649,6 +1649,19 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
  * Sited at **27**, measured 2026-08-11 at `afe4df6`, by the predicate in
  * {@link orphanModules} — read off the graph, not counted by hand.
  *
+ * **Raised to 28 on 2026-08-17, and here is the reason the docblock below demands.**
+ * `packages/node/src/local-acme.ts` arrived: an ACME certificate authority, a DNS zone and a
+ * p2p-forge stand-in, all on loopback, so NET-03's `auto-acquires a TLS certificate` clause
+ * could be measured on a host with no public address. Nothing in production imports it and
+ * nothing should — it is a test instrument in the same category as `node/reachability.ts`,
+ * `node/strip-comments.ts` and `node/capability-fixture.ts`, three of the population this
+ * ceiling already counts.
+ *
+ * The raise is not a threshold widened to buy a green: the count is a **census**, its own
+ * docblock says a 28th must not arrive *unnoticed* rather than must not arrive, and this one
+ * is named. What would be illegitimate is raising it without saying which module moved the
+ * number, which is why the sentence above names the file and the requirement.
+ *
  * **A ceiling, on the same terms as `OPEN_FINDING_CEILING`: lowering it is the work, raising
  * it needs a reason written beside it.** The population is deliberately not disposed
  * entry-by-entry. `reachability-dispositions.ts`'s rule is that a disposition is granted on a
@@ -1661,7 +1674,7 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
  * reading is the failure mode this file's `global-object-hop` case exists to refuse. The count
  * is held still instead, which is what stops a 28th arriving unnoticed.
  */
-const ORPHAN_MODULE_CEILING = 27
+const ORPHAN_MODULE_CEILING = 28
 
 /**
  * The certificate-lifecycle module, by path — CRYPTO-03's whole subject.

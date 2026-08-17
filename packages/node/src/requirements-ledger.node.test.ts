@@ -1146,20 +1146,33 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // `relaying.node.test.ts`, asserts a browser-dialable listen address; it does not put a
   // browser on it.
   //
-  // **That is the clause that was never in question.** What holds this row open is
-  // `auto-acquires a TLS certificate`, and no spec written on this host can acquire it:
-  // AutoTLS proves control of a publicly reachable address to `registration.libp2p.direct`,
-  // which a private host behind NAT with no public DNS name cannot do, and
-  // `@ipshipyard/libp2p-auto-tls` is still in no `package.json`. Re-checked 2026-08-16 in
-  // the pessimistic direction, as on 2026-08-11, and unchanged.
+  // **The acquisition clause was measured on 2026-08-17, and the sentence that held it open
+  // was wrong in a way worth recording.** For weeks this entry read: *"no spec written on
+  // this host can acquire it: AutoTLS proves control of a publicly reachable address to
+  // `registration.libp2p.direct`, which a private host behind NAT with no public DNS name
+  // cannot do."* The first half is a fact about **Let's Encrypt** — a public authority will
+  // not name a domain you cannot show control of — and it was restated as a fact about the
+  // *mechanism*, which is this project's most-repeated failure mode.
   //
-  // So the clock stays at 2026-08-11. Moving it would buy days of silence on the strength
-  // of the half that was already met, which is the overclaim this register exists to catch.
+  // The mechanism needs a certificate authority. `packages/node/src/local-acme.ts` is one:
+  // RFC 8555 over loopback with every JWS verified against the account's own key, a UDP DNS
+  // zone the authority really queries, and a p2p-forge stand-in that authenticates the caller
+  // through libp2p's own PeerID-auth handshake. `@ipshipyard/libp2p-auto-tls` — now a real
+  // dependency of `@o2/node`, which the previous entry correctly noted it was not — runs
+  // against it unmodified and `auto-tls.node.test.ts` reads seven cases off it, including a
+  // TLS handshake that validates the acquired chain and a restart that places no second order.
+  //
+  // **What is still hosting and still open**: the authority is not Let's Encrypt, and the
+  // node's dialable address is *declared* through `appendAnnounce` rather than bound, because
+  // every interface on this host is RFC 1918 or a ULA. So the row keeps its
+  // `tier-or-configuration` cause — but for the deployment decision it always was, not for a
+  // measurement nobody could take.
   {
     id: 'NET-03',
     because: 'tier-or-configuration',
-    reread: '2026-08-11',
+    reread: '2026-08-17',
     witnesses: [
+      'packages/node/src/auto-tls.node.test.ts',
       'packages/node/src/relaying.node.test.ts',
       'packages/node/src/seed-binary-join.e2e.test.ts',
     ],
@@ -1295,11 +1308,28 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // pointing at a test which certifies that the thing it promises remains unmeasured.
   // Re-recorded. The witness list stays empty deliberately — writing `lift.node.test.ts`
   // into it would record a measurement of the open half that does not exist.
+  //
+  // **2026-08-17: the experiment WAS run, and it produced a negative worth keeping.** This
+  // host can supply a second machine architecture — elfconv publishes `:arm64` and `:amd64`,
+  // both are present, and `uname -m` inside them reports `aarch64` and `x86_64`. Swapping
+  // the image was the obvious way to obtain a second machine without a second host, and it
+  // does not work: it swaps the *translator*. `backend/remill/lib/Arch/Arch.cpp` gates each
+  // front end behind its own `#if`, no build defines both, and the x86_64 image handed this
+  // repository's AArch64 fixture reaches the `default:` arm and calls `LOG(FATAL)` —
+  // `Arch.cpp:211] OS: 2 ArchName: 8`, exit 134, in 18.5 s, against the arm64 image's clean
+  // lift to `sha256:8dcf62e1…` in 368 s.
+  //
+  // So `because` stays `experiment-not-run` for the row's own claim — no two artifacts have
+  // been compared and none can be here — while the **shortcut** is now measured closed by
+  // `cross-machine.node.test.ts`. It is listed as a witness on those terms and no others: it
+  // measures why the local route is not a second machine, which is a different sentence from
+  // measuring the row. What AOT-03 needs is a second *aarch64 Linux* host running the same
+  // elfconv build.
   {
     id: 'AOT-03',
     because: 'experiment-not-run',
-    reread: '2026-08-11',
-    witnesses: [],
+    reread: '2026-08-17',
+    witnesses: ['tools/aot/cross-machine.node.test.ts'],
   },
   // **Re-read 2026-08-16, and the sentence that kept it here is gone.** The row's own
   // words were *"the browser tier's composition is present and its runtime behaviour is
