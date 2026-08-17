@@ -939,6 +939,24 @@ Measured, not inferred:
    stock `o2 agent` and a stock `o2 seed` will run, because both default to
    `KERNEL_TRUST_ANCHOR`.
 
+> **RULED 2026-08-17 — Option A was taken.** Phase 27 shipped Option B, and the owner closed
+> audit finding G4's primes half by taking Option A on top of it. All three facts above have been
+> answered: `PRIMES_RECORD` is signed by `KERNEL_TRUST_ANCHOR`, all three demo records were
+> re-signed together under a new anchor, and `TabApi.runPrimes` builds the eight-byte input itself
+> rather than asking `runJob` to carry it. The trust-root cost stated in fact 3 was paid
+> knowingly and once.
+>
+> The two dispositions are kept below **unedited**, because they are the record of a decision and
+> not a to-do list. What changed in the tree: `#s-primes` carries one primary control
+> (`Count the primes`, §11's copy, which was specified for this and had never been rendered);
+> N3–N8 and N11 are ordinary readings with ordinary absences; and `demo-primes.e2e.test.ts` drives
+> a real run and asserts the fabric's count **equal** to the published value.
+>
+> **One row did not move, and it is the interesting one.** N9 — per-shard counts — is still
+> permanently unavailable. `TabPrimesRun` carries the total and not the shard rows, which is as
+> true after Option A as before it. Wiring a workload does not turn every absence on its surface
+> into a reading.
+
 Two dispositions, and the ruling is the planner's or the owner's:
 
 - **Option A — make it real.** Extend `sign-kernel.ts` to sign `primes.wasm`, regenerate

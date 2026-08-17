@@ -624,23 +624,26 @@ describe('production RemoteExecutor call sites state the chain explicitly', () =
   // four other sites keep the original reason unchanged and a shared sentence would have
   // made them look conditional too.
 
-  it('demo/main.ts: all three peer dispatches are public work', () => {
-    // **Two until 2026-08-08, and the number moved because the page gained a job.**
-    // `runPi` (`demo/main.ts:791`) dispatches the π workload, joining `runColouring`
-    // (:892) and `runJob` (:1157) — three constructions, one per job the demo can run,
-    // and all three write the unauthenticated sentinel because all three submit
-    // `label: 'public'` shards.
+  it('demo/main.ts: all four peer dispatches are public work', () => {
+    // **Two until 2026-08-08, three until 2026-08-17, and the number moves because the page
+    // gains a job.** `runColouring`, `runPi`, `runJob` and now `runPrimes` — four
+    // constructions, one per job the demo can run, and all four write the unauthenticated
+    // sentinel because all four submit `label: 'public'` shards.
     //
-    // **This guard did its job and the commit that moved the count did not.** `0d1fcb5`
-    // added the third site and left this expectation at 2, so the node suite was red at
-    // that commit — found by the v1.1 re-audit re-running the suite rather than by
-    // anything at the time. Bumping the number is the smaller half of the fix; saying
-    // which site arrived, and that it is public work, is what stops the next bump being
-    // a reflex.
-    expect(occurrences(DEMO_MAIN, "'dispatches-unauthenticated'")).toBe(3)
-    // The other half of the same fact, because a count of three is equally what moving a
-    // sentinel onto a *fourth*, newly-added site would produce.
-    expect(occurrences(DEMO_MAIN, 'new RemoteExecutor(')).toBe(3)
+    // **`runPrimes` is the one that closed audit finding G4's primes half**, on the owner's
+    // ruling of 2026-08-17. Its shards are public for the plainest of reasons: a prime count
+    // over a public bound has no owner, so no key exists for a capability chain to be rooted
+    // at. The sentinel is that fact written down rather than a default taken.
+    //
+    // **This guard did its job once already and the commit that moved the count did not.**
+    // `0d1fcb5` added the third site and left this expectation at 2, so the node suite was
+    // red at that commit — found by the v1.1 re-audit re-running the suite rather than by
+    // anything at the time. Bumping the number is the smaller half of the fix; saying which
+    // site arrived, and why it is public work, is what stops the next bump being a reflex.
+    expect(occurrences(DEMO_MAIN, "'dispatches-unauthenticated'")).toBe(4)
+    // The other half of the same fact, because a count of four is equally what moving a
+    // sentinel onto a *fifth*, newly-added site would produce.
+    expect(occurrences(DEMO_MAIN, 'new RemoteExecutor(')).toBe(4)
   })
 
   it('bin/bench.ts: the default arm dispatches public shards, and the sovereign leg is one branch beside it', () => {

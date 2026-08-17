@@ -17,7 +17,24 @@ length for that reason.
 
 ---
 
-## 1. The Primes workload has no dispatch path from a browser tab
+## 1. ~~The Primes workload has no dispatch path from a browser tab~~ — CLOSED 2026-08-17
+
+> **The owner decided, and took Option A.** The entry below is kept unedited: it is the record
+> of what was open, what was measured, and what closing it would cost — and the cost it names
+> is exactly the cost that was paid. `PRIMES_RECORD` is signed, all three demo records were
+> re-signed under a new anchor, `TabApi.runPrimes` exists with `demo/main.ts` calling it, and
+> `#s-primes` carries the `Count the primes` control UI-SPEC §11 specified and had never
+> rendered.
+>
+> **Closed on a measurement, not on a merge.** `demo-primes.e2e.test.ts` drives Chromium and
+> reads `N = 100000, shards = 8, fabric counted 9592, published value 9592` — an equality
+> against a value published in the mathematical literature. `demo-liveness.e2e.test.ts`'s P5
+> now reports `exercised … colouring, pi, primes, byo`, discovered rather than listed.
+>
+> **What did not close, and it is not an oversight.** N9, per-shard counts, is still
+> permanently unavailable: `TabPrimesRun` carries the total and not the shard rows. The tiling
+> proof that would use those counts lives in `primes-reduce.node.test.ts`, where it can assert
+> on them. Wiring a workload does not turn every absence on its surface into a reading.
 
 **Decider: owner.** This is the headline item and it is the one Phase 27 did not close.
 

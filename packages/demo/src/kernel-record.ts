@@ -30,10 +30,19 @@
  * **Both node binaries default to {@link KERNEL_TRUST_ANCHOR}.** `bin/agent.ts` and
  * `bin/seed.ts` each read `values['trust-anchor'] ?? [KERNEL_TRUST_ANCHOR]`, so
  * regenerating this file changes what a stock `o2 agent` and a stock `o2 seed` will
- * run. The record and the anchor must be committed together or every such process
- * refuses the kernel it ships. That the private half is discarded is what bounds this:
- * the default can accept exactly the one record committed here, and can never be made
+ * run. The records and the anchor must be committed together or every such process
+ * refuses the kernels it ships. That the private half is discarded is what bounds this:
+ * the default can accept exactly the three records committed here, and can never be made
  * to accept another.
+ *
+ * ## Three records, one anchor — and the third is why this file was last regenerated
+ *
+ * {@link PRIMES_RECORD} was added 2026-08-17, closing the open half of audit finding G4.
+ * The prime-counting module had been in the repository and exercised by the Node suite
+ * since Phase 26, and nothing vouched for it — so the demo page carried no run control
+ * for the one workload whose answer is checkable against an authority this repository did
+ * not produce. Adding it meant re-signing all three under a new key, because the private
+ * half of the old one was discarded the day it signed.
  */
 
 import type { NameRecord, PublicKeyHex } from '@o2/core'
@@ -43,16 +52,16 @@ import { CID } from 'multiformats/cid'
 export const KERNEL_NAME: string = 'o2-demo-colouring-kernel'
 
 /** The public half of the key that signed {@link KERNEL_RECORD}. Pin this, nothing else. */
-export const KERNEL_TRUST_ANCHOR: PublicKeyHex = '3ac7f97fa636fbacbfa8e00aa466f191e4335cd1ef5f19477e2c26587d64a6e5'
+export const KERNEL_TRUST_ANCHOR: PublicKeyHex = '12edd3dd0906d254897517d670471cd6dfdc2bd7622983ba293cddcca51f68f5'
 
 /** The signed mapping from {@link KERNEL_NAME} to the CID of the committed `kernel.wasm`. */
 export const KERNEL_RECORD: NameRecord = {
   name: KERNEL_NAME,
   cid: CID.parse('bafyreihyux7jlsrv4sbeyqucghtarabmugo322frpsc5h2ed4ezb3omm5m'),
   version: 1,
-  expiresAt: 1820787234025,
+  expiresAt: 1821555140787,
   signer: KERNEL_TRUST_ANCHOR,
-  signature: 'afd956f2ccf5e57bf1ce0273064f8633feb1178d0abb29b8e5d7a5c670692b91b03ee92ba060acbe001a64b90426f3175fc8cb3422c7ddc2020232e357e1040c',
+  signature: '87e44ade72e7a7c9fef2e5d3235568e9c41f596cdf483ae3ffcc55a3ac5c394e6b5de26deb57a728beff93f4ebab11ef79502ffc006fc9f6edf93a2f057db704',
 }
 
 /** The name the demo's pi-estimating module is published under. */
@@ -69,7 +78,33 @@ export const PI_RECORD: NameRecord = {
   name: PI_NAME,
   cid: CID.parse('bafyreig6lnlp4lpsj62grhjmljdzjrgyuawaa6pb2gkivuhwldqrrmisga'),
   version: 1,
-  expiresAt: 1820787234025,
+  expiresAt: 1821555140787,
   signer: KERNEL_TRUST_ANCHOR,
-  signature: '27443297576ec78757ecb651fc7133e9c09942fc2c6bc747ce86efbc19ccef508b507c251cccb477ca769c6aed93db61cd8ef518fad290c2df4c30c87cb3c408',
+  signature: '05e7526ac3bc9b929c856bb52ba8ee6e438e512578c57d25dbe5b6a02ce214739c19e6fe44f50e9da6e3247b671050327d8138de65cc91a359f910a8cc8abb0c',
+}
+
+/** The name the demo's prime-counting module is published under. */
+export const PRIMES_NAME: string = 'o2-demo-primes-kernel'
+
+/**
+ * The signed mapping from {@link PRIMES_NAME} to the CID of the committed `primes.wasm`.
+ *
+ * **Added 2026-08-17; this record is what closed audit finding G4's open half.** The module and
+ * its host side shipped in Phase 26 and are exercised by `primes-reduce.node.test.ts`, which
+ * agrees with the tabulated π(x) at 10⁴, 10⁵ and 10⁶ over eight shards. What was missing was
+ * this: with no record, every executor in the demo fabric — including the submitting tab's own
+ * — refused a prime-counting dispatch on provenance, so the surface shipped with no run control
+ * and said so on screen.
+ *
+ * Signed by {@link KERNEL_TRUST_ANCHOR}, the same anchor as the other two, for the same forced
+ * reason: both node binaries default to exactly one anchor. `sign-kernel.ts` checks all three
+ * signers against the first before writing this file.
+ */
+export const PRIMES_RECORD: NameRecord = {
+  name: PRIMES_NAME,
+  cid: CID.parse('bafyreiemqeq2gzqlt7hcqz6euzammd5igyjwjlbjyd7hioxh3uvrgxpaba'),
+  version: 1,
+  expiresAt: 1821555140787,
+  signer: KERNEL_TRUST_ANCHOR,
+  signature: '39eec55cfc5e0420dcab5a73bce361ec0a8c010edb880435bc472ad6235c28abad5b0a835379bd5635271cb83ecbbad8bf6ece901c76eb87a7fdce5cf45bd609',
 }

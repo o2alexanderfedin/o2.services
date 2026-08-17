@@ -427,6 +427,20 @@ describe('P5 — after a real two-tab run, a surface with a run control no longe
     for (const dom of readings) {
       const region = CATALOGUE.get(dom.id)
       if (region?.absence === undefined) continue
+      // **A permanently-unavailable reading cannot be a survivor, and this exemption arrived
+      // 2026-08-17 with the first one to sit on a surface P5 drives.** `render.ts` gives such a
+      // region its `unavailable` arm in every state by design, so it holds the same sentence
+      // before and after a run — and for `primes/per-shard` that sentence is *true* both times:
+      // `TabPrimesRun` carries the total and not the shard rows, so there is no reading for it
+      // to be waiting on. It is not a page that rendered nothing; it is a page saying which
+      // field it does not have.
+      //
+      // This never arose before because the only permanently-unavailable readings were on the
+      // Primes surface under Option B, which had no run control, so P5 skipped the surface
+      // whole. Option A gave it one. The pairing that keeps this honest is in
+      // `demo-regions.e2e.test.ts`'s P4b: a permanent absence is only allowed while the thing
+      // it names really is missing from `TabApi`.
+      if (region.permanentlyUnavailable !== undefined) continue
       // The stated exemption: where the catalogue holds no `unavailable` arm there is no
       // other sentence for the page to render, so falling back is not a survivor. **Eight**
       // colouring regions are in that position, not the two this comment claimed until

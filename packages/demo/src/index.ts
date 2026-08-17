@@ -59,7 +59,15 @@ export { kernelBytes } from './kernel.ts'
 // file's header before regenerating, because both node binaries default to this anchor.
 // `PI_RECORD` shares `KERNEL_TRUST_ANCHOR` — one key signs both, because both node binaries
 // default to exactly one anchor and a second key would be refused by every stock node.
-export { KERNEL_NAME, KERNEL_RECORD, KERNEL_TRUST_ANCHOR, PI_NAME, PI_RECORD } from './kernel-record.ts'
+export {
+  KERNEL_NAME,
+  KERNEL_RECORD,
+  KERNEL_TRUST_ANCHOR,
+  PI_NAME,
+  PI_RECORD,
+  PRIMES_NAME,
+  PRIMES_RECORD,
+} from './kernel-record.ts'
 
 // Host-side job construction and result reading.
 export {
