@@ -134,8 +134,21 @@ const figures: readonly Region[] = REGIONS.filter((r) => FIGURE_KINDS.includes(r
  *
  * Raising this number is a decision, not a merge conflict: it means P5b covers less than it
  * did, and the reason belongs beside the raise.
+ *
+ * **Raised 44 -> 46 on 2026-08-17, and here is the reason.** Option A gave the Primes surface a
+ * dispatch path, so its readings stopped being permanently unavailable and became ordinary
+ * ones — and two of them, `primes/reduce-state` and `primes/attestation`, deliberately carry no
+ * `unavailable` arm. **That is the same shape `pi/reduce-attempted` has had since Phase 27 and
+ * for the same reason**: the sentence that belongs in that arm is the fabric's own
+ * `reduceReason`, rendered verbatim, and a catalogue sentence sitting beside it would be a
+ * second author of the one thing this page promises never to paraphrase. An attestation absence
+ * is composed from the receipt a run produced, which is likewise not a constant.
+ *
+ * So the exemption widened by exactly the two regions whose `unavailable` copy is dynamic by
+ * design. It did not widen because somebody forgot to write a sentence, and if a later reader
+ * finds a *third* primes region here, that is the case to look at.
  */
-const P5B_EXEMPT_CEILING = 44
+const P5B_EXEMPT_CEILING = 46
 
 describe('the catalogue checks itself, with no browser', () => {
   it('has unique ids, each prefixed by its own surface', () => {
@@ -237,6 +250,23 @@ describe('the catalogue checks itself, with no browser', () => {
     }
     expect(declared.size).toBeGreaterThan(20)
 
+    /**
+     * Every property name declared anywhere in `tab-api.ts`, for the field half below.
+     *
+     * **Added 2026-08-17, and the reason is a real hole this guard had.** Its inverted arm
+     * fired on the *method*, so a region permanently unavailable because a **field** does not
+     * exist was indistinguishable from one permanently unavailable because the **method** does
+     * not. That never mattered while both were true of the primes surface at once. Option A
+     * made `runPrimes` exist while `perShard` still does not, and the guard would have called
+     * that a replan — reporting the surface dishonest for a claim it never made.
+     */
+    const properties = new Set<string>()
+    for (const match of source.matchAll(/^ {2}readonly ([A-Za-z][A-Za-z0-9]*)[?:]/gm)) {
+      const name = match[1]
+      if (name !== undefined) properties.add(name)
+    }
+    expect(properties.size, 'no readonly properties parsed out of tab-api.ts').toBeGreaterThan(20)
+
     const bad: string[] = []
     for (const region of REGIONS) {
       if (region.kind !== 'reading') continue
@@ -245,15 +275,29 @@ describe('the catalogue checks itself, with no browser', () => {
         bad.push(`${region.id}: source does not begin TabApi.<method>( — "${region.source}"`)
         continue
       }
+      // `TabApi.runPrimes().perShard` -> `perShard`. Absent for a source that names the call
+      // and no field, which is the ordinary case.
+      const field = /\)\.([A-Za-z][A-Za-z0-9]*)/.exec(region.source)?.[1] ?? null
       const known = declared.has(method)
       if (region.permanentlyUnavailable === undefined && !known) {
         bad.push(`${region.id}: TabApi has no method "${method}"`)
       }
       if (region.permanentlyUnavailable !== undefined && known) {
         // The inverted arm, at the type level. See the browser-side P4 for the live one.
-        bad.push(
-          `${region.id} is declared permanently unavailable and yet TabApi DOES declare "${method}" — the dispatch path this surface was told it does not have now exists, so the surface must be replanned`,
-        )
+        //
+        // A permanent absence survives here only while the thing it names is genuinely
+        // missing. With the method present, the region must be naming a field — and that
+        // field must be absent from `tab-api.ts` entirely, or the region is claiming an
+        // absence the contract does not have.
+        if (field === null) {
+          bad.push(
+            `${region.id} is declared permanently unavailable and yet TabApi DOES declare "${method}" — the dispatch path this surface was told it does not have now exists, so the surface must be replanned`,
+          )
+        } else if (properties.has(field)) {
+          bad.push(
+            `${region.id} is declared permanently unavailable on the grounds that "${field}" does not exist, and TabApi declares both "${method}" and "${field}" — the reading this region says it cannot have is available, so the region must be wired or its reason rewritten`,
+          )
+        }
       }
     }
     expect(bad).toEqual([])
@@ -486,36 +530,60 @@ describe('the page, with the fabric stopped', () => {
     expect(problems).toEqual([])
   })
 
-  it('P4b — every permanently-unavailable reading names a method window.o2 does NOT have', () => {
+  it('P4b — every permanently-unavailable reading names something window.o2 does NOT have', () => {
     const keys = new Set(snapshot.o2Keys)
     const problems: string[] = []
 
-    // Quantified over the CATALOGUE rather than over elements on the page. These surfaces
-    // are not wired, so an element-scoped check would be vacuous — and the whole point of
-    // the flag is that it turns "this surface cannot run" into a claim that is checked
-    // whether or not anybody has drawn the surface yet.
+    /**
+     * A permanent absence is justified while the thing it names is genuinely missing — and
+     * that thing is a **method** or a **field**, which this guard used to conflate.
+     *
+     * **Widened 2026-08-17, and it had a real hole.** Every primes reading was permanently
+     * unavailable and named `TabApi.runPrimes()`, so checking the method alone was enough:
+     * the method did not exist and neither did any of the fields. Option A made `runPrimes`
+     * exist while `perShard` still does not, and a method-only check called that a replan —
+     * reporting the surface dishonest about a claim it never made. `primes/per-shard` says
+     * the *field* is missing, in its own `source`, and that is still true.
+     *
+     * The field is read off the `source` (`TabApi.runPrimes().perShard` -> `perShard`) and
+     * checked against `tab-api.ts` rather than against `window.o2`, because a field lives on a
+     * return type and never appears as a key on the global.
+     */
+    const apiSource = readFileSync(join(ROOT, 'packages/browser/src/tab-api.ts'), 'utf8')
+    const properties = new Set<string>()
+    for (const match of apiSource.matchAll(/^ {2}readonly ([A-Za-z][A-Za-z0-9]*)[?:]/gm)) {
+      const name = match[1]
+      if (name !== undefined) properties.add(name)
+    }
+    expect(properties.size, 'no readonly properties parsed out of tab-api.ts').toBeGreaterThan(20)
+
+    /** The absence a region claims, or `null` if the claim is satisfied. */
+    const unjustified = (id: string, source: string): string | null => {
+      const method = methodOf(source)
+      if (method === null) return `${id}: source does not begin TabApi.<method>( — "${source}"`
+      if (!keys.has(method)) return null
+      const field = /\)\.([A-Za-z][A-Za-z0-9]*)/.exec(source)?.[1] ?? null
+      if (field === null) {
+        return `${id} names TabApi.${method}(): the dispatch path this surface was told it does not have now exists — the surface must be replanned`
+      }
+      if (properties.has(field)) {
+        return `${id} is permanently unavailable on the grounds that "${field}" does not exist, and TabApi declares both ${method}() and "${field}" — the reading it says it cannot have is available`
+      }
+      return null
+    }
+
+    // Quantified over the CATALOGUE rather than over elements on the page, so the claim is
+    // checked whether or not anybody has drawn the surface yet.
     for (const region of REGIONS) {
       if (region.permanentlyUnavailable === undefined) continue
-      const method = methodOf(region.source)
-      if (method === null) {
-        problems.push(`${region.id}: source does not begin TabApi.<method>( — "${region.source}"`)
-        continue
-      }
-      if (keys.has(method)) {
-        problems.push(
-          `${region.id} names TabApi.${method}(): the dispatch path this surface was told it does not have now exists — the surface must be replanned`,
-        )
-      }
+      const problem = unjustified(region.id, region.source)
+      if (problem !== null) problems.push(problem)
     }
     for (const dom of snapshot.regions) {
       const region = catalogue.get(dom.id)
       if (region?.permanentlyUnavailable === undefined) continue
-      const method = methodOf(dom.source)
-      if (method !== null && keys.has(method)) {
-        problems.push(
-          `${dom.id}'s data-source names TabApi.${method}(): the dispatch path this surface was told it does not have now exists — the surface must be replanned`,
-        )
-      }
+      const problem = unjustified(`${dom.id}'s data-source`, dom.source ?? '')
+      if (problem !== null) problems.push(problem)
     }
     expect(problems).toEqual([])
   })

@@ -66,16 +66,21 @@ import {
   DEFAULT_BUDGET,
   KERNEL_RECORD,
   PI_RECORD,
+  PRIMES_RECORD,
   KERNEL_TRUST_ANCHOR,
   answerOf,
   buildInput,
   buildPiInput,
+  buildPrimesInput,
   estimatePi,
   kernelBytes,
   piErrorBound,
   piKernelBytes,
   PI_PARTIAL_KEY,
+  PRIME_COUNT_KEY,
+  primesKernelBytes,
   projectPiPartial,
+  projectPrimeCount,
   readPartial,
   verifyColouring,
 } from '@o2/demo'
@@ -433,10 +438,17 @@ async function attestedNodes(
  * Every `null` arm is a real state rather than a swallowed error: no reduce attempted (a lone
  * visitor), a reduce whose combines all failed, a root that names no block, or an aggregate whose
  * shape is not the combiner's. The caller distinguishes them from the flags beside this value.
+ *
+ * **`key` is a parameter because two workloads now aggregate through this path.** π sums under
+ * `PI_PARTIAL_KEY` and prime-counting under `PRIME_COUNT_KEY`, and `fabricCombiner` sums
+ * `counts` key-wise — so the key *is* which workload's total this reads. It was hardcoded while
+ * π was the only caller; a second copy of these thirty lines differing by one string is the
+ * shape a divergence hides in.
  */
-async function piTotalFrom(
+async function aggregateTotalFrom(
   reduced: Awaited<ReturnType<typeof reduceJob>>,
   store: Blockstore,
+  key: string,
 ): Promise<number | null> {
   if (!reduced.ok || !reduced.outcome.ok || reduced.outcome.rootCid === null) return null
   // Dynamic, **following this file's existing convention** at the two `runJob` sites
@@ -462,7 +474,7 @@ async function piTotalFrom(
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
   const counts = (value as { counts?: unknown }).counts
   if (typeof counts !== 'object' || counts === null || Array.isArray(counts)) return null
-  const total = (counts as Record<string, unknown>)[PI_PARTIAL_KEY]
+  const total = (counts as Record<string, unknown>)[key]
   return typeof total === 'number' ? total : null
 }
 
@@ -881,7 +893,7 @@ const api: TabApi = {
     // and not the number — the combined block lives in the store like any other, and reading
     // it back through the same blockstore the combines wrote to is what makes this the
     // fabric's answer rather than a local recomputation.
-    const scaled = await piTotalFrom(reduced, node.store)
+    const scaled = await aggregateTotalFrom(reduced, node.store, PI_PARTIAL_KEY)
     return {
       terms,
       shards: options.shards,
@@ -894,6 +906,128 @@ const api: TabApi = {
       combines: reduced.ok && reduced.outcome.ok ? reduced.outcome.combines : 0,
       estimate: scaled === null ? null : estimatePi(scaled),
       errorBound: piErrorBound(terms),
+      elapsedMs: performance.now() - started,
+      egress: manifest,
+    }
+  },
+
+  /**
+   * Count the primes at or below `n` across the fabric — audit finding **G4's open half, closed**.
+   *
+   * ## What was actually missing, because it was not the code
+   *
+   * `primes.wasm`, `buildPrimesInput`, `projectPrimeCount` and `readPrimeCount` have been in the
+   * repository since Phase 26, and `primes-reduce.node.test.ts` runs the whole workload through
+   * the real map and the real tree-reduce — agreeing with the tabulated π(x) at 10⁴, 10⁵ and 10⁶
+   * over eight shards, and tiling `[2, N]` exactly at every shard count from one to eight.
+   *
+   * What was missing was a **signed record**. `guardModuleProvenance` refuses a module no pinned
+   * anchor vouches for, and a tab pins exactly one anchor, so every executor — *including this
+   * tab's own* — refused a prime-counting dispatch. The Primes surface therefore shipped under
+   * UI-SPEC section 10's Option B: twelve regions, no run control, the reason on screen. Option A
+   * meant re-signing all three demo records under a new anchor, because `sign-kernel.ts` discards
+   * its private half the moment it signs. That was an owner decision and it was taken on
+   * 2026-08-17.
+   *
+   * ## Why the fabric is checked against this and not only against π
+   *
+   * π(x) is an integer with a value published in the mathematical literature. The comparison is
+   * an **equality**, not a tolerance, and the table was written long before this project — so
+   * unlike `verifyColouring`, it cannot share a misconception with the thing it checks. That is
+   * the one claim on this page whose authority does not come from this repository.
+   *
+   * Its blind spot is stated on the surface beside it rather than left for a reader to find:
+   * published values are quoted at powers of ten, and a power of ten sits far from the prime
+   * below it, so a guest that lost the top of its range would still return the right total. The
+   * tiling proof in the Node suite is what closes that, and this method does not re-derive it.
+   *
+   * ## Structurally {@link runPi}, and deliberately so
+   *
+   * Same map, same `submitJobWithEgress`, same `reduceJob`, same sentinels and the same reasons
+   * for each — a lone tab gets `reduceAttempted: false` with the fabric's own words, and the
+   * aggregate is **fetched from the store** rather than summed here. The differences are three:
+   * the input is eight bytes from `buildPrimesInput(n)` rather than a term count, the projection
+   * is `projectPrimeCount`, and the total is read under `PRIME_COUNT_KEY`.
+   */
+  async runPrimes(options) {
+    const node = required()
+    const started = performance.now()
+    const n = options.n
+    // Throws a `RangeError` naming the bound and the limit if `n` is out of range — the guest
+    // would refuse it anyway, and refusing here names the argument instead of producing a
+    // shard failure a reader has to trace back to it.
+    const input = buildPrimesInput(n)
+    const moduleCid = await node.store.put(primesKernelBytes)
+    // The same guard the other two workloads carry: a rebuilt kernel that was not re-signed
+    // produces a provenance refusal at dispatch, and this says so here instead. It is the
+    // check that would have fired every time before 2026-08-17, when no record existed at all.
+    if (moduleCid.toString() !== PRIMES_RECORD.cid.toString()) {
+      throw new Error(
+        `the bundled primes kernel hashes to ${moduleCid.toString()} but the committed record ` +
+          `vouches for ${PRIMES_RECORD.cid.toString()} — rebuilt without re-signing; run ` +
+          '`npm run sign:kernel --workspace @o2/demo`',
+      )
+    }
+    const executors = [
+      node.signingExecutor,
+      ...options.peerIds.map((id) => new RemoteExecutor(id, node.rpc, 'dispatches-unauthenticated')),
+    ]
+    const result = await submitJobWithEgress(
+      {
+        moduleCid,
+        moduleRecord: PRIMES_RECORD,
+        // One input block for every shard, content-addressed once. A shard differs only by what
+        // `partition()` tells the guest, which costs nothing on the wire — the colouring job's
+        // arrangement, reused rather than reinvented, and `primes.ts` says why in its header.
+        shards: Array.from({ length: options.shards }, () => ({ value: input, label: 'public' as const })),
+        executors,
+        nodes: await attestedNodes(node, executors),
+        redundancy: options.redundancy,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      node.store,
+      [node.egress],
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    if (!result.ok) throw new Error(`primes submit failed: ${JSON.stringify(result.error)}`)
+    const manifest = result.manifests[0]
+    if (manifest === undefined) throw new Error('unreachable: no manifest for the sole guard')
+
+    const reduced = await reduceJob(result.job, {
+      rpc: node.rpc,
+      // The submitter is excluded by contract, so this is the peer set and not `executors`.
+      executors: options.peerIds,
+      blockstore: node.store,
+      // `projectPrimeCount` **throws** on a shard the guest refused, rather than returning zero.
+      // That is load-bearing here and not a style choice: a refusal summed into the aggregate is
+      // indistinguishable from a sub-range that genuinely held no primes, and the total would be
+      // quietly short by exactly the primes that shard was meant to count. Throwing routes it
+      // into `reduceJob`'s per-shard handling and it becomes a named failure. `primes.ts` records
+      // the reasoning at the function.
+      project: projectPrimeCount,
+      redundancy: options.redundancy,
+      trustedIssuers: 'checks-no-combine-signatures',
+      // MR-02 — every shard here is `label: 'public'`, so its partials are the requestor's own.
+      contributors: 'attributes-each-shard-to-its-own-partition-index',
+    })
+
+    // The aggregate's VALUE, fetched rather than assumed — see `aggregateTotalFrom`.
+    const total = await aggregateTotalFrom(reduced, node.store, PRIME_COUNT_KEY)
+    return {
+      n,
+      shards: options.shards,
+      complete: result.job.complete,
+      // `ok` and `outcome.ok` are distinct answers — the same distinction `runPi` documents.
+      reduceAttempted: reduced.ok,
+      reduceReason: reduced.ok ? null : reduced.reason,
+      combined: reduced.ok && reduced.outcome.ok,
+      treeDepth: reduced.ok ? reduced.tree.depth : 0,
+      combines: reduced.ok && reduced.outcome.ok ? reduced.outcome.combines : 0,
+      total,
+      // Passthrough, unmodified, exactly as `runColouring` carries it: the page renders the
+      // kernel's own sentence and composes none of its own, which is the only arrangement in
+      // which the CLI and this page cannot come to describe one result differently.
+      attestation: result.job.attestation,
       elapsedMs: performance.now() - started,
       egress: manifest,
     }

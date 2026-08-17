@@ -49,6 +49,7 @@ import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { kernelBytes } from '../src/kernel.ts'
 import { piKernelBytes } from '../src/pi.ts'
+import { primesKernelBytes } from '../src/primes.ts'
 
 const SRC = fileURLToPath(new URL('../src/', import.meta.url))
 
@@ -64,6 +65,25 @@ const KERNEL_NAME = 'o2-demo-colouring-kernel'
  * two records, committed together.
  */
 const PI_NAME = 'o2-demo-pi-kernel'
+
+/**
+ * The third artifact's name — added 2026-08-17 by owner ruling, closing audit finding G4.
+ *
+ * **This is the record whose absence was G4's open half.** `primes.wasm` and its host side have
+ * been in the repository and exercised by `primes-reduce.node.test.ts` since Phase 26 — the
+ * workload agrees with the tabulated π(x) at 10⁴, 10⁵ and 10⁶ over eight shards — but nothing
+ * vouched for the module, so every executor in the demo fabric refused a prime-counting
+ * dispatch on provenance and the surface carried no run control. Signing it here is what gives
+ * the workload a path from a browser tab.
+ *
+ * **Why it matters more than a third button.** The colouring result is checked by a verifier
+ * this repository also wrote, so a misconception held in both is invisible to the pair. π(x)
+ * was tabulated in the mathematical literature long before this project. It is the one oracle
+ * on the page whose authority does not come from here, and until now it had nothing to check.
+ *
+ * Same key as the other two, forced by the same constraint: one default anchor per node.
+ */
+const PRIMES_NAME = 'o2-demo-primes-kernel'
 
 /**
  * How long the record stays good.
@@ -86,6 +106,11 @@ const cid = await new MemoryBlockstore().put(kernelBytes)
 // The same code path for the second artifact, for the same reason: the CID a runtime
 // compares against is the one `store.put()` produces, and a second scheme here would drift.
 const piCid = await new MemoryBlockstore().put(piKernelBytes)
+// And the third, through the same path for the third time. `runPrimes` in `demo/main.ts`
+// compares its own `store.put(primesKernelBytes)` against the record this produces and
+// refuses with a named error if they differ, so a rebuild that skipped this script is
+// reported rather than discovered as a provenance refusal at dispatch.
+const primesCid = await new MemoryBlockstore().put(primesKernelBytes)
 
 const expiresAt = Date.now() + LIFETIME_DAYS * DAY_MS
 
@@ -125,9 +150,23 @@ const signingKey = ed25519.utils.randomSecretKey()
 
 const record = signName(signingKey, { name: KERNEL_NAME, cid, version: 1, expiresAt })
 const piRecord = signName(signingKey, { name: PI_NAME, cid: piCid, version: 1, expiresAt })
+const primesRecord = signName(signingKey, {
+  name: PRIMES_NAME,
+  cid: primesCid,
+  version: 1,
+  expiresAt,
+})
 
-if (piRecord.signer !== record.signer) {
-  throw new Error('the two records disagree on their signer — they must share one anchor')
+// Every record, against the first — not pairwise-adjacent, which would let a third key slip
+// past a chain of equal neighbours. One anchor is what both node binaries default to, so
+// "they all share it" is the property, and it is checked as such.
+for (const [label, candidate] of [
+  ['pi', piRecord],
+  ['primes', primesRecord],
+] as const) {
+  if (candidate.signer !== record.signer) {
+    throw new Error(`the ${label} record disagrees on its signer — all three must share one anchor`)
+  }
 }
 
 writeFileSync(
@@ -164,10 +203,19 @@ writeFileSync(
  * **Both node binaries default to {@link KERNEL_TRUST_ANCHOR}.** \`bin/agent.ts\` and
  * \`bin/seed.ts\` each read \`values['trust-anchor'] ?? [KERNEL_TRUST_ANCHOR]\`, so
  * regenerating this file changes what a stock \`o2 agent\` and a stock \`o2 seed\` will
- * run. The record and the anchor must be committed together or every such process
- * refuses the kernel it ships. That the private half is discarded is what bounds this:
- * the default can accept exactly the one record committed here, and can never be made
+ * run. The records and the anchor must be committed together or every such process
+ * refuses the kernels it ships. That the private half is discarded is what bounds this:
+ * the default can accept exactly the three records committed here, and can never be made
  * to accept another.
+ *
+ * ## Three records, one anchor — and the third is why this file was last regenerated
+ *
+ * {@link PRIMES_RECORD} was added 2026-08-17, closing the open half of audit finding G4.
+ * The prime-counting module had been in the repository and exercised by the Node suite
+ * since Phase 26, and nothing vouched for it — so the demo page carried no run control
+ * for the one workload whose answer is checkable against an authority this repository did
+ * not produce. Adding it meant re-signing all three under a new key, because the private
+ * half of the old one was discarded the day it signed.
  */
 
 import type { NameRecord, PublicKeyHex } from '@o2/core'
@@ -207,6 +255,32 @@ export const PI_RECORD: NameRecord = {
   signer: KERNEL_TRUST_ANCHOR,
   signature: ${quoted(piRecord.signature)},
 }
+
+/** The name the demo's prime-counting module is published under. */
+export const PRIMES_NAME: string = ${quoted(PRIMES_NAME)}
+
+/**
+ * The signed mapping from {@link PRIMES_NAME} to the CID of the committed \`primes.wasm\`.
+ *
+ * **Added 2026-08-17; this record is what closed audit finding G4's open half.** The module and
+ * its host side shipped in Phase 26 and are exercised by \`primes-reduce.node.test.ts\`, which
+ * agrees with the tabulated π(x) at 10⁴, 10⁵ and 10⁶ over eight shards. What was missing was
+ * this: with no record, every executor in the demo fabric — including the submitting tab's own
+ * — refused a prime-counting dispatch on provenance, so the surface shipped with no run control
+ * and said so on screen.
+ *
+ * Signed by {@link KERNEL_TRUST_ANCHOR}, the same anchor as the other two, for the same forced
+ * reason: both node binaries default to exactly one anchor. \`sign-kernel.ts\` checks all three
+ * signers against the first before writing this file.
+ */
+export const PRIMES_RECORD: NameRecord = {
+  name: PRIMES_NAME,
+  cid: CID.parse(${quoted(primesRecord.cid.toString())}),
+  version: ${primesRecord.version},
+  expiresAt: ${primesRecord.expiresAt},
+  signer: KERNEL_TRUST_ANCHOR,
+  signature: ${quoted(primesRecord.signature)},
+}
 `,
 )
 
@@ -219,4 +293,8 @@ console.log(`src/kernel-record.ts  ${piKernelBytes.length} bytes signed (pi)`)
 console.log(`  name                ${PI_NAME}`)
 console.log(`  cid                 ${piRecord.cid.toString()}`)
 console.log(`  anchor              ${piRecord.signer}  (shared — asserted equal above)`)
-console.log(`  private key         discarded — regenerating produces a new anchor for BOTH`)
+console.log(`src/kernel-record.ts  ${primesKernelBytes.length} bytes signed (primes)`)
+console.log(`  name                ${PRIMES_NAME}`)
+console.log(`  cid                 ${primesRecord.cid.toString()}`)
+console.log(`  anchor              ${primesRecord.signer}  (shared — asserted equal above)`)
+console.log(`  private key         discarded — regenerating produces a new anchor for ALL THREE`)

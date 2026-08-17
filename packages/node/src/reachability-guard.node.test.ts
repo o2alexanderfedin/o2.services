@@ -1358,36 +1358,24 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       'callee is wired (disposed under `global-object-hop`) while it is not. Nobody has decided ' +
       'the ledger should keep outcomes rather than counts.',
   },
-  {
-    key: 'demo/buildPrimesInput',
-    declaredIn: 'packages/demo/src/primes.ts',
-    callers: 'none',
-    reason:
-      "The v1.1 audit's **G4**, primes half. `packages/browser/demo/surfaces/primes.ts:31` states " +
-      'it: *"`buildPrimesInput`, `primesKernelBytes`, `projectPrimeCount`, `readPrimeCount` and ' +
-      '`PRIME_COUNT_KEY` have **zero production callers**"*, and names the three blockers — no ' +
-      'signed record vouches for the prime kernel, `runJob` cannot carry the input shape, and ' +
-      're-signing needs a **new trust anchor** because `scripts/sign-kernel.ts` discards the ' +
-      'private half of every key it mints. `packages/node/src/demo-primes.e2e.test.ts` ' +
-      '**measures** the absence with a grep built to go red the day somebody wires it. Closing it ' +
-      "is UI-SPEC section 10's Option A, an owner decision that is open.",
-  },
-  {
-    key: 'demo/projectPrimeCount',
-    declaredIn: 'packages/demo/src/primes.ts',
-    callers: 'none',
-    reason:
-      'G4, primes half. See `demo/buildPrimesInput` for the three measured blockers and the owner ' +
-      'decision that would close them.',
-  },
-  {
-    key: 'demo/readPrimeCount',
-    declaredIn: 'packages/demo/src/primes.ts',
-    callers: 'unreachable-only',
-    reason:
-      'Called from `projectPrimeCount` (`primes.ts:146`), which is itself in this register. G4, ' +
-      'primes half — see `demo/buildPrimesInput`.',
-  },
+  // ---------------------------------------------------------------------------------------
+  // `demo/buildPrimesInput`, `demo/projectPrimeCount` and `demo/readPrimeCount` left this
+  // register on 2026-08-17. They are in `GLOBAL_OBJECT_HOP` now.
+  //
+  // Their rows said *"zero production callers"* and named the three blockers — no signed record
+  // for the prime kernel, `runJob` unable to carry the input shape, and re-signing needing a new
+  // trust anchor. **The owner took UI-SPEC section 10's Option A and all three were answered**:
+  // `PRIMES_RECORD` is signed, all three demo records were re-signed under a new anchor, and
+  // `TabApi.runPrimes` builds the input itself rather than asking `runJob` to. `demo/main.ts`
+  // calls them.
+  //
+  // **This is a reclassification and not a wiring metric moving.** They are still not *traced*
+  // reachable — the `api` literal sits behind the `window.o2` hop the walk cannot follow — which
+  // is precisely why they moved to a disposition rather than out of the count, the same route
+  // the pi symbols took after G14. The register reddened in both directions on this change and
+  // named all three verbatim, which is the both-directions shape working rather than being
+  // worked around.
+  // ---------------------------------------------------------------------------------------
   {
     key: 'node/relayAddrForHost',
     declaredIn: 'packages/node/src/seed-server.ts',

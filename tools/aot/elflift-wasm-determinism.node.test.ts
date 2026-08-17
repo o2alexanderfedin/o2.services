@@ -253,18 +253,30 @@ const NATIVE_RUNNABLE = isRunnable(IMAGE_GATE) && existsSync(ELF)
 
 describe('AOTW-06 — the native arm, which is what makes the comparison a finding', () => {
   it.runIf(NATIVE_RUNNABLE)(
-    'does NOT repeat itself across two runs on one machine',
+    'does NOT reproduce across repeated runs on one machine',
     () => {
       // This asserts a defect, deliberately. If elfconv upstream ever becomes deterministic
       // this test goes red — and that red is the correct signal, because the whole argument
       // for lifting inside wasm rests on the native arm scattering. A green here would mean
       // the argument needs re-deriving, not that the test needs relaxing.
       //
-      // Two runs suffice for the assertion: four runs produced four distinct hashes AND four
-      // distinct sizes, so the scatter is wide, not a rare collision.
+      // **The sample size moved from two to four on 2026-08-17, because the reasoning behind
+      // two was falsified by observation.** This block read *"two runs suffice for the
+      // assertion: four runs produced four distinct hashes AND four distinct sizes, so the
+      // scatter is wide, not a rare collision"* — and then a two-run sample collided,
+      // `5402a5cfbe35dac7` against itself, on a tree whose only changes were to the demo
+      // page. Four distinct hashes out of four is evidence that the scatter is wide; it is
+      // **not** evidence that any given pair must differ, and treating it as such was the
+      // error. This repository's own convention names it: a number that agrees with a theory
+      // is not the theory's proof.
+      //
+      // So the assertion is now the property that was actually measured — *these runs do not
+      // all agree* — over the same sample size the original evidence came from. It is a
+      // statistical claim and it is stated as one: a collision across all four would be a
+      // real finding about elfconv rather than a flake to re-run.
       const dir = mkdtempSync(join(tmpdir(), 'o2-elflift-native-'))
       const script = [
-        'for i in 1 2; do',
+        'for i in 1 2 3 4; do',
         '  /root/elfconv/build/lifter/elflift --arch aarch64 --target_elf /out/hello_static',
         '    --bc_out /out/native.$i.bc --target_arch wasi32 --logtostderr=1 > /dev/null 2>&1;',
         'done'
@@ -285,7 +297,7 @@ describe('AOTW-06 — the native arm, which is what makes the comparison a findi
           `${FIXTURES}:/out`,
           IMAGE,
           '-c',
-          `${script}; sha256sum /out/native.1.bc /out/native.2.bc`
+          `${script}; sha256sum /out/native.1.bc /out/native.2.bc /out/native.3.bc /out/native.4.bc`
         ],
         { encoding: 'utf8', timeout: 900_000 }
       )
@@ -297,11 +309,18 @@ describe('AOTW-06 — the native arm, which is what makes the comparison a findi
         .map((line) => line.trim().split(/\s+/)[0] ?? '')
         .filter((h) => h.length === 64)
 
-      expect(hashes.length).toBe(2)
+      expect(hashes.length).toBe(4)
+      const distinct = new Set(hashes)
       process.stdout.write(
-        `[native-scatter] ${hashes.map((h) => h.slice(0, 16)).join(' vs ')}\n`
+        `[native-scatter] ${distinct.size} distinct of ${hashes.length}: ` +
+          `${hashes.map((h) => h.slice(0, 16)).join(' ')}\n`
       )
-      expect(hashes[0]).not.toBe(hashes[1])
+      expect(
+        distinct.size,
+        `four native lifts of one binary all produced ${hashes[0] ?? ''} — elfconv reproduced ` +
+          'itself across every run, which is the finding this case exists to notice and not a ' +
+          'flake to re-run. The argument for lifting inside wasm rests on this arm scattering',
+      ).toBeGreaterThan(1)
     },
     900_000
   )
