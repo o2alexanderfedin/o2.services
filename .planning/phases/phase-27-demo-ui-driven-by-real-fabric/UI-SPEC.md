@@ -952,10 +952,18 @@ Measured, not inferred:
 > N3–N8 and N11 are ordinary readings with ordinary absences; and `demo-primes.e2e.test.ts` drives
 > a real run and asserts the fabric's count **equal** to the published value.
 >
-> **One row did not move, and it is the interesting one.** N9 — per-shard counts — is still
-> permanently unavailable. `TabPrimesRun` carries the total and not the shard rows, which is as
-> true after Option A as before it. Wiring a workload does not turn every absence on its surface
-> into a reading.
+> **N9 took one more step, on the same day.** It stayed permanently unavailable through Option A
+> because `TabPrimesRun` carried the total and not the shard rows — true, and not reason enough
+> to leave a permanent absence on a surface that had just started working. `perShard` was added
+> to the reading, **derived from the tab's own shard results and never from the total**, so the
+> sum of the rows against the aggregate the combine nodes returned is a real check on the reduce
+> rather than a decomposition that would agree by construction. The surface renders both operands
+> and names a disagreement.
+>
+> **`permanentlyUnavailable` therefore has no members left in the catalogue.** The mechanism
+> stays — the field, `render.ts`'s handling, and the guards in both directions — and
+> `demo-regions.e2e.test.ts` asserts the set is empty, so the next region to claim a permanent
+> absence must be added deliberately and cannot arrive unnoticed.
 
 Two dispositions, and the ruling is the planner's or the owner's:
 

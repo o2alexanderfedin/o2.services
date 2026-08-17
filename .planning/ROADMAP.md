@@ -1699,7 +1699,9 @@ Plans:
 > equality against a value tabulated in the mathematical literature. The mechanism the final
 > paragraph below describes — *"expected to FAIL the day somebody wires the workload"* — fired
 > exactly as designed and forced the surface's replan rather than letting it stay quietly absent.
-> **`G4` is closed.** One row did not move: N9, per-shard counts, stays permanently unavailable.
+> **`G4` is closed.** N9, per-shard counts, became a reading the same day — `TabPrimesRun` gained
+> `perShard`, derived from the tab's own shard results, so its sum against the combine nodes'
+> aggregate is a check on the reduce. No region in the catalogue claims a permanent absence now.
 
 **THE PRIMES DISPOSITION — written here so a reader who opens no plan file still gets the true version.** This phase shipped a Primes **surface** and did **not** ship a Primes **workload**. Twelve regions render, eight of them are permanent named absences, the published π(x) oracle is shown as a citation with its provenance in the same region, and `#s-primes` carries **zero buttons of any class**. Nothing on it runs. The roadmap calls Primes one of two load-bearing surfaces and this phase did not make it run anything, so *descoped is not satisfied* applies to it in full.
 

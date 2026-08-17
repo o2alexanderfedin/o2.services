@@ -590,24 +590,27 @@
         </div>
 
         <!--
-          N9 — the pattern for "the mockup drew something the reading does not carry". The
-          mockup's per-shard table is not available from any `TabApi` shape. It is not
-          silently dropped and it is not filled with plausible rows: it states which reading
-          it would need. Its sentence is a different one from the other seven, because its
-          reason is different — the field does not exist, so there is nothing to wait for.
+          N9 — the per-shard table the mockup drew, and the one cross-check this page can make
+          for itself. It was the pattern for "the mockup drew something the reading does not
+          carry" until `TabPrimesRun` gained `perShard`, and it is now the only region on this
+          surface that checks the fabric against the fabric: the rows come off this tab's own
+          shard results and the total comes back from the combine nodes, so their agreement
+          says the reduce neither lost nor double-counted a leaf.
         -->
         <div class="cards rendered-only">
           <div class="card blueprint">
             <i class="corner tl"></i><i class="corner tr"></i>
             <i class="corner bl"></i><i class="corner br"></i>
             <p class="card-kicker">Per-shard counts</p>
-            <p class="quote" data-region="primes/per-shard" data-kind="reading" data-source="TabApi.runPrimes().perShard — no such field exists on any reading this page receives"></p>
+            <div class="scroller">
+              <pre data-region="primes/per-shard" data-kind="reading" data-source="TabApi.runPrimes().perShard"></pre>
+            </div>
             <p class="card-note">
-              The mockup drew a table of them. Two rows of it would have been a table a
-              reader could believe, so what stands here instead is the name of the field it
-              would need — and there is still none on any reading this page receives, now
-              that a run really happens. The tiling proof that would use those counts lives
-              in the Node suite, where it can assert on them.
+              A shard that reported no count shows a dash, never a zero: a refusal summed into
+              an aggregate is indistinguishable from a sub-range that genuinely held no primes.
+              The sum beside the rows is checked against the aggregate the combine nodes
+              returned — two figures derived independently, which is what makes their agreement
+              worth printing.
             </p>
           </div>
           <div class="card blueprint card-accent">
@@ -1649,6 +1652,7 @@
       // makes `innerHTML` look correct here and is not.
       import {
         applyRender,
+        liftStoppedAbsences,
         paintAbsence,
         paintSurfaceAbsence,
         writeReading,
@@ -2134,6 +2138,13 @@
 
         const activity = window.o2.activity()
         renderBar(activity)
+        // **Every reading still saying the node is stopped, when it demonstrably is not.**
+        // Boot paints all five surfaces at their `stopped` sentence and only a run repaints,
+        // so before 2026-08-17 a visitor who joined and opened a surface they had not run was
+        // told this tab's node was stopped about a node that was live. Idempotent and
+        // element-scoped — see `liftStoppedAbsences`; a region holding a real reading, or its
+        // `unavailable` arm, is not equal to the stopped sentence and is not touched.
+        if (activity !== null) liftStoppedAbsences()
         $('run').disabled = activity === null
         if (activity !== null && $('run-status').textContent === 'start a node first') {
           $('run-status').textContent = 'ready'

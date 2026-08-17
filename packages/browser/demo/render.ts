@@ -152,6 +152,56 @@ export function paintSurfaceAbsence(surface: SurfaceId, state: 'initial' | 'stop
 }
 
 /**
+ * Move every reading still showing its **stopped** sentence onto its **initial** one.
+ *
+ * ## The defect this closes, which was page-wide and predates the surface that exposed it
+ *
+ * `main.ts` paints `paintSurfaceAbsence(<surface>, 'stopped')` once at boot for session,
+ * colouring, pi, primes and byo alike, and until 2026-08-17 **nothing repainted a reading when
+ * a node started** — only a run did. So a visitor who pressed *Join*, watched the node go live,
+ * and then opened any surface they had not run saw *"this tab's node is stopped"* about a node
+ * that was demonstrably running. Four surfaces said it. It was found while wiring the Primes
+ * surface's spec and it is not that surface's defect.
+ *
+ * **A false sentence is worse than a blank one**, which is the argument this page makes about
+ * every named absence: the whole reason a region carries copy rather than nothing is that a
+ * reader should not have to supply their own reason. Supplying the *wrong* reason is that
+ * property inverted.
+ *
+ * ## Why it is written as "still showing the stopped sentence" rather than by surface
+ *
+ * The alternative — repaint whole surfaces that have not been run — needs the page to track
+ * which surfaces have run, and that is a second copy of a fact the DOM already holds. This asks
+ * each region what it currently says, and moves only the ones that are still at the sentence
+ * this transition falsifies. A region holding a real reading is untouched, and so is one at its
+ * `unavailable` arm, because neither equals the stopped sentence.
+ *
+ * Three kinds are skipped and each for its own reason: a non-`reading` has no absence copy at
+ * all; `element-removed` regions have no element while the bar is gone; and a
+ * `permanentlyUnavailable` region renders its `unavailable` arm in every state by design, so
+ * moving it would be the one thing that flag exists to prevent. (As of 2026-08-17 the catalogue
+ * has no members of that last class, and the guard that asserts so is in
+ * `demo-regions.e2e.test.ts` — the skip stays because the mechanism does.)
+ *
+ * Idempotent: a second call finds nothing at the stopped sentence and does nothing.
+ */
+export function liftStoppedAbsences(): void {
+  for (const region of REGIONS) {
+    if (region.kind !== 'reading') continue
+    if (region.absenceMode === 'element-removed') continue
+    if (region.permanentlyUnavailable !== undefined) continue
+    const stopped = region.absence?.stopped
+    const initial = region.absence?.initial
+    if (stopped === undefined || initial === undefined) continue
+    if (stopped === initial) continue
+    // Read off the element rather than off a flag this module would have to keep in step
+    // with it. What the region *says* is the fact this transition is about.
+    if (regionElement(region.id).textContent !== stopped) continue
+    paintAbsence(region.id, 'initial')
+  }
+}
+
+/**
  * Write one surface's reading into both of its views, in one pass.
  *
  * This is what makes P6 assertable: the rendered regions and the text view are written from

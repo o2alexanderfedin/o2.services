@@ -31,10 +31,13 @@ length for that reason.
 > against a value published in the mathematical literature. `demo-liveness.e2e.test.ts`'s P5
 > now reports `exercised … colouring, pi, primes, byo`, discovered rather than listed.
 >
-> **What did not close, and it is not an oversight.** N9, per-shard counts, is still
-> permanently unavailable: `TabPrimesRun` carries the total and not the shard rows. The tiling
-> proof that would use those counts lives in `primes-reduce.node.test.ts`, where it can assert
-> on them. Wiring a workload does not turn every absence on its surface into a reading.
+> **N9 closed too, on the same day and as a second step.** It stayed permanently unavailable
+> through Option A because `TabPrimesRun` carried the total and not the shard rows. `perShard`
+> was then added — derived from the tab's own shard results, never from the total — so the sum
+> of the rows against the aggregate the combine nodes returned is a real check on the reduce.
+> `permanentlyUnavailable` now has no members anywhere in the catalogue, and a guard asserts the
+> set is empty. The tiling proof still lives in `primes-reduce.node.test.ts`, which is where it
+> can assert on the counts rather than merely display them.
 
 **Decider: owner.** This is the headline item and it is the one Phase 27 did not close.
 
