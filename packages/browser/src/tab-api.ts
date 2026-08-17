@@ -278,6 +278,58 @@ export interface TabPiRun {
   readonly egress: EgressManifest
 }
 
+/**
+ * What a prime-counting run came to — the reading behind UI-SPEC section 4.3's Primes surface.
+ *
+ * **Why this workload is not a third flavour of {@link TabPiRun}.** π is a series: more terms
+ * means a closer estimate, and the answer is compared against a constant to a stated tolerance.
+ * π(x) — the count of primes at or below x — is an **integer with a published value**. There is
+ * no tolerance and no estimate. The fabric either returns 78 498 for x = 10⁶ or it is wrong,
+ * and the value it is checked against was tabulated in the mathematical literature long before
+ * this repository existed.
+ *
+ * That is the whole reason the workload is worth a surface. Every other check on this page is
+ * written by the same hand as the thing it checks: `verifyColouring` re-derives the triples
+ * from the definition, which is strong, but a misconception held in both the fabric and its
+ * verifier is invisible to the pair. This one cannot be talked into agreeing.
+ *
+ * **The oracle's stated blind spot travels with it, and the page says so.** Published values are
+ * quoted at powers of ten, and a power of ten sits far from the prime below it — so a guest that
+ * silently loses the top of its range still returns the right total. `primes-reduce.node.test.ts`
+ * is what closes that hole, by tiling `[2, N]` at every shard count from one to eight and
+ * requiring the per-shard counts to sum to the published value each time. This reading does not
+ * re-derive that, and must not be described as if it did.
+ */
+export interface TabPrimesRun {
+  /** The bound: every prime p with 2 ≤ p ≤ n was counted. */
+  readonly n: number
+  readonly shards: number
+  /** Every shard reached agreement between its replicas — the MAP half. */
+  readonly complete: boolean
+  /** False for a lone tab: the submitter is excluded from the combine executor set. */
+  readonly reduceAttempted: boolean
+  /** The fabric's own words when it could not start — e.g. `no executor to combine on`. */
+  readonly reduceReason: string | null
+  /** Combines produced an aggregate. Distinct from {@link TabPrimesRun.reduceAttempted}. */
+  readonly combined: boolean
+  readonly treeDepth: number
+  readonly combines: number
+  /**
+   * π(n), as the fabric aggregated it — **fetched from the store, never recomputed locally.**
+   *
+   * `null` whenever there is no aggregate to read; the flags above say which case it was. An
+   * integer, and deliberately not rounded or formatted here: the comparison against the
+   * published value is an equality, so a number that has been through a display transform is
+   * not the number to compare.
+   */
+  readonly total: number | null
+  /** How strongly this run's answer was attested — the same passthrough {@link TabColouringRun} carries. */
+  readonly attestation: ShardAttestation
+  readonly elapsedMs: number
+  /** DATA-05/DATA-06, as {@link TabJobReport.egress}. */
+  readonly egress: EgressManifest
+}
+
 export interface TabColouringRun {
   readonly n: number
   readonly cubes: number
@@ -455,6 +507,33 @@ export interface TabApi {
     redundancy: number
     peerIds: string[]
   }): Promise<TabPiRun>
+  /**
+   * Count the primes at or below `n` across shards, and merge with the same verified tree-reduce.
+   *
+   * **This method is what closed the open half of audit finding G4**, on 2026-08-17. Until then
+   * the prime-counting module shipped in this repository, ran in the Node suite, and had no
+   * signed record — so every executor in this fabric, *including the submitting tab's own*,
+   * refused a prime-counting dispatch on provenance. The Primes surface carried no run control
+   * and said so on screen. `PRIMES_RECORD` (`@o2/demo`) is what changed, and adding it meant
+   * re-signing all three demo records under a new anchor.
+   *
+   * **Why it stands beside {@link runPi} rather than replacing it.** Both are sums, so
+   * both exercise the combiner. π's answer is an *estimate* checked against a constant to a
+   * stated tolerance; π(x) is an *integer* checked against a published table for equality. The
+   * second is the stronger claim and the weaker instrument — see {@link TabPrimesRun} for the
+   * oracle's blind spot and for what does close it.
+   *
+   * **Needs a peer**, on the same terms as {@link runPi}: `reduceJob` excludes the submitter
+   * from its executor set by contract, so a lone tab gets `reduceAttempted: false` with the
+   * fabric's own reason in `reduceReason`. That is the ordinary state of the first tab on the
+   * page, not a failure.
+   */
+  runPrimes(options: {
+    n: number
+    shards: number
+    redundancy: number
+    peerIds: string[]
+  }): Promise<TabPrimesRun>
   /**
    * DEMO-02. Check the last answer here, from the definition.
    *

@@ -139,10 +139,20 @@ const CHECKPOINT_OPTOUTS: readonly {
     // progress exists to check-point at all. `runPi` and the sovereign run stay on the
     // sentinel for the reasons written above them — one submit, no resumable partial —
     // which are unchanged by anything `runColouring` gained.
-    count: 2,
+    //
+    // **Three on 2026-08-17, and the new one is `runPrimes`.** The owner took UI-SPEC section
+    // 10's Option A, so the prime-counting workload has a signed record and a dispatch path
+    // from a tab — audit finding G4's primes half, closed. Its opt-out is correct on exactly
+    // the grounds `runPi`'s is, and it is worth stating rather than inheriting: a primes run
+    // is **one submit** whose shards all name the same input block, so there is no partial
+    // progress a resume could pick up. What differs from `runColouring` is not the shard
+    // count but where the work lives — a colouring ladder walks rungs and can be resumed
+    // between them; a single submit either completes or is re-dispatched whole.
+    count: 3,
     role:
-      'the demo page, twice: runPi and the sovereign run. runColouring left this list on' +
-      ' 2026-08-16 — it supplies a real sink over the tab store, which is why it was here',
+      'the demo page, three times: runPi, runPrimes and the sovereign run. runColouring left' +
+      ' this list on 2026-08-16 — it supplies a real sink over the tab store, which is why it' +
+      ' was here',
   },
 ]
 

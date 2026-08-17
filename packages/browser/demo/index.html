@@ -448,11 +448,11 @@
         </div>
 
         <!--
-          The surface-level panel, UI-SPEC section 4.3 verbatim. Ordinary prose in the page's
-          normal tone and deliberately NOT in the refusal colour: section 1.5 reserves accent
-          and refusal for a withheld frame, a refuted verdict, a provenance refusal in
-          bring-your-own, and a blocked state. **An absence is not an error** — nothing here
-          failed, because nothing was attempted.
+          The surface-level panel, UI-SPEC section 4.3. **Rewritten 2026-08-17 when Option A
+          was taken**: this element carried the surface's statement that it had no dispatch
+          path, and that statement is now false. What replaced it says what a run does and
+          what its answer is checked against — the same job, which is to tell a reader what
+          they are looking at before they look at it.
 
           It carries no `data-region`, and that is UI-SPEC's own arithmetic rather than an
           oversight: this surface is twelve regions and the catalogue's tally is ninety-one.
@@ -461,40 +461,68 @@
         <div class="card blueprint rendered-only">
           <i class="corner tl"></i><i class="corner tr"></i>
           <i class="corner bl"></i><i class="corner br"></i>
-          <p class="card-kicker">Why this surface has no run control</p>
-          <p class="quote" id="primes-absence"></p>
+          <p class="card-kicker">What this workload is checked against</p>
+          <p class="quote" id="primes-intro"></p>
+          <!--
+            Digit-free, and that is P2's rule rather than a preference: any number inside
+            `#main` with no `data-region` ancestor is undeclared, and this note originally
+            carried the date Option A landed. The date belongs in the source history, which is
+            where a reader can check it; the screen carries the claim.
+          -->
           <p class="card-note">
-            The module is here and it runs — in the Node test suite, and in the recorded run
-            the figures below come from. What is missing is a signed record a tab's executor
-            would accept, and minting one means a new trust anchor for every kernel this
-            project ships. That is a decision about the trust root rather than a wiring job,
-            it is stated in the interface contract as an open question, and it is not taken
-            on this page.
+            The module ships in this repository and is signed by the same build authority as
+            the other two kernels, so a tab's own executor will run it. This surface carried no
+            run control at all until a signed record existed for it — the count below is the
+            first reading this page has ever taken from the workload it exists to show.
           </p>
         </div>
 
+        <p class="controls">
+          <button id="run-primes" class="btn btn-primary" disabled>Count the primes</button>
+          <!--
+            Digit-free in every state it can reach, for the reason `#pi-status` records one
+            surface over: an undeclared digit inside `#main` is what P2 exists to catch, and
+            the bound belongs in the argument row where it is a declared reading.
+          -->
+          <span class="note" id="primes-status" role="status">start a node first</span>
+        </p>
+
         <div class="cards rendered-only">
           <!--
-            N1 and N2 — the arguments a dispatch WOULD send, permanently at
-            `Nothing dispatched yet`. `control` regions, like C1/C2 and P1/P2, because nothing
-            has been asked of the fabric; unlike those four, nothing will ever overwrite these.
-            The literal is NOT typed here: it is `ARG_NOT_DISPATCHED`, exported from
-            `../src/demo-regions.ts` and written by `applyRender`, because a permanent sentence
-            with two authors is two sentences waiting to differ by a comma.
+            N1 and N2 — the two arguments this page will send, on screen before anything is
+            dispatched. `control` regions for the same reason C1/C2 and P1/P2 are: nothing has
+            been asked of the fabric yet, so there is nothing to read. Until 2026-08-17 they
+            were permanently `ARG_NOT_DISPATCHED`, because nothing would ever overwrite them.
+
+            The expressions, recorded here as well as in `surfaces/primes.ts` where they are
+            computed: shards = 4 x (1 + computePeers().length), N = 1000000 fixed. The bound is
+            NOT scaled by peers, and that is the difference from the pi surface one tab over:
+            π(x) is compared against a published table quoted at powers of ten, so moving N off
+            a power of ten would leave the oracle with nothing to compare. A second device makes
+            the run shorter here; it does not make the claim tighter.
           -->
           <div class="card blueprint">
             <i class="corner tl"></i><i class="corner tr"></i>
             <i class="corner bl"></i><i class="corner br"></i>
-            <p class="card-kicker">What a dispatch would send</p>
+            <p class="card-kicker">What this page will send</p>
             <dl>
               <dt>N</dt>
-              <dd data-region="primes/n-arg" data-kind="control" data-source="the argument this page would send under Option A"></dd>
+              <dd
+                data-region="primes/n-arg"
+                data-kind="control"
+                data-source="the argument this page will send: the bound"
+              >Nothing dispatched yet — this is what would be sent.</dd>
               <dt>shards</dt>
-              <dd data-region="primes/shards-arg" data-kind="control" data-source="the argument this page would send under Option A"></dd>
+              <dd
+                data-region="primes/shards-arg"
+                data-kind="control"
+                data-source="the argument this page will send: the shard count"
+              >Nothing dispatched yet — this is what would be sent.</dd>
             </dl>
             <p class="card-note">
-              The shape of the request is known. Only the path to send it is missing, and
-              these two rows say so rather than showing a default that was never sent.
+              The bound stays on a power of ten whatever the shard count, because that is
+              where the published table has values. Shards move with the peers this tab can
+              see, so a second device splits the same range rather than widening it.
             </p>
           </div>
           <div class="card blueprint">
@@ -510,12 +538,16 @@
         </div>
 
         <!--
-          N3 through N8 — every reading, at its unavailable sentence, permanently. The
-          catalogue marks all eight `permanentlyUnavailable`, and their `data-source` names
-          `TabApi.runPrimes()`, a method that does not exist. **That is deliberate and it is a
-          claim, not a mistake:** P4b in `demo-regions.e2e.test.ts` asserts that `window.o2`
-          does NOT have it, so the day Option A lands the guard reddens and this surface is
-          forced back onto the board instead of quietly staying absent.
+          N3 through N8 — every reading a run produces, written by `applyRender('primes', …)`
+          out of the same record that writes `#primes-report` below, so neither view can
+          format anything the other does not have.
+
+          **These carried `permanentlyUnavailable` until 2026-08-17, and their `data-source`
+          named a method that did not exist.** That was a claim rather than a mistake: P4b in
+          `demo-regions.e2e.test.ts` asserted `window.o2` did NOT have `runPrimes`, so the day
+          Option A landed the guard would redden and force this surface back onto the board
+          rather than let it stay quietly absent. Option A landed, the guard reddened, and this
+          is the surface being replanned — which is the mechanism working, not bypassed.
         -->
         <div class="cards rendered-only">
           <div class="card blueprint">
@@ -531,9 +563,10 @@
               <dd data-region="primes/elapsed" data-kind="reading" data-source="TabApi.runPrimes().elapsedMs"></dd>
             </dl>
             <p class="card-note">
-              Three readings a run would produce and no run produced. They are not blank and
-              they are not zero: a blank invites a reader to supply their own reason, and a
-              zero is a quantity that was never measured.
+              The count is an integer and it is compared for equality, not for closeness —
+              there is no tolerance to hide in. Before a run these three carry a named
+              absence rather than a blank or a zero: a blank invites a reader to supply
+              their own reason, and a zero is a quantity that was never measured.
             </p>
           </div>
           <div class="card blueprint">
@@ -548,9 +581,10 @@
             </dl>
             <pre data-region="primes/egress" data-kind="reading" data-source="TabApi.runPrimes().egress"></pre>
             <p class="card-note">
-              Nothing left this device for this workload, and that is not a sovereignty
-              result — it is what happens when nothing is dispatched. The egress guard counts
-              bytes that go past it; none went past it here because none was offered.
+              What left this device is counted by the egress guard for this job alone. Every
+              shard here is public, so a low count is a fact about this workload's inputs
+              rather than a sovereignty result — the bound this page carries is stated on the
+              bring-your-own surface, where a run can register an owner's rows.
             </p>
           </div>
         </div>
@@ -571,8 +605,9 @@
             <p class="card-note">
               The mockup drew a table of them. Two rows of it would have been a table a
               reader could believe, so what stands here instead is the name of the field it
-              would need — and there is none on any reading this page receives, under either
-              disposition.
+              would need — and there is still none on any reading this page receives, now
+              that a run really happens. The tiling proof that would use those counts lives
+              in the Node suite, where it can assert on them.
             </p>
           </div>
           <div class="card blueprint card-accent">
@@ -581,9 +616,10 @@
             <p class="card-kicker">Stated weakness</p>
             <p class="card-body" id="primes-weakness"></p>
             <p class="card-note">
-              This is the sentence that makes the oracle worth reaching, and it is why the
-              surface is not simply deleted. The check whose authority does not come from
-              this repository is real, is quoted below, and currently has nothing to check.
+              This is the sentence that makes the oracle worth reaching, and it stays on
+              screen now that it can be reached. The check whose authority does not come from
+              this repository is real, is quoted below, and is blind in the one direction
+              named here — which the tiling proof in the Node suite is what closes.
             </p>
           </div>
         </div>
@@ -620,9 +656,9 @@
             </dl>
             <p class="card-note">
               The comparison is the whole reason this workload is in the roadmap, and it is
-              the one thing this surface cannot show: an independent oracle is only a check
-              if something reaches it. The bound beside it is a constant of the shipped
-              module, imported rather than transcribed, and it is not a result.
+              what this surface now shows: an independent oracle is only a check if something
+              reaches it, and something does. The bound beside it is a constant of the
+              shipped module, imported rather than transcribed, and it is not a result.
             </p>
           </div>
         </div>
@@ -1646,16 +1682,19 @@
         termsFor,
       } from './surfaces/pi.ts'
       // The Primes surface's formatter — UI-SPEC section 4.3's N1 through N12, under
-      // **Option B: the named absence**. It is the one formatter on this page that takes no
-      // argument, and that signature IS the surface's claim: there is no reading to pass it.
-      // Read that file's header before concluding from twelve tidy regions that the
-      // prime-counting workload shipped — it did not, and the header says why in three
-      // measured facts. Renamed on import for the same reason π's is: `applyRender` throws
-      // when one surface's formatter reaches another surface's regions, and two modules
-      // exporting `format` should not rely on that throw to notice a mix-up.
+      // **Option A, taken 2026-08-17**, which closed audit finding G4. It took no argument
+      // until then, and that signature WAS the surface's claim: there was no reading to pass
+      // it. It takes a run now. Renamed on import for the same reason π's is: `applyRender`
+      // throws when one surface's formatter reaches another surface's regions, and two
+      // modules exporting `format` should not rely on that throw to notice a mix-up.
       import {
-        NO_DISPATCH_PATH,
+        DISPATCH_INTENT,
+        PRIMES_N,
+        PRIMES_READING_IDS,
         STATED_WEAKNESS,
+        formatArgs as formatPrimesArgs,
+        formatConstants as formatPrimesConstants,
+        shardsFor as primesShardsFor,
         format as formatPrimes,
       } from './surfaces/primes.ts'
       // The bring-your-own surface — UI-SPEC section 4.5's Y1 through Y13, over
@@ -1732,16 +1771,20 @@
       // from the same catalogue, so the two cannot disagree; only this one also leaves the
       // attribute a reader can inspect in the DOM.
       paintSurfaceAbsence('primes', 'stopped')
-      // The whole Primes surface, before consent and before any node — because none of it
-      // depends on either. It takes no reading, it will never take a reading, and there is no
-      // handler anywhere below that repaints it: this line is the only writer of those twelve
-      // regions and of `#primes-report`. Nothing here is re-run on Stop for the same reason.
-      applyRender('primes', formatPrimes(), 'primes/report')
+      // N1 and N2 before anything is dispatched — the same treatment the π surface's two
+      // argument regions get. Under Option B this line wrote all twelve regions permanently;
+      // now the other ten are readings a run produces, and `#run-primes`' handler writes them.
+      for (const [id, text] of Object.entries(formatPrimesArgs(0))) writeReading(id, text)
+      // N10 and N12 — the published oracle and the module's bound. On screen before anything is
+      // run, and that is the point of them: a citation that only appears once you have an answer
+      // to compare it against is a confirmation rather than a check. `paintSurfaceAbsence` skips
+      // `cited` and `constant`, so nothing else would write these.
+      for (const [id, text] of Object.entries(formatPrimesConstants())) writeReading(id, text)
       // The two paragraphs of the surface that are prose rather than regions — UI-SPEC section
       // 4.3's panel and the mockup's stated-weakness note. Written from the module rather than
       // typed into the markup so the spec asserting them compares the screen against one
       // author. Both are digit-free, so P2 is unaffected by their being undeclared.
-      $('primes-absence').textContent = NO_DISPATCH_PATH
+      $('primes-intro').textContent = DISPATCH_INTENT
       $('primes-weakness').textContent = STATED_WEAKNESS
       // Bring-your-own, same rule as the three surfaces above: every reading paints its
       // stopped sentence before anything runs. Unlike primes these are ordinary absences that
@@ -2099,6 +2142,13 @@
         if (activity !== null && $('pi-status').textContent === 'start a node first') {
           $('pi-status').textContent = 'ready'
         }
+        // Primes, on exactly the same terms as π — one node, no peer required for the map
+        // half. Added 2026-08-17 with `TabApi.runPrimes`; before that this surface had no
+        // control for this block to reconcile.
+        $('run-primes').disabled = activity === null
+        if (activity !== null && $('primes-status').textContent === 'start a node first') {
+          $('primes-status').textContent = 'ready'
+        }
         // Bring-your-own is the one surface whose control is gated on the form as well as on
         // the node, so the reconciler asks the validity model rather than setting `disabled`
         // itself. Two rules about one control would be two things that can disagree.
@@ -2285,6 +2335,64 @@
           $('pi-status').textContent = 'the run stopped'
         }
         $('run-pi').disabled = false
+      })
+
+      // ---- primes, the caller audit finding G4's open half named as missing ------
+      //
+      // **`window.o2.runPrimes` has a caller in this page as of this line**, which is the half
+      // of G4 that Phase 27 left open and the owner closed on 2026-08-17. Structurally the π
+      // handler above, and deliberately so: refresh the peer list first, dispatch, park the
+      // reading on a hook a spec can read, and write every region from one formatter.
+      //
+      // The one difference is the bound. `PRIMES_N` does NOT scale with peers — the published
+      // table has values at powers of ten, so a bound derived from how many devices happened
+      // to be present would leave the oracle with nothing to compare against. More devices
+      // make this run shorter; they do not make its claim stronger, which is the opposite of
+      // the arc the π surface draws and is why the two surfaces do not share this expression.
+      $('run-primes').addEventListener('click', async () => {
+        $('run-primes').disabled = true
+        // Refreshed rather than reused, for the reason the colouring handler gives: a stale
+        // peer list either wastes a device that joined or dispatches to one that has gone.
+        // It also repaints N1 and N2, so the arguments on screen are the ones about to be
+        // sent rather than the ones from the last discovery round.
+        await findPeers()
+        const peerIds = computePeers
+        const shards = primesShardsFor(peerIds.length)
+        const redundancy = redundancyFor(peerIds.length)
+        // Digit-free, always. See the note beside `#primes-status` in the markup.
+        $('primes-status').textContent = 'dispatching…'
+        try {
+          const run = await window.o2.runPrimes({ n: PRIMES_N, shards, redundancy, peerIds })
+          // The hook `demo-primes.e2e.test.ts` compares the screen against, for the reason
+          // `window.__o2LastPiRun` exists one surface over: there is no `TabApi` accessor for
+          // the last primes run, so without this a spec could only compare the page against
+          // itself — and *the right value read from the wrong object* is the divergence class
+          // this repository's ledger records against this tier.
+          window.__o2LastPrimesRun = run
+          // A manifest, carried across for F9-F11 exactly as π's is. Primes DOES produce a
+          // receipt — `TabPrimesRun` carries `attestation`, which `TabPiRun` does not — but
+          // `lastEgress` is about the manifest and the receipt hook belongs to the colouring
+          // surface's own forcing function; this line does not quietly widen either.
+          lastEgress = run.egress
+          void refreshFabric()
+          $('primes-status').textContent = run.combined
+            ? 'an aggregate was produced'
+            : run.reduceAttempted
+              ? 'a reduce ran and produced no aggregate'
+              : 'mapped — the reduce needs a second device'
+          applyRender('primes', formatPrimes({ peers: peerIds.length, run }), 'primes/report')
+        } catch (error) {
+          // Section 11's error state: the fabric's own words, verbatim, with the page adding
+          // only the prefix that says a run stopped. Every reading, so none is left holding a
+          // figure from a previous run beside a surface that has just failed.
+          const message = error instanceof Error ? error.message : String(error)
+          window.__o2LastPrimesRun = null
+          const sentence = `The run stopped: ${message}`
+          for (const id of PRIMES_READING_IDS) paintAbsence(id, 'unavailable', sentence)
+          writeReading('primes/report', sentence)
+          $('primes-status').textContent = 'the run stopped'
+        }
+        $('run-primes').disabled = false
       })
 
       // ---- bring your own, and the caller audit finding G4 named as missing -------

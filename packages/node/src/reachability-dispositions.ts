@@ -190,11 +190,25 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   'core/startReportFromCounts',
   'demo/answerOf',
   'demo/buildPiInput',
+  // The primes trio, added 2026-08-17 when `TabApi.runPrimes` gave the workload a caller and
+  // closed audit finding G4's primes half. **Exactly the same mechanism as the pi entries above
+  // and the same reclassification G14 was raised about**: nothing here became unreachable or
+  // reachable by accident — `demo/main.ts`'s `runPrimes` calls all three, and they read as
+  // unwired only because the `api` literal is reached through the `window.o2` hop the walk
+  // cannot see. Not read off the source: the derived case named all three verbatim,
+  // *"expected [ 'demo/buildPrimesInput', 'demo/projectPrimeCount', 'demo/readPrimeCount' ] to
+  // deeply equal []"*, which is the G14 defence doing its job for the fourth recorded time.
+  //
+  // `readPrimeCount` has no direct call in `main.ts` and belongs here anyway: `projectPrimeCount`
+  // calls it, so it is reachable through the same hop one edge further along.
+  'demo/buildPrimesInput',
   'demo/colourOf',
   'demo/estimatePi',
   'demo/piErrorBound',
   'demo/projectPiPartial',
+  'demo/projectPrimeCount',
   'demo/readPiPartial',
+  'demo/readPrimeCount',
   'demo/verifyColouring',
   'net/findReservedPeers',
   'net/publishStartOutcome',
@@ -496,8 +510,23 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * mechanism: had the graph been able to trace that one assignment, this entry would not exist
  * either. **The direction is worth stating** — this raise records wiring debt being *paid*, not
  * incurred: the symbol exists solely to give criterion 7's write half a production caller.
+ *
+ * **Raised 44 → 47, measured 2026-08-17.** Three `global-object-hop` entrants at once —
+ * `demo/buildPrimesInput`, `demo/projectPrimeCount`, `demo/readPrimeCount` — and they arrived by
+ * the established route: the derived case went red first and named all three verbatim, and the
+ * register was edited to agree with a measurement rather than a judgement. `TabApi.runPrimes`
+ * calls them from `main.ts`, hidden by the same `window.o2` assignment as everything else on that
+ * list. No new cause class and no new mechanism.
+ *
+ * **This is the largest single raise so far and it is the good direction, which is worth saying
+ * plainly because a growing register looks like debt accruing.** The three did not appear from
+ * nowhere: they came *out of `OPEN_FINDINGS`*, where they sat as the v1.1 audit's G4 primes half
+ * with the reason *"zero production callers"*. They now have one. So the register grew by three
+ * and the open-findings list shrank by three, and what moved between them is a workload that
+ * went from unrunnable to runnable — the owner taking UI-SPEC section 10's Option A. Had the
+ * graph been able to trace that one assignment, none of the three entries would exist.
  */
-export const DISPOSITION_CEILING = 44
+export const DISPOSITION_CEILING = 47
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {

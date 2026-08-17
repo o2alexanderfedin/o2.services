@@ -293,11 +293,18 @@ export const WIRED_SURFACES: readonly SurfaceId[] = [
 // ---------------------------------------------------------------------------------------
 
 /**
- * UI-SPEC section 4.3's unavailable copy for the Primes surface, in the short per-region
- * form. Every Primes reading but N9 carries it — the table says *"as N3"* on N4, N6, N8 and
- * N11, and N5 and N7 take it too under the Option B decision recorded at the surface below.
+ * The Primes surface's *not yet run* copy, shared by every reading but N9.
+ *
+ * **Replaced 2026-08-17.** This constant was `PRIMES_NO_DISPATCH` — *"No count: this workload
+ * has no dispatch path from a tab — see above."* — and every Primes reading carried it in all
+ * three states, permanently, under UI-SPEC section 10's Option B. Option A landed and the
+ * sentence became false: there is a dispatch path, and a reading with nothing in it now means
+ * the visitor has not pressed the control yet.
+ *
+ * UI-SPEC's table says *"as N3"* on N4, N6, N8 and N11, so one sentence with one author is
+ * still the rule; only the sentence changed.
  */
-const PRIMES_NO_DISPATCH = 'No count: this workload has no dispatch path from a tab — see above.'
+const PRIMES_NOT_RUN = 'No count: this workload has not been run in this tab.'
 
 /** C10's unavailable arm. UI-SPEC's C11 row says *"as C10"* and this is that sentence. */
 const COLOURING_NO_RUNG = 'No per-cube status: no rung settled.'
@@ -696,39 +703,41 @@ export const REGIONS: readonly Region[] = [
   // Primes — 12 regions. UI-SPEC section 4.3.
   // "An oracle nothing here produced."
   //
-  // DECISION, and it is the largest one in this file: **Option B**, per UI-SPEC section 10
-  // and this phase's plan set. As of 2026-08-10 there is no path from a tab to a
-  // prime-counting job — `primes.wasm` has no signed record, `runJob` hardcodes each
-  // shard's value to `{a: <index>}` and so cannot carry `buildPrimesInput(n)`, and
-  // `scripts/sign-kernel.ts` discards its private half each run, so a third record means a
-  // new trust anchor and a change to what a stock `o2 agent` and a stock `o2 seed` will run.
+  // DECISION, and it is the largest one in this file: **Option A, taken 2026-08-17.** This
+  // block recorded Option B — *ship the absence* — from 2026-08-10, on three facts that were
+  // all true then: `primes.wasm` had no signed record, `runJob` hardcodes each shard's value
+  // to `{a: <index>}` and so could not carry `buildPrimesInput(n)`, and `sign-kernel.ts`
+  // discards its private half each run, so a third record meant a new trust anchor and a
+  // change to what a stock `o2 agent` and a stock `o2 seed` will run.
   //
-  // So N3..N9 and N11 carry `permanentlyUnavailable`, their `source` names
-  // `TabApi.runPrimes()` — a method that does not exist — and UI-SPEC section 4.3's
-  // **unavailable** column is transcribed into all three absence arms, because the surface
-  // renders that copy permanently.
+  // The owner took that decision. `PRIMES_RECORD` is signed, all three demo records were
+  // re-signed together under a new anchor, and `TabApi.runPrimes` builds the eight-byte input
+  // itself rather than asking `runJob` to carry it. So N3..N8 and N11 are ordinary readings
+  // with ordinary absences, and their `source` names a method that now exists.
   //
-  // **Naming a method that does not exist is deliberate here, and P4's inverted arm is what
-  // makes it a claim rather than a mistake.** Do not add `TabApi.runPrimes`; Option A
-  // touches the trust root and is an owner decision surfaced separately.
+  // **The mechanism that forced this replan is worth keeping in view.** Every one of those
+  // rows previously carried `permanentlyUnavailable` and named `TabApi.runPrimes()`, a method
+  // that did not exist — and P4b in `demo-regions.e2e.test.ts` asserted `window.o2` did NOT
+  // have it. That guard was written so the day Option A landed it would go red and drag this
+  // surface back onto the board rather than let it stay quietly absent. It did exactly that.
   //
-  // Two of these rows take a further decision, marked at the entry: UI-SPEC's N5 and N7
-  // unavailable cells name section 5.3's lone-tab copy and section 5.1's absence arm, both
-  // of which are Option A arms that cannot occur under Option B. They take N3's sentence,
-  // which is what UI-SPEC's own N4, N6, N8 and N11 rows do with "as N3".
+  // **N9 is still `permanentlyUnavailable`, and it is the one that did not move.**
+  // `TabPrimesRun` carries the total and not the shard rows, which is as true now as it was
+  // under Option B. Wiring a workload does not turn every absence on its surface into a
+  // reading, and treating it as if it did is the easy mistake here.
   // =====================================================================================
   {
     id: 'primes/n-arg', // N1
     surface: 'primes',
     kind: 'control',
-    source: 'the argument this page would send under Option A',
+    source: 'the argument this page will send: the bound',
     // Copy: ARG_NOT_DISPATCHED, both states.
   },
   {
     id: 'primes/shards-arg', // N2
     surface: 'primes',
     kind: 'control',
-    source: 'the argument this page would send under Option A',
+    source: 'the argument this page will send: the shard count',
     // Copy: ARG_NOT_DISPATCHED, both states.
   },
   {
@@ -737,13 +746,9 @@ export const REGIONS: readonly Region[] = [
     kind: 'reading',
     source: 'TabApi.runPrimes().total',
     absence: {
-      initial: PRIMES_NO_DISPATCH,
-      stopped: PRIMES_NO_DISPATCH,
-      unavailable: PRIMES_NO_DISPATCH,
-    },
-    permanentlyUnavailable: {
-      reason:
-        'no signed record vouches for the prime-counting module, and every executor in this fabric refuses a module whose record no pinned anchor signed',
+      initial: PRIMES_NOT_RUN,
+      stopped: "No count: this tab's node is stopped.",
+      unavailable: 'No count: a run was made and no aggregate was produced — see the reduce row.',
     },
   },
   {
@@ -752,12 +757,9 @@ export const REGIONS: readonly Region[] = [
     kind: 'reading',
     source: 'TabApi.runPrimes().complete',
     absence: {
-      initial: PRIMES_NO_DISPATCH,
-      stopped: PRIMES_NO_DISPATCH,
-      unavailable: PRIMES_NO_DISPATCH,
-    },
-    permanentlyUnavailable: {
-      reason: 'the surface has no dispatch path from a tab — see primes/total',
+      initial: PRIMES_NOT_RUN,
+      stopped: "No count: this tab's node is stopped.",
+      unavailable: PRIMES_NOT_RUN,
     },
   },
   {
@@ -766,16 +768,12 @@ export const REGIONS: readonly Region[] = [
     kind: 'reading',
     source: 'TabApi.runPrimes().reduceAttempted with .reduceReason and .combined',
     absence: {
-      // DECISION: UI-SPEC's N5 unavailable cell names "section 5.3's lone-tab copy, or the
-      // fabric's own `reduceReason`". Both are Option A arms — there is no run, so there is
-      // no `reduceReason` and no lone-tab condition to describe. It takes N3's sentence,
-      // which is the treatment UI-SPEC's own N4/N6/N8/N11 rows apply.
-      initial: PRIMES_NO_DISPATCH,
-      stopped: PRIMES_NO_DISPATCH,
-      unavailable: PRIMES_NO_DISPATCH,
-    },
-    permanentlyUnavailable: {
-      reason: 'the surface has no dispatch path from a tab — see primes/total',
+      // UI-SPEC's N5 unavailable cell names "section 5.3's lone-tab copy, or the fabric's own
+      // `reduceReason`". Under Option A both are reachable, so the cell means what it says and
+      // the formatter renders `reduceReason` **verbatim** rather than falling back to this arm.
+      // This sentence is what shows before any run.
+      initial: 'Not attempted: this workload has not been run in this tab.',
+      stopped: "Not attempted: this tab's node is stopped.",
     },
   },
   {
@@ -784,12 +782,9 @@ export const REGIONS: readonly Region[] = [
     kind: 'reading',
     source: 'TabApi.runPrimes().elapsedMs',
     absence: {
-      initial: PRIMES_NO_DISPATCH,
-      stopped: PRIMES_NO_DISPATCH,
-      unavailable: PRIMES_NO_DISPATCH,
-    },
-    permanentlyUnavailable: {
-      reason: 'the surface has no dispatch path from a tab — see primes/total',
+      initial: PRIMES_NOT_RUN,
+      stopped: "No count: this tab's node is stopped.",
+      unavailable: PRIMES_NOT_RUN,
     },
   },
   {
@@ -798,14 +793,11 @@ export const REGIONS: readonly Region[] = [
     kind: 'reading',
     source: 'TabApi.runPrimes().attestation',
     absence: {
-      // DECISION: as N5. UI-SPEC names section 5.1's absence arm, which is composed from a
-      // receipt a run produced; under Option B there is no run and no receipt.
-      initial: PRIMES_NO_DISPATCH,
-      stopped: PRIMES_NO_DISPATCH,
-      unavailable: PRIMES_NO_DISPATCH,
-    },
-    permanentlyUnavailable: {
-      reason: 'the surface has no dispatch path from a tab — see primes/total',
+      // UI-SPEC names section 5.1's absence arm, which is composed from a receipt a run
+      // produced. Under Option A a run produces one, so the formatter renders it and this
+      // sentence covers the state before any run.
+      initial: 'No receipt: this workload has not been run in this tab.',
+      stopped: "No receipt: this tab's node is stopped.",
     },
   },
   {
@@ -814,12 +806,9 @@ export const REGIONS: readonly Region[] = [
     kind: 'reading',
     source: 'TabApi.runPrimes().egress',
     absence: {
-      initial: PRIMES_NO_DISPATCH,
-      stopped: PRIMES_NO_DISPATCH,
-      unavailable: PRIMES_NO_DISPATCH,
-    },
-    permanentlyUnavailable: {
-      reason: 'the surface has no dispatch path from a tab — see primes/total',
+      initial: 'No manifest: this workload has not been run in this tab.',
+      stopped: "No manifest: this tab's node is stopped.",
+      unavailable: 'No manifest: this workload has not been run in this tab.',
     },
   },
   {
@@ -859,12 +848,9 @@ export const REGIONS: readonly Region[] = [
     kind: 'reading',
     source: 'TabApi.runPrimes().total against primes/oracle-table for the same x',
     absence: {
-      initial: PRIMES_NO_DISPATCH,
-      stopped: PRIMES_NO_DISPATCH,
-      unavailable: PRIMES_NO_DISPATCH,
-    },
-    permanentlyUnavailable: {
-      reason: 'there is no count from this tab to compare — see primes/total',
+      initial: 'No comparison: this workload has not been run in this tab.',
+      stopped: "No comparison: this tab's node is stopped.",
+      unavailable: 'No comparison: there is no count from this tab to compare — see the count above.',
     },
   },
   {

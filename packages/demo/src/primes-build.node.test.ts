@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { MemoryBlockstore, SignedNameResolver, toHex } from '@o2/core'
 import { describe, expect, it } from 'vitest'
 import { compileKernel } from '../scripts/compile-kernel.mjs'
+import { KERNEL_TRUST_ANCHOR, PRIMES_NAME, PRIMES_RECORD } from './kernel-record.ts'
 import { PRIMES_WASM_BASE64 } from './primes-bytes.ts'
 import { primesKernelBytes } from './primes.ts'
 
@@ -76,5 +79,47 @@ describe('the source of truth is genuinely tracked', () => {
      */
     const source = wat.replace(/;;[^\n]*/g, '')
     expect(source.match(/\bf(?:32|64)\b/g) ?? []).toEqual([])
+  })
+})
+
+/**
+ * `PRIMES_RECORD` is checked rather than trusted — added 2026-08-17 with the record itself.
+ *
+ * The record is a **generated literal**. Nothing about reading `kernel-record.ts` says the CID in
+ * it is the CID of the `primes.wasm` committed beside it, and a record naming the wrong bytes is
+ * not a broken build — it is a module the fabric will refuse at dispatch, far from here, with an
+ * error about provenance rather than about a stale literal. `kernel-build.node.test.ts` has made
+ * this check for the colouring record since Phase 14 and `pi-build.node.test.ts` since Phase 27;
+ * this is the third artifact getting the same treatment on the day it acquired a record.
+ *
+ * **The anchor case is the one that matters most here, and it is the one this workload could not
+ * have before.** `bin/agent.ts` and `bin/seed.ts` default to a single `KERNEL_TRUST_ANCHOR`, so a
+ * primes record signed by a second key would be refused by every stock node — a failure that
+ * would appear only when somebody ran the prime-counting workload on a default agent, which is
+ * the worst possible place to discover it. `sign-kernel.ts` checks all three signers against the
+ * first before writing the file; this is that check made again from the committed artifact.
+ */
+describe('the primes record names the committed bytes, under the one anchor', () => {
+  it('maps PRIMES_NAME to the CID of the committed primes.wasm', async () => {
+    const cid = await new MemoryBlockstore().put(primesKernelBytes)
+    expect(PRIMES_RECORD.cid.toString()).toBe(cid.toString())
+    expect(PRIMES_RECORD.name).toBe(PRIMES_NAME)
+  })
+
+  it('verifies against the committed trust anchor', () => {
+    expect(new SignedNameResolver([KERNEL_TRUST_ANCHOR]).accept(PRIMES_RECORD, Date.now()).ok).toBe(
+      true,
+    )
+  })
+
+  it('is refused by a resolver pinned to any other key', () => {
+    // The negative control the two sibling files carry: without it the acceptance above would
+    // pass against a resolver that accepted anything handed to it.
+    const impostor = toHex(ed25519.getPublicKey(new Uint8Array(32).fill(9)))
+    expect(new SignedNameResolver([impostor]).accept(PRIMES_RECORD, Date.now()).ok).toBe(false)
+  })
+
+  it('shares its anchor with the other two records, which is what makes one --trust-anchor enough', () => {
+    expect(PRIMES_RECORD.signer).toBe(KERNEL_TRUST_ANCHOR)
   })
 })
