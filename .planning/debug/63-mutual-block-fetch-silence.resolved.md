@@ -1,11 +1,21 @@
 ---
-status: investigating
+status: resolved
 trigger: "DEFECT #63 — two connected nodes each ask the other for a block neither holds; 60 s timeout with no refusal"
 created: 2026-08-05
-updated: 2026-08-05
+updated: 2026-08-17
+resolved_by: cb842e70950f9efee45618dc6eae1867a00606e6
 ---
 
 ## Current Focus
+
+CLOSED — CONFIRMED then FIXED, and the fix is in the tree today.
+
+The hypothesis below was confirmed on 2026-08-05 and fixed the same day by `cb842e7`
+("fix(net): a node answers for what it holds, not for what its peers might hold"), which
+is an ancestor of both `develop` and `main`. This file stayed `status: investigating` for
+twelve days as a **bookkeeping miss, not outstanding work** — the Resolution section below
+was already written and the code already landed. Re-verified against the tree on
+2026-08-17; see the four evidence entries dated then. `next_action: none`.
 
 hypothesis: the 60 s is the demo tier's `rpcTimeoutMs`, NOT a property of the block path.
   The real cause is that a serving node answers `block` requests out of a
@@ -17,7 +27,7 @@ test: build two in-memory nodes each serving from a `FetchingBlockstore` whose s
   resolves `undefined` (refusal reached) or hangs to the RPC deadline.
 expecting: hangs to the deadline => cause confirmed as the mutual fetch, not a missing
   refusal branch.
-next_action: confirm `serveAgent` is handed the FetchingBlockstore, not the local tier.
+next_action: none — closed.
 
 ## Symptoms
 
@@ -74,6 +84,60 @@ started: unknown
     in-flight map handed it the promise already waiting on B. A chain of the same depth
     resolves in 2 ms, so "block fetches are slow" is refuted.
 
+- timestamp: 2026-08-17
+  checked: whether the fix is in the tree as it stands, by reading the fetch path before
+    attempting any repro
+  found: `packages/net/src/agent.ts` block branch reads
+    `const bytes = (await blockstore.has(request.cid)) ? await blockstore.get(request.cid) : undefined`.
+    `git log` attributes it to `cb842e7` (2026-08-05 13:51 -0700).
+    `git merge-base --is-ancestor cb842e7 develop` EXIT=0 and the same against HEAD EXIT=0.
+  implication: already-fixed-at-cb842e7. The defect is not live. Verified from a worktree
+    whose base is a merge commit containing `develop`'s tip `f805c17`, with its OWN
+    `npm ci` (EXIT=0, 342 packages) — no node_modules symlinked from the main checkout.
+
+- timestamp: 2026-08-17
+  checked: whether the regression guard is still LIVE, not merely present — `agent.ts` has
+    taken five commits since the fix, so a green that was never watched fail proves nothing
+  found: baseline `npx vitest run --project node packages/net/src/named-refusal.test.ts`
+    EXIT=0, 8/8. Planted the bare `get` back (one hunk, 1 insertion 1 deletion, gate grep
+    count 0). Red at EXIT=1 with the observed text
+    `AssertionError: expected 2001 to be less than 500`, case reported at 2004 ms, in
+    "resolves a mutual fetch by name instead of by deadline, against a chain that never
+    cycled". 7 of 8 still passed under the plant — the held-block positive control holds,
+    so the timing assertion cannot be satisfied by deleting the branch outright. Restored
+    by the surgical inverse of my own edit; `cmp` against the snapshot taken immediately
+    before planting EXIT=0, `git diff` empty; re-run EXIT=0, 8/8.
+  implication: the guard fires. The 2026-08-05 fix is protected today, not just present.
+    Host load averages 5.29 / 8.05 / 14.15 with two sibling agents running — which does
+    NOT contaminate the reading, because the assertion that fired is the comparative one
+    (`cycleMs < chainMs + 500`) and the chain arm absorbs identical load in the same run.
+    Planting was safe from the concurrency hazard because this is an isolated worktree,
+    not the shared checkout.
+
+- timestamp: 2026-08-17
+  checked: the recorded blind spot — "relies on `has` being local for every Blockstore"
+  found: all four implementations in the tree are local-only.
+    `MemoryBlockstore` (`core/src/blockstore/memory.ts:46`) is a Map lookup;
+    `IdbBlockstore` (`browser/src/idb-blockstore.ts:98`) is an IndexedDB `getKey`;
+    `FsBlockstore` (`node/src/fs-blockstore.ts:102`) is a `readFile`;
+    `FetchingBlockstore` (`net/src/block.ts:90`) delegates to `this.#local.has(cid)`.
+  implication: blind spot closed as of today. No implementation reintroduces the defect at
+    a distance, so the `ports.ts` contract is currently honoured by every subtype and not
+    only by the one the fix was written against.
+
+- timestamp: 2026-08-17
+  checked: the deliberately-untouched `combine` branch, which still does a bare
+    `options.blockstore.get(cid)` at `agent.ts:882` and so CAN still go to the network
+  found: `RpcBlockSource.fetch` (`agent.ts:62-66`) only ever emits
+    `{ kind: 'block', cid }` — it has no path that emits a `combine`. So a
+    combine-triggered fetch arrives at the peer as a `block` request, which the gated
+    branch answers `bytes: null` immediately without re-entering the network.
+  implication: the residual is bounded, not open. A combine cycle terminates in one hop
+    because the block branch is gated; combine cannot recurse into combine. The refusal
+    text `combine input <cid> not held and not obtainable` (`agent.ts:887`) is reachable.
+    This is a reading of the call graph, not a measurement — no combine-cycle fixture was
+    built, and that is the case that would carry it if the block gate were ever removed.
+
 ## Resolution
 
 reasoning_checkpoint:
@@ -116,3 +180,17 @@ files_changed:
   - packages/net/src/agent.ts
   - packages/core/src/ports.ts
   - packages/net/src/named-refusal.test.ts
+
+commit: cb842e70950f9efee45618dc6eae1867a00606e6 — "fix(net): a node answers for what it
+  holds, not for what its peers might hold", 2026-08-05, ancestor of `develop` and `main`.
+
+reverified: 2026-08-17, from an isolated worktree with its own `npm ci`. Fix present, guard
+  watched red under a re-plant and green after a `cmp`-verified restore, blind spot closed
+  across all four `Blockstore.has` implementations, combine residual bounded by reading.
+  NO CODE CHANGE WAS NEEDED — this pass only corrected the bookkeeping.
+
+still_open: nothing blocking. One thing deliberately NOT done, recorded so it is not
+  mistaken for coverage: the `combine` branch's bare `get` is safe only *because* the block
+  branch is gated, and no fixture asserts that coupling. If anyone removes the `has` gate,
+  `named-refusal.test.ts` reds — but if anyone instead makes combine reachable from
+  `RpcBlockSource`, nothing reds. That is a latent coupling, not a live defect.
