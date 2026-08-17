@@ -170,6 +170,34 @@ async function namespaceOf(file: string): Promise<Readonly<Record<string, unknow
   >
 }
 
+/**
+ * One barrel pays for the whole workspace graph, and 5 000 ms does not cover it.
+ *
+ * **Measured 2026-08-17**, plain `node --experimental-strip-types`, no vitest:
+ * importing `packages/browser/src/index.ts` cold takes **3 670 ms** and yields 40 exports;
+ * importing `packages/core/src/index.ts` immediately afterwards takes **0 ms**. The first
+ * barrel to touch the graph type-strips libp2p, Helia and the demo surfaces, and every
+ * barrel after it is a cache hit — which is why exactly one of these `it.each` cases can
+ * fail and why {@link https://vitest.dev} reports the survivors as instant.
+ *
+ * So this case sat on vitest's **unsized 5 000 ms default** while doing 3.7 s of real work.
+ * On 2026-08-17 it timed out at 5 019 ms, alone on the host, at a measured
+ * `(user+sys)/real` of 0.307 — 3.7 s of work plus vitest's own transform is over the line
+ * whenever the host is busy, and the browser package grew three exports since this file's
+ * header enumerated it at 37.
+ *
+ * **This is not a widened pass.** Every assertion below is unchanged and none of them is a
+ * duration; the only thing raised is how long the harness waits for an `import` it has
+ * already been told to perform. `reachability.node.test.ts` paid for this exact lesson on
+ * 2026-08-14, where one member of an ablation block was left on the 5 000 ms default while
+ * its four siblings carried 60 000 ms.
+ *
+ * Sized at 16× the measured cold import rather than at a margin over it: the number that
+ * matters is "long enough that a contended host cannot reach it", and the case has no
+ * timing claim that a generous budget could weaken.
+ */
+const BARREL_IMPORT_TIMEOUT_MS = 60_000
+
 describe('WIRE-04 — every barrel in the workspace offers at most one way to run a job', () => {
   const barrels = trackedBarrels()
 
@@ -218,7 +246,7 @@ describe('WIRE-04 — every barrel in the workspace offers at most one way to ru
     // Both directions. `toEqual` on the whole set is what catches a *disappearance* —
     // the day `submitJob` stops being exported is equally a change of scope.
     expect(found).toEqual(expected)
-  })
+  }, BARREL_IMPORT_TIMEOUT_MS)
 
   it('finds submitJob in exactly one barrel', async () => {
     const holders: string[] = []
@@ -229,7 +257,11 @@ describe('WIRE-04 — every barrel in the workspace offers at most one way to ru
     // "Exactly one" counted rather than forbidden: a workspace exporting no way to run a
     // job satisfies "no second runner" and fails this.
     expect(holders).toEqual(['packages/core/src/index.ts'])
-  })
+    // Budgeted like its siblings even though it has never been the case that paid: which of
+    // these four touches the graph first depends on ordering and on any `-t` filter, so
+    // sizing only the one that failed on the day would leave the same trap for the next
+    // filter that happens to run this one alone.
+  }, BARREL_IMPORT_TIMEOUT_MS)
 
   it('reports a second job runner in a barrel other than core — proved by planting', async () => {
     // The plant goes in `@o2/net`, because that is the barrel this file exists for: the
@@ -251,5 +283,5 @@ describe('WIRE-04 — every barrel in the workspace offers at most one way to ru
     const core = await namespaceOf('packages/core/src/index.ts')
     expect(readFileSync(join(ROOT, 'packages/core/src/index.ts'), 'utf8')).toContain('runResilient')
     expect(jobShapedExports(core)).not.toContain('runResilient')
-  })
+  }, BARREL_IMPORT_TIMEOUT_MS)
 })
