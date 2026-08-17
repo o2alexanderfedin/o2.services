@@ -543,6 +543,19 @@ code, not the reports. -->
       toolchain versions, same feature set.
       **The cross-machine claim is descoped, not satisfied.** It is unmeasured, and
       unmeasured is not met — two lifts on two hosts have still never been compared.
+      **The local shortcut was tried on 2026-08-17 and is measured closed.** This host can
+      run two machine architectures: elfconv publishes `:arm64` and `:amd64`, both are
+      present, and `uname -m` inside them reports `aarch64` and `x86_64`. Swapping the image
+      does not move one translator to a second machine — it swaps the translator.
+      `backend/remill/lib/Arch/Arch.cpp` gates each front end behind its own `#if`
+      (`ELFCONV_AARCH64_BUILD`, `ELFCONV_X86_BUILD`), no build defines both, and the x86_64
+      image handed this repository's AArch64 fixture reaches the `default:` arm and calls
+      `LOG(FATAL)`: `Arch.cpp:211] OS: 2 ArchName: 8`, exit 134, in 18.5 s — against the
+      arm64 image's clean lift to `sha256:8dcf62e1…` in 368 s. No second artifact exists, so
+      nothing about reproducibility was learned, and **what the row needs is a second
+      `aarch64` Linux host running the same elfconv build.** Guarded by
+      `tools/aot/cross-machine.node.test.ts`, which goes red if a build ever defines both
+      flags and reopens the comparison.
       **`CROSS_MACHINE_BLIND_SPOT` stays attached to every artifact and stays printed by
       the CLI.** Phase 10 established that the blind spot is **structural, not
       configurational**: elfconv's virtual-register promotion iterates a pointer-keyed

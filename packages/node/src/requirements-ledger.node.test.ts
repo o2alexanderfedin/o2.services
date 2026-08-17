@@ -1308,11 +1308,28 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // pointing at a test which certifies that the thing it promises remains unmeasured.
   // Re-recorded. The witness list stays empty deliberately — writing `lift.node.test.ts`
   // into it would record a measurement of the open half that does not exist.
+  //
+  // **2026-08-17: the experiment WAS run, and it produced a negative worth keeping.** This
+  // host can supply a second machine architecture — elfconv publishes `:arm64` and `:amd64`,
+  // both are present, and `uname -m` inside them reports `aarch64` and `x86_64`. Swapping
+  // the image was the obvious way to obtain a second machine without a second host, and it
+  // does not work: it swaps the *translator*. `backend/remill/lib/Arch/Arch.cpp` gates each
+  // front end behind its own `#if`, no build defines both, and the x86_64 image handed this
+  // repository's AArch64 fixture reaches the `default:` arm and calls `LOG(FATAL)` —
+  // `Arch.cpp:211] OS: 2 ArchName: 8`, exit 134, in 18.5 s, against the arm64 image's clean
+  // lift to `sha256:8dcf62e1…` in 368 s.
+  //
+  // So `because` stays `experiment-not-run` for the row's own claim — no two artifacts have
+  // been compared and none can be here — while the **shortcut** is now measured closed by
+  // `cross-machine.node.test.ts`. It is listed as a witness on those terms and no others: it
+  // measures why the local route is not a second machine, which is a different sentence from
+  // measuring the row. What AOT-03 needs is a second *aarch64 Linux* host running the same
+  // elfconv build.
   {
     id: 'AOT-03',
     because: 'experiment-not-run',
-    reread: '2026-08-11',
-    witnesses: [],
+    reread: '2026-08-17',
+    witnesses: ['tools/aot/cross-machine.node.test.ts'],
   },
   // **Re-read 2026-08-16, and the sentence that kept it here is gone.** The row's own
   // words were *"the browser tier's composition is present and its runtime behaviour is
