@@ -323,6 +323,21 @@ export interface TabPrimesRun {
    * not the number to compare.
    */
   readonly total: number | null
+  /**
+   * What each shard counted in its own sub-range, in shard order — one entry per shard.
+   *
+   * **`null` where a shard has no count to give**, which is two different conditions and both
+   * are real: its replicas did not agree, or the guest refused the block and `readPrimeCount`
+   * threw rather than returning a zero. A zero would be indistinguishable from a sub-range that
+   * genuinely held no primes, and `primes.ts` records at length why that distinction is the
+   * whole reason the reader throws.
+   *
+   * **This is the map's own reading, not a decomposition of {@link total}.** The total comes
+   * back from the combine nodes through the store; these come off this tab's own shard results.
+   * So the two are independently derived and their agreement is a real check on the reduce —
+   * which is what the surface renders beside them, and what a table of per-shard rows is for.
+   */
+  readonly perShard: readonly (number | null)[]
   /** How strongly this run's answer was attested — the same passthrough {@link TabColouringRun} carries. */
   readonly attestation: ShardAttestation
   readonly elapsedMs: number

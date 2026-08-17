@@ -39,14 +39,19 @@
  * one to eight and requires the per-shard counts to sum to the published value each time. This
  * surface does not re-derive that and must not be described as if it did.
  *
- * ## What did NOT change, and it is the interesting one
+ * ## N9, the row that took one more step
  *
- * `primes/per-shard` (N9) is still a permanent absence. The mockup drew a table of per-shard
- * counts and {@link import('../../src/tab-api.ts').TabPrimesRun} carries the total and not the
- * shard rows — which is still true now that a run really happens. It states the field it would
- * need rather than being filled with plausible rows. Wiring the workload did not turn every
- * absence on this surface into a reading, and pretending otherwise would have been the easy
- * mistake.
+ * `primes/per-shard` was a **permanent** absence even after Option A: the mockup drew a table of
+ * per-shard counts and `TabPrimesRun` carried the total and not the shard rows, so wiring the
+ * workload did not by itself give the page anything to draw. Rather than leave the surface with
+ * one permanent absence, `perShard` was added to the reading.
+ *
+ * **It is derived from this tab's own shard results, never from the total**, and that is the
+ * whole of why it is worth drawing: the total comes back from the combine nodes through the
+ * store, so the two are independently derived and their agreement is a real check on the reduce.
+ * A table that decomposed the total would agree with it by construction and check nothing.
+ * {@link perShardLines} prints both operands and names a disagreement rather than showing two
+ * numbers and leaving the reader to subtract.
  *
  * ## No DOM, no globals, one record
  *
@@ -235,6 +240,45 @@ export const PRIMES_READING_IDS: readonly string[] = REGIONS.filter(
   (region) => region.surface === 'primes' && region.kind === 'reading',
 ).map((region) => region.id)
 
+/**
+ * The per-shard table — N9 — with the one cross-check the page can make for itself.
+ *
+ * A row per shard in shard order, then the sum, then whether the sum matches the aggregate the
+ * combine nodes returned. **Both operands are printed**, which is this surface's rule for a
+ * comparison: a reader checks the claim rather than trusting a verdict word.
+ *
+ * `null` prints as `—` and is counted separately rather than as a zero. A shard with no count is
+ * not a shard that counted nothing — `primes.ts` gives the reasoning at `readPrimeCount`, and it
+ * is the same reasoning that makes this table informative: a run that quietly lost a shard has a
+ * sum below the total, and a sum that matches while a row is missing is a different and worse
+ * finding than either alone.
+ */
+function perShardLines(perShard: readonly (number | null)[], total: number | null): string[] {
+  if (perShard.length === 0) return ['No per-shard counts: this run reported no shard at all.']
+
+  const rows = perShard.map((count, index) => {
+    const label = `  shard ${String(index).padStart(2)}`
+    return count === null ? `${label}  —` : `${label}  ${count}`
+  })
+
+  const counted = perShard.filter((count): count is number => count !== null)
+  const sum = counted.reduce((running, count) => running + count, 0)
+  const missing = perShard.length - counted.length
+
+  const lines = [...rows, '', `  sum of ${counted.length} shard(s): ${sum}`]
+  if (missing > 0) {
+    lines.push(`  ${missing} shard(s) reported no count, so the sum is short by whatever they held`)
+  }
+  if (total === null) {
+    lines.push('  no aggregate to compare against — the reduce produced none')
+  } else if (sum === total && missing === 0) {
+    lines.push(`  the fabric's aggregate is ${total}, and these rows sum to it`)
+  } else {
+    lines.push(`  DISAGREES: the fabric's aggregate is ${total}, and these rows sum to ${sum}`)
+  }
+  return lines
+}
+
 /** The oracle table as text: a header row, then one row per published value. */
 function oracleTable(): string[] {
   const rows = ORACLE.map(([exponent, count]) => `  ${powerOfTen(exponent).padEnd(6)} ${count}`)
@@ -323,12 +367,15 @@ export function format(state: PrimesState): SurfaceRender {
   // ---- N8: what left this device for this job ----
   regions['primes/egress'] = egressLines(run.egress).join('\n')
 
-  // ---- N9: still a permanent absence, and that is not an oversight ----
+  // ---- N9: the per-shard table, and the cross-check it makes possible ----
   //
-  // `TabPrimesRun` carries the total and not the shard rows, which is as true after Option A as
-  // before it. The catalogue's `permanentlyUnavailable` arm still holds, and the sentence comes
-  // from there rather than from here.
-  regions['primes/per-shard'] = absent('primes/per-shard', 'unavailable')
+  // **The sum line is the reason this table is worth drawing.** `perShard` comes off this tab's
+  // own shard results and `total` comes back from the combine nodes through the store, so the
+  // two are independently derived — and a table that merely decomposed the total would agree
+  // with it by construction and check nothing. Where they disagree, the reduce lost or
+  // double-counted a leaf, and the page says so in as many words rather than showing two
+  // numbers and leaving the reader to subtract.
+  regions['primes/per-shard'] = perShardLines(run.perShard, run.total).join('\n')
 
   // ---- N10 and N12 are already in `regions` — see `formatConstants` for why they are
   //      written at boot as well as here.

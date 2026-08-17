@@ -136,6 +136,7 @@ interface PanelReading {
     readonly n: number
     readonly shards: number
     readonly total: number | null
+    readonly perShard: readonly (number | null)[]
     readonly complete: boolean
     readonly reduceAttempted: boolean
   } | null
@@ -159,6 +160,7 @@ async function readPrimesPanel(state: string): Promise<PanelReading> {
       n: number
       shards: number
       total: number | null
+      perShard: (number | null)[]
       complete: boolean
       reduceAttempted: boolean
     } | null
@@ -181,6 +183,7 @@ async function readPrimesPanel(state: string): Promise<PanelReading> {
               n: run.n,
               shards: run.shards,
               total: run.total,
+              perShard: run.perShard,
               complete: run.complete,
               reduceAttempted: run.reduceAttempted,
             },
@@ -365,16 +368,18 @@ describe('the Primes surface — a workload a visitor can run', () => {
     }
   })
 
-  it('shows every reading at a named absence before a run, digit-free', () => {
-    // **The arm compared against is `stopped`, and that is the page's behaviour rather than
-    // this surface's.** `index.html` calls `paintSurfaceAbsence(<surface>, 'stopped')` once at
-    // boot for session, colouring, pi, primes and byo alike, and nothing repaints a reading when
-    // a node starts — only a run does. So an unrun surface reads *"this tab's node is stopped"*
-    // even with a live node, on all five. That is a page-wide copy question, it predates this
-    // work, and it is not fixed here: what is asserted is that primes behaves exactly as its
-    // four siblings do, from the committed catalogue.
+  it('names its absence for the state the page is actually in, digit-free', () => {
+    // **The arm depends on whether a node is up, and making that true was a page-wide fix.**
+    // `index.html` paints `paintSurfaceAbsence(<surface>, 'stopped')` once at boot for session,
+    // colouring, pi, primes and byo alike. Until 2026-08-17 nothing repainted a reading when a
+    // node started — only a run did — so an unrun surface told a visitor *"this tab's node is
+    // stopped"* about a node that was demonstrably live, on all five surfaces. `render.ts`'s
+    // `liftStoppedAbsences` moves every reading still at its stopped sentence onto its initial
+    // one when the node comes up, and this case is what holds that: `before any node` must read
+    // the stopped arm and both live states must read the initial arm.
     const problems: string[] = []
     for (const reading of beforeRun()) {
+      const live = reading.state !== 'before any node'
       for (const region of PRIMES_READINGS) {
         const dom = reading.regions.find((entry) => entry.id === region.id)
         if (dom === undefined) {
@@ -383,20 +388,14 @@ describe('the Primes surface — a workload a visitor can run', () => {
         }
         // From the COMMITTED CATALOGUE. Never `dom.getAttribute('data-absence')`: the writer
         // sets the attribute and the text in one call, so that comparison could not fail.
-        //
-        // `permanentlyUnavailable` regions take their `unavailable` arm whatever the state is —
-        // `render.ts` says so — and N9 is the one that still carries it.
-        const expected =
-          region.permanentlyUnavailable === undefined
-            ? region.absence?.stopped
-            : region.absence?.unavailable
+        const expected = live ? region.absence?.initial : region.absence?.stopped
         if (expected === undefined) {
           problems.push(`${region.id}: the catalogue holds no sentence for this state`)
           continue
         }
         if (dom.text !== expected) {
           problems.push(
-            `${reading.state}: ${region.id} reads "${dom.text}" — the catalogue's sentence is "${expected}"`,
+            `${reading.state}: ${region.id} reads "${dom.text}" — the catalogue's ${live ? 'initial' : 'stopped'} sentence is "${expected}"`,
           )
         }
         if (DIGIT.test(dom.text)) {
@@ -410,6 +409,17 @@ describe('the Primes surface — a workload a visitor can run', () => {
     // The floor. Eight readings across three states is twenty-four comparisons; a refactor that
     // empties `PRIMES_READINGS` must redden rather than pass over nothing.
     expect(PRIMES_READINGS.length, 'the catalogue lists no primes readings at all').toBe(8)
+    // And the two arms really are different sentences on this surface, so the case above is a
+    // comparison rather than one string checked twice. Without this, catalogue copy that made
+    // `initial` and `stopped` identical would satisfy every assertion above and silently delete
+    // the distinction the page-wide fix exists to draw.
+    const distinct = PRIMES_READINGS.filter(
+      (region) => region.absence?.initial !== region.absence?.stopped,
+    )
+    expect(
+      distinct.length,
+      'every primes reading uses one sentence for both states, so the stopped-vs-initial check above proves nothing',
+    ).toBe(PRIMES_READINGS.length)
   })
 
   it('does not move when a run finishes on a different surface', () => {
@@ -431,13 +441,21 @@ describe('the Primes surface — a workload a visitor can run', () => {
         .map((entry) => `${entry.id}|${entry.text}`)
         .join('\n')
 
-    expect(digest(withNode), 'a primes reading changed when a node started').toBe(
-      digest(beforeNode),
-    )
+    // **Compared against `withNode` and not `beforeNode`, and the difference is the fix.**
+    // Starting a node legitimately moves every unrun reading from its stopped sentence to its
+    // initial one — that is `liftStoppedAbsences`, and the case above asserts it. What must NOT
+    // move is anything after that, so the colouring arm is compared against the live baseline.
     expect(
       digest(afterColouring),
       'a primes reading changed when the COLOURING ladder ran — this surface is wired to a run it must not be wired to',
-    ).toBe(digest(beforeNode))
+    ).toBe(digest(withNode))
+    // And the node-start transition moved every one of them, in the one direction it may: the
+    // baseline really did change, so the comparison above is between two live readings rather
+    // than two readings of a page that never repaints anything.
+    expect(
+      digest(withNode),
+      'starting a node left every primes reading exactly as it was, so the stopped-to-initial lift did not happen',
+    ).not.toBe(digest(beforeNode))
     // And the paired positive: the primes run DOES move them. Without this, a surface whose
     // regions never change would satisfy both assertions above perfectly.
     expect(
@@ -549,13 +567,48 @@ describe('the Primes surface — a workload a visitor can run', () => {
       naming.length,
       'no primes reading names TabApi.runPrimes(), so the guard above is quantified over nothing',
     ).toBeGreaterThanOrEqual(7)
-    // N9 is the one reading that is STILL permanently unavailable, and it is the only one.
-    // `TabPrimesRun` carries the total and not the shard rows — as true after Option A as
-    // before it. Wiring a workload does not turn every absence on its surface into a reading.
+    // **No primes reading is permanently unavailable any more.** N9 was the last one — it held
+    // that flag because `TabPrimesRun` carried the total and not the shard rows, which wiring
+    // the workload did not change by itself. `perShard` was added rather than left as a
+    // permanent absence, so every region on this surface is now a reading a run fills.
     const permanent = PRIMES_READINGS.filter(
       (region) => CATALOGUE.get(region.id)?.permanentlyUnavailable !== undefined,
     ).map((region) => region.id)
-    expect(permanent).toEqual(['primes/per-shard'])
+    expect(permanent).toEqual([])
+  })
+
+  it('shows one row per shard, and checks their sum against the aggregate', () => {
+    const reading = afterRun()
+    const run = reading.lastRun
+    expect(run, 'the page parked no primes run').not.toBeNull()
+    if (run === null) return
+
+    const dom = reading.regions.find((entry) => entry.id === 'primes/per-shard')
+    expect(dom, 'primes/per-shard has no element').toBeDefined()
+    const text = dom?.text ?? ''
+
+    // One row per shard, read off the screen. `shards` is the argument the page sent, so this
+    // is the table matching the dispatch rather than matching itself.
+    for (let index = 0; index < run.shards; index++) {
+      expect(text, `no row for shard ${index}`).toContain(`shard ${String(index).padStart(2)}`)
+    }
+
+    // **The cross-check this region exists for.** The rows come off this tab's own shard
+    // results and the total comes back from the combine nodes through the store, so their
+    // agreement says the reduce neither lost nor double-counted a leaf. Asserted on the
+    // rendered sentence, because a correct check displayed nowhere is not a surface.
+    expect(text, `per-shard region read:\n${text}`).toContain(
+      `the fabric's aggregate is ${PUBLISHED_COUNT}, and these rows sum to it`,
+    )
+    expect(text).not.toContain('DISAGREES')
+
+    // Anti-vacuity on the reading itself: the page really received per-shard numbers rather
+    // than a table of dashes that would satisfy every `toContain` above.
+    const counted = run.perShard.filter((count): count is number => count !== null)
+    expect(counted.length, 'every shard reported a dash, so the sum line is over nothing').toBe(
+      run.shards,
+    )
+    expect(counted.reduce((running, count) => running + count, 0)).toBe(PUBLISHED_COUNT)
   })
 })
 
@@ -651,7 +704,32 @@ const EXPECTED_CODE: Readonly<Record<string, string>> = {
     'signs primes.wasm into PRIMES_RECORD — the record whose absence WAS G4’s primes half',
   'packages/browser/demo/main.ts':
     'TabApi.runPrimes — the production caller, and the closing of G4’s primes half',
+  'packages/node/src/reachability-dispositions.ts':
+    'three GLOBAL_OBJECT_HOP register entries naming the symbols — a citation on a code line, not a call',
 }
+
+/**
+ * Files whose code-line matches are **names in a register**, not calls.
+ *
+ * `reachability-dispositions.ts` holds `'demo/buildPrimesInput'` and its two siblings as string
+ * literals, because that is what a disposition register is: a list of symbol names. A `key:`
+ * line is a code line, so the file-level scan above sees it — and the next case, which asks
+ * which files actually *call* the workload, must not.
+ *
+ * **This is the same trap `reachability-guard.node.test.ts` records against itself**, where
+ * quoting `initEd25519()` inside a comment put the call form in a string literal and CRYPTO-01
+ * reddened with *"initEd25519 is called by reachability-dispositions.ts"* — a citation read as a
+ * caller. Naming the exemption here rather than loosening the scan keeps the distinction the
+ * guard is for.
+ *
+ * **Found late, and the lateness is the lesson.** These three register entries landed in the
+ * commit that closed G4, in a round that re-ran `tsc`, the unit tier and the cheap guards but
+ * **not** the e2e tier — which had been green *before* the register was edited. This case is
+ * what caught it on the next run.
+ */
+const NAMES_BUT_DOES_NOT_CALL: readonly string[] = [
+  'packages/node/src/reachability-dispositions.ts',
+]
 
 describe("G4's primes half, measured — the workload has a production caller", () => {
   it('names every file that calls one of the five symbols, and admits no other', () => {
@@ -674,6 +752,25 @@ describe("G4's primes half, measured — the workload has a production caller", 
       files,
       'the set of files calling the primes workload has changed. A file LEAVING this set means the workload has been un-wired while the Primes surface still offers a run control for it — which is the Option B state with the honesty removed. A file JOINING it is ordinary and this entry should be added with a reason',
     ).toEqual(Object.keys(EXPECTED_CODE).sort())
+  })
+
+  it('separates a register entry from a caller', () => {
+    // The pair to the case above. `reachability-dispositions.ts` matches on a code line and
+    // calls nothing — every one of its matches must be a bare quoted symbol name. Without this,
+    // the exemption in `NAMES_BUT_DOES_NOT_CALL` would be a hole somebody could put a real call
+    // through and the file-level scan would wave it past.
+    const code = measurePrimesSymbols().filter((match) => !match.comment)
+    for (const file of NAMES_BUT_DOES_NOT_CALL) {
+      const matches = code.filter((match) => match.file === file)
+      expect(matches.length, `${file} is exempted and matches nothing, so the exemption is stale`).toBeGreaterThan(0)
+      const callsSomething = matches.filter((match) =>
+        PRIMES_SYMBOLS.some((symbol) => new RegExp(`\\b${symbol}\\s*\\(`).test(match.text)),
+      )
+      expect(
+        callsSomething.map((match) => `${match.file}:${match.line}  ${match.text}`),
+        `${file} is exempted as a register that only NAMES the primes symbols, and it now calls one`,
+      ).toEqual([])
+    }
   })
 
   it('finds the caller specifically — main.ts builds the input and projects the partial', () => {

@@ -82,6 +82,7 @@ import {
   projectPiPartial,
   projectPrimeCount,
   readPartial,
+  readPrimeCount,
   verifyColouring,
 } from '@o2/demo'
 import {
@@ -1013,9 +1014,26 @@ const api: TabApi = {
 
     // The aggregate's VALUE, fetched rather than assumed — see `aggregateTotalFrom`.
     const total = await aggregateTotalFrom(reduced, node.store, PRIME_COUNT_KEY)
+
+    // Each shard's own count, off this tab's shard results rather than out of the aggregate.
+    // `null` on either of the two conditions that mean "no count": replicas that did not agree,
+    // and a guest that refused the block — `readPrimeCount` throws for the latter rather than
+    // returning a zero, and catching it here is what turns the throw into a named gap in the
+    // row instead of a failed run. Deriving these from the total would make the surface's
+    // per-shard table a decomposition of one number and its agreement with the total vacuous.
+    const perShard = result.job.shards.map((shard) => {
+      if (shard.verification.status !== 'agreed') return null
+      try {
+        return readPrimeCount(shard.verification.output)
+      } catch {
+        return null
+      }
+    })
+
     return {
       n,
       shards: options.shards,
+      perShard,
       complete: result.job.complete,
       // `ok` and `outcome.ok` are distinct answers — the same distinction `runPi` documents.
       reduceAttempted: reduced.ok,
