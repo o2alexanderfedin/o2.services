@@ -138,6 +138,33 @@ started: unknown
     This is a reading of the call graph, not a measurement — no combine-cycle fixture was
     built, and that is the case that would carry it if the block gate were ever removed.
 
+- timestamp: 2026-08-17
+  checked: the reading above, now measured — the fixture it said did not exist was built
+  found: |
+    Three cases at the foot of `named-refusal.test.ts`, and the reading holds exactly as
+    stated. A combine sent to a node of a mutually-wired pair, naming two CIDs nobody
+    holds, refuses by name in single-digit ms against a chain arm of the same depth run
+    in the same call. The serving node emitted **one** request frame while the combine was
+    in its hands and that frame was a `block`; its peer emitted **none**, which is the
+    gate answering out of its own holdings.
+  implication: |
+    Both halves of the coupling now fire, and each was watched failing on its own plant.
+
+    - **Gate removed** (`has` gate back to a bare `get`): the new combine case reads
+      `expected 2002 to be less than 500`, beside the pre-existing block case's 2004 —
+      the same 2 000 ms inner-budget signature, now on both branches.
+    - **`combine` made reachable from `RpcBlockSource`** — the half that reddened nothing
+      before. A plant that leaves the fetch working and merely adds a combine frame per
+      peer reads `expected [ 'combine', 'block', 'combine', 'block' ] to deeply equal
+      [ 'block', 'block' ]`. Under the cruder plant that *replaces* the block request, six
+      of eleven cases go red. The narrow plant is the one that matters: it is the shape a
+      real regression would take, and before today nothing in the tree caught it.
+
+    `agent.ts` was restored by the surgical inverse of each edit and `cmp`'d against a
+    snapshot taken immediately before each plant — EXIT=0 all three times, `git status`
+    showing only the test file. tsc EXIT=0; `--project node packages/net` 29 files /
+    396 tests EXIT=0.
+
 ## Resolution
 
 reasoning_checkpoint:

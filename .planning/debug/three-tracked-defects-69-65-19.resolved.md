@@ -1,8 +1,8 @@
 ---
-status: awaiting_human_verify
+status: resolved
 trigger: "Three tracked defects: #69 (false citation + WIRE-04 guard blind spot on @o2/net barrel), #65 (four false claims in Phase 21 summaries), #19 (perf-workload.ts orphan production serveAgent sites — build a guard or measure why not)"
 created: 2026-08-05T13:33:00Z
-updated: 2026-08-05T13:56:00Z
+updated: 2026-08-17T12:16:00Z
 ---
 
 ## Current Focus
@@ -10,7 +10,7 @@ updated: 2026-08-05T13:56:00Z
 hypothesis: all three investigated; two of the five Phase 21 "false claims" are themselves false diagnoses
 test: re-measurement against the tree, not against the reports
 expecting: report to owner
-next_action: hand over — the node-project file-count drift (156 of a recorded 150, tolerance 5) needs a whole-table retake in `vitest.config.ts` that cannot be taken today
+next_action: none — closed 2026-08-17, see "The one item this session handed over" below
 
 ## Symptoms
 
@@ -104,6 +104,27 @@ verification: |
   core-side WIRE-04 guard after the barrel edit: EXIT=0, 2 passed.
   ten tree-scanning guards: 9 of 10 EXIT=0; slow-specs red on file-count drift, which is this
     work's own consequence and is reported rather than absorbed.
+
+## The one item this session handed over, and where it went
+
+**Closed 2026-08-17. The retake happened on 2026-08-15 and nobody came back to say so** —
+the same failure to close a record that left five other sessions reading `investigating`
+over completed fixes.
+
+The hand-over was: *the node-project file-count drift (156 of a recorded 150, tolerance 5)
+needs a whole-table retake in `vitest.config.ts` that cannot be taken today.* The two guards
+this session added were what tipped it, which is why it was reported rather than absorbed.
+
+`vitest.config.ts` now records `NODE_MEASUREMENT.date: '2026-08-15'`, `files: 191`,
+`unitFiles: 121`, taken at load 5.92 with `(user+sys)/real` of 1.45 — and the note beside it
+says a first attempt on 2026-08-14 was **discarded** because a foreign LLVM build held the
+machine at a ratio of 0.48. So the retake was taken under the conditions this session said
+it needed, and by the three-instrument procedure rather than by `--reporter=json` alone.
+
+Verified today rather than assumed: `npx vitest run --project node
+packages/node/src/slow-specs.node.test.ts` — **EXIT=0, 9 passed**, including
+`has not drifted further from the measured file count than the tolerance allows`, which is
+the case that was red when this session was written.
 
 files_changed:
   - packages/core/src/index.ts
