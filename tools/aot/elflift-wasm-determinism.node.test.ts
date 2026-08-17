@@ -175,6 +175,52 @@ describe('AOTW-06 — a lift inside the wasm module repeats itself; the native o
   })
 })
 
+const LINK_SCRIPT = join(REPO, 'tools', 'aot', 'link-elflift-wasm.sh')
+const RELINKABLE = existsSync(LINK_SCRIPT) && existsSync(join(BUILD_ROOT, 'obj')) &&
+  existsSync(join(BUILD_ROOT, 'lib'))
+
+/**
+ * Running the same bytes twice and building the same bytes twice are different properties,
+ * and this repository needs both: an artifact addressed by the hash of its content is only
+ * addressable if the same inputs produce that hash again.
+ *
+ * They also came apart here. The lift was byte-identical across four runs while the module
+ * doing the lifting was NOT byte-identical across three links — so run determinism held over
+ * a build that did not reproduce, and nothing in the tree would have noticed.
+ */
+describe('AOTW-06 — building the module twice gives the same module', () => {
+  it.runIf(RELINKABLE)(
+    'links byte-identically from the same objects',
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), 'o2-relink-'))
+      const hashes = ['a', 'b'].map((tag) => {
+        const out = join(dir, `elflift.${tag}.wasm`)
+        const run = spawnSync('bash', [LINK_SCRIPT], {
+          encoding: 'utf8',
+          timeout: 900_000,
+          cwd: REPO,
+          env: { ...process.env, OUTPUT: out }
+        })
+        expect(run.status, `link stderr:\n${run.stderr ?? ''}`).toBe(0)
+        return createHash('sha256').update(readFileSync(out)).digest('hex')
+      })
+
+      process.stdout.write(
+        `[build-reproducibility] ${hashes.map((h) => h.slice(0, 16)).join(' vs ')}\n`
+      )
+      expect(hashes[0]).toBe(hashes[1])
+    },
+    1_800_000
+  )
+
+  it('says why it skipped, when it skips', () => {
+    if (!RELINKABLE) {
+      process.stdout.write('[build-reproducibility] SKIPPED: no obj/ or lib/ to link from\n')
+    }
+    expect(typeof RELINKABLE).toBe('boolean')
+  })
+})
+
 const IMAGE_GATE = gateOnImage(IMAGE)
 const NATIVE_RUNNABLE = isRunnable(IMAGE_GATE) && existsSync(ELF)
 
