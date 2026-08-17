@@ -1146,20 +1146,33 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // `relaying.node.test.ts`, asserts a browser-dialable listen address; it does not put a
   // browser on it.
   //
-  // **That is the clause that was never in question.** What holds this row open is
-  // `auto-acquires a TLS certificate`, and no spec written on this host can acquire it:
-  // AutoTLS proves control of a publicly reachable address to `registration.libp2p.direct`,
-  // which a private host behind NAT with no public DNS name cannot do, and
-  // `@ipshipyard/libp2p-auto-tls` is still in no `package.json`. Re-checked 2026-08-16 in
-  // the pessimistic direction, as on 2026-08-11, and unchanged.
+  // **The acquisition clause was measured on 2026-08-17, and the sentence that held it open
+  // was wrong in a way worth recording.** For weeks this entry read: *"no spec written on
+  // this host can acquire it: AutoTLS proves control of a publicly reachable address to
+  // `registration.libp2p.direct`, which a private host behind NAT with no public DNS name
+  // cannot do."* The first half is a fact about **Let's Encrypt** — a public authority will
+  // not name a domain you cannot show control of — and it was restated as a fact about the
+  // *mechanism*, which is this project's most-repeated failure mode.
   //
-  // So the clock stays at 2026-08-11. Moving it would buy days of silence on the strength
-  // of the half that was already met, which is the overclaim this register exists to catch.
+  // The mechanism needs a certificate authority. `packages/node/src/local-acme.ts` is one:
+  // RFC 8555 over loopback with every JWS verified against the account's own key, a UDP DNS
+  // zone the authority really queries, and a p2p-forge stand-in that authenticates the caller
+  // through libp2p's own PeerID-auth handshake. `@ipshipyard/libp2p-auto-tls` — now a real
+  // dependency of `@o2/node`, which the previous entry correctly noted it was not — runs
+  // against it unmodified and `auto-tls.node.test.ts` reads seven cases off it, including a
+  // TLS handshake that validates the acquired chain and a restart that places no second order.
+  //
+  // **What is still hosting and still open**: the authority is not Let's Encrypt, and the
+  // node's dialable address is *declared* through `appendAnnounce` rather than bound, because
+  // every interface on this host is RFC 1918 or a ULA. So the row keeps its
+  // `tier-or-configuration` cause — but for the deployment decision it always was, not for a
+  // measurement nobody could take.
   {
     id: 'NET-03',
     because: 'tier-or-configuration',
-    reread: '2026-08-11',
+    reread: '2026-08-17',
     witnesses: [
+      'packages/node/src/auto-tls.node.test.ts',
       'packages/node/src/relaying.node.test.ts',
       'packages/node/src/seed-binary-join.e2e.test.ts',
     ],

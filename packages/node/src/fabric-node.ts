@@ -78,14 +78,20 @@
  */
 
 import { noise } from '@chainsafe/libp2p-noise'
+import { autoTLS } from '@ipshipyard/libp2p-auto-tls'
+import type { AutoTLS } from '@ipshipyard/libp2p-auto-tls'
 import { circuitRelayServer, circuitRelayTransport } from '@libp2p/circuit-relay-v2'
 import { yamux } from '@chainsafe/libp2p-yamux'
+import { http } from '@libp2p/http'
 import { identify, identifyPush } from '@libp2p/identify'
 import { kadDHT } from '@libp2p/kad-dht'
+import { keychain } from '@libp2p/keychain'
 import { ping } from '@libp2p/ping'
 import { tcp } from '@libp2p/tcp'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
+import type { TLSCertificate } from '@libp2p/interface'
+import type { Datastore } from 'interface-datastore'
 import { AbiExecutor, WasiExecutor } from '@o2/aot'
 import {
   DEFAULT_ISSUANCE_WINDOW_MS,
@@ -180,7 +186,50 @@ import {
 import type { ReservationWatcher } from './reservation-watch.ts'
 import { workerThread } from './worker-thread.ts'
 
+/**
+ * NET-03's configuration surface — where to get a certificate, and how fast.
+ *
+ * Every field is optional and every default is the production one, so `autoTls: {}` is a
+ * node that asks Let's Encrypt through `registration.libp2p.direct`. The overrides exist
+ * because a claim about certificate acquisition that can only be checked by deploying is
+ * not a claim this project accepts as measured.
+ */
+export interface AutoTlsOptions {
+  /** ACME directory URL. Defaults to Let's Encrypt's production endpoint. */
+  readonly acmeDirectory?: string
+  /** The service that answers the dns-01 challenge. Defaults to `registration.libp2p.direct`. */
+  readonly forgeEndpoint?: string
+  /** The zone certificates are issued under. Defaults to `libp2p.direct`. */
+  readonly forgeDomain?: string
+  /**
+   * How long to coalesce address changes before ordering a certificate.
+   *
+   * The library defaults to 5 s so a node adding addresses one at a time during start
+   * does not order once per address. A test that has to wait out this debounce on every
+   * case pays it in wall clock, so it is exposed — not because 5 s is wrong.
+   */
+  readonly provisionDelayMs?: number
+  /**
+   * How long one acquisition attempt may take before it is abandoned and retried.
+   * Defaults to the library's 120 s.
+   */
+  readonly provisionTimeoutMs?: number
+}
+
 export interface FabricNodeOptions {
+  /**
+   * Backing store for the acquired certificate and the RSA keys behind it.
+   *
+   * AutoTLS writes the issued PEM here and reads it back on the next start, which is the
+   * half of "without manual certificate management" that is about *not re-acquiring*.
+   * libp2p defaults to an in-memory store, so a node given none acquires afresh every
+   * start — correct, and wasteful against a CA that rate-limits.
+   *
+   * Typed as libp2p's `Datastore` rather than a path: the browser tier stores in
+   * IndexedDB, a backbone node on disk, and a test in memory, and this package has no
+   * business choosing.
+   */
+  readonly datastore?: Datastore
   /**
    * Directory backing the persistent blockstore.
    *
@@ -496,6 +545,41 @@ export interface FabricNodeOptions {
    * list is dialable from a tab.
    */
   readonly listen?: readonly string[]
+  /**
+   * Extra multiaddrs to publish alongside the ones this node bound.
+   *
+   * A relay behind a port-forward binds `/ip4/0.0.0.0/tcp/9000/ws` and is *reached* at its
+   * router's address; a relay in a container binds the container's address and is reached
+   * at the host's. In both cases the bound address alone is not the whole truth, and this
+   * is the field that adds the rest.
+   *
+   * It is also how a node becomes eligible for `autoTls`, which provisions only when an
+   * address is neither loopback nor RFC 1918 — its proxy for "somebody could dial me".
+   *
+   * **Append, and deliberately not replace.** libp2p offers `announce` for the replacing
+   * form and it is the wrong one here, for a reason that is measured rather than
+   * stylistic: `address-manager/index.js:256` returns the announce list *and returns
+   * early*, so a node using it never reaches `:294`, where AutoTLS's DNS mapping is folded
+   * in. Set `announce` and the certificate still arrives and the listener still upgrades —
+   * but the node never publishes the `/tls/sni/<name>/ws` address that mapping produces,
+   * which is the one a browser is meant to dial. `auto-tls.node.test.ts` reads both.
+   */
+  readonly appendAnnounce?: readonly string[]
+  /**
+   * NET-03 — acquire and renew a TLS certificate with no operator involvement.
+   *
+   * Present enables it; absent leaves the node exactly as it was. With no fields set the
+   * defaults are the production ones: Let's Encrypt as the certificate authority and
+   * `registration.libp2p.direct` as the DNS delegate, which together require the node to
+   * hold a genuinely public address — see `announce`.
+   *
+   * The three endpoint fields exist so the whole path can be **run** rather than reasoned
+   * about: `local-acme.ts` starts an ACME authority, a DNS zone and a forge on loopback,
+   * and `auto-tls.node.test.ts` points these at it. What that measures and what it cannot
+   * is written at the top of `local-acme.ts`; the short form is that everything except the
+   * *identity of the CA* is the same code doing the same thing.
+   */
+  readonly autoTls?: AutoTlsOptions
   /** Overrides the RPC request timeout; mainly useful to keep tests quick. */
   readonly rpcTimeoutMs?: number
   /**
@@ -1812,7 +1896,19 @@ export class FabricNode {
       // to it — which is exactly what every start did before this phase.
       privateKey: identity.privateKey,
       ...(gate === undefined ? {} : { connectionGater: { denyInboundRelayReservation: gate } }),
-      addresses: { listen },
+      ...(options.datastore === undefined ? {} : { datastore: options.datastore }),
+      addresses: {
+        listen,
+        // Absent rather than empty when unset, and the reason is *not* that an empty array
+        // would behave differently — it would not. `address-manager/index.js:55` defaults
+        // `appendAnnounce` to `[]` and `:275` only folds the list in when it is non-empty,
+        // so the two are indistinguishable at runtime. The conditional spread is here so a
+        // node that never asked for this option builds the same config object it built
+        // before the option existed, which is the property a regression reads.
+        ...(options.appendAnnounce === undefined
+          ? {}
+          : { appendAnnounce: [...options.appendAnnounce] }),
+      },
       transports: viaRelay
         ? [tcp(), webSockets(), circuitRelayTransport()]
         : [tcp(), webSockets()],
@@ -1869,6 +1965,58 @@ export class FabricNode {
           // cannot check.
           validators: { [O2_RECORD_NAMESPACE]: o2RecordValidator(() => Date.now()) },
         }),
+        // NET-03. Three services rather than one, because AutoTLS is an orchestrator over
+        // capabilities libp2p does not install by default:
+        //
+        // - `keychain` holds the ACME account key and the certificate key. Without it
+        //   AutoTLS refuses to start — it names `@libp2p/keychain` in its own
+        //   `serviceDependencies` — and, more to the point, a fresh account key per start
+        //   would order a new certificate on every restart.
+        // - `http` is where the forge request is made from. AutoTLS reads it off
+        //   `components.http`, which libp2p core does not provide; a service registered
+        //   under that name is what supplies it.
+        //
+        // **`autoConfirmAddress` is stated as `true`, and that is a decision rather than a
+        // convenience.** Left false, AutoTLS adds `@libp2p/autonat` to its dependencies and
+        // will not start without it, because it wants a *third party* to confirm the
+        // address it is about to certify. This node's addresses are not observed — they are
+        // the ones an operator wrote into `listen`/`announce` — so there is nothing for
+        // AutoNAT to add here beyond a dependency and a start-up delay. A deployment that
+        // wants observed-address verification should add AutoNAT and reconsider this line;
+        // nothing else in the file depends on it.
+        ...(options.autoTls === undefined
+          ? {}
+          : {
+              keychain: keychain(),
+              http: http(),
+              // **The cast is over an optionality TypeScript cannot see through, and it
+              // widens nothing.** `AutoTLSComponents` declares `keychain` and `http` as
+              // *required*, while libp2p types every member of a conditionally-spread
+              // service map as *optional* — so the compiler reads a node that might have
+              // `autoTLS` without `keychain`. That node cannot exist: the three are spread
+              // by one ternary and arrive together or not at all. `unknown` rather than
+              // `any` because a function taking `unknown` is assignable to one taking
+              // anything, which is exactly the contravariance being asserted, and because
+              // no `any` appears in this package's production source.
+              autoTLS: autoTLS({
+                autoConfirmAddress: true,
+                ...(options.autoTls.acmeDirectory === undefined
+                  ? {}
+                  : { acmeDirectory: options.autoTls.acmeDirectory }),
+                ...(options.autoTls.forgeEndpoint === undefined
+                  ? {}
+                  : { forgeEndpoint: options.autoTls.forgeEndpoint }),
+                ...(options.autoTls.forgeDomain === undefined
+                  ? {}
+                  : { forgeDomain: options.autoTls.forgeDomain }),
+                ...(options.autoTls.provisionDelayMs === undefined
+                  ? {}
+                  : { provisionDelay: options.autoTls.provisionDelayMs }),
+                ...(options.autoTls.provisionTimeoutMs === undefined
+                  ? {}
+                  : { provisionTimeout: options.autoTls.provisionTimeoutMs }),
+              }) as unknown as (components: unknown) => AutoTLS,
+            }),
         ...(canRelay
           ? {
               relay: circuitRelayServer({
@@ -2770,6 +2918,28 @@ export class FabricNode {
     const service: unknown = this.libp2p.services['relay']
     if (!hasReservations(service)) return []
     return [...service.reservations.keys()].map((peer) => peer.toString())
+  }
+
+  /**
+   * NET-03 — the certificate this node acquired for itself, or `undefined`.
+   *
+   * `undefined` covers three different situations and deliberately does not distinguish
+   * them, because none of them is an error a caller can act on differently: `autoTls` was
+   * not configured, it was configured and no acquisition has completed yet, or the node
+   * holds no address AutoTLS considers dialable. The reason for the last one is in
+   * `AutoTlsOptions`; the log line is `not fetching certificate as we have no public
+   * addresses`.
+   *
+   * Reading through `libp2p.services` rather than caching the value at construction: the
+   * certificate is replaced on renewal, and a field captured once would go stale in a way
+   * a long-lived relay is exactly the process to notice.
+   */
+  get tlsCertificate(): TLSCertificate | undefined {
+    const service: unknown = this.libp2p.services['autoTLS']
+    if (service === null || typeof service !== 'object' || !('certificate' in service)) {
+      return undefined
+    }
+    return service.certificate as TLSCertificate | undefined
   }
 
   /** Dial a peer and return its peer id. */
