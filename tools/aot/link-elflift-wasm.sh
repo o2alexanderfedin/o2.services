@@ -68,6 +68,10 @@ echo "mode:          $MODE"
 # linker pulls only the members it needs, and elfconv references a small corner of LLVM.
 # `-Wl,--gc-sections` on top, because every unreferenced section is dead weight in a module
 # that has to be fetched over a network before it can run.
+# `-mllvm -wasm-enable-sjlj` is NOT repeated here. It is a code-generation flag, and the code
+# was already generated: clang answers `argument unused during compilation` if you pass it to
+# a link. What the link does have to supply is the emulation libraries the archives reference,
+# which is what the -lwasi-emulated-* below are for.
 LINK_FLAGS=(
   --target=wasm32-wasi
   -O2
@@ -93,17 +97,39 @@ case "$MODE" in
     ;;
 esac
 
+# The two Itanium C++ ABI entry points wasi-sdk's libc++abi does not define. They cannot live
+# in the force-included header with the rest of the compat layer, because the objects that
+# reference them are already compiled -- they have to be real symbols in the link.
+COMPAT=${COMPAT:-$(cd "$(dirname "$0")" && pwd)/wasi-compat}
+EH_SRC="$COMPAT/wasi-eh-abort.c"
+EH_OBJ="$ROOT/wasi-eh-abort.o"
+[ -f "$EH_SRC" ] || { echo "no EH stub at $EH_SRC" >&2; exit 55; }
+
+"$WASI_SDK/bin/clang" --target=wasm32-wasi -O2 -c "$EH_SRC" -o "$EH_OBJ" 2> "$ROOT/eh-stub.log"
+EXIT=$?
+[ "$EXIT" -eq 0 ] || { echo "EH stub failed to compile ($EXIT)" >&2; cat "$ROOT/eh-stub.log" >&2; exit 56; }
+echo "EH stub:       $EH_OBJ"
+
 echo "=== linking ==============================================================="
-# The archive list is ORDER-SENSITIVE for a static link, and `--start-group` is what makes
-# the order stop mattering: LLVM's libraries are mutually recursive and any single ordering
-# leaves some symbol unresolved.
+# No `--start-group`/`--end-group`: wasm-ld rejects them outright -- `unknown argument` --
+# and does not need them. Those flags exist to re-scan archives for a linker that walks the
+# list once, and LLVM's mutually-recursive libraries defeat any single ordering under such a
+# linker. wasm-ld resolves the whole set in one pass instead, so archive order does not
+# matter here to begin with.
+#
+# `libgflags.a` is named exactly rather than globbed. The build produces `libgflags.a` and
+# `libgflags_nothreads.a`, and with NO_THREADS the two are byte-for-byte the same size --
+# feeding both to the linker offers it two definitions of every gflags symbol.
 "$CLANGXX" "${LINK_FLAGS[@]}" \
   "$OBJ"/*.o \
-  -Wl,--start-group \
+  "$EH_OBJ" \
   "$LIB"/libLLVM*.a \
-  "$LIB"/libglog*.a \
-  "$LIB"/libgflags*.a \
-  -Wl,--end-group \
+  "$LIB"/libglog.a \
+  "$LIB"/libgflags.a \
+  -lwasi-emulated-signal \
+  -lwasi-emulated-mman \
+  -lwasi-emulated-getpid \
+  -lwasi-emulated-process-clocks \
   -o "$OUTPUT" 2> "$ROOT/link.log"
 EXIT=$?
 

@@ -56,12 +56,26 @@ fi
 
 mkdir -p "$ROOT/lib" "$ROOT/deps"
 
+# The same WASI emulation and POSIX compat layer the LLVM cross-build uses. glog reaches for
+# signals, `getpwuid` and `<sys/wait.h>` exactly as LLVM's Support library does, so it hits the
+# same absent surface for the same reason -- wasi-libc removes it behind
+# `#ifdef __wasilibc_unmodified_upstream`. Passing this here rather than discovering it one
+# build round at a time; see tools/aot/wasi-compat/wasi-posix-compat.h for what it supplies
+# and what it deliberately withholds.
+COMPAT=${COMPAT:-$(cd "$(dirname "$0")" && pwd)/wasi-compat}
+[ -f "$COMPAT/wasi-posix-compat.h" ] || {
+  echo "no compat header at $COMPAT/wasi-posix-compat.h" >&2; exit 39; }
+
+WASI_EMULATION="-D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_MMAN -D_WASI_EMULATED_GETPID -D_WASI_EMULATED_PROCESS_CLOCKS -mllvm -wasm-enable-sjlj -I$COMPAT -include $COMPAT/wasi-posix-compat.h"
+
 # `-fno-exceptions` is NOT passed: elfconv's own objects were compiled with exceptions on and
 # reference __cxa_*, so the libraries must agree.
 COMMON=(
   -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN"
   -DCMAKE_BUILD_TYPE=Release
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+  -DCMAKE_C_FLAGS="$WASI_EMULATION"
+  -DCMAKE_CXX_FLAGS="$WASI_EMULATION"
   -DBUILD_SHARED_LIBS=OFF
   -DBUILD_TESTING=OFF
 )
@@ -78,7 +92,20 @@ else
   echo "SKIP  already cloned"
 fi
 
+# `NO_THREADS` is gflags' own name for this, offered by the very error it raises otherwise:
+# `src/mutex.h:147` reads `# error Need to implement mutex.h for your architecture, or
+# #define NO_THREADS`. Under it, `src/mutex.h:111` supplies a Mutex whose Lock/Unlock do
+# nothing -- which is the same conclusion reached for libc++'s std::mutex on this target, and
+# correct for the same reason: there is no second thread to exclude.
+#
+# It is set HERE and not in COMMON deliberately. glog is a different codebase with its own
+# threading configuration, and had not even been cloned when this failure appeared, so
+# applying gflags' macro to it would be a guess rather than a measurement.
+#
+# Note the flags string repeats WASI_EMULATION: a second -DCMAKE_CXX_FLAGS overrides the one
+# in COMMON rather than adding to it.
 cmake -S "$ROOT/deps/gflags" -B "$ROOT/deps/gflags-build" -G Ninja "${COMMON[@]}" \
+  -DCMAKE_CXX_FLAGS="$WASI_EMULATION -DNO_THREADS" \
   -DGFLAGS_BUILD_STATIC_LIBS=ON \
   -DGFLAGS_BUILD_SHARED_LIBS=OFF \
   -DGFLAGS_BUILD_gflags_LIB=ON \
@@ -119,6 +146,78 @@ print('OK    glog platform.h: __wasi__ branch')
 PY
 EXIT=$?
 [ "$EXIT" -eq 0 ] || { echo "glog patch failed ($EXIT)" >&2; exit 45; }
+
+# glog's CMakeLists.txt calls `find_package (Threads REQUIRED)` unconditionally -- it does
+# not consult its own WITH_THREADS option, which this script already sets to OFF. On
+# wasm32-wasi there is no pthread library to find, so configure stops with "Could NOT find
+# Threads" before a single source file is looked at.
+#
+# The patch makes the lookup obey WITH_THREADS. That is glog's own switch for exactly this,
+# so nothing new is being invented -- and it is preferable to the usual cross-compile dodge
+# of stuffing CMAKE_USE_PTHREADS_INIT and friends into the cache, which would leave glog
+# believing pthreads exist and emitting calls that only fail later, at link.
+# There are TWO sites, and gating only the first cost a round: configure then failed one step
+# later with `Target "glog" links to: Threads::Threads but the target was not found`. Each
+# edit therefore carries its own applied/not-applied test, so a partially-patched checkout --
+# which is exactly what that round left behind -- gets finished rather than skipped.
+python3 - "$ROOT/deps/glog/CMakeLists.txt" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+
+edits = [
+    ('the Threads lookup',
+     'find_package (Threads REQUIRED)\n',
+     'if (WITH_THREADS)\n  find_package (Threads REQUIRED)\nendif (WITH_THREADS)\n'),
+    ('the Threads::Threads link',
+     'target_link_libraries (glog PRIVATE Threads::Threads)\n',
+     'if (WITH_THREADS)\n  target_link_libraries (glog PRIVATE Threads::Threads)\n'
+     'endif (WITH_THREADS)\n'),
+]
+
+applied, skipped = [], []
+for name, old, new in edits:
+    if new in s:
+        skipped.append(name); continue
+    if old not in s:
+        print(f'MISS  {name} is not the shape this patch expects, in {p}')
+        raise SystemExit(9)
+    s = s.replace(old, new, 1)
+    applied.append(name)
+
+if applied:
+    open(p, 'w').write(s)
+    print('OK    glog CMakeLists: ' + ' and '.join(applied) + ' now obey WITH_THREADS')
+if skipped:
+    print('SKIP  glog CMakeLists: ' + ' and '.join(skipped) + ' already gated')
+PY
+EXIT=$?
+[ "$EXIT" -eq 0 ] || { echo "glog Threads patch failed ($EXIT)" >&2; exit 48; }
+
+# `raw_logging.cc` writes through `syscall(SYS_write, ...)` to stay async-signal-safe, and
+# selects that path on `HAVE_SYS_SYSCALL_H` while naming the platforms it must not use it on:
+# macOS, OpenBSD and Emscripten. This sysroot HAS <sys/syscall.h>, so the test passes -- but
+# it defines no SYS_write, because a wasm module makes no syscalls. WASI belongs in the
+# exclusion list beside Emscripten, for the same reason Emscripten is there.
+#
+# The `#else` arm it falls to is plain `write(fd, s, len)`, which glog itself labels "Not so
+# safe, but what can you do?" -- and here it is in fact exactly as safe, since no signal is
+# ever delivered to interrupt it.
+python3 - "$ROOT/deps/glog/src/raw_logging.cc" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+if 'GLOG_OS_WASI' in s:
+    print('SKIP  raw_logging.cc already excludes wasi from the syscall path'); raise SystemExit
+old = '    !defined(GLOG_OS_EMSCRIPTEN)\n'
+if old not in s:
+    print(f'MISS  no Emscripten exclusion to join in {p}'); raise SystemExit(9)
+new = '    !defined(GLOG_OS_EMSCRIPTEN) && !defined(GLOG_OS_WASI)\n'
+open(p, 'w').write(s.replace(old, new, 1))
+print('OK    raw_logging.cc: wasi joins Emscripten in avoiding syscall(SYS_write)')
+PY
+EXIT=$?
+[ "$EXIT" -eq 0 ] || { echo "glog raw_logging patch failed ($EXIT)" >&2; exit 49; }
 
 # WITH_GFLAGS=ON so glog's flags register through the gflags just built — that is how the
 # image's own build is configured, and mixing the two would leave duplicate FLAGS_ symbols.
