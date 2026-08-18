@@ -27,7 +27,7 @@ Operationally, that rule needs three things this document supplies:
 
 1. **An enumeration.** §4 lists every figure region on every surface, with the exact call and
    field it reads, and its copy in three states (no reading yet / node stopped / legitimately
-   unavailable). 92 regions, 75 of them live readings.
+   unavailable). 93 regions, 76 of them live readings.
 2. **A machine-readable declaration on each region**, so a guard can enumerate the page
    without having seen the mockup (§3).
 3. **Assertable properties**, each with the mutation that proves it can fail (§9).
@@ -369,6 +369,7 @@ stops at the first rung the fabric cannot settle. `best` is the last settled run
 | C16 | `colouring/agreeing` | reading | `best.agreeing[]` — peer id tags per cube | `No placement: the search has not been run.` | `No placement: this tab's node is stopped.` | `No placement: no cube reached agreement.` |
 | C17 | `colouring/egress` | reading | `best.egress` — see §5.2 | `Nothing measured: nothing has left this device for this workload yet.` | `Nothing measured: this tab's node is stopped.` | — |
 | C22 | `colouring/quorum` | reading | `best.quorum` — `describeQuorum` verbatim, see §5.5 | `Not composed: the search has not been run.` | `Not composed: this tab's node is stopped.` | `Not composed: the fabric settled no rung, so no shard was placed.` |
+| C23 | `colouring/resume` | reading | `best.resume` — see §5.6 | `Not resumed: the search has not been run.` | `Not resumed: this tab's node is stopped.` | `Not resumed: the fabric settled no rung, so nothing was carried.` |
 
 Plus, unchanged and not counted as figure regions: `#run` (control), `#run-status`
 (control-status, existing strings `start a node first` / `ready` / `n = …` / `settled n = …` /
@@ -383,7 +384,7 @@ Plus, unchanged and not counted as figure regions: `#run` (control), `#run-statu
 | C20 | `colouring/verify-triples` | `.triplesChecked` | as C18 | as C18 | — |
 | C21 | `colouring/verify-violation` | `.violation` | as C18 | as C18 | `No refutation: every triple checked has two colours among its three numbers.` |
 
-**Colouring surface count: 22 regions.**
+**Colouring surface count: 23 regions.**
 
 > **Amended 2026-08-14 — C22 added, VER-03 and VER-04.** It is out of numeric order in the
 > table above on purpose: it belongs to the run card beside C15, not to the verification card
@@ -395,6 +396,11 @@ Plus, unchanged and not counted as figure regions: `#run` (control), `#run-statu
 > `composeQuorum` over the candidate pool — and **a fabric on which the quorum gate never ran
 > produces an identical C15**. Merging them would make the page's strongest claim
 > unfalsifiable.
+
+> **Amended 2026-08-17 — C23 added, CHURN-03.** Out of numeric order for C22's reason and
+> appended for the same one: it belongs to the run cards, not to the verification card, and
+> renumbering committed rows to make one row sort would break every reference to them. See
+> §5.6 for why the read half of a checkpoint needs a region rather than only a returned field.
 
 ### 4.3 Primes — 12 regions
 
@@ -583,13 +589,14 @@ Requirements on this surface:
    surface that is not in that document is the defect this surface is most likely to introduce;
    P9 in §9 is the check.
 
-**Total regions enumerated: 92.** By surface: 5 session header, 3 bar, 22 colouring, 12 primes,
-14 π, 13 bring-your-own, 21 fabric state, 2 Benchmarks. By kind: **75 `reading`** — the ones the
+**Total regions enumerated: 93.** By surface: 5 session header, 3 bar, 23 colouring, 12 primes,
+14 π, 13 bring-your-own, 21 fabric state, 2 Benchmarks. By kind: **76 `reading`** — the ones the
 anti-placeholder guard holds to a named absence — 6 `constant`, 3 `cited`, 8 `control`.
 
-*(91/74/21-colouring until 2026-08-14, when C22 landed. `demo-regions.ts`'s `UI_SPEC_TALLY` is
-a transcription of these three figures and the guard asserts the catalogue against them in both
-directions — so this paragraph is a claim under test, not a note.)*
+*(91/74/21-colouring until 2026-08-14, when C22 landed; 92/75/22 until 2026-08-17, when C23 did.
+`demo-regions.ts`'s `UI_SPEC_TALLY` is a transcription of these three figures and the guard
+asserts the catalogue against them in both directions — so this paragraph is a claim under
+test, not a note.)*
 
 ---
 
@@ -703,6 +710,44 @@ Both regions render the kernel's own words verbatim — `attestation.description
 `describeQuorum(quorum)` — and the page composes no sentence of its own in either, per §5.1.
 `describeQuorum` emits the refusal **kind** in brackets before the composer's prose, so a guard
 can assert *which* refusal occurred rather than pattern-matching a sentence.
+
+### 5.6 A resume must be visible, or it is indistinguishable from a restart
+
+*Added 2026-08-17 with C23 — CHURN-03.*
+
+The write half of CHURN-03 landed on 2026-08-16: `runColouring` passes
+`checkpointsInto(node.store)`, so a checkpoint block is written into this tab's IndexedDB as
+each cube is answered. Nothing could read one back. A blockstore is content-addressed, so
+there was no stable key under which the newest handle could be left for a returning tab to
+find — `packages/browser/src/idb-checkpoints.ts` is that key space, one record per job id.
+
+**Why it needs a region and not only a returned field.** From outside the tab, a fabric that
+checkpoints and a fabric that does not looked exactly alike, because nothing ever read one
+back. That is the gap. Closing it in `TabColouringRun` alone would move the gap one layer up:
+a resume nobody can see is a resume nobody can distinguish from a restart, and *picks up where
+it left off* would still be a claim about source code rather than a reading on a screen.
+
+C23 renders two lines from `TabResume`, and the count and its sentence are **one region** on
+§5.2's rule — `0 of 8` alone reads as a failed resume on a first visit where there was nothing
+to resume:
+
+| `TabResume` | The line |
+|---|---|
+| `refused !== null` | `Started over: a stored checkpoint was refused (<kind>) and dropped, so every cube ran.` |
+| `offered === null` | `Started from nothing: this tab had stored no checkpoint for this job.` |
+| otherwise | `Resumed from <handle>: <carried> of <cubes> cube(s) came out of it and were dispatched nowhere.` |
+| `remembered === null` | `Nothing stored for a next run: this run confirmed no handle.` |
+| otherwise | `Stored for a next run: <handle>` |
+
+**`carried` is counted off the shards, never off the pointer.** `main.ts` counts
+`ShardResult.ending === 'carried-from-checkpoint'` in `submitJob`'s own answer. The pointer
+says what was asked for; the shards say what was carried, and the two disagree exactly when a
+checkpoint named fewer shards than the pointer promised — the case a page must not paper over.
+
+**A resumed run reads weaker above C23, and that is correct.** A carried cube was dispatched to
+nobody, so this requestor holds no signature over it and `complete` is false. The card note
+beside C23 says so, because a visitor who saw the receipt weaken with no explanation would read
+a working resume as a broken fabric.
 
 ---
 

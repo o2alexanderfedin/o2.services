@@ -67,6 +67,16 @@ const COMPOSED_TWO_OPERATORS: ShardQuorum = {
   operators: ['harbour-road-volunteers', 'east-pier-compute'],
 }
 
+/**
+ * A job id and a handle, shaped like the CIDs they stand for — CHURN-03, C23.
+ *
+ * Real base32 CIDv1 strings rather than `'job-1'`, because the region renders a **prefix** of
+ * the handle and a placeholder short enough to be a whole string would make the truncation
+ * untestable — it would read the same truncated and untruncated.
+ */
+const JOB_ID = 'bafyreib4pff766vhpbxbhjbqqnsh5emeznvujayjj4z2iu533cprgbz23m'
+const HANDLE = 'bafyreicnwvcwdqoqvzc5vzk3xhqjfmpyqfjkzlqxrqvgpvqvzqcnwvcwdq'
+
 function manifest(violations: readonly string[] = []): EgressManifest {
   return {
     entries: [
@@ -99,11 +109,23 @@ function run(overrides: Partial<TabColouringRun> = {}): TabColouringRun {
     // reach is discovered through the relay it reserved on. A fixture defaulting to
     // `composed` would make the page's happiest case its most-exercised one.
     quorum: REFUSED_SHARED_RELAY,
+    // CHURN-03 — C23. The default is a run that **started from nothing**, on exactly
+    // `quorum`'s reasoning one field up: this fixture stands for the ordinary run, and the
+    // ordinary run is a tab opening the page for the first time with no stored handle. A
+    // fixture that defaulted to `carried: 16` would make the resumed case the exercised one
+    // and leave the arm every visitor actually sees to a single test.
+    resume: { jobId: JOB_ID, offered: null, refused: null, carried: 0, remembered: HANDLE },
     ...overrides,
   }
 }
 
-/** Every colouring region that is a figure — the eighteen `format` owns, plus the four it does not. */
+/**
+ * Every colouring region that is a figure — the **nineteen** `format` owns, plus the four it
+ * does not.
+ *
+ * *(Eighteen until 2026-08-17, when C23 `colouring/resume` landed. Derived from `REGIONS`
+ * rather than listed, so the set follows the catalogue; only this sentence had to move.)*
+ */
 const FIGURE_IDS: readonly string[] = REGIONS.filter(
   (region) =>
     region.surface === 'colouring' &&
@@ -130,7 +152,7 @@ const SETTLED: ColouringState = {
 }
 
 describe('the colouring formatter, with no DOM', () => {
-  it('names every one of its eighteen regions in every arm, so nothing keeps a stale value', () => {
+  it('names every one of its nineteen regions in every arm, so nothing keeps a stale value', () => {
     const arms: Record<string, ColouringState> = {
       settled: SETTLED,
       'nothing settled': { peers: 0, rungs: [{ n: 300, run: run({ found: false }) }] },
@@ -215,6 +237,61 @@ describe('the colouring formatter, with no DOM', () => {
     expect(absent).toContain('12D3KooWfake: this requestor holds no certificate for it')
     // No strength claimed where none was established.
     expect(absent).not.toContain('owner-attested')
+  })
+
+  it('says whether the run resumed or started from nothing, and counts off the shards — C23', () => {
+    // CHURN-03's read half, on screen. **Four arms and not a boolean**, because two of them
+    // produce a run that computed every cube and only one of those says this tab is holding a
+    // pointer to blocks that are gone.
+    const resumeOf = (resume: Partial<TabColouringRun['resume']>): string | undefined =>
+      format({
+        peers: 1,
+        rungs: [{ n: 300, run: run({ resume: { ...run().resume, ...resume } }) }],
+      }).regions['colouring/resume']
+
+    // (1) The first visit — nothing stored, so nothing carried, and the sentence says which
+    // of those two it is. A page that rendered `0 of 16` here would report a failed resume on
+    // a run where there was nothing to resume.
+    const fresh = resumeOf({})
+    expect(fresh).toContain('Started from nothing')
+    expect(fresh).not.toContain('Resumed from')
+
+    // (2) The resumed run. The count is `carried`, and `cubes` is the run's own — a reading
+    // that took its numerator from `offered` would say the same thing whether or not a single
+    // cube was actually carried.
+    const resumed = resumeOf({ offered: HANDLE, carried: 9 })
+    expect(resumed).toContain(`Resumed from ${HANDLE.slice(0, 12)}`)
+    expect(resumed).toContain('9 of 16 cube(s)')
+
+    // (3) A pointer whose block is gone. It must NOT read as a resume, and it must not read
+    // as a first visit either: the remedy is different, and this is the only sentence that
+    // says the tab's storage was holding something it could not use.
+    const stale = resumeOf({ offered: HANDLE, refused: 'block-missing' })
+    expect(stale).toContain('refused (block-missing)')
+    expect(stale).not.toContain('Resumed from')
+    expect(stale).not.toContain('Started from nothing')
+
+    // (4) The second line, always present: what the NEXT run will find. A resume nobody can
+    // see coming is as invisible as one nobody can see happening.
+    expect(fresh).toContain(`Stored for a next run: ${HANDLE.slice(0, 12)}`)
+    expect(resumeOf({ remembered: null })).toContain('Nothing stored for a next run')
+
+    // ANTI-VACUITY. The handle is *truncated*, so a region that printed some other constant
+    // would still contain the prefix; this pins that the whole CID is not on screen and that
+    // the two handles are distinguishable from each other.
+    expect(resumed).not.toContain(HANDLE)
+    expect(resumeOf({ offered: JOB_ID, carried: 1 })).toContain(JOB_ID.slice(0, 12))
+  })
+
+  it('carries the resume line into the text view, so both views come from one formatter', () => {
+    // P6's rule: nothing re-formats anything. The region and the text view are the same two
+    // lines from one `resumeLines` call, so they cannot come to describe one run two ways.
+    const rendered = format({
+      peers: 1,
+      rungs: [{ n: 300, run: run({ resume: { ...run().resume, offered: HANDLE, carried: 4 } }) }],
+    })
+    const region = rendered.regions['colouring/resume'] as string
+    for (const line of region.split('\n')) expect(rendered.text).toContain(line)
   })
 
   it("renders the composer's own quorum words, kind included, and composes none of its own", () => {

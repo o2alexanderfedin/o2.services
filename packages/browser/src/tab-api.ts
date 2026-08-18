@@ -404,6 +404,77 @@ export interface TabColouringRun {
    * arrangement as `attestation` directly above.
    */
   readonly quorum: ShardQuorum
+  /**
+   * Whether this run picked up where an earlier one stopped — CHURN-03's read half.
+   *
+   * **The third stated exception to *the visitor-facing report is untouched*.**
+   * {@link TabJobReport.failures} records that rule, {@link attestation} and {@link quorum}
+   * are the first two exceptions and both argue the same way: the requirement names a
+   * screen. So does this one. A checkpoint that is written and never read back is
+   * indistinguishable, from outside, from no checkpoint at all — the whole gap CHURN-03's
+   * read half exists to close is that *nothing could observe the resume*. A field that
+   * stopped at the harness would reproduce the gap one layer up.
+   *
+   * See {@link TabResume} for what each arm means. The page renders it as C23.
+   */
+  readonly resume: TabResume
+}
+
+/**
+ * What a colouring run did about the checkpoint an earlier run of the same job left —
+ * CHURN-03.
+ *
+ * **Four facts and not one summary**, because the four have four different remedies and a
+ * boolean over them would collapse the two that matter most into each other. *Nothing was
+ * stored* and *something was stored and refused* both mean "this run computed everything",
+ * and only the second says the tab's storage is holding a pointer it should not.
+ *
+ * Filled by `demo/main.ts#runColouring` from three sources that cannot be derived from one
+ * another: {@link offered} and {@link remembered} come from the `IdbCheckpoints` record,
+ * {@link carried} is counted off `ShardResult.ending === 'carried-from-checkpoint'` in
+ * `submitJob`'s own answer, and {@link refused} is the `SubmitError` kind `submitJob`
+ * returned when it would not take the handle. Counting `carried` off the fabric's report
+ * rather than off the pointer is the point: the pointer says what was *asked for* and the
+ * shards say what was *carried*, and a run where those disagree is exactly a stale pointer.
+ */
+export interface TabResume {
+  /**
+   * The name this job answers to in its own checkpoints, derived by `@o2/core`'s `jobIdOf`
+   * from the module CID and the ordered input CIDs — the key the handle is filed under.
+   *
+   * Derived by the page **before** the submit, which is the whole reason `jobIdOf` is
+   * exported: a handle must be looked up under the id `submitJob` is about to derive, and
+   * `resumeState` refuses by name a handle whose checkpoint belongs to another job.
+   */
+  readonly jobId: string
+  /** The stored handle this run was offered, or `null` when the tab had none for this job. */
+  readonly offered: string | null
+  /**
+   * The `SubmitError` kind that made this run drop {@link offered} and start over, or
+   * `null`.
+   *
+   * Non-null means the pointer outlived the blocks it named — the browser evicted the
+   * checkpoint block and kept the record, which `idb-checkpoints.ts` names as a fact about
+   * browser storage rather than a corruption. The run recovers by forgetting the pointer
+   * and computing everything, so a stale record costs time and never an answer.
+   */
+  readonly refused: string | null
+  /**
+   * Cubes whose answer came out of the checkpoint, so this run dispatched them nowhere.
+   *
+   * `0` on a run that started from nothing **and** on a run whose stored handle was
+   * refused; {@link offered} and {@link refused} are what tell those two apart.
+   */
+  readonly carried: number
+  /**
+   * The handle this run filed for the next one, or `null` when it confirmed none.
+   *
+   * Only ever a **confirmed** handle — `StoredCheckpoints.newest()`, which is the newest
+   * whose block read back out of the store through the same validating reader a resume
+   * would use. Filing an unconfirmed one would leave a pointer resolving to nothing, which
+   * is the failure {@link refused} exists to survive, deliberately created.
+   */
+  readonly remembered: string | null
 }
 
 /**

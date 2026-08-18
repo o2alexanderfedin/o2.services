@@ -18,7 +18,7 @@ import type { ResultSigner } from '../result-attestation.ts'
 import { DEFAULT_SPECULATION_FRACTION, MIN_SAMPLES } from '../speculation.ts'
 import { publicNodes } from '../sovereignty.ts'
 import type { NodeDescriptor } from '../sovereignty.ts'
-import { DEFAULT_SPECULATION_WATCHDOG_MS, submitJob } from './submit.ts'
+import { DEFAULT_SPECULATION_WATCHDOG_MS, jobIdOf, submitJob } from './submit.ts'
 import type {
   CheckpointSink,
   JobClock,
@@ -4241,6 +4241,86 @@ describe('CHURN-03 — a departed requestor leaves a record, and a second one fi
     // WHAT THIS CANNOT REDDEN ON: a checkpoint that carried a *fixed-size* summary of the
     // output — a length, say — would also pass. What it rules out is the answer itself
     // being in there, which is the property a resume's cost depends on.
+  })
+
+  it('lets a caller derive, outside submitJob, the id submitJob will file the checkpoint under', async () => {
+    // **CHURN-03's READ half depends on this equality and on nothing else.** A returning tab
+    // has to find its own handle before it submits, a handle has to be filed under something,
+    // and `resumeState` refuses by name a handle whose checkpoint belongs to another job. So
+    // the key can only be the job id — and the id is *derived inside* `submitJob`, from input
+    // CIDs that do not exist until it has canonicalised every shard. A caller that wants to
+    // look a handle up beforehand must therefore derive the same id by the same recipe, which
+    // is why `jobIdOf` is exported.
+    //
+    // This case is what makes that recipe true by measurement instead of by reading. It is
+    // `packages/browser/demo/main.ts#runColouring`'s exact arrangement: ONE input value, one
+    // copy per shard, `canonicalCid` for each, `jobIdOf` over the module and the ordered CIDs.
+    const store = new MemoryBlockstore()
+    const log = recorder()
+    const input = { churn: 'read-half' } as CanonicalValue
+    const CUBES = 3
+    const spec: JobSpec = {
+      moduleCid: MODULE_CID,
+      shards: Array.from({ length: CUBES }, () => ({ value: input, label: 'public' as const })),
+      executors: [honest('a')],
+      nodes: publicNodes([honest('a')]),
+      redundancy: 1,
+      onQuorumShortfall: 'runs-at-available-redundancy',
+    }
+
+    // The caller's derivation, performed with no `submitJob` in sight and before it is called.
+    const encoded = await canonicalCid(input)
+    expect(encoded.ok).toBe(true)
+    if (!encoded.ok) return
+    const derived = await jobIdOf(MODULE_CID, Array.from({ length: CUBES }, () => encoded.cid))
+
+    const job = await submitJob(spec, store, { clock: frozenClock(64), checkpoints: log.sink })
+    expect(job.ok).toBe(true)
+
+    // (1) THE LOAD-BEARING EQUALITY. Read off the checkpoint block `submitJob` actually
+    // wrote, never off a second call to `jobIdOf` — comparing the exported function against
+    // itself would pass with `submitJob` filing under something else entirely.
+    expect(log.written.length).toBeGreaterThan(0)
+    for (const checkpoint of log.written) expect(checkpoint.jobId).toBe(derived)
+
+    // (2) The round trip a browser tab performs, with a Map standing in for `IdbCheckpoints`:
+    // file the newest handle under the derived id, look it up under an id derived again from
+    // the spec alone, and resume. A key that agreed by accident would fail here, because the
+    // resume refuses a handle whose checkpoint names another job BY NAME.
+    const filed = new Map<string, CID>()
+    filed.set(derived, log.handles[log.handles.length - 1] as CID)
+    const lookedUp = filed.get(
+      await jobIdOf(MODULE_CID, Array.from({ length: CUBES }, () => encoded.cid)),
+    )
+    expect(lookedUp).toBeDefined()
+    const seen: number[] = []
+    // The same spec with a different executor — the second requestor, which shares nothing
+    // with the first but the module and the ordered inputs. That is the whole claim: those
+    // two facts are what the id is derived from, so they are all it needs to find the handle.
+    const second: JobSpec = {
+      ...spec,
+      executors: [counting('b', seen)],
+      nodes: publicNodes([counting('b', seen)]),
+    }
+    const resumed = await submitJob(second, store, {
+      checkpoints: 'checkpoints-nothing',
+      clock: frozenClock(64),
+      resumeFrom: [lookedUp as CID],
+    })
+    expect(resumed.ok).toBe(true)
+    if (!resumed.ok) return
+    // Nothing was dispatched, because the checkpoint named every shard — and every shard says
+    // by name that it was carried rather than that nobody would take it.
+    expect(seen).toEqual([])
+    for (const shard of resumed.job.shards) expect(shard.ending).toBe('carried-from-checkpoint')
+
+    // (3) ANTI-VACUITY, and it is the half that stops this case passing on a constant. The
+    // same module over the same input in a DIFFERENT number of copies is a different job —
+    // `runColouring` sends one cube per peer, so a four-cube run and a three-cube run of the
+    // same rung must not share a checkpoint. If this equality held, every key would collide
+    // and (1) would still be green.
+    const other = await jobIdOf(MODULE_CID, Array.from({ length: CUBES + 1 }, () => encoded.cid))
+    expect(other).not.toBe(derived)
   })
 
   it('resumes from a CID and dispatches ONLY the shards the checkpoint does not name', async () => {

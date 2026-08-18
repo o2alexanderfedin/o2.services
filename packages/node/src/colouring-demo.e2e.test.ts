@@ -210,6 +210,85 @@ describe('DEMO-01 — a real job, distributed across tabs, with placement visibl
   }, 120_000)
 })
 
+/**
+ * CHURN-03's read half, measured through the entry point a visitor reaches — the blocker the
+ * v1.1 audit recorded as B4.
+ *
+ * **Why this case exists and what it is the only proof of.** The write half landed on
+ * 2026-08-16: every colouring run passes `checkpointsInto(node.store)`, so a checkpoint block
+ * goes into this tab's IndexedDB as each cube is answered. Nothing read one back. `resumeFrom`
+ * appeared four times in the whole tree and all four were inside `submit.ts` itself, so the
+ * demo was writing a chain no production caller could ever consume. Everything downstream of
+ * that — `idb-checkpoints.ts`, the exported `jobIdOf`, the C23 region — exists to close it,
+ * and every one of those parts can be unit-tested green while the page still resumes nothing.
+ * This is the case that cannot: it drives `window.o2.runColouring` twice over one job in one
+ * tab and reads what the second run says it did.
+ *
+ * **A DISTINCT job from the one above, and that is not incidental.** `cubes` is in the job id —
+ * `submitJob` derives it from the module CID and the ordered input CIDs, one per cube — so
+ * `CUBES + 1` is a job neither the DEMO-01 case nor the ladder below has touched. Reusing
+ * `CUBES` would have made the first call here a resume of that earlier run, and `offered` would
+ * have been non-null on a call this case needs to observe starting from nothing.
+ *
+ * **Watched red, 2026-08-17, not reasoned about.** `main.ts`'s one line of resume wiring —
+ * `...(resumeFrom === null ? {} : { resumeFrom })` — was planted to `{} : {}`, i.e. the page
+ * looks its handle up, checks it reads back, and then does not pass it. Every other case in
+ * this file stayed green and this one failed with `AssertionError: expected +0 to be 9`, which
+ * is reading (3): nine cubes were dispatched where nine should have been carried. Restored by
+ * the surgical inverse of that one line; `cmp` against a snapshot taken immediately before
+ * planting exited 0.
+ */
+describe('CHURN-03 — the second run of a job carries its cubes instead of computing them', () => {
+  it('resumes from the handle the first run stored, and says so', async () => {
+    const [a, b] = tabs as [Tab, Tab]
+    const argument = { n: N, cubes: CUBES + 1, redundancy: 2, peerIds: [b.peerId] }
+
+    const first = await a.page.evaluate(
+      async (options) => window.o2.runColouring(options),
+      argument,
+    )
+    // (1) The first run of THIS job starts from nothing — there is no handle to offer it, so
+    // nothing is carried. Both are asserted: a `carried: 0` with a handle on offer would be a
+    // resume that silently did nothing, which is the failure this whole mechanism can hide in.
+    expect(first.resume.offered).toBeNull()
+    expect(first.resume.refused).toBeNull()
+    expect(first.resume.carried).toBe(0)
+    // And it leaves something behind. `newest()` is the newest CONFIRMED handle — one whose
+    // block read back out of the store — so this is also the assertion that the write half
+    // actually reached IndexedDB rather than merely being called.
+    expect(first.resume.remembered).not.toBeNull()
+    expect(first.complete).toBe(true)
+    expect(first.found).toBe(true)
+
+    const second = await a.page.evaluate(
+      async (options) => window.o2.runColouring(options),
+      argument,
+    )
+    // (2) THE LOAD-BEARING READING. The second run was offered exactly the handle the first
+    // one stored — the two halves meeting through the mutable key space, under the job id both
+    // derived independently.
+    expect(second.resume.offered).toBe(first.resume.remembered)
+    expect(second.resume.refused).toBeNull()
+    // (3) And it carried every cube. Counted by the page off `ending ===
+    // 'carried-from-checkpoint'` in `submitJob`'s own answer, never off the handle it passed,
+    // so this is what the fabric did and not what the page asked for.
+    expect(second.resume.carried).toBe(CUBES + 1)
+    // (4) The answer survived the round trip: it came out of the checkpoint's named blocks
+    // rather than off any node. A resume that lost the answer would be a slower restart.
+    expect(second.found).toBe(true)
+    // (5) `complete` is FALSE on a resumed run, and that is correct rather than a regression:
+    // a carried shard is `agreed` at `replicas: 0`, which is below any redundancy a caller can
+    // ask for, so it is degraded by the field's own definition. Asserted rather than tolerated
+    // — the day it reads `true` on a run that dispatched nothing, this fabric is claiming a
+    // verification nobody performed.
+    expect(second.complete).toBe(false)
+    // (6) A COMPARATIVE reading, taken inside one run against the arm beside it rather than
+    // against a wall-clock threshold this machine would encode. The second run dispatched no
+    // cube to anybody; the first ran nine across two tabs over WebRTC.
+    expect(second.elapsedMs).toBeLessThan(first.elapsedMs)
+  }, 240_000)
+})
+
 describe('the page runs the ladder itself, not only the API', () => {
   it('climbs until the fabric stops, and says which rung it settled', async () => {
     // Everything above drives `window.o2` directly, which is the right way to make

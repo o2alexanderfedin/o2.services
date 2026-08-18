@@ -74,6 +74,18 @@ export { submitJob } from './job/submit.ts'
 // outside this package that formats the value itself becomes a second author of the
 // sentence, and two authors of one sentence eventually describe one result two ways.
 export { describeQuorum } from './job/submit.ts'
+// CHURN-03's read half. **Not a second way to run a job** — WIRE-04's rule, which
+// `job-entry-points.node.test.ts` enforces against this file by name, is about entry points
+// that dispatch work, and this dispatches nothing: it hashes two content addresses into the
+// name a job answers to in its own checkpoints.
+//
+// It is here because a resume needs that name *before* the submit that derives it. A stored
+// handle must be filed under something, `resumeState` refuses a handle whose checkpoint names
+// another job, and so the key can only be this id — see `idb-checkpoints.ts`, whose whole
+// docblock is that argument. Without this export a returning tab would have to re-implement
+// the derivation, and the day the two spellings drifted every resume would be refused by name
+// with nothing saying why.
+export { jobIdOf } from './job/submit.ts'
 export type {
   JobResult,
   JobSpec,

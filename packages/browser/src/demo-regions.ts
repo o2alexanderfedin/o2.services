@@ -176,18 +176,23 @@ export const UI_SPEC_TALLY: {
   // and VER-04. UI-SPEC section 4.2's table and its section 12 tally were amended in the
   // same commit, so the guard's *both directions* property still holds: this object is a
   // measurement of the catalogue, and UI-SPEC's tally is the claim it is measured against.
-  total: 92,
+  // 92 -> 93 on 2026-08-17, on exactly the terms the row above records. C23
+  // (`colouring/resume`) puts CHURN-03's read half on a screen: whether this run carried
+  // cubes from a checkpoint an earlier run left, or computed all of them. UI-SPEC section
+  // 4.2's table and its section 12 tally were amended in the same commit, so the guard's
+  // *both directions* property is unchanged.
+  total: 93,
   bySurface: {
     session: 5,
     bar: 3,
-    colouring: 22,
+    colouring: 23,
     primes: 12,
     pi: 14,
     byo: 13,
     fabric: 21,
     bench: 2,
   },
-  byKind: { reading: 75, constant: 6, cited: 3, control: 8 },
+  byKind: { reading: 76, constant: 6, cited: 3, control: 8 },
 }
 
 /**
@@ -696,6 +701,38 @@ export const REGIONS: readonly Region[] = [
       initial: 'Not composed: the search has not been run.',
       stopped: "Not composed: this tab's node is stopped.",
       unavailable: 'Not composed: the fabric settled no rung, so no shard was placed.',
+    },
+  },
+  {
+    // C23 — CHURN-03's read half. Added 2026-08-17, and it is the first region on this page
+    // to report something about a run that happened **before this page was loaded**.
+    //
+    // **Why it is a region at all.** The write half landed on 2026-08-16: `runColouring`
+    // passes `checkpointsInto(node.store)` and a checkpoint block is written into IndexedDB
+    // on every run. Nothing could read one back, so from outside the tab a fabric that
+    // checkpoints and a fabric that does not looked exactly alike — which is the whole gap
+    // the read half closes. Closing it in the returned object and not on the screen would
+    // move the gap one layer up and leave it open: a resume nobody can see is a resume
+    // nobody can distinguish from a restart, and *"picks up where it left off"* would again
+    // be a claim about source code rather than a reading.
+    //
+    // **One region and not two, on C17's rule.** The count of carried cubes and the sentence
+    // saying where they came from may not be separated: `0` alone reads as *the resume
+    // failed* on a first run where there was nothing to resume, and `8 carried` alone hides
+    // whether this tab confirmed anything for the next run. UI-SPEC section 5.2 states that
+    // rule for the egress figure and it is the same rule.
+    //
+    // Its `unavailable` arm is COMPOSED rather than transcribed, for C15's, C17's and C22's
+    // reason: UI-SPEC section 4.2 was written before this region existed, so it names no
+    // sentence for a ladder that settled nothing.
+    id: 'colouring/resume', // C23
+    surface: 'colouring',
+    kind: 'reading',
+    source: 'TabApi.runColouring().resume',
+    absence: {
+      initial: 'Not resumed: the search has not been run.',
+      stopped: "Not resumed: this tab's node is stopped.",
+      unavailable: 'Not resumed: the fabric settled no rung, so nothing was carried.',
     },
   },
 
