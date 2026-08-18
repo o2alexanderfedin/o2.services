@@ -280,9 +280,19 @@ const NODE_MEASUREMENT = {
  *   records, measured, that libp2p makes exactly one reservation attempt ever."*
  * - Re-run alone it is green: `EXIT=0`, `real 41.83  user 40.29  sys 7.01`, ratio **1.13**.
  *   That is recorded as a **reading and not as the diagnosis**, because *"passes in
- *   isolation"* is a claim to verify rather than an attribution. The diagnosis is the
- *   one-shot reservation above; the isolation reading is what that diagnosis predicts at
- *   ratio 1.13 versus 2.19.
+ *   isolation"* is a claim to verify rather than an attribution — a quiet host explains
+ *   too much to explain anything.
+ * - **The reading that settles it is a whole-project re-run at the SAME contention**, taken
+ *   once the edit below had landed: `EXIT=0`, 197 files, 2943 passed, 1 skipped,
+ *   **0 failed**, `real 363.54  user 690.06  sys 98.37`, ratio **2.17** against the
+ *   measurement run's 2.19 — within 1 %, which is the only reason the comparison is worth
+ *   anything. A green re-run at ratio 1.1 would have proved nothing.
+ *
+ *   And it settles it *against* the tempting answer. The obvious story is "the host was
+ *   hot", and the obvious story is **wrong**: the host was just as hot and the red did not
+ *   recur. What is left is not a contention threshold but a **one-shot race that lost
+ *   once**, which is precisely what *"exactly one attempt, ever"* predicts and what a load
+ *   threshold does not. The load was the occasion; the missing retry is the cause.
  *
  * **What it costs this table is one row and it is named here rather than hidden.**
  * `admission-agents.node.test.ts` is recorded at 52 425 ms, which is a red-run span: clause
@@ -300,10 +310,15 @@ const NODE_MEASUREMENT = {
  * | 2026-08-15 — previous table | 388.91 s | 1.45 | none |
  * | 2026-08-18, vocabulary pass (`2d8ec73`) | 472.08 s | 1.68 | 5 vocabulary findings, since fixed |
  * | 2026-08-18 — **the table below** | **362.54 s** | **2.19** | `admission-agents` clause 1 |
+ * | 2026-08-18, verification of this edit | 363.54 s | 2.17 | **none — exit 0** |
  *
- * The two rows worth reading together are the last two, taken the same day: the vocabulary
- * pass was 30 % slower at three-quarters of the CPU share, and this one is the fastest and
- * hottest run in the record. `admission-agents` appears only in the hot one.
+ * The three 2026-08-18 rows are the ones worth reading together, and the pairing that
+ * matters is the last two rather than the obvious one. The vocabulary pass was 30 % slower
+ * at three-quarters of the CPU share, and the table below is the fastest and hottest run in
+ * the record — which invites the reading that `admission-agents` is what happens when the
+ * host is hot. **The verification run refutes exactly that**: same tree plus this edit, same
+ * host, ratio 2.17 against 2.19, and it is green. Two runs one ratio-point apart disagree
+ * about that spec, which is the signature of a race rather than of a threshold.
  *
  * ## Retaking this table: the obvious method is measurably wrong, and that is the defect
  *
