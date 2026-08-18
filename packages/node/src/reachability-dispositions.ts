@@ -232,14 +232,14 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   'browser/revokeEnrolment',
   'browser/visitorKeyPair',
   'browser/visitorOperatorId',
-  // CHURN-03, 2026-08-16. `main.ts#runColouring` — a member of the same `api` literal as
-  // `runPi` and `verifyAnswer` — passes `checkpointsInto(node.store)` as `SubmitOptions.checkpoints`,
-  // which is what closes criterion 7's write half. It is hidden by the same `window.o2`
-  // assignment as everything else on this list and by nothing else: there is one caller, it is
-  // cross-file, and it is in the literal. Not read off the source — the derived case named it
-  // verbatim, *"expected [ 'core/checkpointsInto' ] to deeply equal []"*, which is the G14
-  // defence doing its job for the third recorded time.
-  'core/checkpointsInto',
+  // `core/checkpointsInto` stood here from 2026-08-16 until 2026-08-18 and its entry is gone
+  // rather than rewritten, because the symbol is no longer hidden by anything. It was on this
+  // list for one reason: its only caller was `main.ts#runColouring`, behind the `window.o2`
+  // assignment the walk cannot follow. `bin/agent.ts`'s `--coordinate` leg now calls it too,
+  // from a Node entry point the graph traces directly, so there is nothing left to dispose.
+  // Not read off the source: the derived case went red first and named it verbatim,
+  // *"expected [ 'core/checkpointsInto' ] to deeply equal []"* — the same G14 defence that
+  // put it here, working in the other direction.
   'core/describeStartReport',
   // AUTH-01, 2026-08-17. See the visitor-enrolment block above for why a `core/` symbol is on a
   // list of things the demo page hides: CRYPTO-01 requires the `generateKey` call to live in
@@ -623,8 +623,22 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * Had the graph been able to trace that one assignment, not one of these ten entries would
  * exist. The owner named in every `global-object-hop` row is still the fix: extract
  * `index.html`'s inline script, or teach the graph `window.o2`.
+ *
+ * **LOWERED 61 → 60, measured 2026-08-18 — the first time this number has ever gone down, and
+ * that is worth a sentence.** Every note above it records a raise, and each argues that the
+ * raise was the good direction because the register was absorbing *wiring that landed*. This
+ * one is the same event with the hop removed: `core/checkpointsInto` left the register because
+ * `bin/agent.ts`'s `--coordinate` leg calls it from a **Node** entry point, which the graph
+ * traces without needing to follow `window.o2` at all. So the symbol did not become reachable
+ * — it was already reachable — it became reachable **by a route the guard can see**, which is
+ * the difference between a disposition and a call path.
+ *
+ * The ceiling is lowered rather than left with one entry of slack, on the no-slack rule this
+ * file's earlier notes state: a ceiling that stays above the register's size is a permission
+ * for one silent addition, and the whole design here is that the derived case must name a new
+ * entrant before the register may admit it.
  */
-export const DISPOSITION_CEILING = 61
+export const DISPOSITION_CEILING = 60
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {

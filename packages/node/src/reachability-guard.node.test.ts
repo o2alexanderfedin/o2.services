@@ -1240,19 +1240,6 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       'decided to.',
   },
   {
-    key: 'core/checkpointChain',
-    declaredIn: 'packages/core/src/checkpoint.ts',
-    callers: 'none',
-    reason:
-      "CHURN-03's audit walk — *\"how did the job get here\"*, as distinct from recovery's *\"what " +
-      'is the newest state I can act on"*. `submit.ts:1312` cites it as the thing the serialised ' +
-      "checkpoint write order protects (*\"`checkpointChain`'s audit walk would then follow one " +
-      'branch and report a history that omits half the job"*), so the constraint it imposes on ' +
-      "other code is live while the function is not called. Nothing in the tree reads a job's " +
-      'lineage: no binary, no surface, no tool. Nobody has built the audit view and nobody has ' +
-      'decided to.',
-  },
-  {
     key: 'core/createNobleSyncVerifier',
     declaredIn: 'packages/core/src/ed25519-backend.ts',
     callers: 'unreachable-only',
@@ -1308,7 +1295,12 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       'it enumerates the complement of `completed`, and iterating every partition and skipping ' +
       'the carried ones **is** that complement, computed once instead of built into a list and ' +
       'then searched."* Nothing else asks whether a whole job is done, because a resume branches ' +
-      'per partition rather than on a total.',
+      'per partition rather than on a total. **`core/remainingWork` and `core/checkpointChain` ' +
+      'left this register on 2026-08-18 and this one did not, which is the distinction worth ' +
+      "keeping**: `bin/agent.ts`'s `--coordinate` leg calls both — `remainingWork` to report " +
+      'what a handle leaves to do before the job runs, `checkpointChain` to report how deep the ' +
+      'lineage is after it — and neither call needs a boolean over the whole job. So the ' +
+      'deferral quoted above is unchanged and is still the reason this row stands.',
   },
   {
     key: 'core/localDispatch',
@@ -1321,15 +1313,6 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       'plus pure combiner" form. `net/combine.ts:4` names the pair and draws the contrast; it ' +
       'does not decline the wiring. Nobody has built a local-only combine path and nobody has ' +
       'decided to.',
-  },
-  {
-    key: 'core/remainingWork',
-    declaredIn: 'packages/core/src/checkpoint.ts',
-    callers: 'unreachable-only',
-    reason:
-      'Called from `isComplete` (`checkpoint.ts:219`), which is itself in this register. The ' +
-      'source sentence that declines its use on the dispatch path is quoted under ' +
-      '`core/isComplete`, and it is a deliberate deferral rather than an oversight.',
   },
   {
     key: 'core/settleRace',

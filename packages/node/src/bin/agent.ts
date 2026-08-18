@@ -103,9 +103,23 @@
 import { readFile } from 'node:fs/promises'
 import { cpus, hostname, platform, release, totalmem } from 'node:os'
 import { parseArgs } from 'node:util'
-import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
+import {
+  canonicalCid,
+  checkpointChain,
+  checkpointsInto,
+  jobIdOf,
+  publicNodes,
+  recoverCheckpoint,
+  remainingWork,
+  submitJob,
+} from '@o2/core'
+import type { Executor, SubmitOptions } from '@o2/core'
+import { DEFAULT_BUDGET, KERNEL_RECORD, KERNEL_TRUST_ANCHOR, buildInput, kernelBytes } from '@o2/demo'
 import { SEED_BYTES, identityFromSeed, parseKeyHex } from '@o2/libp2p'
+import { RemoteExecutor, rpcAdmission } from '@o2/net'
+import { CID } from 'multiformats/cid'
 import { FabricNode } from '../fabric-node.ts'
+import { FsBlockstore } from '../fs-blockstore.ts'
 import { armOrphanLeash } from '../orphan-leash.ts'
 import { ReservationWatcher } from '../reservation-watch.ts'
 
@@ -552,11 +566,77 @@ const { values } = parseArgs({
     // quiet. A node that got into no relay still executes tasks, serves blocks and
     // answers records for every peer that can reach it directly.
     'relay-addr': { type: 'string', multiple: true },
+    // CHURN-03, ROADMAP Phase 20 criterion 7 — **this binary's coordinator leg**, and the
+    // count of shards it runs. Absent, this process submits nothing and is exactly the
+    // serving node it has always been; every one of the 19 existing argv sites in this
+    // repository is byte-identical with this flag added, because every line of the block at
+    // the foot of this file is inside `if (values.coordinate !== undefined)`.
+    //
+    // ## Why a serving binary grew a coordinator at all
+    //
+    // Criterion 7 reads *"a coordinator writes a checkpoint during a live job run through
+    // `bin/agent.ts`"*, and until this flag existed the honest answer was that no such
+    // coordinator could exist: `grep -c 'submitJob' packages/node/src/bin/agent.ts` returned
+    // **0**, so `checkpoint-agents.node.test.ts` recorded the substitution *"a job run
+    // **across** `bin/agent.ts` processes"* and 20-VERIFICATION.md scored the criterion
+    // PARTIAL on precisely the difference. The write half has since been closed on the
+    // browser tier — `demo/main.ts`'s `runColouring` passes `checkpointsInto(node.store)` —
+    // so what was left was this entry point.
+    //
+    // **`bin/bench.ts` was tried first and is the wrong host**, and the reason is recorded
+    // here so nobody moves it back: that driver is a multi-workload sweep, one checkpoint
+    // handle cannot name its many differently-shaped jobs (a handle applied across the sweep
+    // makes every rung refuse `checkpoint-names-another-job`, measured 2026-08-18), and its
+    // store is an `mkdtemp` its own `close()` deletes — so a checkpoint written there names
+    // a block that is gone before anything could resume from it. This binary has neither
+    // problem: one job, and a `--dir` an operator chose that outlives the process.
+    //
+    // **The workload is the demo colouring kernel and nothing about it is a fixture.**
+    // `KERNEL_RECORD` is signed by `KERNEL_TRUST_ANCHOR`, which is already this binary's
+    // default `--trust-anchor`, so a coordinator started with no anchor flags dispatches a
+    // module every stock agent in this repository will accept. Importing a test fixture here
+    // would have made the one runnable coordinator run something no operator can.
+    coordinate: { type: 'string' },
+    // The problem size the coordinated job runs at — the `n` of `buildInput(n, budget)`,
+    // defaulting to {@link COORDINATED_N}. A knob rather than a constant because the cost of
+    // one cube is what decides whether a departure lands mid-job or after it, and that is a
+    // property of the host rather than of this source.
+    'coordinate-n': { type: 'string' },
+    // Where the coordinated job's **content-addressed state** lives: the shard inputs, the
+    // shard results, and the checkpoint blocks. Defaults to `--dir`, which is the case the
+    // criterion is about — a store an operator named, that outlives the process that wrote
+    // it.
+    //
+    // **It is separate from `--dir` because a peer id is not job state.** `--dir` also holds
+    // this node's identity seed (`fabric-node.ts`, search `loadOrCreateSeed`), so two
+    // processes pointed at one `--dir` are one peer id wearing two processes. A *second
+    // requestor* that inherits the first one's identity is a weaker claim than the criterion
+    // makes, so the hand-off is staged on the store alone and each process keeps its own
+    // `--dir`. What crosses between them is a directory of content-addressed blocks and one
+    // CID — nothing else, by construction.
+    //
+    // The module and the shard input are put into **`node.store`** rather than into this
+    // store, deliberately: peers fetch them off this node over the wire, and the wire serves
+    // `--dir`. A job store that no peer can read would produce a fabric where every dispatch
+    // fails to fetch its input.
+    'job-store': { type: 'string' },
+    // CHURN-03's read half on this binary: checkpoint handles to resume from, **newest
+    // first**, passed straight to `SubmitOptions.resumeFrom`.
+    //
+    // One is the ordinary case — a requestor departed, published a handle, and this process
+    // is handed that CID and the same job description. More than one is the recovery case:
+    // `recoverCheckpoint` takes the newest **readable** handle and reports how many it had
+    // to skip, because a chain cannot be walked backwards past a block that is gone.
+    //
+    // A CID is public by construction, exactly as `--trust-anchor` and `--owner-key` are: it
+    // is a hash of content, it is printed on this process's own stdout when it writes one,
+    // and it names a block anybody holding the store can already read.
+    'resume-from': { type: 'string', multiple: true },
   },
 })
 
 const USAGE =
-  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--admit-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--inbound-threshold <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...]\n'
+  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--admit-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--inbound-threshold <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...] [--coordinate <shards> [--coordinate-n <n>] [--job-store <dir>] [--resume-from <cid> ...]]\n'
 
 /**
  * The one exit-2 path, extended rather than duplicated.
@@ -677,6 +757,60 @@ if (values['duty-cycle'] !== undefined) {
   const cap = Number(values['duty-cycle'])
   if (!Number.isFinite(cap) || cap <= 0 || cap > 1) {
     refuse(`--duty-cycle ${values['duty-cycle']} is not a number in (0, 1]`)
+  }
+}
+
+/**
+ * CHURN-03 — the coordinator leg's inputs, refused here rather than defaulted.
+ *
+ * Every check below is the same disposition every numeric flag above takes: a value this
+ * process cannot act on is exit 2 with the input quoted, never a clamp and never a
+ * silently-substituted default. Three of them are *dependency* checks in
+ * `--issues-certificates`/`--max-issued-per-window`'s shape, and they exist because the
+ * failure they prevent is invisible: `--resume-from` on a process that submits nothing
+ * would start a perfectly healthy serving node that quietly ignored the one argument the
+ * operator cared about, and the only symptom would be work being done twice somewhere else.
+ */
+if (values.coordinate !== undefined) {
+  const shards = Number(values.coordinate)
+  if (!Number.isInteger(shards) || shards < 1) {
+    refuse(`--coordinate ${values.coordinate} is not an integer of at least 1`)
+  }
+  // The coordinator dispatches to peers and never to itself: its own id is absent from the
+  // descriptor set it builds, so a coordinator with no peer has an empty executor set and
+  // every shard ends `never-placed`. That is a job that reports a clean failure and teaches
+  // nobody anything, so it is refused at the command line instead.
+  if ((values['peer-addr'] ?? []).length === 0) {
+    refuse('--coordinate requires at least one --peer-addr to dispatch to')
+  }
+}
+if (values['coordinate-n'] !== undefined) {
+  if (values.coordinate === undefined) {
+    refuse(`--coordinate-n ${values['coordinate-n']} was given to a process that coordinates no job; add --coordinate <shards> or drop it`)
+  }
+  const n = Number(values['coordinate-n'])
+  if (!Number.isInteger(n) || n < 1) {
+    refuse(`--coordinate-n ${values['coordinate-n']} is not an integer of at least 1`)
+  }
+}
+if (values['job-store'] !== undefined && values.coordinate === undefined) {
+  refuse(`--job-store ${values['job-store']} was given to a process that coordinates no job; add --coordinate <shards> or drop it`)
+}
+for (const handle of values['resume-from'] ?? []) {
+  if (values.coordinate === undefined) {
+    refuse(`--resume-from ${handle} was given to a process that coordinates no job; add --coordinate <shards> or drop it`)
+  }
+  // Parsed here and parsed again at the call site, deliberately: a malformed CID is an
+  // operator's typo and belongs with the usage line, while `submitJob`'s own
+  // `checkpoint-unreadable` is a statement about a block that is missing or corrupt. Two
+  // different conditions with two different responses — fix the command, or accept that the
+  // checkpoint is gone — and collapsing them would report the second for the first.
+  try {
+    CID.parse(handle)
+  } catch (cause) {
+    refuse(
+      `--resume-from ${handle} is not a CID: ${cause instanceof Error ? cause.message : String(cause)}`,
+    )
   }
 }
 
@@ -1272,3 +1406,283 @@ process.on('SIGHUP', () => {
     process.stderr.write('agent.ts: duty-cycle re-read failed; duty cycle unchanged\n')
   })
 })
+
+/**
+ * CHURN-03 / ROADMAP Phase 20 criterion 7 — **the coordinator leg.**
+ *
+ * Everything below runs only when `--coordinate` was given. With the flag absent this block
+ * is one comparison against `undefined` and the process is byte-for-byte the serving node it
+ * was before the flag existed — which is the standing rule on this binary and the reason
+ * `--discover` is written the same way in `bin/bench.ts`.
+ *
+ * ## Where it sits, and why that is at the very bottom
+ *
+ * After the handshake line, so a parent that spawned this process already knows how to reach
+ * it and has already dialled it if it wanted to. After the signal handlers, so the job can be
+ * interrupted — a coordinator that could not be stopped mid-job could not depart mid-job, and
+ * departing mid-job is the whole of the criterion this closes. After the SIGHUP re-read, so
+ * an operator can still move the duty cycle of a node that is coordinating.
+ *
+ * ## What it writes on stdout, and why it is one line per checkpoint
+ *
+ * The module comment's rule for the handshake line is that it is the **first** line and that
+ * every parent parses up to the first newline. This block writes further lines after it, and
+ * they are additive under exactly that rule: no existing reader gets to them, because no
+ * existing spawn passes `--coordinate`.
+ *
+ * A line **per confirmed checkpoint** rather than a summary at the end, and this is not a
+ * convenience. A departed requestor is precisely one that never reaches the end of its job —
+ * `JobResult` is the thing it does not get — so a handle published at the end is a handle
+ * nobody would ever read. The line is written from inside the sink, after the block has been
+ * read back out of the store, so a handle on stdout is a handle whose block is already
+ * retrievable.
+ *
+ * ## The workload, and the one thing it is not
+ *
+ * The demo colouring kernel under {@link KERNEL_RECORD}, signed by `KERNEL_TRUST_ANCHOR` —
+ * which is this binary's own default `--trust-anchor`. So a coordinator started with no
+ * anchor flag dispatches a module every stock agent accepts, and nothing here reaches into a
+ * test fixture. `shards` copies of one input value, which is the demo page's own shape: a
+ * cube is distinguished by `partition()` inside the guest, not by its input block.
+ */
+if (values.coordinate !== undefined) {
+  /**
+   * The default problem size, and the reason it is a default rather than a constant.
+   *
+   * 300 is the first rung of the demo's own ladder (`colouring-surface`'s fixtures), so it is
+   * a size this project already runs and reads answers from. `--coordinate-n` exists because
+   * the cost of one cube decides whether a departure lands *mid*-job or after it, and that is
+   * a property of the host rather than of this source — a fixture that needs a slower cube on
+   * a fast machine states so in argv instead of editing this line.
+   */
+  const COORDINATED_N = 300
+  /**
+   * One replica per shard.
+   *
+   * **Stated rather than inherited, and it is a scoping decision.** Redundancy is criterion
+   * 2's and criterion 3's subject and it is not this leg's: what a checkpoint records is the
+   * *agreed* result of a shard, and a shard agrees at one replica exactly as it does at
+   * three. Running this leg at a higher redundancy would multiply every dispatch without
+   * changing a single field of a `JobCheckpoint`, and would make the smallest fabric that can
+   * coordinate a job larger for no reading.
+   */
+  const COORDINATED_REDUNDANCY = 1
+
+  const shards = Number(values.coordinate)
+  const n = values['coordinate-n'] === undefined ? COORDINATED_N : Number(values['coordinate-n'])
+
+  /**
+   * The job's content-addressed state: shard inputs, shard results, checkpoint blocks.
+   *
+   * `node.store` when `--job-store` is absent, which is the case the criterion names — a
+   * store an operator chose with `--dir`, on disk, outliving this process. A separate
+   * directory when it is present, so a *successor* process can be handed the job's state
+   * without inheriting this node's identity seed. See `--job-store`.
+   */
+  const jobStore =
+    values['job-store'] === undefined ? node.store : await FsBlockstore.open(values['job-store'])
+
+  // Into `node.store` and not into `jobStore`: this is what peers fetch off this node over
+  // the wire, and the wire serves `--dir`. `submitJob` also puts the shard input into
+  // `jobStore` on its own account — that copy is what a *resume* reads, and it is a different
+  // question from what a *peer* reads.
+  const moduleCid = await node.store.put(kernelBytes)
+  const input = buildInput(n, DEFAULT_BUDGET)
+  const encodedInput = await canonicalCid(input)
+  if (!encodedInput.ok) {
+    // Not `refuse`: the node is started and serving other peers' work by now, and a usage
+    // line is the wrong answer to an encoding this process could not perform. Exit 1 with the
+    // reason, on `--provider-addr`'s side of that distinction rather than on `--duty-cycle`'s,
+    // because a coordinator that cannot build its own input has nothing left to do.
+    process.stderr.write(
+      `agent.ts: the coordinated job's input will not canonicalise: ${JSON.stringify(encodedInput.error)}\n`,
+    )
+    await node.stop().catch(() => {})
+    process.exit(1)
+  }
+  await node.store.put(encodedInput.bytes)
+
+  /**
+   * The id `submitJob` will file this job's checkpoints under, derived here **before** the
+   * call that derives it again internally.
+   *
+   * Reported rather than used: this process passes handles, not ids. It is on the line below
+   * because a resume is refused by name when the handle names another job
+   * (`checkpoint-names-another-job`), and an operator holding a CID and a refusal needs to be
+   * able to see *which* job each of the two is about. `demo/main.ts` derives it by the same
+   * recipe for the same reason, and `submit.test.ts` holds the two derivations together.
+   */
+  const jobId = await jobIdOf(
+    moduleCid,
+    Array.from({ length: shards }, () => encodedInput.cid),
+  )
+
+  const resumeFrom = (values['resume-from'] ?? []).map((handle) => CID.parse(handle))
+  /**
+   * What this process was handed, read through the production recovery path.
+   *
+   * **A report, not a second read half.** `submitJob` recovers again from the same handles;
+   * this call exists so an operator resuming can see what the checkpoint *says* — how many
+   * shards it answers, which ones are left, and how many handles were unreadable — before the
+   * job runs, rather than inferring it afterwards from a shard's `ending`. `remainingWork` is
+   * `checkpoint.ts`'s own answer to "what is left", and this is its first caller outside a
+   * spec.
+   */
+  const recovered = resumeFrom.length === 0 ? null : await recoverCheckpoint(resumeFrom, jobStore)
+
+  process.stdout.write(
+    `${JSON.stringify({
+      coordinating: {
+        jobId,
+        shards,
+        n,
+        redundancy: COORDINATED_REDUNDANCY,
+        moduleCid: moduleCid.toString(),
+        inputCid: encodedInput.cid.toString(),
+        jobStore: values['job-store'] ?? values.dir,
+        peers,
+        resumeFrom: resumeFrom.map((handle) => handle.toString()),
+        // `null` when nothing was offered, and a stated absence when something was offered
+        // and none of it read back — two different conditions, so two different values.
+        recovered:
+          recovered === null
+            ? null
+            : {
+                from: recovered.cid.toString(),
+                skipped: recovered.skipped,
+                carried: recovered.checkpoint.completed
+                  .map((shard) => shard.partitionIndex)
+                  .sort((a, b) => a - b),
+                remaining: [...remainingWork(recovered.checkpoint)],
+              },
+      },
+    })}\n`,
+  )
+
+  /**
+   * The one sink implementation in this repository, over the job's own store.
+   *
+   * `checkpointsInto` reads each handle's block back out through the same validating reader a
+   * resume would use, so `confirmed` is a statement that the bytes came back and not that
+   * they were written. The wrapper below prints one line per publish and says which of the
+   * two it was — a handle that did not confirm is a resume nobody can perform, and reporting
+   * it as a checkpoint would be publishing a promise the store cannot keep.
+   */
+  const written = checkpointsInto(jobStore)
+
+  /**
+   * What this coordinator states about checkpointing — the field `SubmitOptions` made
+   * **required** so that silence and consent could not read the same way.
+   *
+   * A named binding rather than an inline literal, so that what this process states sits at
+   * one place a reader can find. The other legal value of this field is the sentinel
+   * `'checkpoints-nothing'`, and six of the repository's production submitters say it for
+   * reasons written beside each of them; this one is the leg that says the other thing, and it
+   * is the whole of ROADMAP criterion 7's first clause.
+   */
+  const checkpoints: SubmitOptions['checkpoints'] = {
+    publish: async (handle, checkpoint): Promise<void> => {
+      await written.publish(handle, checkpoint)
+      // Read off the sink rather than assumed: `publish` sorts the handle into `confirmed`
+      // or `unconfirmed`, and only one of those is a checkpoint a successor could resume
+      // from.
+      const confirmed = written.newest()?.toString() === handle.toString()
+      process.stdout.write(
+        `${JSON.stringify({
+          checkpoint: handle.toString(),
+          confirmed,
+          completed: checkpoint.completed
+            .map((shard) => shard.partitionIndex)
+            .sort((a, b) => a - b),
+        })}\n`,
+      )
+    },
+  }
+
+  const executors: readonly Executor[] = peers.map(
+    (peerId) => new RemoteExecutor(peerId, node.rpc, 'dispatches-unauthenticated'),
+  )
+
+  const result = await submitJob(
+    {
+      moduleCid,
+      // DET-03/DATA-08 — the signed mapping, not a bare CID, so every executor this reaches
+      // checks the module against its own pinned anchors before the bytes are fetched.
+      moduleRecord: KERNEL_RECORD,
+      shards: Array.from({ length: shards }, () => ({ value: input, label: 'public' as const })),
+      executors,
+      nodes: publicNodes(peers.map((nodeId) => ({ nodeId }))),
+      redundancy: COORDINATED_REDUNDANCY,
+      // VER-03/VER-04. A coordinator on a hand-built fabric is routinely one operator with no
+      // certificates at all, which is the topology this leg exists to run on;
+      // `'refuses-the-shard'` here would refuse every shard of every run of it.
+      onQuorumShortfall: 'runs-at-available-redundancy',
+      // CHURN-04 — the production admission path, and the channel lease renewal takes its
+      // evidence from. This node's own id is absent from `nodes` above, so the self-offer
+      // branch `rpcAdmission` carries for the demo's sake is never reached from here.
+      admit: rpcAdmission(node.rpc),
+    },
+    jobStore,
+    { checkpoints, ...(resumeFrom.length === 0 ? {} : { resumeFrom }) },
+  )
+
+  /**
+   * The audit view of how this job got here — `checkpointChain`'s first caller outside a spec.
+   *
+   * Distinct from recovery on purpose, and the distinction is visible on a hand-off:
+   * `checkpointLogOf` seeds this run's first checkpoint with the handle it resumed from as its
+   * `previous`, so walking back from this run's newest handle crosses into the **departed**
+   * requestor's history. A chain longer than this process's own publishes is therefore
+   * positive evidence that the two runs are one job rather than two.
+   *
+   * It stops rather than fails at the first missing link, because an incomplete history is
+   * normal — blocks are collected. So the number below is a floor on the lineage, not a claim
+   * about all of it.
+   */
+  const newest = written.newest()
+  const chain =
+    newest === null
+      ? []
+      : await checkpointChain(newest, jobStore, (previous) => {
+          try {
+            return CID.parse(previous)
+          } catch {
+            return null
+          }
+        })
+
+  process.stdout.write(
+    `${JSON.stringify({
+      job: result.ok
+        ? {
+            ok: true,
+            jobId,
+            complete: result.job.complete,
+            redispatches: result.job.redispatches,
+            speculationMultiplier: result.job.speculationMultiplier,
+            shards: result.job.shards.map((shard) => ({
+              partitionIndex: shard.partitionIndex,
+              ending: shard.ending,
+              // The count and not the ids: what a resume claims is that a carried shard was
+              // dispatched **zero** times by this requestor, and `attempted` is `submitJob`'s
+              // own record of the nodes it went to.
+              attempted: shard.attempted.length,
+              status: shard.verification.status,
+              resultCid:
+                shard.verification.status === 'agreed'
+                  ? shard.verification.resultCid.toString()
+                  : null,
+            })),
+            checkpoints: {
+              confirmed: written.confirmed.map((handle) => handle.toString()),
+              unconfirmed: written.unconfirmed.map(({ handle, reason }) => ({
+                handle: handle.toString(),
+                reason,
+              })),
+              chain: chain.length,
+            },
+          }
+        : { ok: false, error: result.error },
+    })}\n`,
+  )
+}
