@@ -244,7 +244,7 @@ import { coverageOf } from '../coverage.ts'
 import type { CoverageReport } from '../coverage.ts'
 import type { NodeCertificate } from '../enrollment.ts'
 import type { Sleep } from '../governor.ts'
-import { DEFAULT_MAX_GENERATIONS, LeaseTable, RENEW_AT, shouldRenew } from '../lease.ts'
+import { DEFAULT_MAX_GENERATIONS, LeaseTable, RENEW_AT, checkLease, shouldRenew } from '../lease.ts'
 import type { Lease, LeaseEvent } from '../lease.ts'
 import type { NameRecord } from '../naming.ts'
 import { planWithOffers } from '../placement.ts'
@@ -1930,7 +1930,13 @@ async function dispatchUnderLease(
 
   for (;;) {
     const at = clock.now()
-    if (at >= lease.expiresAt) return { kind: 'lapsed', speculated }
+    // `checkLease` rather than the comparison it wraps, on the same ground as `shouldRenew`
+    // below: `lease.ts` is the authority on what a lease permits, and this loop had the
+    // predicate hand-inlined at two sites. `checkLease(lease, at).expired` is
+    // `at >= lease.expiresAt` exactly — the function returns the `expired: false` arm only
+    // when `expiresAt > now` — so this is behaviour-neutral, and `lease.test.ts` holds the
+    // equivalence rather than this comment asserting it.
+    if (checkLease(lease, at).expired) return { kind: 'lapsed', speculated }
 
     // The renewal point, measured **back from the deadline** rather than forward from
     // the grant — `expiresAt - leaseMs × (1 - RENEW_AT)`, which is the instant at which
@@ -1989,7 +1995,7 @@ async function dispatchUnderLease(
     }
 
     const woke = clock.now()
-    if (woke >= lease.expiresAt) return { kind: 'lapsed', speculated }
+    if (checkLease(lease, woke).expired) return { kind: 'lapsed', speculated }
 
     // ── Straggler duplication — CHURN-02, CHURN-06 ────────────────────────────────
     //

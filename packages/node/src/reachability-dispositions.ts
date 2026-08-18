@@ -331,6 +331,42 @@ const BENCHMARK_DRIVER_ONLY: readonly string[] = [
  *   because it varies redundancy per rung, which this signature cannot express.
  * - `net/remoteDispatch` — carries NET-09's `'sender'` classification, which is the same deferral
  *   as `EgressRefusal` seen from the other end.
+ *
+ * ## The `ed25519-backend.ts` port, added 2026-08-18 — five rows, one ruling
+ *
+ * `core/createNobleSyncVerifier`, `core/Ed25519NotInitializedError`, `core/getAsyncVerifier`,
+ * `core/getSyncVerifier` and `core/initEd25519` sat in `OPEN_FINDINGS` until today, under a
+ * reason whose last sentence read *"An open decision, not a decision against wiring."* **That
+ * sentence is false, and it was false when it was written** — CRYPTO-03 had already taken the
+ * decision, four days earlier, with the measurement beside it. The row was describing the
+ * module's docblock, which predates the ruling, rather than the ledger that supersedes it.
+ *
+ * The sentence this class's contract asks each row to carry is CRYPTO-03's own, verbatim:
+ * *"The port therefore stays unwired **as a decision** rather than as a deferral."* What backs
+ * it is measured rather than preferred, and it is worth restating because it makes wiring these
+ * **affirmatively wrong** rather than merely undone. Routing the nine direct verification sites
+ * through the port *"would select nothing"* — `Ed25519Backend` is a one-member union and the
+ * initialiser sets the sync verifier to the noble arm unconditionally, discarding the probed
+ * backend, so it is the same `ed25519.verify` wrapped the same way. And it *"would only **add**
+ * a failure mode the trust path does not have"*: the not-initialised error thrown into a
+ * synchronous verification that arrives before three entry points have resolved the promise,
+ * whose fail-closed handling is a `catch` returning `false` — i.e. the `catch` that is already
+ * there, plus a bootstrap-ordering hazard.
+ *
+ * **Two things make this a disposition rather than either of the other two moves.** Wiring is
+ * refused above. Retiring the barrel exports is *blocked*, not declined:
+ * `libsodium-absence.e2e.test.ts` builds its CRYPTO-05 measurement page by importing two of
+ * these five **from the `@o2/core` barrel**, gzips the result and holds it against
+ * `VERIFIER_BUDGET_BYTES`, so removing them from the barrel deletes a measurement rather than a
+ * capability. A published surface with a written owner ruling against wiring it is exactly what
+ * this cause is for.
+ *
+ * **What this does NOT claim**, stated because five rows arriving together is the shape a
+ * register grows decorative in: none of the five acquires a call path here. They have none, they
+ * are named individually, and `requirements-ledger.node.test.ts` independently holds WIRE-02's
+ * own sentence that `getSyncVerifier` has no production caller — a claim that reddens the moment
+ * anybody wires one. This entry records who decided and on what measurement; it does not record
+ * work being done.
  */
 const DEFERRED_IN_SOURCE: readonly string[] = [
   'bench/sweepNodeCount',
@@ -342,6 +378,16 @@ const DEFERRED_IN_SOURCE: readonly string[] = [
   // and says so. **Disposed on the source's stated deferral, not on the finding being tiresome.**
   'core/FallbackRecordIndex',
   'core/MemoryRecordIndex',
+  // CRYPTO-03, owner ruling 2026-08-11, moved out of `OPEN_FINDINGS` on 2026-08-18. See the
+  // block above for the sentence that defers each of these and for why neither wiring nor
+  // retirement is the move. The two with in-file callers are `createNobleSyncVerifier` (from
+  // the initialiser) and `Ed25519NotInitializedError` (from both getters); the other three
+  // have no caller of any kind.
+  'core/Ed25519NotInitializedError',
+  'core/createNobleSyncVerifier',
+  'core/getAsyncVerifier',
+  'core/getSyncVerifier',
+  'core/initEd25519',
   'net/EgressRefusal',
   'net/checkBlockstoreConformance',
   'net/remoteDispatch',
@@ -452,6 +498,28 @@ export const HIDDEN_BY_DISPATCH: readonly HiddenCaller[] = [
     cause: 'proxy-trap-dispatch',
     composedAt:
       'bin/agent.ts:812 — `new ReservationWatcher()`, handed to libp2p at fabric-node.ts:1823',
+  },
+  {
+    // `seed-server.ts:272`, inside `bootstrapInfoFor`, which is called at `:469` inside
+    // `configureServer` — a method of the Vite plugin object literal at `:462`. **Same
+    // mechanism as the row above and not a variant of it**: no call expression anywhere in this
+    // repository or in Vite names that member, because the framework invokes it off the plugin
+    // object it was handed. Not a port, so this is the second `proxy-trap-dispatch` row rather
+    // than a sixth port row, and the port-grounding case below correctly does not read it.
+    //
+    // **This row is a ruling being taken, not a finding being discovered.** It sat in
+    // `OPEN_FINDINGS` from 2026-08-14 to 2026-08-18 with its whole mechanism already measured
+    // and written out, under the reason *"re-causing a symbol is a decision to **put** rather
+    // than to take in passing … Moving this row would lower the residue by one on nobody's
+    // ruling."* The ruling is now somebody's, and the measurement was re-taken rather than
+    // inherited on the day it moved: `configureServer` is a graph node, its in-degree is **0**,
+    // and rooting it flips exactly `["node/relayAddrForHost"]` and nothing else.
+    key: 'node/relayAddrForHost',
+    through: 'packages/node/src/seed-server.ts#configureServer',
+    cause: 'proxy-trap-dispatch',
+    composedAt:
+      'seed-server.ts:462 — the `o2-bootstrap` Vite plugin literal; Vite calls `configureServer`, ' +
+      'and every `/bootstrap.json` request runs this symbol through `bootstrapInfoFor`',
   },
 ]
 
@@ -637,8 +705,36 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * file's earlier notes state: a ceiling that stays above the register's size is a permission
  * for one silent addition, and the whole design here is that the derived case must name a new
  * entrant before the register may admit it.
+ *
+ * **Raised 60 → 66, measured 2026-08-18, and this raise is a DIFFERENT KIND from every one
+ * above it — which is why it is described before it is defended.** Every prior raise absorbed
+ * symbols that had *just been created and wired*, hidden behind `window.o2`. Not one of these
+ * six is new, and not one of them gains a call path here. All six moved **out of
+ * `OPEN_FINDINGS`**, where each had a row, and what changed is the cause written against them:
+ *
+ * - `node/relayAddrForHost` → {@link HIDDEN_BY_DISPATCH}, `proxy-trap-dispatch`. It **runs in
+ *   production**, on every `/bootstrap.json` request, and its own open-findings row said so and
+ *   named the mechanism in full. It was held open on the explicit ground that *"re-causing a
+ *   symbol is a decision to put rather than to take in passing"*. The decision was put and
+ *   taken. Its three legs were re-measured on the day it moved rather than copied from the row
+ *   — in-degree 0, and rooting `configureServer` flips exactly that one key — and the guard
+ *   re-measures all three on every run, which no other cause in this file can say.
+ * - the five `ed25519-backend.ts` rows → {@link DEFERRED_IN_SOURCE}. These do **not** run in
+ *   production and are not claimed to. They carry CRYPTO-03's ruling, whose measurement is that
+ *   wiring them would select nothing and add a failure mode; see that cause's docblock.
+ *
+ * **So this number going up is the honest reading of a re-causing, and the population it is a
+ * ceiling over went DOWN in the same change**: the guard's total moved 75 → 68 and the
+ * undisposed residue 15 → 2, because two symbols were wired into production call sites and five
+ * barrel exports were retired. A register that grows while the thing it excuses shrinks is the
+ * good direction; a register that grows while the total holds still is the alarm. This is the
+ * first, and the arithmetic is stated so the next reader can tell which one they are looking at.
+ *
+ * The no-slack rule is kept: 66 is exactly the register's size. `global-object-hop` is still
+ * derived and still reddens in both directions, and the six arrivals are in the two causes whose
+ * membership the guard re-measures or whose sentence a second guard holds.
  */
-export const DISPOSITION_CEILING = 60
+export const DISPOSITION_CEILING = 66
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {

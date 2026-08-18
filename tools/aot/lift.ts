@@ -79,7 +79,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { sha256 } from '@o2/core'
-import { describeKey, describeKeyFailure, screenElf, translationCid } from '@o2/aot'
+import { describeKey, describeKeyFailure, describeRefusal, screenElf, translationCid } from '@o2/aot'
 import type {
   ElfFacts,
   ElfRefusal,
@@ -1348,7 +1348,13 @@ export function describeLiftFailure(failure: LiftFailure): string {
     case 'input-unreadable':
       return `${failure.path} could not be read: ${failure.detail}`
     case 'refused-by-screen':
-      return `the pre-screen refused this input (${failure.reason.kind}) — no container was started`
+      // The sentence, not the discriminant. `describeRefusal` exists to state the property
+      // that was found and the thing to do about it — *"built for machine 62 (x86-64), not
+      // AArch64 … cross-compile it for aarch64 and translate that"* — and this renderer
+      // printed `reason.kind` alone until 2026-08-18, so the whole of that reached nobody
+      // outside `elf.test.ts`. The prefix is kept because the ordering claim it carries is
+      // this arm's own point: the screen ran before any container did.
+      return `the pre-screen refused this input — no container was started: ${describeRefusal(failure.reason)}`
     case 'docker-unavailable':
       return `docker could not be run: ${failure.detail}`
     case 'docker-not-answering':

@@ -278,6 +278,17 @@ export type RaceOutcome =
  * Takes answers rather than promises, so the ordering under test is the arrival
  * ordering rather than the scheduler's. Ties break on node id, so a settled race is
  * reproducible from its inputs.
+ *
+ * ## Off `@o2/core`'s barrel since 2026-08-18 — and the reason is a correctness refusal
+ *
+ * The one site in this repository that looks like this function's caller declines it **in
+ * writing**: `job/submit.ts` compares the loser's CID against the winner's directly, and
+ * says why — this function re-derives the winner from arrival instants, and on a clock that
+ * reports the same instant for both copies the tie-break on node id could name the *loser*,
+ * overturning a decision that module has already taken and already closed a lease against.
+ * That is a correctness ground, not a preference, so publishing this on the barrel was an
+ * invitation to make the mistake the comment there exists to prevent. The declaration and
+ * `speculation.test.ts` are untouched; only the advertisement is gone.
  */
 export function settleRace(answers: readonly SpeculativeAnswer[]): RaceOutcome {
   const arrived = answers.filter(
