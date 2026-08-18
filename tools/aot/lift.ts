@@ -162,6 +162,7 @@ export type LiftBlindSpot =
   | { readonly kind: 'cross-machine-reproducibility'; readonly note: string }
   | { readonly kind: 'reachability'; readonly note: string }
   | { readonly kind: 'undecoded-unmeasured'; readonly note: string }
+  | { readonly kind: 'image-provenance-unknown'; readonly note: string }
 
 export const CROSS_MACHINE_BLIND_SPOT: LiftBlindSpot = {
   kind: 'cross-machine-reproducibility',
@@ -179,6 +180,30 @@ export const REACHABILITY_BLIND_SPOT: LiftBlindSpot = {
     'much of what goes untranslated in a static glibc binary is an ifunc variant for a CPU ' +
     'this deployment may never present — this driver does not decide which, and neither ' +
     'reading nor ignoring these findings is safe by default',
+}
+
+/**
+ * The daemon did not say where the image's content came from, so the name was taken on trust.
+ *
+ * Attached when `docker image inspect` answers no `Identity` at all — the field is
+ * Docker 29 / containerd-image-store data, and a daemon without it reports nothing
+ * this driver can use to tell a pulled name from a `docker tag`ged one. The name is
+ * then admitted, because refusing every image on such a host would be a false refusal
+ * of correct images (the trade that got the `every`-RepoDigests rule rejected on
+ * 2026-08-04), and the artifact carries this note instead of the refusal.
+ *
+ * Measured 2026-08-18 on Docker Server 29.4.0 / containerd v2.2.2: `Identity` is
+ * present on all 16 local images bar one, so this spot is the exception on that host
+ * rather than the rule. What it is *not* is a statement about the classic dockerd
+ * image store, which remains unmeasured — and unmeasured is not met.
+ */
+export const IMAGE_PROVENANCE_BLIND_SPOT: LiftBlindSpot = {
+  kind: 'image-provenance-unknown',
+  note:
+    'this docker daemon reported no image Identity, so the driver could not tell whether the ' +
+    'toolchain image was pulled under the name it was asked for or given that name locally by ' +
+    '`docker tag`; the recorded digest is truthful either way, but the repository half of the ' +
+    'name it is recorded under was taken on trust rather than checked',
 }
 
 export const UNDECODED_UNMEASURED_BLIND_SPOT: LiftBlindSpot = {
@@ -452,6 +477,49 @@ export type LiftFailure =
       /** Every entry that *was* found, so the mismatch can be read rather than guessed. */
       readonly digests: readonly string[]
     }
+  /**
+   * The name is not one this host ever pulled under — a `docker tag` of somebody else's image.
+   *
+   * **This is the refusal the `image-digest-foreign` one above stopped being able to make,
+   * and the reason it stopped is worth stating precisely.** On the classic dockerd image
+   * store `docker tag A B` left `B` with `A`'s `RepoDigests` and nothing of its own, so the
+   * repository match failed and the borrowed name was refused. On the containerd image
+   * store it does not: measured on Docker Server 29.4.0 / containerd v2.2.2, `docker tag`
+   * gives the borrowed repository a `RepoDigests` entry of its own carrying the origin's
+   * manifest digest, and — because `RepoDigests` is a property of the image **ID**, not of
+   * the reference inspected — the *canonical* name then answers with a byte-identical list.
+   * That is why an `every`-entries-must-match repair is not available: it refuses the
+   * correct image on any host where somebody has ever run `docker tag`.
+   *
+   * `Identity` is a different data source and it does not have that property. It records
+   * where the content was **obtained** — `{"Pull":[{"Repository":"ghcr.io/yomaytk/elfconv"}]}`
+   * for a pull, `{"Build":[…]}` for a local build — and measured on the same host on
+   * 2026-08-18, `docker tag` does **not** add an entry to it:
+   *
+   * ```
+   * $ docker tag ghcr.io/yomaytk/elfconv:arm64 o2-retag-probe/elfconv:borrowed
+   * $ docker image inspect o2-retag-probe/elfconv:borrowed --format '{{json .Identity}}'
+   * {"Pull":[{"Repository":"ghcr.io/yomaytk/elfconv"}]}
+   * ```
+   *
+   * So the predicate is not over the *data* — which really is identical for both names —
+   * but over the data **and the name that was asked for**: the requested repository must
+   * appear among the repositories the content was pulled under. That refuses the borrowed
+   * call and admits the canonical one from the same bytes, which the 2026-08-05 reading
+   * ("no predicate over that data can refuse one call and admit the other") had concluded
+   * was impossible. It was impossible over `RepoDigests` alone.
+   *
+   * A locally *built* image lands here too, and correctly: it has `Build` and no `Pull`, so
+   * there is no repository any other host could resolve the recorded name against.
+   */
+  | {
+      readonly kind: 'image-name-not-pulled'
+      readonly image: string
+      /** The requested repository, normalised the way Docker normalises a reference. */
+      readonly repository: string
+      /** The repositories the content really was pulled under; empty for a local build. */
+      readonly pulled: readonly string[]
+    }
   | {
       readonly kind: 'toolchain-failed'
       readonly exitCode: number | null
@@ -697,22 +765,111 @@ function repositoryOf(reference: string): string {
 }
 
 /**
+ * A repository name in the fully-qualified form `Identity` reports.
+ *
+ * Docker's own reference grammar, and it has to be applied or the check below is a
+ * false-refusal machine: `docker image ls` prints `alpine` while `Identity` names
+ * `docker.io/library/alpine`, so a raw string compare refuses correct images. Measured
+ * across all 16 images on this host on 2026-08-18 — before normalising, 9 of 11
+ * genuinely-pulled images were refused; after, none was.
+ *
+ * The rule: the first path segment is a registry only if it contains a `.` or a `:`, or
+ * is exactly `localhost`. Otherwise the name is on Docker Hub, and a single-segment name
+ * is additionally in the `library` namespace.
+ */
+export function normalizeRepository(repository: string): string {
+  const segments = repository.split('/')
+  const first = segments[0] ?? ''
+  const isRegistry = first.includes('.') || first.includes(':') || first === 'localhost'
+  if (isRegistry) return repository
+  return segments.length === 1 ? `docker.io/library/${repository}` : `docker.io/${repository}`
+}
+
+/** The marker prefix the identity line is emitted behind. See {@link INSPECT_FORMAT}. */
+const IDENTITY_PREFIX = 'o2-image-identity='
+
+/**
+ * What one `docker image inspect` is asked for.
+ *
+ * Two facts in one spawn rather than two, because this runs on every lift and the second
+ * spawn buys nothing a marker line cannot.
+ *
+ * **`index . "Identity"` and not `.Identity`, and that is the whole compatibility story.**
+ * Docker renders `--format` with `missingkey=error`, so `{{json .Identity}}` on a daemon
+ * that has no such field is a *template parsing error* — stdout empty, **exit 1** — which
+ * `resolveImage` would then classify as `image-absent` and send someone to pull six
+ * gigabytes they already have. `index` returns the zero value for a missing map key
+ * instead. Measured 2026-08-18:
+ *
+ * ```
+ * $ docker image inspect <ref> --format '{{json .NoSuchFieldAtAll}}'
+ * template parsing error: … map has no entry for key "NoSuchFieldAtAll"   # EXIT=1
+ * $ docker image inspect <ref> --format '{{json (index . "NoSuchFieldAtAll")}}'
+ * null                                                                    # EXIT=0
+ * ```
+ *
+ * The identity line is emitted **first and behind a marker**, and the digest lines follow.
+ * A stub `docker` that emits only digests therefore parses as "no identity reported" rather
+ * than as one fewer digest — which is what makes this change additive to the stubs that
+ * were written before the field existed.
+ */
+const INSPECT_FORMAT = `${IDENTITY_PREFIX}{{json (index . "Identity")}}\n{{join .RepoDigests "\\n"}}`
+
+/**
+ * Which repositories the daemon says this image's content was pulled under.
+ *
+ * `undefined` means the daemon reported no `Identity` at all — a different state from an
+ * empty list, which means it reported one and named no pull (a local build). The two get
+ * different treatment: unknown is admitted with {@link IMAGE_PROVENANCE_BLIND_SPOT},
+ * empty is refused.
+ */
+export function pulledRepositories(stdout: string): readonly string[] | undefined {
+  const line = stdout.split('\n').find((candidate) => candidate.trimStart().startsWith(IDENTITY_PREFIX))
+  if (line === undefined) return undefined
+  const json = line.trimStart().slice(IDENTITY_PREFIX.length).trim()
+  if (json === '' || json === 'null') return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(json)
+  } catch {
+    // A daemon that answered something unparseable is not a daemon that said "built
+    // locally". Treated as silence, for the same reason `docker-not-answering` is not
+    // `image-absent`: the refusal has to name what was actually observed.
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined
+  const pull = (parsed as { readonly Pull?: unknown }).Pull
+  if (!Array.isArray(pull)) return []
+  return pull
+    .map((entry) =>
+      typeof entry === 'object' && entry !== null
+        ? (entry as { readonly Repository?: unknown }).Repository
+        : undefined,
+    )
+    .filter((repository): repository is string => typeof repository === 'string')
+}
+
+/**
  * The image's content address.
  *
  * `docker image inspect` rather than `docker pull`: a build must not silently acquire
  * six gigabytes, and a tag that resolved differently on two machines is exactly the
  * reproducibility hole the digest exists to close.
+ *
+ * Two questions, not one: *what digest does this name resolve to* and *is this name one
+ * the content was actually pulled under*. The second exists because the first stopped
+ * being able to answer it on the containerd image store — see
+ * {@link LiftFailure} `image-name-not-pulled`.
  */
 export async function resolveImage(
   image: string,
   docker: string,
   timeoutMs: number,
-): Promise<{ readonly ok: true; readonly reference: string } | { readonly ok: false; readonly failure: LiftFailure }> {
-  const inspected = await run(
-    docker,
-    ['image', 'inspect', image, '--format', '{{join .RepoDigests "\\n"}}'],
-    timeoutMs,
-  )
+): Promise<
+  | { readonly ok: true; readonly reference: string; readonly provenance: 'pulled' | 'unknown' }
+  | { readonly ok: false; readonly failure: LiftFailure }
+> {
+  const inspected = await run(docker, ['image', 'inspect', image, '--format', INSPECT_FORMAT], timeoutMs)
   if (inspected.spawnError !== null) {
     return {
       ok: false,
@@ -748,6 +905,14 @@ export async function resolveImage(
   // the first entry is routinely some other registry's content, and running it would
   // put an unknown toolchain into the translation key under a trusted name.
   const repository = repositoryOf(image)
+  // The name check comes before the digest match, and the order is load-bearing: on the
+  // containerd image store a borrowed name matches its own `RepoDigests` entry, so the
+  // digest match would succeed and adopt it. This is the arm that refuses it.
+  const pulled = pulledRepositories(inspected.stdout)
+  const wanted = normalizeRepository(repository)
+  if (pulled !== undefined && !pulled.includes(wanted)) {
+    return { ok: false, failure: { kind: 'image-name-not-pulled', image, repository: wanted, pulled } }
+  }
   const match = digests.find((digest) => digest.startsWith(`${repository}@`))
   if (match === undefined) {
     // Two distinct conditions with two distinct fixes: nothing to key on at all
@@ -757,7 +922,7 @@ export async function resolveImage(
       ? { ok: false, failure: { kind: 'image-has-no-digest', image } }
       : { ok: false, failure: { kind: 'image-digest-foreign', image, repository, digests } }
   }
-  return { ok: true, reference: match }
+  return { ok: true, reference: match, provenance: pulled === undefined ? 'unknown' : 'pulled' }
 }
 
 function parseMeta(text: string): ReadonlyMap<string, string> {
@@ -883,8 +1048,12 @@ export function verdictOf(
 export function blindSpotsFor(
   undecoded: UndecodedProbe,
   verdict: LiftVerdict,
+  imageProvenance: 'pulled' | 'unknown' = 'pulled',
 ): readonly LiftBlindSpot[] {
   const spots: LiftBlindSpot[] = [CROSS_MACHINE_BLIND_SPOT]
+  // Optional and defaulting to `pulled` so that every existing caller and case keeps the
+  // list it had; the spot appears only where the daemon really did say nothing.
+  if (imageProvenance === 'unknown') spots.push(IMAGE_PROVENANCE_BLIND_SPOT)
   if (undecoded.kind === 'not-run') {
     spots.push(
       undecoded.why === 'undecoded-unreadable'
@@ -1148,7 +1317,7 @@ export async function liftElf(elfPath: string, options: LiftOptions = {}): Promi
       findings: scan.findings,
       unparsed: scan.unparsed,
       undecoded,
-      blindSpots: blindSpotsFor(undecoded, verdict),
+      blindSpots: blindSpotsFor(undecoded, verdict, resolved.provenance),
       elf: screening.facts,
       durationMs,
       stdout: ran.stdout,
@@ -1213,6 +1382,16 @@ export function describeLiftFailure(failure: LiftFailure): string {
         're-tagged image, and lifting with one of those digests would run an unknown ' +
         'toolchain under a trusted name and record it in the cache key as this one; re-pull ' +
         'by the name you mean instead of re-tagging'
+      )
+    case 'image-name-not-pulled':
+      return (
+        `${failure.image} is present, but this host never pulled anything under ` +
+        `${failure.repository} — its content was obtained as ` +
+        `${failure.pulled.length === 0 ? 'a local build' : failure.pulled.join(', ')}, so that ` +
+        'name was applied here by `docker tag` or `docker build`; lifting under it would ' +
+        'record a toolchain identity in the translation key that no other host can resolve, ' +
+        'and the borrowed name would then be what the cache is keyed on forever. Lift by the ' +
+        'name the image was pulled under'
       )
     case 'toolchain-failed': {
       // The findings first, then the lines nothing parsed. This failure is the only

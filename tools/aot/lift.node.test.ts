@@ -11,6 +11,7 @@ import {
   CROSS_MACHINE_BLIND_SPOT,
   DEFAULT_TIMEOUT_MS,
   ELFCONV_IMAGE_TAG,
+  IMAGE_PROVENANCE_BLIND_SPOT,
   IMAGE_RESOLVE_CAP_MS,
   LIFT_TARGET,
   REACHABILITY_BLIND_SPOT,
@@ -23,6 +24,8 @@ import {
   describeLift,
   describeLiftFailure,
   liftElf,
+  normalizeRepository,
+  pulledRepositories,
   readTargetFeatures,
   readUndecoded,
   resolveImage,
@@ -1374,6 +1377,180 @@ afterAll(() => {
   cleanupStubs()
 })
 
+describe('a name the image was never pulled under is refused, and the canonical one is not', () => {
+  /**
+   * The arms the real-`docker tag` case in `cli.node.test.ts` cannot reach.
+   *
+   * That case needs the six-gigabyte image and a live daemon, so it is `skipIf`-gated and
+   * a skip reports green inside an aggregate pass. These run on any host, with a stub
+   * `docker`, and they cover the two things the gated case measures only implicitly: the
+   * reference normalisation, without which the rule is a false-refusal machine, and the
+   * arm for a daemon that reports no `Identity` at all.
+   */
+
+  /** A stub `docker` answering the identity line and then the digest lines, as the real one does. */
+  const identityStub = (identity: string, digests: readonly string[]): string =>
+    `printf '%s\\n' 'o2-image-identity=${identity}' '${digests.join("' '")}'\nexit 0`
+
+  const PULLED_HERE = '{"Pull":[{"Repository":"ghcr.io/yomaytk/elfconv"}]}'
+  const PULLED_ELSEWHERE = '{"Pull":[{"Repository":"ghcr.io/someone-else/elfconv"}]}'
+  const BUILT_LOCALLY = '{"Build":[{"Ref":"lrsky8d16jktbv4pn0ymd6wql","CreatedAt":"2026-08-18T01:14:28Z"}]}'
+
+  it('normalises a reference the way Docker does, because Identity is fully qualified', () => {
+    /**
+     * **Measured, not derived.** `docker image ls` prints `alpine`; the same image's
+     * `Identity` reads `docker.io/library/alpine`. Run against all 16 images on this host
+     * on 2026-08-18, the un-normalised compare refused 9 of the 11 genuinely-pulled
+     * images — so this function is not tidying, it is the difference between a refusal
+     * that works and one that refuses everything from Docker Hub.
+     */
+    expect(normalizeRepository('alpine')).toBe('docker.io/library/alpine')
+    expect(normalizeRepository('pgvector/pgvector')).toBe('docker.io/pgvector/pgvector')
+    expect(normalizeRepository('o2-local/elfconv')).toBe('docker.io/o2-local/elfconv')
+    // Already qualified: left alone, both for a registry with a dot and for `localhost`.
+    expect(normalizeRepository('ghcr.io/yomaytk/elfconv')).toBe('ghcr.io/yomaytk/elfconv')
+    expect(normalizeRepository('localhost/o2/x')).toBe('localhost/o2/x')
+    // A registry may carry a port, and a port is a colon in the first segment — the same
+    // rule `repositoryOf` needs and for the same reason.
+    expect(normalizeRepository('localhost:5000/o2/x')).toBe('localhost:5000/o2/x')
+  })
+
+  it('tells a daemon that said nothing from one that said "built here"', () => {
+    // Three states, not two. `undefined` is "this daemon does not report provenance" and
+    // is admitted; `[]` is "it reported, and named no pull" and is refused. Collapsing
+    // them would either refuse every image on an older daemon or admit every local build.
+    expect(pulledRepositories(`o2-image-identity=${PULLED_HERE}\nsomething@sha256:aa`)).toEqual([
+      'ghcr.io/yomaytk/elfconv',
+    ])
+    expect(pulledRepositories(`o2-image-identity=${BUILT_LOCALLY}`)).toEqual([])
+    expect(pulledRepositories('o2-image-identity=null')).toBeUndefined()
+    // The shape every stub written before this field existed emits: digests only.
+    expect(pulledRepositories('ghcr.io/yomaytk/elfconv@sha256:aa')).toBeUndefined()
+    // And an answer nothing can parse is silence, not a local build — a refusal has to
+    // name what was observed, and "unparseable" is not "never pulled".
+    expect(pulledRepositories('o2-image-identity={not json')).toBeUndefined()
+  })
+
+  it('refuses a digest that matches when the name was never pulled', async () => {
+    // The borrowed-name shape a real `docker tag` leaves on the containerd image store:
+    // the requested repository HAS its own RepoDigests entry, so the digest match would
+    // succeed. Only the identity check separates it.
+    const docker = stubDocker(
+      identityStub(PULLED_ELSEWHERE, ['ghcr.io/yomaytk/elfconv@sha256:' + 'a'.repeat(64)]),
+    )
+    // Wrapped for the reason the sibling `image-digest-foreign` case is: a stub that
+    // answers instantly still fails to answer inside 20 s when a real 6 GB lift is running
+    // in the other file of the same `--project node` invocation. Measured 2026-08-18 —
+    // these four cases passed in 217-259 ms alone and all four hit the full
+    // `METADATA_BUDGET_MS` with `docker-not-answering` when run beside
+    // `cli.node.test.ts`. The wrapper retries that one transient condition; no assertion
+    // below is relaxed by it.
+    const { result: resolved } = await despiteAFullProcessTable(() =>
+      resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS),
+    )
+    expect(resolved.ok).toBe(false)
+    if (resolved.ok) return
+    expect(resolved.failure.kind).toBe('image-name-not-pulled')
+    if (resolved.failure.kind !== 'image-name-not-pulled') return
+    expect(resolved.failure.repository).toBe('ghcr.io/yomaytk/elfconv')
+    expect(resolved.failure.pulled).toEqual(['ghcr.io/someone-else/elfconv'])
+    // Rendered, so it never reaches an operator as [object Object].
+    expect(describeLiftFailure(resolved.failure)).toContain('never pulled anything under')
+  })
+
+  it('refuses a locally built image, which has a digest and no repository anyone can resolve', async () => {
+    // The case `image-has-no-digest` used to catch and cannot any more: measured
+    // 2026-08-18, a `docker build`-produced image DOES get a RepoDigests entry on the
+    // containerd image store, so "no digest" is no longer the signal for "built here".
+    const docker = stubDocker(
+      identityStub(BUILT_LOCALLY, ['ghcr.io/yomaytk/elfconv@sha256:' + 'b'.repeat(64)]),
+    )
+    const { result: resolved } = await despiteAFullProcessTable(() =>
+      resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS),
+    )
+    expect(resolved.ok).toBe(false)
+    if (resolved.ok) return
+    expect(resolved.failure.kind).toBe('image-name-not-pulled')
+    if (resolved.failure.kind !== 'image-name-not-pulled') return
+    expect(resolved.failure.pulled).toEqual([])
+    expect(describeLiftFailure(resolved.failure)).toContain('a local build')
+  })
+
+  it('admits the name the content really was pulled under, and records that it checked', async () => {
+    const docker = stubDocker(identityStub(PULLED_HERE, [MATCHING_DIGEST]))
+    const { result: resolved } = await despiteAFullProcessTable(() =>
+      resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS),
+    )
+    expect(resolved.ok, resolved.ok ? '' : describeLiftFailure(resolved.failure)).toBe(true)
+    if (!resolved.ok) return
+    expect(resolved.reference).toBe(MATCHING_DIGEST)
+    expect(resolved.provenance).toBe('pulled')
+  })
+
+  it('admits a Docker Hub short name, whose Identity is fully qualified', async () => {
+    /**
+     * **The false-refusal regression this rule is one careless edit away from.** The
+     * operator types `--image alpine:latest`; `Identity` answers
+     * `docker.io/library/alpine`. Without normalisation the two never compare equal and a
+     * correct, genuinely-pulled image is refused — which is precisely the trade that got
+     * the `every`-`RepoDigests` repair rejected, reintroduced through the back door.
+     * Measured on this host: 9 of 11 pulled images fail this way un-normalised.
+     *
+     * **The two fields spell the same repository differently, and this stub reproduces
+     * that rather than tidying it.** Measured 2026-08-18:
+     *
+     *     $ docker image inspect alpine:latest --format '{{json .RepoDigests}}'
+     *     ["alpine@sha256:28bd5fe8…"]                      # short
+     *     $ docker image inspect alpine:latest --format '{{json .Identity}}'
+     *     {"Pull":[{"Repository":"docker.io/library/alpine"}]}   # fully qualified
+     *
+     * So the digest match must NOT be normalised and the identity match MUST be — this
+     * case was written the other way round first, went red, and the failure was a stub
+     * that disagreed with docker rather than a defect in the driver.
+     */
+    const docker = stubDocker(
+      identityStub('{"Pull":[{"Repository":"docker.io/library/alpine"}]}', [
+        'alpine@sha256:' + 'c'.repeat(64),
+      ]),
+    )
+    const { result: resolved } = await despiteAFullProcessTable(() =>
+      resolveImage('alpine:latest', docker.path, METADATA_BUDGET_MS),
+    )
+    expect(resolved.ok, resolved.ok ? '' : describeLiftFailure(resolved.failure)).toBe(true)
+  })
+
+  it('admits, rather than refuses, a daemon that reports no Identity at all', async () => {
+    /**
+     * **The compatibility arm, and it fails open deliberately.**
+     *
+     * `Identity` is Docker 29 / containerd-image-store data. A daemon without it reports
+     * nothing this check can use, and refusing on that basis would be a false refusal of
+     * correct images — the exact trade that got the `every`-`RepoDigests` repair rejected
+     * on 2026-08-04. So the name is admitted and the artifact carries the blind spot
+     * instead. On such a host the re-tag clause is **unmeasured**, which is not the same
+     * as met, and the blind spot is what says so where somebody will read it.
+     */
+    const docker = stubDocker(emitDigests([MATCHING_DIGEST]))
+    const { result: resolved } = await despiteAFullProcessTable(() =>
+      resolveImage(ELFCONV_IMAGE_TAG, docker.path, METADATA_BUDGET_MS),
+    )
+    expect(resolved.ok, resolved.ok ? '' : describeLiftFailure(resolved.failure)).toBe(true)
+    if (!resolved.ok) return
+    expect(resolved.provenance).toBe('unknown')
+  })
+
+  it('attaches the provenance blind spot only when provenance really was unknown', () => {
+    expect(blindSpotsFor(PROBE_FOUND_NOTHING, 'clean', 'unknown')).toContainEqual(
+      IMAGE_PROVENANCE_BLIND_SPOT,
+    )
+    expect(blindSpotsFor(PROBE_FOUND_NOTHING, 'clean', 'pulled')).not.toContainEqual(
+      IMAGE_PROVENANCE_BLIND_SPOT,
+    )
+    // The default is `pulled`, so no existing caller or case grew a spot it did not have.
+    expect(blindSpotsFor(PROBE_FOUND_NOTHING, 'clean')).toEqual([CROSS_MACHINE_BLIND_SPOT])
+  })
+})
+
 describe('an image whose digests name another repository is refused, never run', () => {
   /**
    * The reproduced defect. `resolveImage` fell back to `digests[0]` when no entry
@@ -2096,6 +2273,12 @@ describe('the driver fails by name, and fails early', () => {
       },
       'image-absent': { kind: 'image-absent', image: 'i', detail: 'd' },
       'image-has-no-digest': { kind: 'image-has-no-digest', image: 'i' },
+      'image-name-not-pulled': {
+        kind: 'image-name-not-pulled',
+        image: 'o2-local/elfconv:borrowed',
+        repository: 'docker.io/o2-local/elfconv',
+        pulled: ['ghcr.io/yomaytk/elfconv'],
+      },
       'image-digest-foreign': {
         kind: 'image-digest-foreign',
         image: 'i:t',
