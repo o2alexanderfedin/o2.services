@@ -1572,6 +1572,33 @@ export const REGIONS: readonly Region[] = [
       'the version number in the Circuit Relay protocol name, and the name of this project',
   },
   {
+    id: 'session/prose-enrolment',
+    surface: 'session',
+    kind: 'prose',
+    // AUTH-01/02/04 — the enrolment offer, and the digits in it are the **provider's own
+    // multiaddr**: a port, an IPv4 address, the `4` in `ip4`, and the base-58 peer id after
+    // `/p2p/`. Every one of them is a figure this page did not compute and must not
+    // paraphrase, which is why it is declared prose rather than a reading.
+    //
+    // **Showing the address is the informed half of informed consent, and it is why this is
+    // rendered at all.** A visitor is being asked to obtain a signed identity from a
+    // specific peer, and a question that hides who is being trusted is not a question. That
+    // it is prose rather than a `reading` is a statement about the sentence, not about the
+    // value: the value is the origin's, verbatim, inside a sentence that says what accepting
+    // it would do.
+    //
+    // **Added as `prose` deliberately, and the alternative was considered and rejected.** A
+    // `reading` would have been the tidier kind and it would have moved `UI_SPEC_TALLY` —
+    // 93 to 94, session 5 to 6, reading 76 to 77 — for a figure UI-SPEC section 4 never
+    // enumerated, which would have made this catalogue's measurement of that document
+    // disagree with it in order to record a sentence UI-SPEC does not have a row for. The
+    // honest place for a number the page shows and did not compute is exactly here.
+    source:
+      "the enrolment provider's address as the origin published it — its protocol version, " +
+      'its port, and the peer id that names it — and, once enrolled, the issuer key of the ' +
+      'certificate this tab holds',
+  },
+  {
     id: 'colouring/prose-kicker',
     surface: 'colouring',
     kind: 'prose',

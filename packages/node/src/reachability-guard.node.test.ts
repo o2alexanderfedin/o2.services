@@ -422,14 +422,35 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // opposite — a symbol whose whole purpose is to close wiring debt, wired in the commit that
     // created it. The evidence that it is that case and not the alarm case is, again, that the
     // derived `global-object-hop` case named it by itself before this number was touched.
+    // ## Raised 68 → 78, measured 2026-08-17 — TEN at once, and the SAME case as the two
+    // raises above rather than a new one
+    //
+    // The visitor-enrolment set: `browser/GrantedEnrolment`, `browser/InsecureOriginError`,
+    // `browser/acceptEnrolment`, `browser/canHoldVisitorKey`, `browser/forgetVisitorKey`,
+    // `browser/readEnrolment`, `browser/revokeEnrolment`, `browser/visitorKeyPair`,
+    // `browser/visitorOperatorId`, `core/generateSubtleKeyPair`. Every one has a production
+    // caller from the commit that created it — `TabApi.enrolmentOffer`, `acceptEnrolment` and
+    // `declineEnrolment`, plus `main.ts#start` — and every one counts here anyway for the reason
+    // the twenty-odd `browser/` symbols before it do: the caller is a member of the `api` literal
+    // assigned to `window.o2`, and the graph does not trace that assignment. All ten are disposed
+    // `global-object-hop`, so the *undisposed* count is unmoved; this raise is the raw population
+    // growing by exactly the symbols that were added.
+    //
+    // **The direction, stated because ten at once is precisely the shape this ceiling exists to
+    // alarm on.** This is not wiring debt arriving. It is the v1.1 milestone audit's B1, B2 and
+    // B3 being closed — the browser tier could not enrol at all, so it pinned nobody and took
+    // blocks from every connected peer — by ten symbols that were wired in the commit that
+    // created them. The evidence that it is that case and not the alarm case is the same as
+    // before, and it is not this comment: the derived `global-object-hop` case named all ten by
+    // itself, verbatim, before this number was touched.
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(
       found.length,
       `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-16 was 68. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
+        'on 2026-08-17 was 78. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(68)
+    ).toBeLessThanOrEqual(78)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {

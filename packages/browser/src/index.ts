@@ -33,6 +33,7 @@ export type {
   TabApi,
   TabConsentState,
   TabDiscoveryRound,
+  TabEnrolmentOffer,
   TabGovernorState,
   TabHeldPeer,
   TabIsolation,
@@ -66,6 +67,29 @@ export {
 export type { ConsentGap, ConsentRecord, ConsentStore, GrantOptions } from './consent.ts'
 export { CONSENT_VERSION_NOTE, DISCLOSURE, DISCLOSURE_VERSION } from './disclosure.ts'
 export type { Disclosure, DisclosureLine } from './disclosure.ts'
+
+// The visitor's enrolment decision — AUTH-01, AUTH-02, AUTH-04. The second explicit,
+// revocable, persisted visitor decision in this package, and deliberately the same shape as
+// the first: `enrolment-consent.ts`'s header states why it is a near-copy of `consent.ts`
+// rather than a generalisation of it.
+export {
+  acceptEnrolment,
+  ENROLMENT_KEY,
+  GrantedEnrolment,
+  readEnrolment,
+  revokeEnrolment,
+} from './enrolment-consent.ts'
+export type { AcceptOptions, EnrolmentGap, EnrolmentRecord } from './enrolment-consent.ts'
+// The visitor's own key — the one input an origin may not supply, held where the page that
+// serves it cannot read it.
+export {
+  canHoldVisitorKey,
+  forgetVisitorKey,
+  InsecureOriginError,
+  VISITOR_DB,
+  visitorKeyPair,
+  visitorOperatorId,
+} from './visitor-key.ts'
 
 // Stopping for real, and bounding an untrusted guest — BROW-04, SCHED-06.
 export { browserWorkerExecutor, WorkerExecutor } from './worker-executor.ts'

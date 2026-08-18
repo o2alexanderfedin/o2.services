@@ -186,6 +186,63 @@ export interface TabConsentState {
   readonly reportingAllowed: boolean
 }
 
+/**
+ * AUTH-01/02/04 — the enrolment question as a page can put it to a person.
+ *
+ * Every field is here so the page can render a *sentence*, not so it can branch: a visitor
+ * is owed the address they are being asked to trust, and told plainly when the offer has
+ * changed under them or when this origin is not one they should hold a key on at all.
+ */
+export interface TabEnrolmentOffer {
+  /** Whether this origin published a provider to enrol with at all. */
+  readonly offered: boolean
+  /**
+   * The provider address on the table — the one the origin currently names, or, when the
+   * visitor has already answered, the one they answered. Absent when neither exists.
+   */
+  readonly providerAddr?: string
+  /** Whether a decision to enrol is on file for this origin and still stands. */
+  readonly accepted: boolean
+  /**
+   * Why a stored decision does not stand: `never-asked`, `provider-changed`, `unreadable`.
+   * Absent when one does. `provider-changed` is the one that deserves its own sentence —
+   * the visitor said yes to an address, and this origin now names a different one.
+   */
+  readonly gap?: string
+  /**
+   * Whether this origin can hold a key the page itself cannot read.
+   *
+   * `false` on a non-secure origin, where `crypto.subtle` does not exist and a visitor key
+   * would have to live in JavaScript memory that the origin's own script can read. The page
+   * must not offer on such an origin: taking the click and then refusing teaches a visitor
+   * that the button is broken rather than that this origin is not one to hold a key on.
+   */
+  readonly canHoldKey: boolean
+  /**
+   * The issuer of the certificate this tab actually **holds**, or absent when it holds none.
+   *
+   * Separate from {@link accepted}, and the distinction is the one worth reporting: a
+   * decision is what the visitor asked for and this is what came back. They disagree
+   * whenever a decision is newer than the tab's last start, and whenever a provider was
+   * unreachable — so a surface that showed only the decision would tell a visitor they were
+   * enrolled at the moment enrolment had failed.
+   *
+   * Read from the stored certificate, so it survives a reload and answers before any peer
+   * has been spoken to. Absent on a tab that never enrolled, and on one whose stored
+   * certificate names a node identity this origin has since lost.
+   */
+  readonly heldIssuer?: string
+  /**
+   * Whether the running node is the one this decision describes.
+   *
+   * `false` when a decision was accepted or withdrawn while a node was already up, because
+   * {@link TabApi.acceptEnrolment} records an answer and deliberately does not act on it.
+   * The page uses this to say a restart is outstanding rather than leaving a visitor to
+   * infer it from nothing.
+   */
+  readonly appliedToRunningNode: boolean
+}
+
 /** BROW-04 — what the always-visible surface displays. */
 export interface TabActivity {
   readonly running: boolean
@@ -733,9 +790,22 @@ export interface TabApi {
      * takes verification slots on exactly the terms an enrolled one does — the only thing
      * it cannot do is produce a signed statement a third party could check, so every
      * receipt naming it reads the named absence. That is a fact about what this tab was
-     * handed, not about what kind of node it is. Every visitor path omits it today:
-     * {@link TabApi.autoStart} does not pass it and deliberately grows no parameter for
-     * it, for the same reason it grows none for `trustAnchors`.
+     * handed, not about what kind of node it is.
+     *
+     * ## Who supplies it, corrected 2026-08-17
+     *
+     * This paragraph read *"Every visitor path omits it today: {@link TabApi.autoStart} does
+     * not pass it and deliberately grows no parameter for it, for the same reason it grows
+     * none for `trustAnchors`."* **The second clause is still exactly true and the first is
+     * no longer.** `autoStart` passes no `enrollment` and has grown no parameter for one —
+     * that has not changed and must not — but a visitor path now reaches this field, through
+     * {@link TabApi.acceptEnrolment}: the implementation reads the visitor's own stored
+     * decision and their own non-extractable key, and supplies this itself.
+     *
+     * So this option keeps exactly one meaning for a *caller*: a harness stating an identity
+     * it holds. A caller-supplied value wins over the visitor's stored decision, because a
+     * test that names its own key is running its own arrangement and silently substituting
+     * the visitor's would make it prove something else.
      */
     enrollment?: {
       userPrivateKey: number[]
@@ -773,6 +843,62 @@ export interface TabApi {
     relayAddrs: string[]
     enrollmentProvider?: string
   }>
+  /**
+   * What this origin offers, and what this visitor has already answered — AUTH-01/02/04.
+   *
+   * **The fourth hop of a four-hop flow whose last hop did not exist.**
+   * `enrollmentProvider` was produced by `bin/seed.ts --enrollment-provider`, transported in
+   * `/bootstrap.json`, parsed by {@link discoverRelays} — and then dropped, because nothing
+   * read it. This is what reads it.
+   *
+   * It is a **question to put to a person**, and that framing is the whole design. The
+   * origin gets to say *where* a joiner may knock; it does not get to decide that this tab
+   * knocks, nor to say who it is when it does. So this method answers only what a page needs
+   * in order to *ask*, and {@link acceptEnrolment} is the only thing that acts.
+   *
+   * Nothing here starts, stops or dials, and nothing is written. Calling it on every render
+   * is safe and is what the demo does.
+   */
+  enrolmentOffer(): Promise<TabEnrolmentOffer>
+  /**
+   * The visitor's answer: yes, enrol me with the provider this origin named.
+   *
+   * **The one explicit action, and the reason this does not violate the standing objection
+   * that a page found rather than configured must not be configurable by whatever found
+   * it.** It takes no parameters at all. There is no field on it through which the origin,
+   * a harness, an embedding host or a discovered page could name a provider, a key or an
+   * operator: the provider comes from the offer the visitor is looking at, the key is minted
+   * in this browser and cannot be read by the script that minted it, and the operator id is
+   * derived from that key. What this records is a *decision*, and a decision is the one
+   * thing an origin cannot fabricate.
+   *
+   * Persisted and revocable, exactly like {@link grantConsent} — so a returning visitor is
+   * not asked twice, and {@link start} may read the answer without anybody having configured
+   * anything. {@link declineEnrolment} is the withdrawal.
+   *
+   * **Does not start or restart the node**, for `grantConsent`'s reason: recording an answer
+   * and acting on it are different, and a page that conflated them could not offer the
+   * choice before starting. A tab already running must be stopped and started again for the
+   * decision to take effect, and the returned {@link TabEnrolmentOffer} says whether that is
+   * outstanding.
+   *
+   * @throws when there is no consent, when this origin published no provider to accept, or
+   *   when this origin cannot hold a key the page is unable to read — each by name, because
+   *   a visitor who pressed a button is owed the reason it did not work.
+   */
+  acceptEnrolment(): Promise<TabEnrolmentOffer>
+  /**
+   * Withdraw the decision: stop the node, forget the answer, and forget the key.
+   *
+   * All three, deliberately. {@link revokeConsent}'s note — *"A permission withdrawn while
+   * work continues would be a permission in name only"* — is the first; the third is the
+   * one specific to this decision, because the visitor's key is the identifier a provider
+   * knows this person by, and a withdrawal that left it behind would be a preference rather
+   * than a withdrawal. The certificate is left where it is: it names a key that no longer
+   * exists here, so `resolveCertificate`'s own identity check refuses it, and deleting a
+   * signed statement is not this page's business.
+   */
+  declineEnrolment(): Promise<TabEnrolmentOffer>
   /**
    * Dial every peer the origin says is here, that this tab is not already on.
    *

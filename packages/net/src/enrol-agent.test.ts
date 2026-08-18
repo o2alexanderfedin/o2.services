@@ -1,5 +1,6 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
 import {
+  DEFAULT_MAX_PER_WINDOW,
   EnrollmentAuthority,
   MemoryBlockstore,
   MemoryNetwork,
@@ -201,15 +202,20 @@ describe('AUTH-04 — the limit holds, and states itself', () => {
     const accepted: Extract<EnrolOutcome, { ok: true }>[] = []
     const refused: Extract<EnrolOutcome, { kind: 'refused' }>[] = []
 
-    // Twenty distinct node keys, all naming ONE user key — the axis the limiter keys on.
-    for (let i = 1; i <= 20; i++) {
+    // Distinct node keys, all naming ONE user key — the axis the limiter keys on. The count
+    // is derived from the shipped default rather than written, so raising that default
+    // changes what this burst has to exceed instead of turning the case vacuous. It read
+    // `i <= 20` until 2026-08-17, when the default moved from 5 to 32 and twenty stopped
+    // being a burst at all — the case went green-but-vacuous, which is the failure a fixed
+    // literal beside a moving default always eventually produces.
+    for (let i = 1; i <= DEFAULT_MAX_PER_WINDOW + 3; i++) {
       const outcome = await enrolOverRpc(rpc, providerId, await buildRequest(new Uint8Array(32).fill(i)))
       if (outcome.ok) accepted.push(outcome)
       else if (outcome.kind === 'refused') refused.push(outcome)
       else throw new Error(`unexpected outcome: ${outcome.kind} — ${outcome.reason}`)
     }
 
-    expect(accepted.length + refused.length).toBe(20)
+    expect(accepted.length + refused.length).toBe(DEFAULT_MAX_PER_WINDOW + 3)
     expect(refused.length).toBeGreaterThan(0)
 
     const first = refused[0]
@@ -223,8 +229,19 @@ describe('AUTH-04 — the limit holds, and states itself', () => {
 
     // These two literals are `@o2/core`'s shipped defaults, asserted because the
     // refusal is required to carry them onto the wire — a limit a peer cannot read is
-    // not a stated one.
-    expect(first.refusal).toMatchObject({ kind: 'rate-limited', limit: 5, windowMs: 3_600_000 })
+    // not a stated one. **Written as literals AND pinned to the exported constant on the
+    // line below**, so that neither can move without the other: the literal is what proves
+    // a specific number crossed the wire, and the pin is what stops this file stating a
+    // number `enrollment.ts` has stopped shipping.
+    //
+    // `limit: 5` stood here until 2026-08-17. It is 32 now, and the reason is recorded at
+    // `DEFAULT_MAX_PER_WINDOW`: this bound stops no attacker — the case immediately below
+    // measures that — so it is sized never to refuse an honest owner, and 5 refused a
+    // twenty-tab session restore on a fresh profile.
+    expect(first.refusal).toMatchObject({ kind: 'rate-limited', limit: 32, windowMs: 3_600_000 })
+    expect(first.refusal.limit, 'the wire number and the shipped default are one number').toBe(
+      DEFAULT_MAX_PER_WINDOW,
+    )
     expect(first.refusal.retryAfterMs).toBeGreaterThan(0)
     expect(first.refusal.userKey).toBe(user.pub)
 
