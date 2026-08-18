@@ -384,6 +384,15 @@ describe('a paused node declines work it has room for', () => {
       // unchanged" is a claim this frame has to carry, or a requestor cannot tell a
       // paused node from one that has shrunk to nothing.
       expect(stopped.capacity).toEqual({ slots: 4, inFlight: 0 })
+      // SCHED-03, added 2026-08-18, and the assertion that makes the two above safe.
+      // Publishing an unchanged capacity is right, and on its own it told a requestor
+      // there was room — so `planWithOffers` re-offered this node every remaining
+      // shard of the job while its advertised load of 0 made d-choices prefer it. The
+      // standing is the second claim: the capacity is real AND none of it is on offer.
+      expect(stopped.standing).toBe('declining-all-work')
+      // The control, on the same endpoint one call apart: a node taking work says the
+      // opposite, so this cannot be a constant the frame always carries.
+      expect(running.standing).toBe('declining-this-offer')
     } finally {
       node.close()
       rpc.close()

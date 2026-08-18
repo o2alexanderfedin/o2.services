@@ -436,7 +436,25 @@ code, not the reports. -->
       *(**Closed 2026-08-11.** The one clause left was the browser tier's refusal, and
       `tab-refusals.e2e.test.ts` had read it — off a dispatch's own reply frame — while
       this row went on citing the sentence that spec's own header quotes as the thing it
-      came to refute.)*
+      came to refute.*
+      ***Extended 2026-08-18 — the box does not move and the requirement's own sentence
+      is unchanged**, but the third refusal this id covers now drives a re-pick as the
+      over-committed one always did. A **paused** node named its refusal from Phase 20
+      onward and nothing branched on it: reasons are strings and this repository does not
+      switch control flow on a reason, so `planWithOffers` re-offered a stood-out node
+      every remaining shard — and preferred it, because a paused node correctly publishes
+      its capacity unchanged and advertises load 0. `pausedRefusal`'s own docblock
+      recorded that gap at its true size and prescribed the fix; all three prescribed
+      pieces now exist. `OfferStanding` is a required field on `Admission`'s refusal arm
+      and on the offer frame, and `planWithOffers` keeps a `stoodDown` set that is
+      deliberately **not** the headroom map — the capacity figure is correct and must not
+      be bent to carry a second fact. Measured: one probe for eight shards where there
+      were eight, with the discriminating case beside it — the identical refusal saying
+      `declining-this-offer` is still probed eight times. Three plants watched red
+      (`placement.ts`'s filter, `protocol.ts`'s parse, `agent.ts`'s pause branch), each
+      restored by surgical inverse at `cmp` exit 0. An absent or unrecognised `standing`
+      reads as `declining-this-offer`, never as a stand-down, so an upgrade cannot
+      partition the fabric — the same disposition `capacity: null` takes.)*
 - [x] **SCHED-04**: A resource governor caps node CPU by duty cycle, is
       user-adjustable, and is honoured by the executor
       *(**Closed 2026-08-11 by re-verification, which is the only thing it was ever

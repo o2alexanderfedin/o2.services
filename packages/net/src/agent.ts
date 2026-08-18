@@ -246,7 +246,10 @@ export function declinedWhilePaused(kind: AgentRequest['kind']): kind is Decline
  * already records that a requestor "cannot tell `malformed request` from
  * `over-committed: …` without reading the string", and nothing in this repository
  * branches control flow on a reason. So a requestor learns *which* node stepped out
- * and why, and re-asks it for the next shard.
+ * and why — and **that half is unchanged; what changed is that the decision now
+ * travels beside the string instead of inside it.** This paragraph ended *"and re-asks
+ * it for the next shard"* until 2026-08-18, which was true for as long as the standing
+ * had nowhere to ride.
  *
  * **And the cross-shard tally treats it *better* than a busy node, not the same.**
  * This paragraph claimed "exactly as it would re-ask a busy one" until 2026-08-11;
@@ -261,15 +264,30 @@ export function declinedWhilePaused(kind: AgentRequest['kind']): kind is Decline
  * headroom is above zero, so a paused node is never dropped. A busy node answers
  * `inFlight === slots`, so its headroom is 0 and it is dropped for the remainder of
  * the plan after one probe. The paused node's advertised `load` is 0 on top of that,
- * so power-of-d-choices *prefers* it. On a 64-shard job that is 64 probes at a paused
- * node, each bounded by `DEFAULT_PROBE_TIMEOUT_MS` (2 s), against one probe at a
- * saturated one.
+ * so power-of-d-choices *prefers* it. On a 64-shard job that **was** 64 probes at a
+ * paused node, each bounded by `DEFAULT_PROBE_TIMEOUT_MS` (2 s), against one probe at
+ * a saturated one.
  *
- * Closing it is a wire change and is deliberately not made here: it needs a **typed**
- * name on the offer frame, a matching arm on `Admission`, and a cross-shard filter
- * that is something other than the headroom map — because the headroom map is reading
- * a capacity figure that is, correctly, unchanged. Recorded at its true size so the
- * gap is not mistaken for an oversight and not mistaken for parity with busy.
+ * **CLOSED 2026-08-18, and by exactly the three pieces this paragraph said it needed** —
+ * which is why the prescription is quoted rather than deleted. It read: *"it needs a
+ * **typed** name on the offer frame, a matching arm on `Admission`, and a cross-shard
+ * filter that is something other than the headroom map — because the headroom map is
+ * reading a capacity figure that is, correctly, unchanged."* All three exist now:
+ * {@link OfferStanding} on the frame and on `Admission`'s refusal arm as a **required**
+ * field, and `planWithOffers`' own `stoodDown` set, which is deliberately not the
+ * headroom map for the reason given above — the capacity figure is right and must not
+ * be bent to carry a second fact.
+ *
+ * **The measured difference**: one probe for eight shards where there were eight, in
+ * `placement.test.ts`. The discriminating case sits beside it — a node refusing with
+ * `declining-this-offer` while publishing the identical capacity is still probed eight
+ * times — so the reading is of the standing and not of the filter's existence. Both
+ * were watched red on a plant and restored by surgical inverse at `cmp` exit 0.
+ *
+ * What has **not** changed is this string, or the capacity beside it. `pausedAnswer`'s
+ * `offer` arm still publishes `{slots, inFlight}` unchanged, and it still must: the
+ * node is not full, it has stepped out, and reporting zero would be the misattribution
+ * this whole state exists to remove.
  */
 export function pausedRefusal(nodeId: string): string {
   return `paused: ${nodeId} is declining all work right now`
@@ -358,7 +376,17 @@ function pausedAnswer(kind: DeclinedWhilePaused, options: AgentOptions, reason: 
       options.capacity === 'accepts-every-offer'
         ? null
         : { slots: options.capacity.slots, inFlight: options.capacity.inFlight }
-    return { kind: 'offer', accepted: false, reason, capacity }
+    // SCHED-03, and the one line that makes the capacity above safe to publish
+    // unchanged. The figures say "my capabilities have not shrunk"; `standing` says
+    // "and I am not taking work anyway". Without the second, a requestor reading the
+    // first correctly concluded there was room and asked again for every remaining
+    // shard. The two claims are both true and only together.
+    //
+    // `pauseMisreported` reaches here too, and it is `declining-all-work` on purpose:
+    // a node that cannot say whether it is paused must not be asked repeatedly on the
+    // chance that it is not. It is refusing everything for as long as the fault lasts,
+    // which is what the standing means — the reason string is what tells them apart.
+    return { kind: 'offer', accepted: false, reason, capacity, standing: 'declining-all-work' }
   }
   return { kind: 'error', reason }
 }
@@ -1227,10 +1255,21 @@ export function serveAgent(options: AgentOptions): void {
         decision === undefined || decision.capacity === 'states-no-capacity'
           ? null
           : decision.capacity
+      // The standing is carried through from `LocalCapacity`'s own decision rather than
+      // composed here, so this branch cannot disagree with the object that made the
+      // call. A node reaching this line is *not* paused — the pause branch returned
+      // long before — so every refusal here is about room, and `LocalCapacity` says so
+      // on both of its arms.
       response =
         decision === undefined || decision.accepted
-          ? { kind: 'offer', accepted: true, reason: '', capacity: stated }
-          : { kind: 'offer', accepted: false, reason: decision.reason, capacity: stated }
+          ? { kind: 'offer', accepted: true, reason: '', capacity: stated, standing: 'declining-this-offer' }
+          : {
+              kind: 'offer',
+              accepted: false,
+              reason: decision.reason,
+              capacity: stated,
+              standing: decision.standing,
+            }
     } else if (request.kind === 'combine') {
       // MR-03 / MR-05 / MR-06. A plain body, not an `RpcReply` — see `runCombine`'s
       // header for why a combine has no egress hold to give back, and for this

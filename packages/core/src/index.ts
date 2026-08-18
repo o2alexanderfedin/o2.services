@@ -141,6 +141,7 @@ export type {
   Offer,
   OfferedPlacement,
   OfferOptions,
+  OfferStanding,
   Rejection,
 } from './placement.ts'
 
