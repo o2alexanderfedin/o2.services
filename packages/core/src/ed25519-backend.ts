@@ -297,6 +297,55 @@ export async function subtleKeyPairSigner(
   }
 }
 
+/**
+ * Mint an Ed25519 pair whose private half **cannot be exported** — the key shape a page
+ * may hold on a visitor's behalf.
+ *
+ * ## Why this lives here and not where it is used
+ *
+ * Its only caller is `@o2/browser`'s `visitor-key.ts`, and putting the `generateKey` call
+ * there is where it was first written. **CRYPTO-01 refused it**, by name and by path, and
+ * the guard was right: `one-crypto-implementation.node.test.ts` asserts the set of
+ * production files matching `{ name: 'Ed25519'` equals exactly this one. That is the same
+ * refusal `subtleUserSigner` took on 2026-08-16, answered the same way — the call moves,
+ * the caller keeps its own vocabulary.
+ *
+ * ## `extractable: false` is the whole product, and it is not a parameter
+ *
+ * Passed positionally as `false` with nothing here able to change it. A caller wanting
+ * extractable material would have to edit this line, which is exactly the friction it
+ * deserves: the property being bought is that **the script that generated the key cannot
+ * read it**, and an options bag with an `extractable` field is a property one call site
+ * can opt out of by accident.
+ *
+ * Measured in chromium, firefox and webkit on 2026-08-16 and recorded in
+ * `.planning/consults/2026-08-16-visitor-device-key-is-cryptographically-available.md`:
+ * generation succeeds in all three and `exportKey('pkcs8', privateKey)` is refused in all
+ * three, and a signature made by such a key verifies under `@noble/curves` — which is what
+ * an enrolment provider uses and which has no idea WebCrypto exists.
+ *
+ * **No capability probe**, for {@link subtleKeyPairSigner}'s reason inverted: this is the
+ * call that *fails* on an engine without Ed25519, and it fails saying so. A caller that
+ * wants to decide before asking has `detectCryptoBackend`; a caller that wants to know
+ * whether `subtle` exists at all can look, and `visitor-key.ts` does, because it must not
+ * offer a visitor a key this origin cannot keep.
+ *
+ * @throws whatever `subtle.generateKey` throws — an engine without Ed25519, or a
+ *   non-secure origin where `crypto.subtle` is `undefined` in its entirety.
+ */
+export async function generateSubtleKeyPair(
+  subtle: SubtleCrypto = globalThis.crypto.subtle,
+): Promise<CryptoKeyPair> {
+  const generated = await subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+  // `generateKey` is overloaded and answers `CryptoKey | CryptoKeyPair`. Narrowed rather
+  // than cast: an asymmetric algorithm returns a pair, and a host answering otherwise would
+  // reach `subtleKeyPairSigner` as a broken object and fail somewhere that cannot say why.
+  if (!('privateKey' in generated)) {
+    throw new TypeError('subtle.generateKey answered a single key where a pair was required')
+  }
+  return generated
+}
+
 let backendPromise: Promise<CryptoBackend> | undefined
 
 /**

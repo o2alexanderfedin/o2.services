@@ -96,21 +96,29 @@ import {
   BrowserNode,
   DISCLOSURE,
   DISCLOSURE_VERSION,
+  acceptEnrolment,
+  canHoldVisitorKey,
   classifyStartError,
   currentBrowserLabel,
   enrolledIssuer,
   firstGap,
+  forgetVisitorKey,
   grantConsent,
   pageConsentStore,
   probeEnvironment,
   readConsent,
+  readEnrolment,
   revokeConsent,
+  revokeEnrolment,
+  visitorKeyPair,
+  visitorOperatorId,
 } from '@o2/browser'
 import type {
   GrantedConsent,
   TabApi,
   TabConsentState,
   TabDiscoveryRound,
+  TabEnrolmentOffer,
   TabHeldPeer,
 } from '@o2/browser'
 import { createTaskWorker } from '../src/worker-factory.ts'
@@ -139,6 +147,16 @@ let lastOutcome: StartOutcome | null = null
 let lastAnswer: { readonly n: number; readonly bits: Uint8Array } | null = null
 /** Counted here and never transmitted — see `startReport` below. */
 let declinedLocally = 0
+/**
+ * The provider address the **running** node was started with, or `null` for a node started
+ * without one — and `undefined` while no node is running.
+ *
+ * Kept so `enrolmentOffer` can answer `appliedToRunningNode` from what actually happened
+ * rather than from what storage currently says. The two disagree for exactly as long as a
+ * visitor's answer is newer than their node, which is the interval the page has to tell them
+ * about. Read `undefined` as "the question does not arise".
+ */
+let runningWithProvider: string | null | undefined
 
 // **`pageConsentStore` and not `localConsentStore`, and the difference is a refusal a
 // visitor could hit.** `requireConsent()` below does not use the value `grantConsent`
@@ -227,6 +245,81 @@ function stateOf(): TabConsentState {
   return found.ok
     ? { granted: true, version: DISCLOSURE_VERSION, reportingAllowed: found.consent.reportingAllowed }
     : { granted: false, gap: found.gap.kind, version: DISCLOSURE_VERSION, reportingAllowed: false }
+}
+
+/**
+ * The `enrollment` option a visitor's stored decision amounts to — AUTH-01/02/04.
+ *
+ * The only place the three fields are assembled, and the assembly is the point: the address
+ * arrives as an argument because it is the origin's to publish and the visitor's to have
+ * accepted, while the other two are **taken, not passed**. There is no parameter here for a
+ * key or an operator, so no caller — the page, a harness, an embedding host — can supply
+ * one, and that is enforced by the signature rather than by a rule somebody remembers.
+ *
+ * A key pair, not bytes: `BrowserNodeOptions.enrollment.userPrivateKey` is
+ * `Uint8Array | CryptoKeyPair`, and the second arm exists for exactly this caller. The pair
+ * is non-extractable, so the branch that would hand over bytes is not available here even
+ * to code that wanted it.
+ */
+async function visitorEnrolmentOption(providerAddr: string): Promise<{
+  readonly userPrivateKey: CryptoKeyPair
+  readonly operatorId: string
+  readonly providerAddr: string
+} | null> {
+  // A non-secure origin cannot hold a key the page is unable to read, and a key the page
+  // *can* read is not the visitor's in any sense worth the word. Answering `null` starts an
+  // ordinary unenrolled node rather than throwing, because a stored decision made on an
+  // origin that has since lost `crypto.subtle` must not turn into a page that will not load.
+  if (!canHoldVisitorKey()) return null
+  const keyPair = await visitorKeyPair()
+  return {
+    userPrivateKey: keyPair,
+    operatorId: await visitorOperatorId(keyPair),
+    providerAddr,
+  }
+}
+
+/**
+ * The offer as the page must render it, assembled from the three things that decide it:
+ * what the origin publishes, what the visitor answered, and what this browser can hold.
+ *
+ * `offered` is about the origin and `accepted` is about the visitor, and they are separate
+ * fields rather than one tri-state because the page says different things about each — an
+ * origin that names nobody is the ordinary state of a static host and is not a refusal.
+ */
+async function offerOf(): Promise<TabEnrolmentOffer> {
+  const canHoldKey = canHoldVisitorKey()
+  // Consent gates the network read inside `discoverRelays`, and a page that has not been
+  // granted it has nothing to offer yet. Reported as "no offer" rather than thrown: the
+  // consent gate is the surface that should be speaking at that moment, not this one.
+  if (!readConsent(store).ok) {
+    return { offered: false, accepted: false, canHoldKey, appliedToRunningNode: true }
+  }
+  const { enrollmentProvider } = await api.discoverRelays()
+  const found = readEnrolment(store, enrollmentProvider)
+  // What actually came back, as against what was asked for. `enrolledIssuer` reads the
+  // stored certificate, so this answers before any peer has been spoken to and it survives a
+  // reload — and it is `null` on a tab whose certificate names a node identity this origin
+  // has since lost, which is the case a decision alone could never see.
+  const heldIssuer = await enrolledIssuer()
+  const providerAddr =
+    found.ok ? found.enrolment.providerAddr
+    : found.gap.kind === 'provider-changed' ? found.gap.offered
+    : enrollmentProvider
+  const accepted = found.ok
+  return {
+    offered: enrollmentProvider !== undefined,
+    ...(providerAddr === undefined ? {} : { providerAddr }),
+    accepted,
+    ...(found.ok ? {} : { gap: found.gap.kind }),
+    canHoldKey,
+    ...(heldIssuer === null ? {} : { heldIssuer }),
+    // `undefined` means no node is running, and then the question does not arise — a
+    // decision cannot be out of step with a node that does not exist.
+    appliedToRunningNode:
+      runningWithProvider === undefined ||
+      runningWithProvider === (accepted ? found.enrolment.providerAddr : null),
+  }
 }
 
 function partitionOf(output: CanonicalValue): number {
@@ -612,6 +705,23 @@ const api: TabApi = {
     // configured must not let whatever found it choose who this tab believes.
     const pinned = await enrolledIssuer(options.blockstoreName)
 
+    // AUTH-01/02/04 — **the visitor's own enrolment decision, read from storage exactly as
+    // the pinning above is.**
+    //
+    // Read before `BrowserNode.start` for the same reason and in the same shape: a stored
+    // answer this origin already holds, consulted at the one funnel every entry point goes
+    // through, and not a parameter.
+    //
+    // A caller-supplied `options.enrollment` wins. A harness naming its own key is running
+    // its own arrangement, and silently substituting the visitor's would make its test prove
+    // something other than what it says — the same argument `trustAnchors` makes above about
+    // replacement rather than union.
+    const chosen =
+      options.enrollment === undefined ? readEnrolment(store) : ({ ok: false } as const)
+    const visitorEnrolment = chosen.ok
+      ? await visitorEnrolmentOption(chosen.enrolment.providerAddr)
+      : null
+
     try {
       node = await BrowserNode.start({
         relayAddrs: options.relayAddrs,
@@ -677,13 +787,52 @@ const api: TabApi = {
         // `{"0":…}` object and `ed25519.getPublicKey` would derive a key from nothing;
         // `capability-harness.ts` records the same conversion at the same seam.
         //
-        // **Nothing on a visitor's path supplies this.** `autoStart` passes no
-        // `enrollment` and grows no parameter for one, for the same reason it grows none
-        // for `trustAnchors`: a page that was found rather than configured must not be
-        // configurable by whatever found it. A tab reaching here without it is an
-        // ordinary node whose receipts read the named absence, which is true.
+        // ## The standing objection, and why what follows does not violate it — 2026-08-17
+        //
+        // This comment read, and the sentence is quoted rather than deleted because the
+        // rule in it is still in force:
+        //
+        // > **Nothing on a visitor's path supplies this.** `autoStart` passes no
+        // > `enrollment` and grows no parameter for one, for the same reason it grows none
+        // > for `trustAnchors`: A PAGE THAT WAS FOUND RATHER THAN CONFIGURED MUST NOT BE
+        // > CONFIGURABLE BY WHATEVER FOUND IT.
+        //
+        // **The second half is untouched and is enforced below; the first half is now
+        // false, and closing the gap between them is the whole of this change.**
+        // `autoStart` still passes no `enrollment` and still has no parameter for one — go
+        // and read it, and do not add one. What reaches this field on a visitor's path is
+        // not configuration arriving from the origin; it is the visitor's own prior answer
+        // arriving from this origin's storage, which is the identical move `enrolledIssuer`
+        // makes twenty lines up and `requireConsent` makes at the top of this function.
+        //
+        // The objection is about **who decides**, and it is worth separating the three
+        // inputs an enrolment needs, because they do not come from the same place:
+        //
+        //   - `providerAddr` — WHERE to knock. The origin may say this, and it is the only
+        //     one it may say. It is an address and never an identity, it is published in
+        //     `/bootstrap.json` for exactly the peers a gated relay has not yet admitted,
+        //     and knowing it makes nobody enrollable. It is stored at the moment the
+        //     visitor accepts it, and read back from *storage* here rather than from the
+        //     origin — so an origin that later publishes a different provider cannot
+        //     redirect a tab that already answered.
+        //   - `userPrivateKey` — WHO this is. Minted in this browser by `visitor-key.ts`
+        //     with `extractable: false`, and **the script this origin served cannot read
+        //     it**; measured in chromium, firefox and webkit. There is no parameter,
+        //     anywhere on this path, through which key material could be supplied.
+        //   - `operatorId` — derived from that key. Not readable from `/bootstrap.json`
+        //     even if it were published there, because nothing reads it from there.
+        //
+        // And the decision itself is `acceptEnrolment`, which takes **no arguments at all**.
+        // An origin can cause this page to render an offer. It cannot cause the offer to be
+        // accepted, cannot name the key, and cannot pre-answer the question — which is what
+        // the objection asks for. Consent, not configuration.
+        //
+        // A tab that has answered nothing is unchanged in every respect: it is an ordinary
+        // node whose receipts read the named absence, which is true.
         ...(options.enrollment === undefined
-          ? {}
+          ? visitorEnrolment === null
+            ? {}
+            : { enrollment: visitorEnrolment }
           : {
               enrollment: {
                 userPrivateKey: new Uint8Array(options.enrollment.userPrivateKey),
@@ -703,6 +852,12 @@ const api: TabApi = {
       throw error
     }
     noteOutcome(null)
+    // Recorded from what this start actually did, not from what storage says now. The two
+    // diverge the moment a visitor answers the offer while a node is already up, and that
+    // interval is precisely what `appliedToRunningNode` has to report — a value re-derived
+    // from storage could never see it.
+    runningWithProvider =
+      options.enrollment?.providerAddr ?? visitorEnrolment?.providerAddr ?? null
     // A peer dispatching work here changes what the surface must say, and the page
     // cannot poll for it — see `onActivity`.
     node.onActivity(notify)
@@ -760,6 +915,62 @@ const api: TabApi = {
     }
 
     return { source: 'none' as const, relayAddrs: [] }
+  },
+
+  async enrolmentOffer() {
+    return offerOf()
+  },
+
+  async acceptEnrolment() {
+    // The network read below and everything after it is gated, like every other path here.
+    requireConsent()
+
+    // Refusals by name, in the order a visitor would hit them, because somebody who pressed
+    // a button is owed the reason it did not work rather than a page that quietly does
+    // nothing. Each of these is a fact about this origin or this browser, not about them.
+    if (!canHoldVisitorKey()) {
+      throw new Error(
+        'cannot enrol: this origin is not a secure context, so it cannot hold a key that ' +
+          'this page is unable to read — enrolment is refused rather than done with a key ' +
+          'the page could read',
+      )
+    }
+    const { enrollmentProvider } = await api.discoverRelays()
+    if (enrollmentProvider === undefined) {
+      throw new Error(
+        'cannot enrol: this origin published no enrolment provider, so there is nobody to ' +
+          'enrol with',
+      )
+    }
+
+    // The write, and the only one. Note what is **not** written: no key, and nothing derived
+    // from one. The key stays in IndexedDB as a handle whose private half nothing reads, and
+    // copying a stable identifier for this person into `localStorage` would hand it to every
+    // script on this origin.
+    acceptEnrolment(store, { providerAddr: enrollmentProvider })
+
+    // Minted here rather than lazily at the next `start`, so a visitor who accepts on an
+    // origin whose storage or crypto is about to refuse finds out now, while the surface is
+    // still about enrolment, and not as a start failure later.
+    await visitorKeyPair()
+
+    notify()
+    return offerOf()
+  },
+
+  async declineEnrolment() {
+    // Stops first, for `revokeConsent`'s stated reason applied to this decision: a tab still
+    // running with the certificate it obtained under a withdrawn decision has withdrawn
+    // nothing.
+    await api.stop()
+    revokeEnrolment(store)
+    // And the key, which is the part specific to this decision. The certificate is left
+    // alone deliberately — it names a key that no longer exists here, so
+    // `resolveCertificate`'s own identity check refuses it on the next start, and deleting
+    // somebody else's signed statement is not this page's business.
+    await forgetVisitorKey()
+    notify()
+    return offerOf()
   },
 
   async autoStart(options = {}) {
@@ -1768,6 +1979,10 @@ const api: TabApi = {
   async stop() {
     if (node !== null) await node.stop()
     node = null
+    // Back to "the question does not arise". A stopped tab cannot be out of step with a
+    // decision, and leaving the last run's value here would make `appliedToRunningNode`
+    // answer about a node that no longer exists.
+    runningWithProvider = undefined
     // Defect 32: the upgrade budget is about connections this node held. A restarted
     // tab has none of them, so carrying the counts across would let a fresh run inherit
     // a verdict — "given up on this peer" — that nothing in it justifies.

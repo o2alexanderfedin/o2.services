@@ -200,11 +200,38 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   'browser/firstGap',
   'browser/gatewayUrl',
   'browser/grantConsent',
+  // AUTH-01/02/04, 2026-08-17 — the visitor-enrolment set, ten symbols arriving together and
+  // by the established route. `TabApi.enrolmentOffer`, `acceptEnrolment` and `declineEnrolment`
+  // are members of the same `api` literal as `grantConsent` and `enrolledIssuer`, and they call
+  // this set; `main.ts#start` calls `readEnrolment` and `visitorEnrolmentOption`. Every one is
+  // hidden by the same `window.o2` assignment and by nothing else.
+  //
+  // **Not read off the source — the derived case named all ten verbatim before this list was
+  // touched**, which is the G14 defence doing its job for the sixth recorded time:
+  // *"expected [ 'browser/GrantedEnrolment', 'browser/InsecureOriginError',
+  // 'browser/acceptEnrolment', 'browser/canHoldVisitorKey', 'browser/forgetVisitorKey',
+  // 'browser/readEnrolment', 'browser/revokeEnrolment', 'browser/visitorKeyPair',
+  // 'browser/visitorOperatorId', 'core/generateSubtleKeyPair' ] to deeply equal []"*.
+  //
+  // `core/generateSubtleKeyPair` is on this list rather than in `OPEN_FINDINGS` for a reason
+  // worth stating: it lives in `@o2/core` and its only caller is `visitorKeyPair` two barrels
+  // away, which is itself behind the hop. CRYPTO-01 is why it is there at all — exactly one
+  // production file may perform WebCrypto Ed25519 operations — so this is a symbol whose
+  // *location* is a guard's requirement and whose *reachability* is the tracer's limit.
+  'browser/GrantedEnrolment',
+  'browser/InsecureOriginError',
+  'browser/acceptEnrolment',
+  'browser/canHoldVisitorKey',
+  'browser/forgetVisitorKey',
   'browser/identifyBrowser',
   'browser/loadArtifact',
   'browser/probeEnvironment',
   'browser/readConsent',
+  'browser/readEnrolment',
   'browser/revokeConsent',
+  'browser/revokeEnrolment',
+  'browser/visitorKeyPair',
+  'browser/visitorOperatorId',
   // CHURN-03, 2026-08-16. `main.ts#runColouring` — a member of the same `api` literal as
   // `runPi` and `verifyAnswer` — passes `checkpointsInto(node.store)` as `SubmitOptions.checkpoints`,
   // which is what closes criterion 7's write half. It is hidden by the same `window.o2`
@@ -214,6 +241,10 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   // defence doing its job for the third recorded time.
   'core/checkpointsInto',
   'core/describeStartReport',
+  // AUTH-01, 2026-08-17. See the visitor-enrolment block above for why a `core/` symbol is on a
+  // list of things the demo page hides: CRYPTO-01 requires the `generateKey` call to live in
+  // `ed25519-backend.ts`, and its only caller is `@o2/browser`'s `visitorKeyPair`, behind the hop.
+  'core/generateSubtleKeyPair',
   'core/startReportFromCounts',
   'demo/answerOf',
   'demo/buildPiInput',
@@ -570,8 +601,30 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * code-cache measurement symbols in that module (`cacheVerdict`, `describeCacheVerdict`,
  * `measureRepeatLoad`) are still open, because wiring a fetch did not wire a two-visit
  * measurement and a ceiling that absorbed them would be recording work nobody did.
+ *
+ * **Raised 51 → 61, measured 2026-08-17 — ten at once, the largest raise so far, and the
+ * direction is the good one for the plainest reason yet.** `browser/GrantedEnrolment`,
+ * `browser/InsecureOriginError`, `browser/acceptEnrolment`, `browser/canHoldVisitorKey`,
+ * `browser/forgetVisitorKey`, `browser/readEnrolment`, `browser/revokeEnrolment`,
+ * `browser/visitorKeyPair`, `browser/visitorOperatorId` and `core/generateSubtleKeyPair`, by
+ * the established route: the derived case went red first and named all ten verbatim, and the
+ * register was edited to agree with a measurement rather than a judgement.
+ *
+ * **None of these came out of `OPEN_FINDINGS`, because none of them existed yesterday** — and
+ * that is the distinction this note has to make, since a ten-entry raise is exactly the shape
+ * the ceiling exists to sound an alarm about. They are ten symbols created and wired **in the
+ * same commit**, closing the v1.1 milestone audit's B1, B2 and B3: a visitor can now enrol this
+ * tab by clicking a control on the page, so the tab holds a certificate, so `enrolledIssuer`
+ * answers something, so `trustedIssuers` is passed, so the tab stops taking blocks from every
+ * connected peer. Every caller is a member of the `api` literal assigned to `window.o2` — the
+ * one assignment the graph cannot follow — and `packages/node/src/visitor-enrolment.e2e.test.ts`
+ * drives all of it through real clicks in three engines against a spawned `--admit-issuer` seed.
+ *
+ * Had the graph been able to trace that one assignment, not one of these ten entries would
+ * exist. The owner named in every `global-object-hop` row is still the fix: extract
+ * `index.html`'s inline script, or teach the graph `window.o2`.
  */
-export const DISPOSITION_CEILING = 51
+export const DISPOSITION_CEILING = 61
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {
