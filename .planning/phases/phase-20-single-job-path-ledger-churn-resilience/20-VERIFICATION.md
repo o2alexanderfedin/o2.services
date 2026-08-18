@@ -868,3 +868,200 @@ _Verifier: independent goal-backward pass (gsd-verifier), adversarial stance_
 _Ten source mutations were planted, watched red, and restored with `cp` + `cmp` (exit 0 each).
 `git status --porcelain` empty before and after. No file in the tree was left modified by this
 verification._
+
+---
+
+## Amendment — 2026-08-18: criterion 7 **CLOSES**, and the score becomes **7/7**
+
+**Score: 6/7 → 7/7 criteria. Nothing above is retracted.** The 2026-08-05 pass was right on the
+day it was written, and it is right about the tree it read: `bin/agent.ts` submitted no job, so
+no coordinator an operator could start wrote a checkpoint, and PARTIAL was the state that was
+true. This amendment closes the criterion by **building the missing subject**, not by rereading
+the old evidence.
+
+**Verified:** 2026-08-18, at `ce97bc8`, branch `feature/phase-20-checkpoint-agent`.
+**Scope: criterion 7 ONLY.** Criteria 1–6 are MET and were **not** re-adjudicated.
+**Verdict:** criterion 7 **MET**, phase **7/7**.
+
+### The verdict this replaces, quoted rather than deleted
+
+> | 7 | A coordinator writes a checkpoint during a live job run through `bin/agent.ts`, and a
+> SECOND requestor — given nothing but that CID — finishes only the outstanding shards and
+> returns the same answer | **PARTIAL** | P2 carries the recovery half; the write half runs on a
+> sink no production submitter supplies |
+
+and, from the gap:
+
+> What is NOT delivered is the first clause's subject. … the only coordinator in this repository
+> that writes a checkpoint is a test's.
+
+and, from the closure plan (**G1**):
+
+> **G1 — criterion 7's write half.** Give one production submitter a checkpoint sink and guard
+> the call-site set. 1. `bin/bench.ts` is the natural site …
+
+### G1's step 1 was tried at the named site and is **declined**, with the reason measured
+
+`bin/bench.ts` is the wrong host, and it is worth writing down so nobody moves it back:
+
+1. **It is a multi-workload sweep, and one handle cannot name its many jobs.** `resumeState`
+   refuses a handle whose checkpoint names a different job — `checkpoint-names-another-job` — and
+   one handle applied across a sweep of differently-shaped rungs makes **every rung refuse** while
+   the driver prints a benchmark over nothing and exits 0. Measured 2026-08-18; the same failure
+   is recorded at `browser/demo/main.ts:1384`.
+2. **Its store does not outlive the run.** The blockstore is `mkdtemp(tmpdir(), 'o2-bench-')`,
+   deleted by `close()`, so a handle published from it names a block that is gone before anything
+   could resume. That is the *opposite* of the property the criterion is about, and it is why
+   `bin/bench.ts`'s two sentinel opt-outs are correct rather than lazy.
+3. Collapsing its rung ladder to fit one job trips its own `HarnessIntegrityError` — *"the shard
+   status vector is empty … an instrument that read nothing"*.
+
+So the closure takes G1's **third** listed option in substance and its first in spirit: a
+production submitter with a durable store, sited on the entry point the criterion names.
+
+### What was built
+
+`packages/node/src/bin/agent.ts` grew a **coordinator leg**, off by default:
+
+| flag | what it does |
+|---|---|
+| `--coordinate <shards>` | run one demo-colouring job of `<shards>` cubes over the `--peer-addr` peers |
+| `--coordinate-n <n>` | the problem size, default 300 — the first rung of the demo's own ladder |
+| `--job-store <dir>` | the job's content-addressed store: shard inputs, shard results, checkpoint blocks. Defaults to `--dir` |
+| `--resume-from <cid> …` | checkpoint handles, newest first, passed to `SubmitOptions.resumeFrom` |
+
+Three properties of the shape, each of which was a decision:
+
+- **Off by default means byte-identical.** Every line of the new block is inside
+  `if (values.coordinate !== undefined)`, so the 19 existing argv sites in this repository are
+  unchanged — the rule `--discover` established in `bin/bench.ts`.
+- **`--job-store` is separate from `--dir` because a peer id is not job state.** `--dir` also
+  holds this node's identity seed (`fabric-node.ts`, `loadOrCreateSeed`), so two processes pointed
+  at one `--dir` are **one peer id wearing two processes** — a weaker claim than *"a SECOND
+  requestor"*. What crosses between the two coordinators is a directory of content-addressed
+  blocks and one CID, and the peer ids are asserted to differ.
+- **`submitJobWithEgress`, not bare `submitJob`.** The first full run of
+  `sovereign-block-refusal.node.test.ts` caught this leg by name — *"packages/node/src/bin/agent.ts
+  calls bare submitJob. That is a new production submit path, and `submitJobWithEgress`'s
+  sovereign registration does not cover it"* — and the remedy that guard names first is the one
+  taken. Recorded because the guard found a real hole in the first draft.
+
+### The measurement — five spawned processes, no in-process requestor anywhere
+
+`packages/node/src/checkpoint-coordinator.e2e.test.ts`. Nothing in that file submits a job, holds
+a `JobSpec`, wraps an `Executor` or touches a `CheckpointSink`; it spawns processes, reads their
+stdout, and reads one block off a directory. **That is the whole difference from
+`checkpoint-agents.node.test.ts`**, which had to record the substitution *"a job run **across**
+`bin/agent.ts` processes"* and whose in-process requestor is exactly what the PARTIAL was about.
+
+`npx vitest run --project e2e packages/node/src/checkpoint-coordinator.e2e.test.ts --reporter=verbose`,
+exit **0**, 2 passed, 8.54 s:
+
+```
+[criterion 7 / coordinator] standUp 774ms for 2 agents, control 1824ms, departed 974ms,
+                            resumed 1216ms, restarted 1387ms;
+  the checkpoint named [0,1,2,3,4,9] and left [5,6,7,8,10,11,12,13,14,15];
+  attempted per partition — control   [1,1,1,1,1,1,1,1,1,2,1,1,1,1,1,1],
+                            resumed   [0,0,0,0,0,1,1,1,1,0,2,1,1,1,1,1],
+                            restarted [1,1,1,1,2,1,1,1,1,1,1,1,1,1,1,1];
+  resumed endings [carried-from-checkpoint ×5, agreed ×4, carried-from-checkpoint, agreed ×6];
+  chain — departed published 6, resumed reports 16;
+  complete/redispatches — control true/0, resumed false/0, restarted true/0
+```
+
+Each clause of the criterion, and where it is read:
+
+- **"a coordinator writes a checkpoint during a live job run through `bin/agent.ts`"** — the
+  control process publishes 16 confirmed handles, each read back out of the store through
+  `readCheckpoint` *before* it is printed, so a handle on stdout is a handle whose block is
+  already retrievable. `expect(controlJob.confirmed).toHaveLength(SHARDS)`.
+- **"a SECOND requestor"** — its own process, its own `--dir`, its own peer id, asserted
+  `expect(peerIdOf(resumed)).not.toBe(peerIdOf(departed))`, started after the first took SIGKILL
+  (`signalCode === 'SIGKILL'`, `exitCode === null`) and after that first process was confirmed
+  never to have reached its own job line.
+- **"given nothing but that checkpoint's CID"** — the job description and one `--resume-from`.
+  The set the checkpoint names is **not** taken from either coordinator's report: the file opens
+  the shared store itself and reads the block from the CID alone, through the same validating
+  reader `resumeState` uses. The resumed process's own `remaining` — computed by `remainingWork`
+  inside `bin/agent.ts` before the job runs — must equal the complement of that set.
+- **"finishes only the outstanding shards"** — `carried-from-checkpoint` with `attempted: 0` on
+  exactly the six the checkpoint names, and `attempted ≥ 1` on exactly the other ten. The
+  `restarted` arm is the same command line **minus one flag**, over the same store and the same
+  fabric in the same run, and attempts all sixteen: `worked(resumed) < worked(restarted)`.
+- **"returns the same answer the first would have"** — `resumedJob.shards.map(resultCid)` equals
+  the control's, per shard, in the same run, never a pinned literal. `n = 300` is chosen for this:
+  at 400 and above almost every cube exhausts `DEFAULT_BUDGET` and returns the identical "not
+  found" partial, which would make the comparison a tautology. Asserted alive by
+  `new Set(controlCids).size > 1`.
+
+One reading beyond the criterion, kept because it is the one a restart cannot fake: the resumed
+process reports `chain: 16` against six publishes of its own. `checkpointLogOf` seeds a resumed
+run's first checkpoint with the handle it resumed from as its `previous`, so `checkpointChain`
+walks back **through the departed requestor's history**. A restart's chain is only as long as its
+own publishes.
+
+### Falsifiable — both clauses, both planted, both watched red
+
+| id | criterion | mutation | exit | observed |
+|---|---|---|---|---|
+| **P11** | 7, write half | `bin/agent.ts` — `{ checkpoints, …}` → `{ checkpoints: 'checkpoints-nothing', …}`, i.e. the coordinator states it keeps no checkpoints | **1** | 1 failed \| 1 passed. `expected [] to have a length of 16 but got +0` at `expect(controlJob.confirmed).toHaveLength(SHARDS)` — the criterion's first clause, failing on the exact assertion that carries it |
+| **P12** | 7, read half | `bin/agent.ts` — `...(resumeFrom.length === 0 ? {} : { resumeFrom })` → `...(… ? {} : {})`, i.e. the handles are parsed, reported, and never given to the job | **1** | 2 failed. `expected 'agreed' to be 'carried-from-checkpoint'`, and the printed line becomes `resumed endings [agreed ×16]` with `attempted` ≥ 1 on **every** partition — the second requestor recomputing the whole job. The refusal case fails too, `expected true to be false`: a resume that is never passed cannot be refused |
+
+Both restored by the **surgical inverse** of the plant — the same one-line substitution reversed,
+never a `cp` of the whole file — and verified with `cmp` against a snapshot taken immediately
+before planting. `CMP_EXIT=0` on both. Re-planted and re-measured a second time after the
+`submitJobWithEgress` change, so the record above is against the committed source and not against
+a draft.
+
+### What this does NOT close, stated so the MET is not read as wider than it is
+
+- **CHURN-03 does not tick, and its row says why.** The opt-out census, re-measured 2026-08-18, is
+  **seven of nine** submit sites passing `'checkpoints-nothing'` against two supplying a real sink
+  (`demo/main.ts:1540` and `bin/agent.ts:1626`). Every opt-out carries a written reason and
+  `checkpoint-optout-scope.node.test.ts` pins the set in both directions — that is scope *stated*,
+  and stated is not satisfied. What did die is the row's no-caller clause: `remainingWork` and
+  `checkpointChain` now have production callers, `checkpointsInto` left the `global-object-hop`
+  register, and `DISPOSITION_CEILING` was **lowered** 61 → 60 for the first time in its history.
+- **CHURN-04 does not tick either.** The coordinator is a third production submitter supplying
+  `admit`, which is the channel renewal takes its evidence from — the precondition, not the
+  renewal. It drives no renewal and now the reason is arithmetic rather than an absence of
+  coverage: `DEFAULT_LEASE_MS` 30 000 ms × `RENEW_AT` ⅔ = 20 s before `shouldRenew` can return
+  true, against a ~60 ms cube. A factor of ~330.
+- **The wire limit is unchanged.** `protocol.ts` has a `block` request that **pulls** and nothing
+  that pushes or provides, so the hand-off cannot survive the loss of the departed requestor's
+  disk. That is why the two coordinators share a directory, and it is a finding rather than a case
+  this closure fakes.
+- **W1, W2, W3, W5 and W7 are untouched** by this amendment. W5 is now *narrower* in one respect
+  only — `bin/agent.ts` has learned to say more things — but `startReporting` is still hardcoded
+  and no `--withholds-start-report` flag exists.
+
+### Did the tree stay green?
+
+| command | exit | result |
+|---|---|---|
+| `npx tsc --noEmit` | **0** | no output |
+| `npx vitest run --project e2e packages/node/src/checkpoint-coordinator.e2e.test.ts` | **0** | 2 passed, 8.54 s |
+| `npx vitest run --project e2e` (whole project) | **0** | 34 files, 221 passed, 679 s; `(user+sys)/real` = **0.63**, which is what a browser-and-relay project looks like — this suite waits on processes and sockets far more than it computes |
+| `npx vitest run --project node` | **1** | 197 files, 2935 passed / 8 failed / 1 skipped, 409 s; `(user+sys)/real` = **1.93** |
+
+**Every one of the eight node-project failures is outside this change, and each was checked
+rather than assumed:**
+
+- `vocabulary.node.test.ts` ×5 — all five findings name `.planning/milestones/v1.1-ROADMAP.md:210`
+  and `:211`. `git show 8c2cda7:.planning/milestones/v1.1-ROADMAP.md` reproduces both lines
+  verbatim at the branch point. Arrived with the v1.1 archive merge.
+- `slow-specs.node.test.ts` file-count drift, 197 against a recorded 191 — **the tracked
+  node-project population is 197 at `8c2cda7` and 197 at `ce97bc8`, identical**. That guard's own
+  filter excludes `*.e2e.test.ts` (`slow-specs.node.test.ts:151`), so the file added here cannot
+  have moved it.
+- `mutation-guard.node.test.ts` M63 ×2 — names `tools/aot/lift.ts`, a file this change never
+  touched and which a concurrent agent holds modified in the shared working tree.
+
+`O2_SKIP_GUARDS=1` was used on both commits, for the `slow-specs` drift alone, and each commit
+message says so and says why. Every other cheap guard passes on this change's paths — including
+the four this change reddened and then satisfied: `reachability-guard`, `requirements-ledger`,
+`checkpoint-optout-scope` and `sovereign-block-refusal`.
+
+_Amended: 2026-08-18 at `ce97bc8`, branch `feature/phase-20-checkpoint-agent`._
+_Two source mutations planted, watched red, and restored by surgical inverse with `cmp` exit 0
+each. No file outside this change's own list was left modified._
