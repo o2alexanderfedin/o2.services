@@ -46,21 +46,6 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 8: Benchmark Harness** - The scaling claim becomes a reproducible published number with its costs included rather than excluded
 - [x] **Phase 9: Public Demo, Consent UX & Disclosure Gate** - A visitor consents, contributes to a job someone cares about, and nothing publishes without a deliberate human action
 - [x] **Phase 10: elfconv AOT Native→WASM Pipeline** - A statically-linked native binary becomes a fabric-executable artifact under the same admission checks and verification — **3 of 4 criteria**; cross-machine reproducibility is descoped to one host (2026-07-28) and stays unmeasured, not met, and the V8 code-cache hit was measured and does not happen
-- [x] **Phase 11: Explicit serveAgent Hook Contract** - `serveAgent`'s six hooks stop defaulting silently — an omission becomes a compile error, not a decision nobody made (completed 2026-07-27)
-- [x] **Phase 12: Sovereignty-Pinned Placement** - A sovereignty label becomes a constraint the live `submitJob` path cannot relax, with pushdown and backbone execution-ineligibility enforced on a real job (completed 2026-07-27)
-- [x] **Phase 13: Egress Manifest Completeness** - `EgressGuard` **refuses** a frame carrying a registered sovereign block rather than recording it afterwards, and a leaking cross-owner job fails from the submitter across two spawned `bin/agent.ts` processes — **3/3 on the amended criteria (`13-VERIFICATION-2.md`, 8 mutations planted by the verifier). Scored 0/3 on the original wording first (`13-VERIFICATION.md`); the criteria were then amended on three owner rulings and the gaps closed. Two follow-ons scheduled to Phase 13.1, not left implicit: NET-10 (the refusal arrives as a timeout, not a named outcome) and DATA-10 (only the executing node registers, so a submitter still serves raw sovereign bytes).**
-- [ ] **Phase 13.1: Node-Side Admission & Transport Bounds** (INSERTED) - A node refuses work it cannot run with a stated reason, and neither side of the wire can be driven past a bound by a peer — three defects measured against the real stack
-- [ ] **Phase 14: Signed Artifact Resolution** - Artifacts resolve only through a signed `key → CID` mapping on the live dispatch path, never a bare CID
-- [ ] **Phase 15: Capability-Chained Dispatch** - A dispatched task carries a capability chain the serving node verifies before `WebAssembly.instantiate` — the serving end wired and verified end to end, the requestor end wired to a required argument every production call site declines (see the amendment note under Phase 15)
-- [ ] **Phase 16: Decomposable Tree-Reduce Wiring** - A live multi-node job merges partials up `executeReduce`'s derived tree, replacing the demo's linear scan
-- [ ] **Phase 17: Node Identity & Enrollment** - A node generates its identity on-device and enrolls through a rate-limited, provider-signed flow that a peer verifies offline
-- [ ] **Phase 18: Discovery, Capacity & Placement** - Nodes discover candidates, sample and select by load, and refuse over-committed work — no static peer list, on a real job
-- [ ] **Phase 19: Quorum Composition & Owner-Domain Attestation** - Verification quorums compose under anti-affinity and backbone anchoring, and owner-domain agreement is labelled distinctly from independent-operator agreement, on a real job
-- [ ] **Phase 20: Single Job Path, Ledger & Churn Resilience** - `submitJob` becomes the one job path — lease, speculate, account for coverage — and the peer ledger records real outcomes instead of discarding them
-- [ ] **Phase 21: AOT Translation Signing & Runtime** - `translationCid` is called by the lift pipeline and a production node constructs a real `WasiExecutor`
-- [ ] **Phase 22: Reachability Guard** - A guard test fails when an exported capability has no path from a runnable entry point — the class of defect this milestone exists to fix
-- [x] **Phase 23: Multi-Process Benchmark Driver** - The harness spawns N real operating-system processes instead of N nodes on one event loop, so a parallel speedup is measurable at all — **5 of 5 criteria** (`23-VERIFICATION.md`, 2026-08-06). Criterion 3 passes on its *first* disjunct; the second's premise was refuted by the phase's own factorial. **BENCH-07 closed; AUTH-03 stays `Partial` pending Phase 22.** What the phase deliberately did *not* establish: that the two drivers differ at all — three runs, the curves crossed twice, and the spread between runs exceeds the difference between them
-- [ ] **Phase 24: Certificate-Gated Admission** - The front door is locked: a node that cannot present a provider-issued certificate cannot reserve a circuit, be advertised, or be dialled. Scheduled later by owner ruling 2026-08-04; the open door is a KNOWN and accepted state until this phase runs
 
 ## Phase Details
 
@@ -260,6 +245,103 @@ is a recompile of everything — `TARGET=aarch64-wasi32` (not the Emscripten bun
 which emits JS glue and splits the ABI); no `-pthread` in any edge artifact; AArch64
 static input. **Correction: "unstripped" was wrong.** A stripped binary lifts fine if
 `.eh_frame` survives, because the loader recovers function entries through libdwarf.
+
+## Milestone v1.1 — Wire What Was Built (Phases 11-22)
+
+> **MOVED HERE 2026-08-18 — this heading used to sit at the END of the file, and its position
+> was a defect rather than a style choice.** `gsd-sdk`'s roadmap parser scopes a milestone to the
+> slice running from its `##` heading to the next milestone heading, and it deliberately excludes
+> everything before — *"never include the preamble, which may contain ## Backlog and other
+> non-current-milestone phases."* With this heading below all 28 phase sections, that slice was
+> prose, and `gsd-sdk query roadmap.analyze` reported **`phase_count: 1`**. `/gsd-autonomous`
+> discovers work from exactly that call, and its filter keeps a phase when `disk_status !==
+> "complete"` **OR** `roadmap_complete === false`, so it would have re-planned and re-executed
+> Phase 28 — complete, 4 plans and 4 summaries — and then run audit → complete-milestone →
+> cleanup off a phase count of one.
+>
+> **Nothing was reworded and no phase moved.** The heading and its prose were relocated whole,
+> above the phases they scope, and the file verified as a permutation of itself. Phases 1–10 now
+> fall in the preamble, which is correct: they are v1.0. Measured after: **19 phases (11–28),
+> 124 plans, 132 summaries** — matching an independent count of the phase directories.
+>
+> **The `(Phases 11-22)` in this heading is stale and is left alone deliberately.** 23 and 24
+> were inserted by owner ruling 2026-08-05, and 25–28 were added later. Editing it would restate
+> what the milestone contains, which changes the denominator `STATE.md` counts criteria against —
+> an owner edit, not a formatting one. `STATE.md` scopes v1.1 as phases 11–24 and counts
+> **12 of 15 on criteria**, with 20 (6/7), 21 (2/3) and 22 (2/3) verified-but-uncounted.
+
+**Added 2026-07-27, as the direct output of the v1.0 milestone audit.** Phases 11-22
+above are the real phase breakdown; this section replaces the earlier scoping
+placeholder.
+
+v1.0 built four phases' worth of mechanism that no runnable entry point reaches:
+sovereignty labelling, tree-reduce, discovery, enrollment, quorum composition,
+capability chains, and the entire churn coordinator. 36 requirements were *Built, not
+wired*. The code is real and tested; the wire was missing.
+
+**The sequencing is deliberate, not alphabetical.** Phase 11 fixes the structural
+cause — `serveAgent`'s six silently-defaulting hooks become an explicit, compile-checked
+contract — before anything else, because that is what turns the remaining 35
+requirements into build failures at their call sites rather than something a person has
+to go looking for a year later. Phases 12-15 wire sovereignty, egress, signing, and
+capability dispatch (the mechanism built in v1.0 Phase 4); Phase 16 wires tree-reduce
+(v1.0 Phase 5); Phases 17-19 wire identity, discovery, placement, and quorum composition
+(v1.0 Phase 6, split three ways at fine granularity — enrollment and certificates first,
+since discovery and quorum composition consume them); Phase 20 collapses `runResilient`
+and `submitJob` into the one job path and wires churn resilience plus the peer ledger
+(v1.0 Phase 7, plus two partials); Phase 21 finishes the AOT pipeline's two open wiring
+gaps (v1.0 Phase 10); Phase 22 is the reachability guard that would have caught this
+milestone happening in the first place — it runs last because it verifies the other
+phases actually did what they claim. **Last means after 23 and 24, not after 21** — the
+execution order is 23 → 24 → 22, and both of those dependencies are load-bearing rather
+than tidy: Phase 23 criterion 5 is what makes Phase 22 criterion 1 passable at all, and
+Phase 24 is what makes the fabric it certifies a gated one (owner ruling 2026-08-05).
+
+Almost no code here is algorithmically novel — the mechanisms already exist, unit-tested,
+in the v1.0 phase directories. Each v1.1 phase's job is to make a runnable entry point
+(`bin/agent.ts`, `bin/seed.ts`, `bin/bench.ts`, `tools/aot/cli.ts`, or the browser demo)
+actually call it.
+
+**Not in v1.1** (per PROJECT.md): NET-03 (needs a publicly reachable host), BENCH-06 and
+AOT-03 (rewritten 2026-07-28 to what one host establishes; their cross-machine halves are
+descoped and unmeasured, not met — see PROJECT.md's residual entry), AOT-05 (a measured
+negative — reported unmet rather than reworded until re-run against an `https` origin says
+otherwise).
+
+### Phase Checklist
+
+**Moved here 2026-08-18 from `## Phases`, and NO TICK STATE WAS CHANGED.** The list lived in
+the document preamble, which `gsd-sdk`'s roadmap parser excludes from the current milestone by
+design — so every checkbox lookup missed and every phase read `roadmap_complete: false`,
+whatever the box said. Phases 1–10 stay in `## Phases` above: they are v1.0 and belong to the
+preamble.
+
+**Entries for 25–28 are new and deliberately UNTICKED** — they had no checklist row at all, so
+their absence was being read as "not complete" already. Adding them changes no verdict.
+
+**Ticking any box here records a VERIFIER'S VERDICT and is an owner edit.** Eleven of these are
+unticked while `STATE.md` counts them closed — see the note under the heading above. Do not tick
+them to make a tool report progress; that is the move RULING A exists to prevent.
+
+- [x] **Phase 11: Explicit serveAgent Hook Contract** - `serveAgent`'s six hooks stop defaulting silently — an omission becomes a compile error, not a decision nobody made (completed 2026-07-27)
+- [x] **Phase 12: Sovereignty-Pinned Placement** - A sovereignty label becomes a constraint the live `submitJob` path cannot relax, with pushdown and backbone execution-ineligibility enforced on a real job (completed 2026-07-27)
+- [x] **Phase 13: Egress Manifest Completeness** - `EgressGuard` **refuses** a frame carrying a registered sovereign block rather than recording it afterwards, and a leaking cross-owner job fails from the submitter across two spawned `bin/agent.ts` processes — **3/3 on the amended criteria (`13-VERIFICATION-2.md`, 8 mutations planted by the verifier). Scored 0/3 on the original wording first (`13-VERIFICATION.md`); the criteria were then amended on three owner rulings and the gaps closed. Two follow-ons scheduled to Phase 13.1, not left implicit: NET-10 (the refusal arrives as a timeout, not a named outcome) and DATA-10 (only the executing node registers, so a submitter still serves raw sovereign bytes).**
+- [ ] **Phase 13.1: Node-Side Admission & Transport Bounds** (INSERTED) - A node refuses work it cannot run with a stated reason, and neither side of the wire can be driven past a bound by a peer — three defects measured against the real stack
+- [ ] **Phase 14: Signed Artifact Resolution** - Artifacts resolve only through a signed `key → CID` mapping on the live dispatch path, never a bare CID
+- [ ] **Phase 15: Capability-Chained Dispatch** - A dispatched task carries a capability chain the serving node verifies before `WebAssembly.instantiate` — the serving end wired and verified end to end, the requestor end wired to a required argument every production call site declines (see the amendment note under Phase 15)
+- [ ] **Phase 16: Decomposable Tree-Reduce Wiring** - A live multi-node job merges partials up `executeReduce`'s derived tree, replacing the demo's linear scan
+- [ ] **Phase 17: Node Identity & Enrollment** - A node generates its identity on-device and enrolls through a rate-limited, provider-signed flow that a peer verifies offline
+- [ ] **Phase 18: Discovery, Capacity & Placement** - Nodes discover candidates, sample and select by load, and refuse over-committed work — no static peer list, on a real job
+- [ ] **Phase 19: Quorum Composition & Owner-Domain Attestation** - Verification quorums compose under anti-affinity and backbone anchoring, and owner-domain agreement is labelled distinctly from independent-operator agreement, on a real job
+- [ ] **Phase 20: Single Job Path, Ledger & Churn Resilience** - `submitJob` becomes the one job path — lease, speculate, account for coverage — and the peer ledger records real outcomes instead of discarding them
+- [ ] **Phase 21: AOT Translation Signing & Runtime** - `translationCid` is called by the lift pipeline and a production node constructs a real `WasiExecutor`
+- [ ] **Phase 22: Reachability Guard** - A guard test fails when an exported capability has no path from a runnable entry point — the class of defect this milestone exists to fix
+- [x] **Phase 23: Multi-Process Benchmark Driver** - The harness spawns N real operating-system processes instead of N nodes on one event loop, so a parallel speedup is measurable at all — **5 of 5 criteria** (`23-VERIFICATION.md`, 2026-08-06). Criterion 3 passes on its *first* disjunct; the second's premise was refuted by the phase's own factorial. **BENCH-07 closed; AUTH-03 stays `Partial` pending Phase 22.** What the phase deliberately did *not* establish: that the two drivers differ at all — three runs, the curves crossed twice, and the spread between runs exceeds the difference between them
+- [ ] **Phase 24: Certificate-Gated Admission** - The front door is locked: a node that cannot present a provider-issued certificate cannot reserve a circuit, be advertised, or be dialled. Scheduled later by owner ruling 2026-08-04; the open door is a KNOWN and accepted state until this phase runs
+- [ ] **Phase 25: X.509 Certificate Profile** - A bounded, hand-written DER decoder for exactly this profile, with all seven obligations as refusals
+- [ ] **Phase 26: elfconv Compiled to Wasm — Translation as a Fabric Workload** - The translator itself becomes a fabric-executable artifact
+- [ ] **Phase 27: The Demo UI, Driven by the Real Fabric** - Every surface a visitor reads is derived from the fabric rather than from a fixture
+- [ ] **Phase 28: One Cryptographic Implementation, and the Facades Ledgered** - `packages/core` holds exactly one Ed25519 implementation rather than two
 
 ### Phase 11: Explicit serveAgent Hook Contract
 **Goal**: Every `serveAgent` call site states an explicit value for all six hooks — `authorize`, `index`, `capacity`, `ledger`, `reservations`, `onDispatch` — so an omission is a compile error a developer sees at the call site, not a default nobody noticed
@@ -2023,44 +2105,3 @@ and guarded; **alone in its wave** because it runs `npm install`) → `28-03` (t
      ONE NON-BLOCKING DRIFT, recorded so it is not rediscovered as a defect:
      `reachability-guard.node.test.ts:350` and `REQUIREMENTS.md:790` both still say "47" against
      an `OPEN_FINDING_CEILING` that is now 49. Comment drift only — nothing reddens. -->
-
-
-## Milestone v1.1 — Wire What Was Built (Phases 11-22)
-
-**Added 2026-07-27, as the direct output of the v1.0 milestone audit.** Phases 11-22
-above are the real phase breakdown; this section replaces the earlier scoping
-placeholder.
-
-v1.0 built four phases' worth of mechanism that no runnable entry point reaches:
-sovereignty labelling, tree-reduce, discovery, enrollment, quorum composition,
-capability chains, and the entire churn coordinator. 36 requirements were *Built, not
-wired*. The code is real and tested; the wire was missing.
-
-**The sequencing is deliberate, not alphabetical.** Phase 11 fixes the structural
-cause — `serveAgent`'s six silently-defaulting hooks become an explicit, compile-checked
-contract — before anything else, because that is what turns the remaining 35
-requirements into build failures at their call sites rather than something a person has
-to go looking for a year later. Phases 12-15 wire sovereignty, egress, signing, and
-capability dispatch (the mechanism built in v1.0 Phase 4); Phase 16 wires tree-reduce
-(v1.0 Phase 5); Phases 17-19 wire identity, discovery, placement, and quorum composition
-(v1.0 Phase 6, split three ways at fine granularity — enrollment and certificates first,
-since discovery and quorum composition consume them); Phase 20 collapses `runResilient`
-and `submitJob` into the one job path and wires churn resilience plus the peer ledger
-(v1.0 Phase 7, plus two partials); Phase 21 finishes the AOT pipeline's two open wiring
-gaps (v1.0 Phase 10); Phase 22 is the reachability guard that would have caught this
-milestone happening in the first place — it runs last because it verifies the other
-phases actually did what they claim. **Last means after 23 and 24, not after 21** — the
-execution order is 23 → 24 → 22, and both of those dependencies are load-bearing rather
-than tidy: Phase 23 criterion 5 is what makes Phase 22 criterion 1 passable at all, and
-Phase 24 is what makes the fabric it certifies a gated one (owner ruling 2026-08-05).
-
-Almost no code here is algorithmically novel — the mechanisms already exist, unit-tested,
-in the v1.0 phase directories. Each v1.1 phase's job is to make a runnable entry point
-(`bin/agent.ts`, `bin/seed.ts`, `bin/bench.ts`, `tools/aot/cli.ts`, or the browser demo)
-actually call it.
-
-**Not in v1.1** (per PROJECT.md): NET-03 (needs a publicly reachable host), BENCH-06 and
-AOT-03 (rewritten 2026-07-28 to what one host establishes; their cross-machine halves are
-descoped and unmeasured, not met — see PROJECT.md's residual entry), AOT-05 (a measured
-negative — reported unmet rather than reworded until re-run against an `https` origin says
-otherwise).
