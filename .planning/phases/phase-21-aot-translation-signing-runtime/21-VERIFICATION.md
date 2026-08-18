@@ -1,7 +1,10 @@
 ---
 phase: 21-aot-translation-signing-runtime
 verified: 2026-08-05T07:45:16Z
-status: ruled # the owner ruling this pass asked for was taken 2026-08-05; see `ruling` below. Score UNCHANGED at 2/3.
+amended: 2026-08-18T08:35:00Z # criterion 2's re-tag clause CLOSED; see AMENDMENT at the end of this file
+status: passed # was `ruled`; the clause the ruling carried is now measured and MET
+score: 3/3 criteria MET (0 PARTIAL, 0 FAILED) — criterion 2's first clause closed 2026-08-18
+original_status: ruled # the owner ruling this pass asked for was taken 2026-08-05; see `ruling` below. Score UNCHANGED at 2/3.
 ruling: >-
   OWNER RULING 2026-08-05, on task #64. Criterion 2's re-tag clause is RECORDED AS A MEASURED
   NEGATIVE, on AOT-05's precedent — the same disposition v1.0 took for the V8 code-cache result.
@@ -17,7 +20,12 @@ ruling: >-
   over criteria, never over requirements.
   REQUIREMENTS.md already carried the measured-negative wording in three places before this
   ruling; the ruling makes the verification agree with the ledger rather than the other way round.
-score: >-
+  REOPENED AND SUPERSEDED 2026-08-18 by owner direction. The ruling is kept verbatim because its
+  reasoning about `RepoDigests` re-measures TRUE and is still asserted in the tree; what it got
+  wrong is that `RepoDigests` was the whole data source. `docker image inspect` also reports
+  `Identity`, which records where content was OBTAINED rather than what it has been NAMED, and
+  `docker tag` does not move it. See the AMENDMENT at the end of this file.
+original_score: >-
   2/3 criteria MET (1 PARTIAL, 0 FAILED). Criterion 2 is PARTIAL on one clause only —
   the re-tag refusal — which this pass RE-MEASURED BY HAND and confirms is not met on
   this host for a reason that is about the containerd image store and not about this
@@ -824,3 +832,247 @@ makes this verification agree with the ledger, not the other way round.**
 _Verified: 2026-08-05T07:45:16Z_
 _Verifier: Claude (gsd-verifier) — independent goal-backward pass_
 _Working tree at completion: `packages/aot/src/abi-router.ts` byte-identical to HEAD (`cmp` exit 0); no file owned by this phase modified; `git status --porcelain` shows only concurrent agents' work_
+
+---
+---
+
+# AMENDMENT — 2026-08-18, criterion 2's re-tag clause is CLOSED
+
+**Amended:** 2026-08-18T08:35:00Z
+**Code commit:** `6717887` on branch `feature/phase-21-retag`
+**Working tree during the pass:** shared checkout, `feature/phase-20-checkpoint-agent` at
+`ce97bc8` — a concurrent agent switched the branch mid-task, so the commit was landed on
+`feature/phase-21-retag` by plumbing (`read-tree` / `write-tree` / `commit-tree` /
+`update-ref`) without checking it out. All four files are byte-identical between the two
+branch tips, so the recorded tree is unambiguous.
+**Host:** MacBookPro18,3, 8 cores, 32 GB, Darwin 25.5.0, Docker **Client 29.4.0 / Server
+29.4.0**, containerd **v2.2.2**, runc 1.4.2, OrbStack context. elfconv image PRESENT at
+`sha256:22a404f31c9f7bb5c49e3193081d4876718253d86747aae3d30fcfd971f19c05` — the same digest
+this report records for 2026-08-05.
+**Status after amendment:** `passed`
+**Score after amendment: 3/3** (criterion 1 MET, criterion 2 **MET — newly**, criterion 3 MET)
+
+Everything above this line stays as written. It is still the correct record of 2026-08-05, and
+the part of it that this amendment does *not* overturn is larger than the part it does.
+
+---
+
+## What the ruling said, and which sentence is false
+
+The 2026-08-05 ruling and the report it ruled on both rest on one sentence, quoted verbatim
+from **Criterion 2 — PARTIAL**, *Clause 1*:
+
+> "The two calls are being shown the same bytes, so **no predicate over that data can refuse one
+> and admit the other.**"
+
+and from the ruling itself:
+
+> "`RepoDigests` is a property of the image **ID**, so no predicate over it can separate a
+> borrowed name from the canonical one, and **the information is not in the data source**."
+
+**Every clause of that about `RepoDigests` re-measures true on 2026-08-18 and is still asserted
+in the tree.** `docker tag` still gives the borrowed repository an entry of its own; the
+canonical name still answers with a byte-identical list; an `every`-must-match rule would still
+falsely refuse the correct image. Nothing in the earlier measurement was wrong.
+
+**The false sentence is "the information is not in the data source" — because `RepoDigests` was
+not the whole data source.** It was the only field the earlier pass reasoned over. `docker image
+inspect` also reports `Identity`, and `Identity` answers a different question: not *what has this
+image been named* but *where was its content obtained*.
+
+## The measurement
+
+Taken by hand, this pass, exit codes read with `EXIT=$?` on the line immediately after the
+command, no pipes:
+
+```
+$ docker image inspect ghcr.io/yomaytk/elfconv:arm64 --format '{{json .Identity}}'
+{"Pull":[{"Repository":"ghcr.io/yomaytk/elfconv"}]}                            # EXIT=0
+$ docker image inspect ghcr.io/yomaytk/elfconv:arm64 --format '{{json .RepoDigests}}'
+["ghcr.io/yomaytk/elfconv@sha256:22a404f3…"]                                   # EXIT=0
+
+$ docker tag ghcr.io/yomaytk/elfconv:arm64 o2-retag-probe/elfconv:borrowed      # TAG_EXIT=0
+
+$ docker image inspect o2-retag-probe/elfconv:borrowed --format '{{json .RepoDigests}}'
+["o2-retag-probe/elfconv@sha256:22a404f3…","ghcr.io/yomaytk/elfconv@sha256:22a404f3…"]
+$ docker image inspect ghcr.io/yomaytk/elfconv:arm64  --format '{{json .RepoDigests}}'
+["o2-retag-probe/elfconv@sha256:22a404f3…","ghcr.io/yomaytk/elfconv@sha256:22a404f3…"]
+        ↑ 2026-08-05's finding, reproduced exactly. RepoDigests cannot do this job.
+
+$ docker image inspect o2-retag-probe/elfconv:borrowed --format '{{json .Identity}}'
+{"Pull":[{"Repository":"ghcr.io/yomaytk/elfconv"}]}
+$ docker image inspect ghcr.io/yomaytk/elfconv:arm64  --format '{{json .Identity}}'
+{"Pull":[{"Repository":"ghcr.io/yomaytk/elfconv"}]}
+        ↑ UNMOVED by the tag, through either name. This is the discriminator.
+
+$ docker rmi o2-retag-probe/elfconv:borrowed                                   # RMI_EXIT=0
+$ docker image inspect ghcr.io/yomaytk/elfconv:arm64 --format '{{json .RepoDigests}}'
+["ghcr.io/yomaytk/elfconv@sha256:22a404f3…"]      # canonical image intact, host restored
+```
+
+**And the resolution of the apparent paradox, which is the part worth reading.** The data
+really *is* identical for both names — that is asserted in the spec now, for `Identity` as well
+as for `RepoDigests`, so nobody can read the refusal as "the borrowed name was shown different
+bytes". The predicate is not over the data alone. **It is over the data and the name the caller
+asked for:** the requested repository must appear among the repositories the content was pulled
+under. `ghcr.io/yomaytk/elfconv` does. `docker.io/o2-local/elfconv` does not. One call refused,
+one admitted, from one set of bytes. The 2026-08-05 sentence was true of `RepoDigests` alone and
+is false of the image record.
+
+## What was built
+
+`tools/aot/lift.ts`:
+
+- `resolveImage` asks one `docker image inspect` for both fields, format
+  `o2-image-identity={{json (index . "Identity")}}\n{{join .RepoDigests "\n"}}`.
+  **`index . "Identity"` and not `.Identity`, and that is the whole compatibility story** —
+  Docker renders `--format` with `missingkey=error`, so the direct form is a *template parsing
+  error* with **exit 1** on a daemon that has no such field, which `resolveImage` would have
+  classified as `image-absent` and sent someone to pull six gigabytes they already have.
+  Measured: `{{json .NoSuchFieldAtAll}}` → EXIT=1; `{{json (index . "NoSuchFieldAtAll")}}` →
+  `null`, EXIT=0.
+- New `LiftFailure` kind **`image-name-not-pulled`**, refusing before any container starts.
+- `normalizeRepository`, applying Docker's own reference grammar. **Not tidying** — `Identity`
+  spells repositories fully qualified (`docker.io/library/alpine`) while `docker image ls` and
+  `RepoDigests` spell them short (`alpine`, `alpine@sha256:…`). Both spellings measured on this
+  host; the identity match must be normalised and the digest match must not.
+- `IMAGE_PROVENANCE_BLIND_SPOT`, attached when the daemon reports no `Identity` at all. That
+  case is **admitted, not refused** — see the limits below.
+
+## The false-refusal cost, measured rather than argued
+
+The reason the `every`-`RepoDigests` repair was rejected on 2026-08-04 is that it refuses correct
+images. The same question was therefore asked of this rule, against **every image on this host**
+(16), not against a fixture:
+
+| outcome | count | which |
+|---|---|---|
+| **admitted**, genuinely pulled | 11 | `alpine`, `gcc`, `ghcr.io/yomaytk/elfconv` ×2, `hello-world`, `pgvector/pgvector`, `postgres` ×3, `testcontainers/ryuk`, `ubuntu` |
+| **refused**, locally built (`Build`, no `Pull`) | 4 | `ai-memory-service`, `cpptoc-ci-replica`, `cpptoc-linux-gcc15`, `market-oracle-api` |
+| **admitted with the blind spot**, no `Identity` reported | 1 | `cpptoc-linux-loop` |
+
+**Zero false refusals.** The four refusals are correct: a locally built image has no repository
+any other host could resolve the recorded key against — which is what `image-has-no-digest` was
+written to catch and, measured 2026-08-18, **can no longer catch**, because a `docker build`
+image *does* get a `RepoDigests` entry on the containerd store. Un-normalised, **9 of the 11**
+admits become refusals; that is the regression P2 below exists to hold.
+
+## The plants
+
+Both watched red, both restored by the **surgical inverse of the plant** (not `cp`), both
+`cmp`'d against a snapshot taken immediately before planting.
+
+**P1 — the refusal removed.** `tools/aot/lift.ts`, drop the `!`:
+`if (pulled !== undefined && !pulled.includes(wanted))` → `if (pulled !== undefined && pulled.includes(wanted))`
+
+```
+npx vitest run --project node tools/aot/cli.node.test.ts tools/aot/lift.node.test.ts
+Test Files 2 failed (2) / Tests 10 failed | 151 passed (161)          PLANTED_EXIT=1
+
+FAIL cli.node.test.ts > … > refuses a real `docker tag` of the elfconv image, and admits
+     the canonical name from the same bytes
+AssertionError: expected true to be false            ❯ cli.node.test.ts:739  (borrowed.ok)
+
+AssertionError: ghcr.io/yomaytk/elfconv:arm64 is present, but this host never pulled
+  anything under ghcr.io/yomaytk/elfconv — its content was obtained as
+  ghcr.io/yomaytk/elfconv, … : expected false to be true
+```
+`RESTORE` by re-adding the `!`; `CMP_EXIT=0`.
+
+**P1 is the discriminator, not merely a red.** It reddens **both** directions at once — the
+borrowed name is admitted *and* the canonical name is refused — and six of the ten failures are
+in `a real binary goes through the real toolchain (runnable)`, **pre-existing integration cases
+that know nothing about this change** and that fail only because the real elfconv image stopped
+resolving. A check wired in but never consulted would leave those green.
+
+**P2 — the normalisation removed.** `const wanted = normalizeRepository(repository)` →
+`const wanted = repository`:
+
+```
+npx vitest run --project node tools/aot/cli.node.test.ts tools/aot/lift.node.test.ts
+Test Files 2 failed (2) / Tests 2 failed | 160 passed (162)           PLANTED_EXIT=1
+
+AssertionError: expected 'o2-local/elfconv' to be 'docker.io/o2-local/elfconv'
+AssertionError: alpine:latest is present, but this host never pulled anything under
+  alpine — its content was obtained as docker.io/library/alpine, … : expected false to be true
+```
+`RESTORE` by re-inserting the call; `CMP_EXIT=0`. Re-planted a second time against the corrected
+Docker-Hub case after that case's stub was fixed (`PLANTED_EXIT=1`, `CMP_EXIT=0`) — a green that
+was not watched fail is not a proof, and the case had changed since P2's first run.
+
+## Runs
+
+Exit codes read with `EXIT=$?` on the line immediately after the command, no pipes, no trailing
+`tail`.
+
+| command | exit | result |
+|---|---|---|
+| `npx tsc --noEmit` | **0** | whole tree, no output |
+| `npx vitest run --project node tools/aot/cli.node.test.ts tools/aot/lift.node.test.ts` | **0** | **162 passed**, no skip line. `real 263.90 user 6.62 sys 1.37`. Was 151 on 2026-08-05; +11 cases |
+| `npx vitest run --project node packages/aot` | **0** | 10 files, **275 passed** |
+| `npx vitest run --project node tools/aot/lift.node.test.ts` (alone) | **0** | 129 passed |
+| `npx vitest run --project node tools/aot/cli.node.test.ts` (alone) | **0** | 32 passed |
+
+The gated case **ran**; it is not a skip. `refuses a real `docker tag` of the elfconv image, and
+admits the canonical name from the same bytes` is listed in the verbose output at 1557 ms.
+
+## The clause, re-scored
+
+> *"Re-tagging a local translated image under a different name and pointing the CLI at it is
+> refused rather than hashed under the borrowed name"*
+
+**MET.** Through the program, not through a stub. `tools/aot/cli.ts` spawned as a program with
+`--image o2-local/elfconv:borrowed-<pid>` against a real `docker tag` of the real elfconv image:
+
+```
+EXIT=1
+o2-local/elfconv:borrowed-32324 is present, but this host never pulled anything under
+docker.io/o2-local/elfconv — its content was obtained as ghcr.io/yomaytk/elfconv, so that
+name was applied here by `docker tag` or `docker build`; lifting under it would record a
+toolchain identity in the translation key that no other host can resolve, and the borrowed
+name would then be what the cache is keyed on forever. Lift by the name the image was
+pulled under
+```
+
+**The exit code is readable here in a way it was not on 2026-08-05.** That report declined to
+assert on it, correctly, because the borrowed name was *adopted* and the run then aborted inside
+the container — so `1` meant the refusal and the abort alike. The refusal now happens before any
+container is started, so `1` has one meaning. The spec asserts the exit code **and** asserts the
+absence of the old adoption line `image o2-local/elfconv@sha256:` — the exact string the
+2026-08-05 report quoted as *"that sentence **is** the criterion's failure"*.
+
+Criterion 2's clause 2 was already MET and is unchanged. **Criterion 2: PARTIAL → MET.
+Phase 21: 2/3 → 3/3.**
+
+## Limits, stated rather than glossed
+
+1. **The classic dockerd image store remains unmeasured, and unmeasured is not met.** The
+   2026-08-05 ruling said so and this amendment does not extend past it. `Identity` is Docker 29
+   / containerd-image-store data. On a daemon without it the driver **admits and attaches
+   `IMAGE_PROVENANCE_BLIND_SPOT`** rather than refusing — refusing there would be exactly the
+   false-refusal trade that killed the `every`-`RepoDigests` repair. On such a host this clause
+   is *unmeasured*, which is a third state, not a pass. The blind spot is what says so where
+   somebody will read it, since a `LiftedArtifact` carries its blind spots as a field.
+2. **This is not a defence against a hostile registry.** It refuses a *locally applied* name —
+   `docker tag`, `docker build`. Someone who can serve content from a registry they control under
+   a name you trust is a different threat and is not addressed here.
+3. **The four covered inputs of the translation key are unchanged.** `blindSpots` is one of the
+   nine build-log fields the 2026-08-05 sweep showed leaves the CID still, so no emitted CID
+   moves because of this change — verified by the sweep passing unchanged.
+4. **W1 (the `echo-guest` hook budget), W3, W5 and W7 are untouched by this amendment.** W2 was
+   already re-measured to EXIT=0 on 2026-08-05. W4 was corrected in place. W6 is addressed below.
+
+## W6 — the stale REQUIREMENTS.md rows
+
+W6 recorded that the AOT-02 and AOT-04 traceability rows had gone stale and that *"its owner
+should now correct it"*. Corrected on 2026-08-18 in the same pass as this amendment, with the
+falsified sentences quoted in place rather than deleted. AOT-02's outstanding half is now the
+`describeKey` mismatch report only; the re-tag half is closed by this amendment.
+
+---
+
+_Amended: 2026-08-18T08:35:00Z. Code at `6717887` on `feature/phase-21-retag`. Both plants
+watched red and restored by surgical inverse with `cmp` exit 0 against snapshots taken
+immediately before planting; no `git checkout --`, `git stash`, `git reset` or `git clean` was
+run at any point. Docker host state restored: the probe tags were removed and
+`ghcr.io/yomaytk/elfconv:arm64` re-reads its single original `RepoDigests` entry._
