@@ -1846,8 +1846,23 @@ action is an implementation plan for **layers 0–1 only** (handler ABI + capabi
 **The block below is dated 2026-08-10 and is kept as history rather than rewritten**, on this
 file's own amendment convention. It describes Phase 25 and is accurate about it. Note that
 `progress:` in the frontmatter counts the **v1.1 slice only** (phases 11–24, fifteen of them) and
-predates Phases 25–28, so it reads `12 of 15` where the resume file reads `20 of 29` across the
-whole roadmap; the two count different populations and neither was moved here.
+predates Phases 25–28.
+
+**CORRECTED 2026-08-18 — the second half of this note was wrong on the day it was written.** It
+read: *"so it reads `12 of 15` where the resume file reads `20 of 29` across the whole roadmap; the
+two count different populations and neither was moved here."* The first clause stands and the
+frontmatter is untouched; **`20 of 29` is not a count of anything.** It comes from
+`gsd-sdk query init.progress`, and that list is defective twice over, both verified on disk:
+phases 2–8 and 10 carry a bare `SUMMARY.md` with no `*-PLAN.md`, so the tool reads `plan_count: 0`
+and reports them `pending` — they are finished **v1.0** work, and it offers
+`phase-10-elfconv-aot` as `next_phase`; and **Phase 28 is emitted twice**, once complete at 4/4 and
+once as a ghost with `directory: null` and `not_started`. So `29` double-counts one phase and mixes
+in nine from a prior milestone. This is the same family as the `progress.bar` defect the
+frontmatter comment already warns about — *"it counts plan files across the nine unarchived v1.0
+phase directories and reports `17/9 plans (100%)`"* — and it was quoted here as if it were an
+independent reading. **Recounted on disk: 28 phase directories, 9 v1.0 and 19 post-v1.0, and every
+one of the 19 has plan/summary parity or better, so no phase is in flight.** `12 of 15` on criteria
+remains the governing figure and nothing in `progress:` was moved.
 
 Stopped at (2026-08-10): **PHASE 25 IS EXECUTED — 4 of 4 plans across 3 waves, on branch
 `feature/phase-25-x509-certificate-profile`. NOT YET VERIFIED.** Both post-wave gates are
