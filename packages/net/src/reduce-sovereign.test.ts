@@ -842,3 +842,58 @@ describe('MR-02 — the arm reads a receipt submitJob built, not one the fixture
     }
   })
 })
+
+/**
+ * MR-02 / VER-08 — the sovereign arm refuses the local combine the owner's placement
+ * ruling prefers everywhere else, and the reason is verification rather than sovereignty.
+ *
+ * **The reading this case pins, because the plausible one is wrong.** A local combine here
+ * would move *nothing*: `reduceJob` projects every partial into the requestor's own
+ * blockstore before any combine is placed, so by the time a combine runs the requestor
+ * already holds all of them — and the raw rows they summarise never left their owner at
+ * all. Sovereignty is untouched either way, and a refusal justified on sovereignty grounds
+ * would be this repository's recurring error of restating a real constraint about one
+ * thing as a constraint about another.
+ *
+ * What a local combine would empty is the **verification** half. `PROJECT.md` splits the
+ * claim as *the owner's contribution is trusted; the aggregation over contributions is
+ * verified*, and the aggregation is the only half redundancy can carry — pinning removes
+ * the second independent executor from the map by construction.
+ * {@link MIN_SOVEREIGN_COMBINE_REPLICAS} is that claim in code, and a requestor combining
+ * for itself contributes a replica that is not independent of the party reading the
+ * answer, signed by nobody on purpose.
+ */
+describe('MR-02 — a sovereign aggregation is never combined by the requestor itself', () => {
+  it('keeps every combine on a peer and says so in the outcome, not merely in the count', async () => {
+    const { fabric, job, spec, options } = await passingCall()
+    try {
+      const result = await reduceSovereignJob(job, spec, options)
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      const { value } = result.aggregate
+
+      // Not one combine was taken locally, and the outcome says it in the field that
+      // carries the fact rather than leaving it to be inferred from `minReplicas`.
+      expect(value.outcome.locallyCombined).toEqual([])
+      // Every producer is a peer id from the fabric, and `the-requestor-itself` is not
+      // among them — asserted by membership rather than by absence of one string, so a
+      // rename of the constant could not make this pass vacuously.
+      for (const executor of value.outcome.executedBy.values()) {
+        expect(fabric.ids).toContain(executor)
+      }
+
+      // The refusal is stated per combine and names the caller's own requirement, which
+      // is what distinguishes *this arm required remote* from *the local node was full*.
+      expect(value.outcome.localRefusals).toHaveLength(value.tree.nodes.length)
+      for (const entry of value.outcome.localRefusals) {
+        expect(entry.reason).toContain('requires remote combining')
+      }
+
+      // And the claim the refusal exists to protect still holds: every combine reached
+      // the minimum this arm is verified at.
+      expect(value.outcome.minReplicas).toBeGreaterThanOrEqual(MIN_SOVEREIGN_COMBINE_REPLICAS)
+    } finally {
+      fabric.close()
+    }
+  })
+})
