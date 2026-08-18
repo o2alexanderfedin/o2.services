@@ -1032,10 +1032,30 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // a source-text reading of the shipped call, not a measurement of a renewal. It is here
   // because it is the only instrument that sees whether a production caller still exists, and
   // that is the fact the previous sentence got wrong for eleven days.
+  //
+  // **RE-READ 2026-08-18, and the promise this entry carries is now a DIFFERENT one — the
+  // row was being held open on the wrong leg.** Everything above, and the row itself, holds
+  // CHURN-04 open on *renewal*. CHURN-04's own sentence is *"Task ownership is leased and
+  // **re-dispatched on lease expiry**"*, and renewal is the mechanism that PREVENTS an
+  // expiry. The substitution has stood since Phase 20.
+  //
+  // What the requirement asks is genuinely unread across real processes, and the reason is
+  // exact: `churn-agents.node.test.ts` filters losses on `expired || surrendered` and
+  // records at `:802` that **every loss it measures is a surrender** — a SIGKILLed socket
+  // closes well inside `RPC_TIMEOUT_MS`, so `submitJob` surrenders and the deadline never
+  // bites. The only spec that drives an `expired` through `submitJob` at all is
+  // `job/submit.test.ts:1460`, on a **virtual** clock. And the knob is already named by the
+  // file that cannot use it (`churn-agents.node.test.ts:805-807`): an `rpcTimeoutMs` above
+  // the lease, or a relay reservation outliving the process.
+  //
+  // So `because` still reads true on its second word — nothing an entry point drives ever
+  // reaches either leg — but the promise this id now carries is to drive an **expiry**, not
+  // a renewal, and that is MEASURING rather than a workload decision. Not taken in this pass
+  // because the arm costs 30 s of wall clock by construction and moves `slow-specs`' table.
   {
     id: 'CHURN-04',
     because: 'entry-point-not-driven',
-    reread: '2026-08-16',
+    reread: '2026-08-18',
     witnesses: [
       'packages/core/src/lease.test.ts',
       'packages/browser/src/colouring-surface.node.test.ts',
@@ -1084,10 +1104,26 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // (`index.html` names `enrollment` zero times). So on the visitor path the argument is
   // always empty and the tab still pins nobody. The call site is real and measured; the
   // visitor's *route to it* is not built.
+  //
+  // **RE-READ 2026-08-18. The leg is unchanged and TWO SENTENCES IN THE ROW were false in
+  // the present tense** — *"`browser-node.ts` constructs no `PeerVerifier`"* and Phase 24's
+  // residual *"the browser tier still pins nobody and reaches no verdict"*. `#compose`
+  // constructs one at `browser-node.ts:1452-1457` and hands the block source
+  // `() => verifier.verifiedPeers` at `:1470`. The row's *behaviour* claim survives on a
+  // better-stated cause: `peer-verifier.ts:469-474` returns the connected set **unchanged,
+  // with no verdict computed and no `records` request issued**, when the pinned set is
+  // empty — a deliberate fail-open. Both corrected in the row.
+  //
+  // `because` still reads true on its second word: what is left is a configuration fact and
+  // a missing behavioural reading — no spec observes a tab that enrolled THROUGH THE UI
+  // excluding a connected-but-unverified peer off the wire. `visitor-enrolment.e2e.test.ts`
+  // clicks and asserts only `heldIssuer` and `/bootstrap.json`; `tab-pinning.e2e.test.ts`
+  // makes the off-the-wire reading through the test-only `o2capability` harness with
+  // harness-supplied key material. ~60-90 lines to join them, no production change needed.
   {
     id: 'AUTH-02',
     because: 'tier-or-configuration',
-    reread: '2026-08-14',
+    reread: '2026-08-18',
     witnesses: [
       'packages/browser/src/browser-node-contract.node.test.ts',
       'packages/browser/src/peer-verifier.browser.test.ts',
@@ -1105,10 +1141,27 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/node/src/tab-pinning.e2e.test.ts',
     ],
   },
+  //
+  // **RE-READ 2026-08-18, and the promise stops being a promise to wait.** The row said
+  // *"exactly one thing keeps this row open"* — whether a capability travelling only behind
+  // `--discover --sovereign` counts as entry-point reachable — and *"Owner's call"*. **The
+  // call was made on 2026-08-15** and is recorded at
+  // `.planning/consults/2026-08-15-owner-ruling-off-by-default-flag.md`: *"It must work with
+  // no flag."* This file was already applying that ruling in CHURN-04's entry above while
+  // `REQUIREMENTS.md` cited it nowhere — one document acting on a ruling the other had not
+  // heard of, and no guard can catch that, because a consult is not a row.
+  //
+  // So the open item is build work owed, and it is checkable by symbol: no no-flag dispatch
+  // hands a real `CapabilitySupplier` to a `RemoteExecutor`. Every demo executor is
+  // `'dispatches-unauthenticated'` and so is `bin/agent.ts:1602`. The nearest edge is
+  // `demo/main.ts:1900`, which emits `label: 'sovereign'` with no flag and carries no chain
+  // because `attestedNodes` declares `ownerId: 'public'` on every descriptor, making the
+  // shard structurally unplaceable — the source says so at `:1855-1868` and names the
+  // escape hatch.
   {
     id: 'AUTH-03',
     because: 'tier-or-configuration',
-    reread: '2026-08-11',
+    reread: '2026-08-18',
     witnesses: [
       'packages/core/src/capability.test.ts',
       'packages/net/src/capability-dispatch.test.ts',
@@ -1121,10 +1174,27 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/node/src/tree-reduce-agents.node.test.ts',
     ],
   },
+  //
+  // **RE-READ 2026-08-18, and `because` is now the weakest word in this entry — kept only
+  // because rewriting a row's cause is the ledger owner's call and not this file's.** What
+  // holds AUTH-04 open is neither a tier nor a configuration: *no graduated per-identity
+  // cost exists anywhere in this repository*. A repo-wide search of non-test
+  // `packages/*/src` for proof-of-work, hashcash, stake, payment, puzzle or escalating
+  // delay returns no mechanism, and `core/enrollment.ts:114-116` says so in production
+  // source against its own interest. The N-th identity costs one keygen and two signature
+  // verifications until the aggregate window is spent, then infinity for everyone — a step
+  // function, not a gradient.
+  //
+  // So this is an OWNER DECISION and cannot become a measurement: the thing to measure is
+  // not implemented. Two of the row's own statements were re-checked and corrected in it —
+  // the 5 -> 32 limiter default is real but dated a day early against `git log -S`, and
+  // `serveAgent`'s `enrol` branch, while still taking no authorization step, is no longer
+  // bare: an `enrol-challenge` two-leg exchange at `net/agent.ts:1317` bounds replay,
+  // though not minting.
   {
     id: 'AUTH-04',
     because: 'tier-or-configuration',
-    reread: '2026-08-06',
+    reread: '2026-08-18',
     witnesses: [
       'packages/browser/src/idb-issuance.browser.test.ts',
       'packages/core/src/enrollment.test.ts',
@@ -1191,10 +1261,33 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/node/src/seed-binary-join.e2e.test.ts',
     ],
   },
+  //
+  // **RE-READ 2026-08-18 at 13 days outstanding — one day from the bound — and the leg is
+  // now stated as the seam it is rather than as an absence.** Every claim in the row
+  // re-measures true: `index: records` on both tiers (`fabric-node.ts:2681`,
+  // `browser-node.ts:1974`), and the demo's per-peer `records` lookup on no flag
+  // (`main.ts:514` in `peerCertificate`, reached from `attestedNodes` at `:579`, itself
+  // reached from four job-submitting surfaces).
+  //
+  // What is open is a **missing consumer on a port that is already built and composed on
+  // both tiers**. `BrowserNode.#compose` builds `DhtRecordIndex` over
+  // `RpcRecordIndex(rpc, () => verifier.verifiedPeers)` at `browser-node.ts:1526` and
+  // exposes it as `readonly recordIndex` at `:917` — and `.recordIndex` occurs exactly
+  // twice in the whole repository, both assignments (`browser-node.ts:1092`,
+  // `fabric-node.ts:1621`). Nothing on either tier reads it. A tab's executor pool comes
+  // from a caller-supplied `options.peerIds`; the index answer lands in a descriptor's
+  // `certificate` field as an annotation and never as a filter, which `peerCertificate`'s
+  // own docblock states at `main.ts:453-456`. `packages/browser/**` contains zero
+  // occurrences of `discoverCandidates` or `discoverExecutors`.
+  //
+  // Phrased as a symbol claim this would read *"`recordIndex` is written and never read"*,
+  // which is not a shape `parseRows` reads — the `NO_CALLER` family is about call sites,
+  // and this is a property access. Hence the entry stays, with the promise now to build the
+  // reader rather than to look for one.
   {
     id: 'NET-06',
     because: 'entry-point-not-driven',
-    reread: '2026-08-05',
+    reread: '2026-08-18',
     witnesses: [
       'packages/core/src/discovery.test.ts',
       'packages/net/src/discovery.test.ts',
@@ -1218,9 +1311,19 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     // Under the owner ruling of 2026-08-14 the property that sentence protects is **routing
     // stability and dedup**, not fraud prevention, so the resolution is a reword on VER-03's
     // precedent rather than an experiment. Drafted and returned for the owner; not applied.
+    // **Re-read 2026-08-18 and every clause above re-derives from the tree rather than from
+    // the entry.** `deriveReduceTree` is declared at `core/reduce.ts:190` and has exactly one
+    // production call site, `net/reduce-job.ts:505`, inside the requestor; `agent.ts` contains
+    // no occurrence of it, and `agent.ts:806-808` records the deliberate decision not to key a
+    // combine on `combineId` because it is "a requestor's claim about where in a tree this
+    // sits". The nearest readings are order-insensitivity inside one process, not
+    // independence. One further inaccuracy found and corrected in the row: it names
+    // `bin/bench.ts` as holding determinism, and `bin/bench.ts` never calls the function —
+    // it reaches it through `reduceJob` and holds shape, which `bench.ts:4319-4325` says of
+    // itself. The reword is still drafted and still not applied.
     id: 'MR-04',
     because: 'experiment-not-run',
-    reread: '2026-08-14',
+    reread: '2026-08-18',
     witnesses: [
       'packages/core/src/reduce.test.ts',
       'packages/net/src/reduce-job.test.ts',
