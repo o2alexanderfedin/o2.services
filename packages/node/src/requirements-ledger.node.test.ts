@@ -791,8 +791,12 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * lowered nothing — so the rule was stated, then not applied, three times running. Re-sited
  * here at the measurement, and the drop is written as one number rather than smuggled in as
  * part of the tick, because the tick is worth 1 of it and the unenforced rule is worth 3.
+ *
+ * **Lowered 10 → 9 the same day, when `MR-06` was ticked.** Same rule, applied in the same
+ * hour rather than the next time somebody notices — which is the habit the 14 → 10 note
+ * above exists to record the absence of.
  */
-const REREAD_REGISTER_CEILING = 10
+const REREAD_REGISTER_CEILING = 9
 
 /**
  * ## The rule this list encodes
@@ -1224,17 +1228,25 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/node/src/tree-reduce-agents.node.test.ts',
     ],
   },
-  {
-    id: 'MR-06',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-10',
-    witnesses: [
-      'packages/core/src/reduce.test.ts',
-      'packages/net/src/combine-wire.test.ts',
-      'packages/net/src/combine.test.ts',
-      'packages/node/src/tree-reduce-agents.node.test.ts',
-    ],
-  },
+  // `MR-06` was here until 2026-08-18 and is **REMOVED**, by the second exit the rule allows:
+  // its row is `Done`, so it leaves the population and the set equality below makes the
+  // removal compulsory.
+  //
+  // **It left because its row was re-read against its own witness list, which is the exact
+  // thing an entry here promises and the exact thing that had not happened.** The entry sat
+  // at `because: 'entry-point-not-driven'` while `tree-reduce-agents.node.test.ts` — the
+  // fourth name in its own witnesses — was already carrying
+  // `describe('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired elsewhere')`
+  // over eight real spawned `bin/agent.ts` processes, with the no-state-migration half read
+  // from both ends and the reduce re-run through the production `reduceJob` entry point.
+  // Re-run on the day it left: EXIT=0, 5 passed, real 12.56 / user 56.30, no `skipIf` in
+  // the file.
+  //
+  // **What had kept the row open was a clause the requirement does not contain** — that
+  // nothing on the demo page loses a combine to churn. That clause is true, is re-measured,
+  // and is retained in the row; it is simply not what MR-06 asks. This is the fifth instance
+  // of the failure this register was built for: the refuting evidence was in the tree, was
+  // named in the entry itself, and nothing put the two in front of the same reader.
   // **Re-read 2026-08-11 at 15 days outstanding, and it stays.** The row was read against
   // its witness. `harness.test.ts:17` does exercise `isSameMachine`, `machineLabel` and
   // `hostCount`, so the row's *same-machine* claim — the label stays derived from the
