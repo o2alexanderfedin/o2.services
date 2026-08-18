@@ -87,6 +87,7 @@ import type {
   Freshness,
   NameRecord,
   NodeCapacity,
+  OfferStanding,
   NodeCertificate,
   NodeRecords,
   OutcomeCount,
@@ -236,6 +237,22 @@ export type AgentResponse =
       readonly accepted: boolean
       readonly reason: string
       readonly capacity: NodeCapacity | null
+      /**
+       * SCHED-03 — whether this refusal is about *this shard* or about *all work*.
+       *
+       * Meaningless on an acceptance and always `'declining-this-offer'` there, because
+       * a node that took the shard declined nothing. It is not made optional for that:
+       * an optional field would let a refusing node say nothing and be read as merely
+       * full, which is the misreading this carries a name to prevent.
+       *
+       * **An absent key parses as `'declining-this-offer'`, and that direction is the
+       * safe one** — see `parseResponse`. It is the identical disposition `capacity:
+       * null` takes one field up: never invent a *restriction* from silence. A node
+       * running the previous build says nothing here and is treated exactly as it was
+       * before this field existed, so an upgrade cannot make a fabric stop offering
+       * work to half of itself.
+       */
+      readonly standing: OfferStanding
     }
   /**
    * Peer ids currently holding a reservation on the answering node.
@@ -1343,8 +1360,20 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
       // The `found`-style discriminant this file uses for every nested-or-absent
       // value. Emitting `slots`/`inFlight` as explicit `undefined` keys instead
       // would be a different shape from absent under the canonical encoding.
+      //
+      // `standing` is emitted on both arms and on acceptances too. It is one short
+      // string and the alternative — omitting it where it is uninteresting — would make
+      // "absent" mean two different things on the wire: an old peer, or a new peer that
+      // had nothing to say. The parser could not then tell them apart, and this field
+      // exists precisely to end a case of two facts wearing one spelling.
       return response.capacity === null
-        ? { kind: 'offer', accepted: response.accepted, reason: response.reason, bounded: false }
+        ? {
+            kind: 'offer',
+            accepted: response.accepted,
+            reason: response.reason,
+            bounded: false,
+            standing: response.standing,
+          }
         : {
             kind: 'offer',
             accepted: response.accepted,
@@ -1352,6 +1381,7 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
             bounded: true,
             slots: response.capacity.slots,
             inFlight: response.capacity.inFlight,
+            standing: response.standing,
           }
     case 'enrol':
       return enrollmentResultToValue(response.result)
@@ -1461,7 +1491,24 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
       const reason = record['reason']
       if (typeof accepted !== 'boolean') return null
       const stated = typeof reason === 'string' ? reason : ''
-      if (record['bounded'] !== true) return { kind: 'offer', accepted, reason: stated, capacity: null }
+      // SCHED-03. **Only the exact string stands a node down; everything else — absent,
+      // misspelt, a number, an old peer that has never heard of this field — reads as
+      // `declining-this-offer`.** That asymmetry is the point and it runs the same way
+      // as `capacity: null` two lines down: a requestor must never invent a
+      // *restriction* from silence. Reading an unrecognised value as
+      // `declining-all-work` would let one garbled frame remove a healthy node from
+      // every remaining shard of a job, and reading an absent one that way would do it
+      // to every node running the previous build the moment one node upgraded.
+      //
+      // The cost is stated rather than hidden: a node that genuinely stepped out but
+      // whose frame was corrupted in this field is re-offered work it will refuse
+      // again. That is the pre-existing behaviour, bounded by the probe timeout, and it
+      // is strictly the cheaper error.
+      const standing: OfferStanding =
+        record['standing'] === 'declining-all-work' ? 'declining-all-work' : 'declining-this-offer'
+      if (record['bounded'] !== true) {
+        return { kind: 'offer', accepted, reason: stated, capacity: null, standing }
+      }
       const slots = asIndex(record['slots'])
       const inFlight = asIndex(record['inFlight'])
       // Refused, not folded into the absent arm — the same disposition the
@@ -1469,7 +1516,7 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
       // ordinary "I state nothing" would be indistinguishable from an honest node
       // that states nothing, and the requestor treats that node as unbounded.
       if (slots === null || inFlight === null) return null
-      return { kind: 'offer', accepted, reason: stated, capacity: { slots, inFlight } }
+      return { kind: 'offer', accepted, reason: stated, capacity: { slots, inFlight }, standing }
     }
     case 'reservations': {
       const peerIds = asKeyList(record['peerIds'])

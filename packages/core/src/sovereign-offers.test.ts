@@ -96,6 +96,7 @@ function countingAdmit(refuse: readonly string[] = []): {
             accepted: false,
             reason: `over-committed: 1 of 1 slots in use`,
             capacity: { slots: 1, inFlight: 1 },
+            standing: 'declining-this-offer',
           }
         : { accepted: true, capacity: { slots: 4, inFlight: 0 } }
     },

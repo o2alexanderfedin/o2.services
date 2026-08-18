@@ -250,6 +250,7 @@ describe('the offer answer states the node’s room, or states that it states no
       accepted: true,
       reason: '',
       capacity: { slots: 4, inFlight: 1 },
+      standing: 'declining-this-offer',
     } as const
     expect(parseResponse(encodeResponse(bounded))).toStrictEqual(bounded)
   })
@@ -260,13 +261,66 @@ describe('the offer answer states the node’s room, or states that it states no
       accepted: false,
       reason: 'over-committed: 1 of 1 slots in use',
       capacity: { slots: 1, inFlight: 1 },
+      standing: 'declining-this-offer',
     } as const
     expect(parseResponse(encodeResponse(refusal))).toStrictEqual(refusal)
   })
 
   it('round-trips an answer that states no capacity', () => {
-    const unbounded = { kind: 'offer', accepted: true, reason: '', capacity: null } as const
+    const unbounded = {
+      kind: 'offer',
+      accepted: true,
+      reason: '',
+      capacity: null,
+      standing: 'declining-this-offer',
+    } as const
     expect(parseResponse(encodeResponse(unbounded))).toStrictEqual(unbounded)
+  })
+
+  it('round-trips a node that has stepped out, standing and capacity both intact', () => {
+    // SCHED-03. The capacity is deliberately NOT zero: a paused node publishes what it
+    // could do, and says separately that it is not doing it. Both halves have to
+    // survive the wire or a requestor cannot tell it from a node that shrank to nothing.
+    const out = {
+      kind: 'offer',
+      accepted: false,
+      reason: 'paused: n1 is declining all work right now',
+      capacity: { slots: 8, inFlight: 0 },
+      standing: 'declining-all-work',
+    } as const
+    expect(parseResponse(encodeResponse(out))).toStrictEqual(out)
+  })
+
+  it('reads an absent or unrecognised standing as declining-this-offer, never as a stand-down', () => {
+    // **The direction that matters.** A peer running the previous build sends no
+    // `standing` at all. Reading that as `declining-all-work` would drop every such
+    // node from every remaining shard the moment one node upgraded — a fabric that
+    // partitions itself on an upgrade, which is the identical failure `capacity: null`
+    // is shaped to avoid one field up.
+    //
+    // Garbage is treated the same way and for the same reason: one corrupted frame
+    // must not be able to remove a healthy node from a job. The cost is that a genuine
+    // stand-down whose field was mangled gets re-offered work it refuses again —
+    // bounded by the probe timeout, and strictly the cheaper error.
+    const frame = (extra: Record<string, unknown>): CanonicalValue =>
+      ({ kind: 'offer', accepted: false, reason: 'busy', bounded: false, ...extra }) as CanonicalValue
+
+    // The control: the exact string is the only thing that stands a node down.
+    const down = parseResponse(frame({ standing: 'declining-all-work' }))
+    expect(down?.kind === 'offer' && down.standing).toBe('declining-all-work')
+
+    for (const extra of [
+      {}, // an older peer: the key is absent entirely
+      { standing: 'declining-all-Work' }, // one capital letter
+      { standing: 'declining-this-offer' },
+      { standing: '' },
+      { standing: 7 },
+      { standing: true },
+      { standing: ['declining-all-work'] },
+    ]) {
+      const parsed = parseResponse(frame(extra))
+      expect(parsed?.kind === 'offer' && parsed.standing).toBe('declining-this-offer')
+    }
   })
 
   it('refuses a corrupt capacity outright rather than softening it to an absence', () => {

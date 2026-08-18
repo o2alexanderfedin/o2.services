@@ -57,8 +57,19 @@ const refuse = (reason: string) => (): Admission => ({
   accepted: false,
   reason,
   capacity: 'states-no-capacity',
+  standing: 'declining-this-offer',
 })
-const STATES_NOTHING = { capacity: 'states-no-capacity' } as const
+/**
+ * `standing` rides along here for the same reason `capacity` does: these stubs refuse
+ * for **room**, and the SCHED-03 cases that are about a node stepping out say
+ * `declining-all-work` explicitly at their own call sites rather than inheriting it.
+ * A shared constant that stood every stub down would make the re-pick and sampling
+ * cases below measure the fixture — they would see one refusal and stop asking.
+ */
+const STATES_NOTHING = {
+  capacity: 'states-no-capacity',
+  standing: 'declining-this-offer',
+} as const
 
 describe('SCHED-02 — placement samples d and looks no further', () => {
   it('chooses the least-loaded of the sample, not the least-loaded overall', async () => {
@@ -707,7 +718,7 @@ describe('planWithOffers — a whole job against real capacity', () => {
         capacities.get(offer.nodeId)?.offer(offer) ?? {
           accepted: false,
           reason: 'unknown node',
-          capacity: 'states-no-capacity',
+          ...STATES_NOTHING,
         },
     })
 
@@ -759,5 +770,135 @@ describe('planWithOffers — a whole job against real capacity', () => {
       'n0',
       'n0',
     ])
+  })
+})
+
+/**
+ * SCHED-03 — the requestor's half, which did not exist until 2026-08-18.
+ *
+ * `net/src/agent.ts` has named a paused node's refusal since Phase 20, and until now
+ * **nothing branched on it**: reasons are strings, this repository does not switch
+ * control flow on a reason, and so a paused node was re-offered every remaining shard
+ * of a job. That gap was recorded at its true size in `pausedRefusal`'s own docblock
+ * rather than left to be discovered.
+ *
+ * **Why the headroom map could not close it, which is the whole design.** A paused node
+ * publishes `{slots, inFlight}` *unchanged* — deliberately, because reporting zero slots
+ * would be exactly the misattribution the paused state exists to remove: the node is not
+ * full, it has stepped out. So its headroom stays positive and the map keeps it. Its
+ * advertised load of 0 then makes power-of-d-choices **prefer** it. The busy node is the
+ * control: it answers `inFlight === slots`, so the map drops it after one probe, and the
+ * two nodes are therefore distinguishable only by something the map does not read.
+ */
+describe('SCHED-03 — a node that has stepped out is not asked again', () => {
+  /** Counts probes per node, so "asked again" is a number rather than an impression. */
+  const counting = (answer: (nodeId: string) => Admission) => {
+    const asked: string[] = []
+    return {
+      asked,
+      admit: (offer: Offer): Admission => {
+        asked.push(offer.nodeId)
+        return answer(offer.nodeId)
+      },
+    }
+  }
+
+  /** A paused node: refuses everything, and says its capacity is untouched. */
+  const steppedOut: Admission = {
+    accepted: false,
+    reason: 'paused: n-out is declining all work right now',
+    capacity: { slots: 8, inFlight: 0 },
+    standing: 'declining-all-work',
+  }
+
+  it('probes a stood-down node once and never again, across eight shards', async () => {
+    const { asked, admit } = counting(() => steppedOut)
+    const shards = Array.from({ length: 8 }, (_, i) => publicShard(`s${i}`))
+
+    const placements = await planWithOffers(shards, [node('n-out', 0)], { admit })
+
+    // One probe for eight shards. Before this change the count was eight — the node
+    // has slots free by its own published figures, so nothing held it back.
+    expect(asked).toEqual(['n-out'])
+    expect(placements).toHaveLength(8)
+    expect(placements.every((p) => p.status === 'unplaceable')).toBe(true)
+  })
+
+  it('keeps offering to a node that only refused THIS shard, which is the discriminator', async () => {
+    // Same refusal, same published capacity, same load — one word different. If this
+    // case and the one above ever agree, the standing is not being read.
+    const { asked, admit } = counting(() => ({
+      accepted: false,
+      reason: 'over-committed: 8 of 8 slots in use',
+      capacity: { slots: 8, inFlight: 0 },
+      standing: 'declining-this-offer',
+    }))
+    const shards = Array.from({ length: 8 }, (_, i) => publicShard(`s${i}`))
+
+    await planWithOffers(shards, [node('n-busy', 0)], { admit })
+
+    expect(asked).toHaveLength(8)
+  })
+
+  it('holds back only the node that stepped out, and places every shard on the other', async () => {
+    const { asked, admit } = counting((nodeId) =>
+      nodeId === 'n-out' ? steppedOut : { accepted: true, capacity: { slots: 8, inFlight: 0 } },
+    )
+    const shards = Array.from({ length: 4 }, (_, i) => publicShard(`s${i}`))
+
+    const placements = await planWithOffers(shards, [node('n-out', 0), node('n-ok', 9)], { admit })
+
+    // `n-out` advertises load 0 against `n-ok`'s 9, so d-choices prefers it and it is
+    // asked first — then dropped. Every shard still lands.
+    expect(asked.filter((id) => id === 'n-out')).toHaveLength(1)
+    expect(placements.every((p) => p.status === 'placed')).toBe(true)
+    expect(placements.flatMap((p) => (p.status === 'placed' ? p.nodeIds : []))).toEqual([
+      'n-ok',
+      'n-ok',
+      'n-ok',
+      'n-ok',
+    ])
+  })
+
+  it('says which cause held a shard back, and does not report an absence as fullness', async () => {
+    const { admit } = counting(() => steppedOut)
+    const placements = await planWithOffers([publicShard('s0'), publicShard('s1')], [node('n-out', 0)], {
+      admit,
+    })
+
+    const second = placements[1]
+    expect(second?.status).toBe('unplaceable')
+    if (second?.status !== 'unplaceable') return
+    // The old sentence said "all N are at the capacity they stated", which would send an
+    // operator looking for load that is not there.
+    expect(second.reason).toContain('have stepped out and are declining all work')
+    expect(second.reason).not.toContain('at the capacity they stated')
+    // Never asked, so it never refused — `probed: 0` and no rejections, as the
+    // headroom arm already promises.
+    expect(second.probed).toBe(0)
+    expect(second.rejections).toEqual([])
+  })
+
+  it('counts the two causes separately when both are present', async () => {
+    const { admit } = counting((nodeId) =>
+      nodeId === 'n-out'
+        ? steppedOut
+        : {
+            accepted: false,
+            reason: 'over-committed: 1 of 1 slots in use',
+            capacity: { slots: 1, inFlight: 1 },
+            standing: 'declining-this-offer',
+          },
+    )
+    const placements = await planWithOffers(
+      [publicShard('s0'), publicShard('s1'), publicShard('s2')],
+      [node('n-out', 0), node('n-full', 0)],
+      { admit },
+    )
+
+    const last = placements[2]
+    expect(last?.status).toBe('unplaceable')
+    if (last?.status !== 'unplaceable') return
+    expect(last.reason).toContain('1 are at the capacity they stated and 1 have stepped out')
   })
 })
