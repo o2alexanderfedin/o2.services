@@ -343,6 +343,7 @@ export type { NameRecord, ResolveFailure, ResolveResult } from './naming.ts'
 export {
   DEFAULT_FANOUT,
   MAX_COMBINE_INPUTS,
+  LOCAL_COMBINE_EXECUTOR,
   MAX_PARTIAL_BYTES,
   asFabricPartial,
   deriveReduceTree,
@@ -357,6 +358,8 @@ export type {
   CombineTask,
   Combiner,
   FabricPartial,
+  LocalCombineAdmission,
+  LocalCombinePlacement,
   ReduceContribution,
   ReduceLeaf,
   ReduceOutcome,

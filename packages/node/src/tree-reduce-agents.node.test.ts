@@ -836,6 +836,7 @@ describe('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired else
     // store here would break level 2 for a reason unrelated to the kill.
     const dispatch = remoteCombineDispatch({ rpc: submitter.rpc, blockstore: submitter.store })
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree,
       executors: executorIds,
       dispatch: async (task, executorId) => {

@@ -682,6 +682,7 @@ async function combineOn(
   if (only === undefined) throw new Error('expected one combine')
 
   const outcome = await executeReduce({
+    localCombine: 'combines-nothing-locally',
     tree,
     executors: [agent.peerId],
     dispatch: remoteCombineDispatch({

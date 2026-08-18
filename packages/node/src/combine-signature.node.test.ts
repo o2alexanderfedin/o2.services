@@ -242,6 +242,7 @@ describe('VER-08/09/10 — every combine in a real tree carries its producer’s
     const { requestor, tree, executorIds } = await standUp(signers)
 
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree,
       executors: executorIds,
       dispatch: remoteCombineDispatch({ rpc: requestor.rpc, blockstore: requestor.store }),
@@ -319,6 +320,7 @@ describe('VER-08/09/10 — every combine in a real tree carries its producer’s
     const { requestor, tree, executorIds } = await standUp([await enrol(21, STRANGER_SEED)])
 
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree,
       executors: executorIds,
       dispatch: remoteCombineDispatch({ rpc: requestor.rpc, blockstore: requestor.store }),
@@ -353,6 +355,7 @@ describe('VER-08/09/10 — every combine in a real tree carries its producer’s
     const { requestor, tree, executorIds } = await standUp([await enrol(31), await enrol(32)])
 
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree,
       executors: executorIds,
       dispatch: remoteCombineDispatch({ rpc: requestor.rpc, blockstore: requestor.store }),

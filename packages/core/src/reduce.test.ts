@@ -162,6 +162,7 @@ describe('MR-04 — a leaf is a contribution, not a set of bytes', () => {
 
     const live = new Set(['n1', 'n2'])
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree,
       executors: [...live],
       dispatch: localDispatch({
@@ -192,6 +193,7 @@ describe('MR-04 — a leaf is a contribution, not a set of bytes', () => {
 
     const live = new Set(['n1', 'n2'])
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree,
       executors: [...live],
       dispatch: localDispatch({
@@ -243,6 +245,7 @@ describe('MR-02 / MR-03 — the aggregate is bit-identical to a single-node refe
     const live = new Set(['n1', 'n2', 'n3'])
 
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree,
       executors: [...live],
       dispatch: localDispatch({
@@ -279,6 +282,7 @@ describe('MR-02 / MR-03 — the aggregate is bit-identical to a single-node refe
     const roots = []
     for (const fanout of [2, 3, 4, 8]) {
       const outcome = await executeReduce({
+        localCombine: 'combines-nothing-locally',
         tree: deriveReduceTree(contributions, fanout),
         executors: [...live],
         dispatch,
@@ -296,6 +300,7 @@ describe('MR-02 / MR-03 — the aggregate is bit-identical to a single-node refe
     const live = new Set(['n1'])
 
     await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree: deriveReduceTree(contributions),
       executors: ['n1'],
       dispatch: async (task, executorId) => {
@@ -322,6 +327,7 @@ describe('MR-06 / MR-07 — churn repair is recompute, not recovery', () => {
 
     const healthyRoot = (
       await executeReduce({
+        localCombine: 'combines-nothing-locally',
         tree,
         executors,
         dispatch: localDispatch({
@@ -338,6 +344,7 @@ describe('MR-06 / MR-07 — churn repair is recompute, not recovery', () => {
     const live = new Set(executors.filter((n) => n !== victim))
 
     const repaired = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree,
       executors,
       dispatch: localDispatch({
@@ -368,11 +375,11 @@ describe('MR-06 / MR-07 — churn repair is recompute, not recovery', () => {
       liveNodes: () => live,
     })
 
-    const first = await executeReduce({ tree, executors: [...live], dispatch })
+    const first = await executeReduce({ localCombine: 'combines-nothing-locally', tree, executors: [...live], dispatch })
     const sizeAfterFirst = store.size
 
     // The node presumed dead finishes late and writes its result anyway.
-    const second = await executeReduce({ tree, executors: [...live], dispatch })
+    const second = await executeReduce({ localCombine: 'combines-nothing-locally', tree, executors: [...live], dispatch })
 
     expect(second.rootCid).toBe(first.rootCid)
     // Content addressing makes the duplicate a no-op rather than a conflict to
@@ -384,6 +391,7 @@ describe('MR-06 / MR-07 — churn repair is recompute, not recovery', () => {
     const store = new MemoryBlockstore()
     const { contributions } = await storePartials(store, 8)
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree: deriveReduceTree(contributions),
       executors: ['n1', 'n2'],
       dispatch: localDispatch({
@@ -500,6 +508,7 @@ describe('MR-03 / criterion 5 — the aggregation is verified even when the maps
     const live = new Set(['n1', 'n2', 'n3', 'n4'])
 
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree: deriveReduceTree(contributions),
       executors: [...live],
       redundancy: 2,
@@ -536,6 +545,7 @@ describe('MR-03 / criterion 5 — the aggregation is verified even when the maps
     // One node returns a plausible but different aggregate.
     const liar = rendezvousRank(tree.nodes[0]!.id, [...live])[1] as string
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree,
       executors: [...live],
       redundancy: 2,
@@ -562,6 +572,7 @@ describe('MR-03 / criterion 5 — the aggregation is verified even when the maps
     const { contributions } = await storePartials(store, 4)
     const live = new Set(['n1', 'n2'])
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree: deriveReduceTree(contributions),
       executors: ['n1', 'n2', 'n3'],
       redundancy: 3,
@@ -618,6 +629,7 @@ describe('VER-08/09/10 — what a combine produced and what its producer signed 
     const signer = await enrolled(11)
 
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree,
       executors: [...live],
       // Every executor here signs with one identity, which is enough to establish that
@@ -666,6 +678,7 @@ describe('VER-08/09/10 — what a combine produced and what its producer signed 
     const { contributions } = await storePartials(store, 4)
     const live = new Set(['n1', 'n2'])
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree: deriveReduceTree(contributions),
       executors: [...live],
       dispatch: localDispatch({
@@ -701,6 +714,7 @@ describe('VER-08/09/10 — what a combine produced and what its producer signed 
     const liar = rendezvousRank(tree.nodes[0]!.id, [...live])[1] as string
 
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree,
       executors: [...live],
       redundancy: 2,
@@ -748,6 +762,7 @@ describe('VER-08/09/10 — what a combine produced and what its producer signed 
     const gone = rendezvousRank(tree.nodes[0]!.id, executors)[0] as string
 
     const outcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree,
       executors,
       dispatch: async (task, executorId) => {
@@ -786,6 +801,7 @@ describe('associativity is the property the tree relies on', () => {
 
     const live = new Set(['n1', 'n2'])
     const treeOutcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree: deriveReduceTree(contributions, 2),
       executors: [...live],
       dispatch: localDispatch({
@@ -820,6 +836,7 @@ describe('associativity is the property the tree relies on', () => {
 
     const live = new Set(['n1', 'n2'])
     const treeOutcome = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree: deriveReduceTree(contributions, 2),
       executors: [...live],
       dispatch: localDispatch({

@@ -529,6 +529,7 @@ export async function reduceJob(job: JobResult, options: ReduceJobOptions): Prom
   }
 
   const outcome = await executeReduce({
+    localCombine: 'combines-nothing-locally',
     tree,
     executors: options.executors,
     dispatch,

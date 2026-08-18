@@ -298,10 +298,78 @@ export interface CombineDispatch {
   (task: CombineTask, executorId: string): Promise<CombineProduct | null>
 }
 
+/**
+ * Whether the requestor may perform this combine in its own process, and — when it may
+ * not — the named condition that sends the combine to a peer instead.
+ *
+ * **The reason is required on the refusing arm and has no default**, on the same ground
+ * `Admission.standing` is: a refusal that did not say why is a refusal nobody can plan
+ * around, and this one decides who computed the number a job returns. Every refusal
+ * reaches {@link ReduceOutcome.localRefusals} verbatim, so the condition that sent a
+ * combine to a peer is readable off the outcome rather than inferable from its absence.
+ */
+export type LocalCombineAdmission =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: string }
+
+/**
+ * The requestor's own combiner, and the question it must answer before using it.
+ *
+ * **Placement policy, owner ruling 2026-08-18:** *"Always prefer local execution, unless
+ * it must be executed remotely (requested to do so, or needs certain permissions that
+ * cannot be satisfied or data ownership requires, etc.) or the current node is fully
+ * loaded."* So {@link admits} is asked **first**, before any peer, and a `true` answer
+ * means no peer is contacted at all at `redundancy: 1`.
+ *
+ * The two halves are separate fields rather than one function that returns `null`,
+ * because they answer different questions and only one of them has an answer worth
+ * recording: `admits` produces a *named condition* that survives into the outcome, while
+ * `dispatch` produces a result or the ordinary `null` every {@link CombineDispatch}
+ * produces. Folding them together would collapse "this node was not allowed to" into
+ * "this node tried and got nothing", which are the two facts an operator most needs
+ * apart.
+ *
+ * **This module states no policy of its own.** What counts as a permission, and what
+ * counts as full, are the adapter's facts — `@o2/net`'s `reduceJob` answers them with
+ * the same `Authorizer` and the same `LocalAdmission.would` a peer answers a combine
+ * with, so the requestor is admitted to its own work by the rule everybody else is
+ * admitted by.
+ */
+export interface LocalCombinePlacement {
+  /** Asked once per combine, before the rendezvous ranking is walked at all. */
+  readonly admits: (task: CombineTask) => LocalCombineAdmission | Promise<LocalCombineAdmission>
+  /** The requestor's own dispatch. {@link localDispatch} is the one this repository has. */
+  readonly dispatch: CombineDispatch
+}
+
+/**
+ * The executor id recorded for a combine the requestor performed itself.
+ *
+ * **Not a peer id, and deliberately not shaped like one.** {@link ReduceOutcome.executedBy}
+ * answers *who produced this combine*, and leaving a locally-combined node out of it would
+ * make a combine that succeeded have no producer at all. Putting a plausible-looking peer
+ * id in would be worse. So the entry is a string no peer can present, and
+ * {@link ReduceOutcome.locallyCombined} carries the same fact in a form a caller can test
+ * without string-matching this constant.
+ */
+export const LOCAL_COMBINE_EXECUTOR = 'the-requestor-itself'
+
 export interface ReduceRun {
   readonly tree: ReduceTree
   readonly executors: readonly string[]
   readonly dispatch: CombineDispatch
+  /**
+   * Whether the requestor combines in its own process, and how it decides.
+   *
+   * **Required with a named sentinel, never optional.** `.planning/PROJECT.md`'s rule is
+   * that an optional hook with a silent default is a hole, and here the hole has a
+   * precise shape in *both* directions: omitted under the pre-2026-08-18 ordering it
+   * would be the feature silently absent, and omitted under the current one it would be
+   * a caller getting a self-computed aggregate it never asked for. `'combines-nothing-locally'`
+   * is that decision recorded — every combine goes to a peer, which is what this function
+   * did before this field existed.
+   */
+  readonly localCombine: LocalCombinePlacement | 'combines-nothing-locally'
   /**
    * Executors per combine. Defaults to 1.
    *
@@ -369,6 +437,38 @@ export interface ReduceOutcome {
   readonly disagreements: readonly { readonly nodeId: string; readonly resultCids: readonly string[] }[]
   /** Replicas actually achieved per combine, lowest first. */
   readonly minReplicas: number
+  /**
+   * Combines the requestor performed **in its own process** — tree node ids.
+   *
+   * **This is the load-bearing field of the local-combine policy and it is not a
+   * footnote.** `PROJECT.md` splits this project's integrity claim as *the owner's
+   * contribution is trusted; the aggregation over contributions is verified*, and an
+   * aggregation the requestor performed itself is verified by nobody: {@link localDispatch}
+   * signs nothing **on purpose**, because a signature the requestor made would be it
+   * attesting to itself. Under the owner ruling of 2026-08-18 that is no longer the rare
+   * case — local is the *preferred* placement — so this field is what stands between a
+   * caller and a silently weakened claim.
+   *
+   * It is a third per-combine array beside {@link failed} and {@link disagreements}
+   * rather than a new channel, and it is deliberately **not** derived by reading
+   * {@link LOCAL_COMBINE_EXECUTOR} back out of {@link executedBy}: a caller testing this
+   * property should not have to string-match a constant, and `attestations` records the
+   * ordinary `'signed-by-nobody'` sentinel here, which a peer holding no certificate also
+   * records. *Unsigned* and *self-computed* are different facts and only this field
+   * separates them.
+   */
+  readonly locallyCombined: readonly string[]
+  /**
+   * Combines the requestor was **not** admitted to run locally, with the condition that
+   * sent each one to a peer.
+   *
+   * Present for the same reason `Rejection` is present on a placement: "it went remote"
+   * and "it went remote *because this node was full*" are different facts, and an
+   * operator asking why a tab shipped its combines out cannot answer it from an absence.
+   * Every entry is a {@link LocalCombineAdmission} refusal reason verbatim — this module
+   * composes none of them.
+   */
+  readonly localRefusals: readonly { readonly nodeId: string; readonly reason: string }[]
 }
 
 /**
@@ -390,6 +490,14 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
       failed: [tree.rootId],
       disagreements: [],
       minReplicas: 0,
+      // **The local placement is not consulted on this arm, and that is deliberate.**
+      // An empty executor set is a caller that named nobody to combine over, which is a
+      // different condition from a fabric whose peers are unreachable — `@o2/net`'s
+      // `reduceJob` refuses it by name one layer up (`no executor to combine on`) before
+      // this function is ever called. Answering it with a local combine would turn a
+      // caller's construction error into a silently self-computed aggregate.
+      locallyCombined: [],
+      localRefusals: [],
     }
   }
 
@@ -399,6 +507,8 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
   const executedBy = new Map<string, string>()
   const attestations = new Map<string, AttestedResult>()
   const failed: string[] = []
+  const locallyCombined: string[] = []
+  const localRefusals: { nodeId: string; reason: string }[] = []
   const disagreements: { nodeId: string; resultCids: readonly string[] }[] = []
   let combines = 0
   let recomputes = 0
@@ -414,7 +524,17 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
         const inputCids = node.children.map((child) => resolved.get(child))
         // A missing input means a child combine failed outright; nothing to do here.
         if (inputCids.some((cid) => cid === undefined)) {
-          return { node, cid: null, attempts: 0, replicas: 0, cids: [] }
+          // No local admission is asked for either, and no refusal is recorded: nothing
+          // was placed anywhere, so there is no placement decision to report.
+          return {
+            node,
+            cid: null,
+            attempts: 0,
+            replicas: 0,
+            cids: [],
+            combinedLocally: false,
+            localRefusal: null,
+          }
         }
 
         const task: CombineTask = {
@@ -428,6 +548,47 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
         const wanted = Math.max(1, run.redundancy ?? 1)
         const produced: { cid: string; executorId: string; attestation: AttestedResult }[] = []
         let attempts = 0
+        let combinedLocally = false
+        let localRefusal: string | null = null
+
+        // ── Local first, by owner ruling 2026-08-18. ──────────────────────────────────
+        //
+        // *"Always prefer local execution, unless it must be executed remotely (requested
+        // to do so, or needs certain permissions that cannot be satisfied or data
+        // ownership requires, etc.) or the current node is fully loaded."* So this block
+        // sits **above** the ranking walk and not below it, and at `redundancy: 1` an
+        // admitted local combine means no peer is contacted for this node at all.
+        //
+        // **This ordering replaced its own inverse before either shipped**, and the
+        // superseded shape is written down because the two are one `if` apart and a later
+        // reader will otherwise assume this one was always here: the first design put this
+        // block after the ranking as a last resort that *"must never pre-empt a reachable
+        // peer"*. It pre-empts one now, deliberately.
+        //
+        // **What does not change is what a `null` from a dispatch means.** An admitted
+        // local combine that produces nothing is recorded as a refusal *with its own
+        // reason* and the ranking walk below then runs exactly as it always did — the
+        // requestor failing at its own combine is not a fact about any peer, which is the
+        // same distinction `@o2/net`'s `LocalStoreWriteFailed` exists to keep.
+        if (run.localCombine !== 'combines-nothing-locally') {
+          const admission = await run.localCombine.admits(task)
+          if (!admission.ok) {
+            localRefusal = admission.reason
+          } else {
+            const product = await run.localCombine.dispatch(task, LOCAL_COMBINE_EXECUTOR)
+            if (product === null) {
+              localRefusal =
+                'this node was admitted to combine locally and its own combiner produced nothing'
+            } else {
+              combinedLocally = true
+              produced.push({
+                cid: product.cid.toString(),
+                executorId: LOCAL_COMBINE_EXECUTOR,
+                attestation: product.attestation,
+              })
+            }
+          }
+        }
 
         // Walk the ranking until `wanted` replicas have answered. A node that is
         // gone costs an attempt and nothing else — the next in the ranking
@@ -448,12 +609,16 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
           produced.push({ cid: product.cid.toString(), executorId, attestation: product.attestation })
         }
 
-        if (produced.length === 0) return { node, cid: null, attempts, replicas: 0, cids: [] }
+        if (produced.length === 0) {
+          return { node, cid: null, attempts, replicas: 0, cids: [], combinedLocally, localRefusal }
+        }
         const accepted = produced[0] as { cid: string; executorId: string; attestation: AttestedResult }
         return {
           node,
           cid: accepted.cid,
           attempts,
+          combinedLocally,
+          localRefusal,
           executorId: accepted.executorId,
           // The accepted replica's own statement, never one composed from several. Under
           // redundancy the replicas that agreed each signed their own bytes; this is the
@@ -466,10 +631,22 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
     )
 
     for (const result of results) {
+      // Recorded **before** the failure arm, because a combine that was refused locally
+      // and then failed on every peer is precisely the case where the operator most needs
+      // to know which of the two happened first.
+      if (result.localRefusal !== null) {
+        localRefusals.push({ nodeId: result.node.id, reason: result.localRefusal })
+      }
       if (result.cid === null) {
         failed.push(result.node.id)
         continue
       }
+      // `combinedLocally` is set only where the local dispatch produced the accepted
+      // replica, which is `produced[0]` because the local block runs before the ranking
+      // walk. A combine whose local attempt failed and whose peer succeeded is absent
+      // here and present in `localRefusals` — the two arrays are disjoint by
+      // construction, and neither is derivable from the other.
+      if (result.combinedLocally) locallyCombined.push(result.node.id)
       resolved.set(result.node.id, result.cid)
       executedBy.set(result.node.id, result.executorId as string)
       combines += 1
@@ -501,6 +678,8 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
     failed,
     disagreements,
     minReplicas: Number.isFinite(minReplicas) ? minReplicas : 0,
+    locallyCombined,
+    localRefusals,
   }
 }
 
@@ -629,6 +808,16 @@ export const fabricCombiner: Combiner = (inputs) => {
  * itself, which proves nothing to the only party reading it. The named sentinel is what
  * stops somebody handing this function a signing key on the assumption that more
  * signatures are always better.
+ *
+ * **That sentence used to describe a function with no production caller, and since
+ * 2026-08-18 it does not.** `@o2/net`'s `reduceJob` composes this as the `dispatch` half
+ * of a {@link LocalCombinePlacement}, and the owner's placement ruling makes it the
+ * *preferred* path rather than a fallback — so the unsigned answer above is now the
+ * ordinary answer for a job that runs on a node with headroom. Nothing here changed to
+ * make that true, and nothing here should: what changed is that the outcome now says so,
+ * in {@link ReduceOutcome.locallyCombined}. Read that field's docstring before assuming
+ * `'signed-by-nobody'` alone carries the fact — a peer holding no certificate answers
+ * with the same sentinel and is not the requestor.
  */
 export function localDispatch(options: {
   readonly blockstore: Blockstore
