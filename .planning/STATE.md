@@ -191,8 +191,8 @@ stopped_at: >-
   demo-pi.e2e.test.ts IS A KNOWN FLAKE - green, red, green on identical code, cause not found.
   AOTW-06's 27/27 NOTE IS UNREPRODUCED: two prose sentences from one commit, no patch, no log, and
   third_party/elfconv pristine at its pinned commit.
-last_updated: "2026-08-15T03:25:00.000Z"
-last_activity: 2026-08-14
+last_updated: "2026-08-17T18:00:00.000Z"
+last_activity: 2026-08-17
 progress:
   total_phases: 15
   completed_phases: 12
@@ -1829,8 +1829,27 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-10T01:20:00.000Z
-Stopped at: **PHASE 25 IS EXECUTED — 4 of 4 plans across 3 waves, on branch
+Last session: 2026-08-17T18:00:00.000Z (resumed 2026-08-18)
+Resume file: `.planning/.continue-here.md` — **that file is the live continuity, not the block
+below.** Written 2026-08-17 18:00 PDT and verified on resume: `main` at `b948375` = origin,
+`develop` at `01881bd` = origin, tree clean including untracked, one worktree, no stashes, and
+every local branch contained in `main`. **No phase is in flight**, `.planning/debug/` holds zero
+open sessions, and the v1.1 audit's open-finding residue is empty.
+
+Stopped at (2026-08-17): a **new design track** whose spec is on `main` and **which the owner has
+not read** — `docs/superpowers/specs/2026-08-17-wasm-guest-capabilities-design.md`. It was written
+under the brainstorming flow, which ends at a review gate, and merged on an explicit
+"merge everything" instruction *before* that gate. Design only; nothing executes. The named next
+action is an implementation plan for **layers 0–1 only** (handler ABI + capability bus), and it is
+**gated on that review**. Do not build from the spec without asking.
+
+**The block below is dated 2026-08-10 and is kept as history rather than rewritten**, on this
+file's own amendment convention. It describes Phase 25 and is accurate about it. Note that
+`progress:` in the frontmatter counts the **v1.1 slice only** (phases 11–24, fifteen of them) and
+predates Phases 25–28, so it reads `12 of 15` where the resume file reads `20 of 29` across the
+whole roadmap; the two count different populations and neither was moved here.
+
+Stopped at (2026-08-10): **PHASE 25 IS EXECUTED — 4 of 4 plans across 3 waves, on branch
 `feature/phase-25-x509-certificate-profile`. NOT YET VERIFIED.** Both post-wave gates are
 green and were measured rather than assumed: full `--project node` at **174 files / 2502
 passed / 1 skipped, EXIT=0**, `real 381.47 user 385.11 sys 52.82` (CPU ratio 1.15 at load 6.6,
