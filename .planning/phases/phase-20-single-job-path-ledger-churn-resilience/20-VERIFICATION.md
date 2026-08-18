@@ -3,8 +3,11 @@ phase: 20-single-job-path-ledger-churn-resilience
 verified: 2026-08-05T10:50:46Z
 head: 8616049
 branch: feature/phase-18-discovery-capacity-placement
-status: gaps_found
-score: >-
+amended: 2026-08-18T09:20:00Z # criterion 7 CLOSED by building the missing subject; see the AMENDMENT at the end of this file
+status: passed # was `gaps_found`; criterion 7 is MET and no criterion is PARTIAL
+score: 7/7 criteria MET (0 PARTIAL, 0 FAILED) — criterion 7 closed 2026-08-18 at `ce97bc8`
+original_status: gaps_found
+original_score: >-
   6/7 criteria MET, 1 PARTIAL, 0 FAILED. Scored against the seven criteria as they read at
   `.planning/ROADMAP.md` § *Phase 20: Single Job Path, Ledger & Churn Resilience* →
   *Success Criteria*, including criterion 7 as ADDED 2026-08-04 by owner ruling. Criterion 8
