@@ -111,12 +111,11 @@ import {
   publicNodes,
   recoverCheckpoint,
   remainingWork,
-  submitJob,
 } from '@o2/core'
 import type { Executor, SubmitOptions } from '@o2/core'
 import { DEFAULT_BUDGET, KERNEL_RECORD, KERNEL_TRUST_ANCHOR, buildInput, kernelBytes } from '@o2/demo'
 import { SEED_BYTES, identityFromSeed, parseKeyHex } from '@o2/libp2p'
-import { RemoteExecutor, rpcAdmission } from '@o2/net'
+import { RemoteExecutor, rpcAdmission, submitJobWithEgress } from '@o2/net'
 import { CID } from 'multiformats/cid'
 import { FabricNode } from '../fabric-node.ts'
 import { FsBlockstore } from '../fs-blockstore.ts'
@@ -1603,7 +1602,25 @@ if (values.coordinate !== undefined) {
     (peerId) => new RemoteExecutor(peerId, node.rpc, 'dispatches-unauthenticated'),
   )
 
-  const result = await submitJob(
+  /**
+   * `submitJobWithEgress`, never bare `submitJob` — DATA-05/DATA-06, and the guard that
+   * says so caught this leg on its first run.
+   *
+   * `sovereign-block-refusal.node.test.ts` pins the set of production files permitted to
+   * call `submitJob` directly at three, and reported this file the moment it did:
+   * *"packages/node/src/bin/agent.ts calls bare submitJob. That is a new production submit
+   * path, and `submitJobWithEgress`'s sovereign registration does not cover it — a submitter
+   * using it holds the raw row and is unguarded."* It is right, and the remedy it names first
+   * is the one taken: this leg runs only public shards today, so it registers nothing, and a
+   * coordinator that later grew a `label: 'sovereign'` shard would otherwise have reached the
+   * fabric with the owner's bytes unregistered on every guard. Routing through the wrapper
+   * now costs one argument and removes that future silently.
+   *
+   * `[node.egress]` and not `[]`: the guard `FabricNode.start` already wraps this node's
+   * transport in is the one that records what actually left, so a manifest sliced off it
+   * describes this job's frames rather than an empty list.
+   */
+  const result = await submitJobWithEgress(
     {
       moduleCid,
       // DET-03/DATA-08 — the signed mapping, not a bare CID, so every executor this reaches
@@ -1623,6 +1640,7 @@ if (values.coordinate !== undefined) {
       admit: rpcAdmission(node.rpc),
     },
     jobStore,
+    [node.egress],
     { checkpoints, ...(resumeFrom.length === 0 ? {} : { resumeFrom }) },
   )
 
@@ -1672,6 +1690,15 @@ if (values.coordinate !== undefined) {
                 shard.verification.status === 'agreed'
                   ? shard.verification.resultCid.toString()
                   : null,
+            })),
+            // DATA-05/DATA-06 — the manifest this job's frames produced, summarised rather
+            // than dropped. A wrapper whose product never reaches an operator would be a
+            // guard nobody can read, which is the shape this repository keeps finding.
+            egress: result.manifests.map((manifest) => ({
+              entries: manifest.entries.length,
+              totalBytes: manifest.totalBytes,
+              violations: manifest.violations.length,
+              registeredSovereign: manifest.registeredSovereign,
             })),
             checkpoints: {
               confirmed: written.confirmed.map((handle) => handle.toString()),
