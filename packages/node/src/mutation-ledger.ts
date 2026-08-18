@@ -1536,8 +1536,16 @@ export const MUTATIONS: readonly Mutation[] = [
       'nothing but the difference sees it. Measured: `asking for 1600 ms more budget bought 0 ms ' +
       'more wall clock (403 ms → 403 ms): expected 0 to be greater than 800`, red in 813 ms.',
     file: 'tools/aot/lift.ts',
-    find: '[\'image\', \'inspect\', image, \'--format\', \'{{join .RepoDigests "\\\\n"}}\'],\n    timeoutMs,',
-    replace: '[\'image\', \'inspect\', image, \'--format\', \'{{join .RepoDigests "\\\\n"}}\'],\n    400,',
+    // RE-SITED 2026-08-18. The anchor above read
+    // `['image', 'inspect', image, '--format', '{{join .RepoDigests "\\n"}}'],\n    timeoutMs,`
+    // until Phase 21's re-tag work replaced the inline format string with `INSPECT_FORMAT`
+    // and collapsed the call onto one line, so the find text stopped matching and the
+    // mutation stopped being plantable — which the guard reported as M63 drift. **The claim
+    // is unchanged and so is the plant's semantics**: the caller's `timeoutMs` is replaced by
+    // a hardcoded budget, and the case that names it goes red. Only the text it is anchored
+    // to moved. Re-planted and watched red after re-siting, then restored by surgical inverse.
+    find: '[\'image\', \'inspect\', image, \'--format\', INSPECT_FORMAT], timeoutMs)',
+    replace: '[\'image\', \'inspect\', image, \'--format\', INSPECT_FORMAT], 400)',
     caughtBy: ['tools/aot/lift.node.test.ts'],
     signature: 'gives up on a wedged inspect in the time it was given, not in a hardcoded minute',
     signatureSource: 'test-title',

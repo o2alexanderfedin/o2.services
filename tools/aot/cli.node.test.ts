@@ -16,7 +16,14 @@ import {
   parseAotArgs,
   type EntryVerdict,
 } from './cli.ts'
-import { ELFCONV_IMAGE_TAG, LIFT_TARGET, readTargetFeatures } from './lift.ts'
+import {
+  ELFCONV_IMAGE_TAG,
+  IMAGE_RESOLVE_CAP_MS,
+  LIFT_TARGET,
+  normalizeRepository,
+  readTargetFeatures,
+  resolveImage,
+} from './lift.ts'
 import {
   ACCEPTABLE_ARTIFACT,
   FOREIGN_DIGESTS,
@@ -628,50 +635,70 @@ describe('the command a person types names what it produced, and refuses a borro
   )
 
   it.skipIf(!HAVE_IMAGE)(
-    'measures what `docker tag` leaves in RepoDigests, because the refusal turns on it',
-    () => {
+    'refuses a real `docker tag` of the elfconv image, and admits the canonical name from the same bytes',
+    async () => {
       /**
-       * **This case was written to prove that a real re-tag is refused. It measured the
-       * opposite, and says so rather than being deleted.**
+       * **This case used to record the opposite verdict. It is kept as one case, with the
+       * measurement that produced that verdict intact, because the old reading was not
+       * wrong about what it measured — it was wrong about what it concluded.**
        *
-       * The plan and 21-CONTEXT.md both assume that `docker tag A B` leaves `B`'s
-       * `RepoDigests` naming only `A`'s repository, so the repository match in
-       * `resolveImage` fails and `image-digest-foreign` fires. That was true of the
-       * classic dockerd image store and is **not** true of the containerd image store,
-       * measured here on Docker Server **29.4.0** on 2026-08-04:
+       * What it said, verbatim, and what is now falsified:
        *
-       *     $ docker tag ghcr.io/yomaytk/elfconv:arm64 o2-local/elfconv:borrowed
-       *     $ docker image inspect o2-local/elfconv:borrowed --format '{{json .RepoDigests}}'
-       *     ["o2-local/elfconv@sha256:22a404f3…","ghcr.io/yomaytk/elfconv@sha256:22a404f3…"]
+       * > "The two calls are therefore indistinguishable from this data, and **no predicate
+       * > over it can refuse the borrowed name while admitting the real one**, because both
+       * > are being shown identical bytes."
        *
-       * The borrowed repository gets an entry of its own, carrying the same manifest
-       * digest, so the repository match *succeeds* and the driver proceeds — under the
-       * borrowed name. **AOT-02's "re-tagging a local image and pointing the CLI at it
-       * is refused" is therefore measured and not met by this route on this host.** The
-       * harm is milder than the one `lift.ts` documents — the digest is truthful, so no
-       * unknown toolchain runs under a trusted name; what is recorded in the key is the
-       * *local* name, which no other host can resolve — but it is not the refusal the
-       * criterion asks for, and calling it one would be widening what counts as passing.
+       * Every clause of that about `RepoDigests` still measures true, and the first two
+       * blocks below still assert it: `docker tag` gives the borrowed repository an entry of
+       * its own, and because `RepoDigests` is a property of the image **ID** the canonical
+       * name then answers with a byte-identical list. What was wrong is the scope of "this
+       * data". `RepoDigests` was the only field the earlier pass reasoned over, and the
+       * image record has another one.
        *
-       * The refusal itself is not in doubt and is proved two cases above, through the
-       * program, against a digest list that really does name only other repositories.
-       * What is measured here is that `docker tag` on this Docker no longer produces
-       * such a list.
+       * **`Identity`.** Docker 29 / containerd-image-store data, reporting where the content
+       * was *obtained* rather than what it has been *named*. Measured on this host on
+       * 2026-08-18, Docker Server 29.4.0 / containerd v2.2.2:
        *
-       * **If this case ever fails, that is the good news.** It means the host's Docker
-       * stopped copying the digest across, and the assertions below should become the
-       * refusal ones the plan expected: exit 1, stderr naming the wanted repository and
-       * the found digests.
+       *     $ docker image inspect ghcr.io/yomaytk/elfconv:arm64 --format '{{json .Identity}}'
+       *     {"Pull":[{"Repository":"ghcr.io/yomaytk/elfconv"}]}
+       *     $ docker tag ghcr.io/yomaytk/elfconv:arm64 o2-retag-probe/elfconv:borrowed
+       *     $ docker image inspect o2-retag-probe/elfconv:borrowed --format '{{json .Identity}}'
+       *     {"Pull":[{"Repository":"ghcr.io/yomaytk/elfconv"}]}     # unmoved
        *
-       * A skip here means this was measured on no host at all, and unmeasured is not
-       * met — 21-CONTEXT.md's Risk 2 requires the phase's verification record to name
-       * the host and the Docker version any of this was measured on.
+       * **And the resolution of the apparent paradox is that the predicate is not over the
+       * data alone.** The data really is identical for both names — this case asserts that
+       * of `Identity` too, not just of `RepoDigests`. The predicate is over the data **and
+       * the name the caller asked for**: the requested repository must appear among the
+       * repositories the content was pulled under. `ghcr.io/yomaytk/elfconv` does;
+       * `docker.io/o2-local/elfconv` does not. One call refused, one admitted, from one set
+       * of bytes — which is exactly the thing the sentence above said could not exist.
+       *
+       * **The false-refusal cost, which is what killed the `every`-`RepoDigests` repair, was
+       * measured rather than argued.** The rule was run against all 16 images on this host
+       * on 2026-08-18: 11 genuinely-pulled images all admitted (after normalising the
+       * reference the way Docker does — `alpine` is `docker.io/library/alpine` in
+       * `Identity`, and skipping that step alone refuses 9 of the 11), 4 locally-built
+       * images refused, correctly, as having no repository another host could resolve, and 1
+       * image reporting no `Identity` at all, which is admitted and carries
+       * `IMAGE_PROVENANCE_BLIND_SPOT`. Zero false refusals.
+       *
+       * **If the first two blocks below ever fail, the refusal has become reachable through
+       * `RepoDigests` again and this driver has two independent mechanisms rather than one.**
+       * If the `Identity` blocks fail, this host's Docker stopped reporting provenance and
+       * the driver falls back to admitting-with-a-blind-spot; the clause would then be
+       * unmeasured on that host, and unmeasured is not met.
        */
       execFileSync('docker', ['tag', ELFCONV_IMAGE_TAG, BORROWED_TAG], {
         stdio: ['ignore', 'ignore', 'ignore'],
         timeout: 60_000,
       })
       borrowedTagExists = true
+
+      const inspectField = (tag: string, field: string): string =>
+        execFileSync('docker', ['image', 'inspect', tag, '--format', `{{json (index . "${field}")}}`], {
+          encoding: 'utf8',
+          timeout: 60_000,
+        }).trim()
 
       const repoDigestsOf = (tag: string): string[] =>
         execFileSync('docker', ['image', 'inspect', tag, '--format', '{{join .RepoDigests "\\n"}}'], {
@@ -682,61 +709,64 @@ describe('the command a person types names what it produced, and refuses a borro
           .map((line) => line.trim())
           .filter((line) => line.includes('@sha256:'))
 
+      // ---- Block 1: `RepoDigests` after a re-tag. Unchanged, and still the reason a
+      // predicate over it alone cannot do this job.
       const digests = repoDigestsOf(BORROWED_TAG)
-
-      // The half the plan assumed, and it holds: the origin's digest survives the tag.
       expect(digests.some((digest) => digest.startsWith('ghcr.io/yomaytk/elfconv@'))).toBe(true)
-      // The half it did not, and this is the finding.
       expect(digests.some((digest) => digest.startsWith('o2-local/elfconv@'))).toBe(true)
 
-      /**
-       * **Why this stays a measured negative instead of being hardened, re-measured
-       * 2026-08-04 on Docker Server 29.4.0.**
-       *
-       * The obvious repair is to require that *every* `RepoDigests` entry agree with the
-       * wanted repository rather than *any*. Measured against this same tag, that is
-       * worse than what it would replace, and the two assertions below are the reason.
-       *
-       * `RepoDigests` is a property of the image **ID**, not of the reference handed to
-       * `image inspect`. So while a borrowed tag exists anywhere on the host, the
-       * *canonical* name answers with the very same list — asserted rather than argued,
-       * by `toEqual` on the two readings. The two calls are therefore indistinguishable
-       * from this data, and **no predicate over it can refuse the borrowed name while
-       * admitting the real one**, because both are being shown identical bytes.
-       *
-       * An `every` rule consequently refuses `ghcr.io/yomaytk/elfconv:arm64` itself on
-       * any host where somebody has ever run `docker tag` — trading a recorded name that
-       * is merely *unportable* for a false refusal of the correct image, whose cause is a
-       * tag the operator may not know exists and which no longer appears in what they
-       * asked about. That is the strictly worse trade, so the refusal is left as it is
-       * and the criterion's re-tag clause is recorded as not met by this route.
-       *
-       * **If either assertion below ever fails, that is the good news** — it means this
-       * Docker stopped copying the digest across image IDs, and the refusal the criterion
-       * asks for becomes reachable again.
-       */
+      // ---- Block 2: and the canonical name is shown the very same list, which is what
+      // makes an `every`-must-match rule a false refusal of the correct image.
       const canonicalDigests = repoDigestsOf(ELFCONV_IMAGE_TAG)
       expect(canonicalDigests).toEqual(digests)
-
       const canonicalRepository = ELFCONV_IMAGE_TAG.slice(0, ELFCONV_IMAGE_TAG.lastIndexOf(':'))
-      // What the shipped rule decides for the canonical image: accept, correctly.
       expect(canonicalDigests.some((digest) => digest.startsWith(`${canonicalRepository}@`))).toBe(true)
-      // What an `every` rule would decide for the same image: refuse it. The false
-      // refusal, measured rather than predicted.
       expect(canonicalDigests.every((digest) => digest.startsWith(`${canonicalRepository}@`))).toBe(false)
 
-      // …and the consequence, measured through the program rather than deduced from the
-      // rule. `image o2-local/elfconv@sha256:` on stderr is the driver's own progress
-      // line: the borrowed name resolved, was adopted as the toolchain's identity, and
-      // is what would go into the translation key. That sentence *is* the criterion's
-      // failure. The run then aborts inside the container on this case's 192-byte
-      // subject, which is why nothing here reads the exit code — 1 would mean the
-      // refusal and the abort alike, and an exit code that cannot tell two outcomes
-      // apart is the thing this whole driver exists to stop trusting.
+      // ---- Block 3: `Identity` is identical for both names too — asserted, so nobody can
+      // read the refusal below as "the borrowed name was shown different bytes" — and it
+      // names only the repository the content was really pulled from.
+      const borrowedIdentity = inspectField(BORROWED_TAG, 'Identity')
+      const canonicalIdentity = inspectField(ELFCONV_IMAGE_TAG, 'Identity')
+      expect(borrowedIdentity).toBe(canonicalIdentity)
+      expect(borrowedIdentity).toContain('ghcr.io/yomaytk/elfconv')
+      expect(borrowedIdentity).not.toContain('o2-local/elfconv')
+
+      // ---- Block 4: the pair. Same host, same bytes, same moment, opposite outcomes.
+      expect(normalizeRepository('o2-local/elfconv')).toBe('docker.io/o2-local/elfconv')
+
+      const borrowed = await resolveImage(BORROWED_TAG, 'docker', IMAGE_RESOLVE_CAP_MS)
+      expect(borrowed.ok).toBe(false)
+      if (borrowed.ok) return
+      expect(borrowed.failure.kind).toBe('image-name-not-pulled')
+      if (borrowed.failure.kind !== 'image-name-not-pulled') return
+      // The refusal names what was asked for and what was actually pulled, so it can be
+      // acted on without re-running docker by hand.
+      expect(borrowed.failure.repository).toBe('docker.io/o2-local/elfconv')
+      expect(borrowed.failure.pulled).toContain('ghcr.io/yomaytk/elfconv')
+
+      const canonical = await resolveImage(ELFCONV_IMAGE_TAG, 'docker', IMAGE_RESOLVE_CAP_MS)
+      expect(canonical.ok, canonical.ok ? '' : JSON.stringify(canonical.failure)).toBe(true)
+      if (!canonical.ok) return
+      expect(canonical.reference.startsWith('ghcr.io/yomaytk/elfconv@sha256:')).toBe(true)
+      // …and it is recorded as provenance-checked, so no blind spot is attached to a lift
+      // whose name really was verified. The `unknown` arm is what a daemon with no
+      // `Identity` gets, and it is covered by the stub cases in `lift.node.test.ts`.
+      expect(canonical.provenance).toBe('pulled')
+
+      // ---- Block 5: through the program, which is the criterion's own sentence. The exit
+      // code is readable here in a way it was not before: the refusal happens before any
+      // container is started, so `1` cannot be the container aborting on this case's
+      // 192-byte subject the way it was when the borrowed name was adopted.
       const out = join(stubDir('o2-cli-retag-'), 'artifact.wasm')
       const run = runCli([elfPath, '--image', BORROWED_TAG, '--out', out])
-      expect(run.stderr).toContain('image o2-local/elfconv@sha256:')
-      expect(run.stderr).not.toContain('re-tagged image')
+      expect(run.status, run.stderr).toBe(1)
+      expect(run.stderr).toContain('never pulled anything under docker.io/o2-local/elfconv')
+      expect(run.stderr).toContain('ghcr.io/yomaytk/elfconv')
+      // The old adoption line, asserted absent. This exact string is what the 2026-08-05
+      // verification quoted as "that sentence *is* the criterion's failure"; the borrowed
+      // name never becomes the toolchain's identity now, so it is never printed.
+      expect(run.stderr).not.toContain('image o2-local/elfconv@sha256:')
     },
     300_000,
   )

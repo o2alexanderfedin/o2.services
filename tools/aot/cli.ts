@@ -80,11 +80,13 @@ const USAGE =
   // Both flags exist so the driver can be pointed at something other than the default,
   // and both are on argv rather than only on `LiftOptions` because the refusal that
   // matters is only reachable by *pointing the command at an image*. `--image` is how a
-  // re-tagged local image gets in front of the digest check at all; `--docker` names a
-  // program that is not Docker, which is what makes that refusal measurable on a host
-  // with no elfconv image present.
-  '  --image  the toolchain image to lift with; a tag whose RepoDigests name another\n' +
-  '           repository is refused rather than run under the borrowed name\n' +
+  // re-tagged local image gets in front of the digest and name checks at all; `--docker`
+  // names a program that is not Docker, which is what makes those refusals measurable on
+  // a host with no elfconv image present. The name check is the one that survives the
+  // containerd image store, where `docker tag` gives a borrowed repository a RepoDigests
+  // entry of its own — see `lift.ts`'s `image-name-not-pulled`.
+  '  --image  the toolchain image to lift with; a name this host did not pull the\n' +
+  '           image under is refused rather than run under the borrowed name\n' +
   '  --docker the program to run instead of `docker`\n' +
   // The publish step. Without it a lifted artifact cannot be dispatched to any node that pins
   // a build authority, because `guardModuleProvenance` refuses a bare CID.
