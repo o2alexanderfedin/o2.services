@@ -183,6 +183,35 @@ export interface LoadedArtifact {
   readonly url: string
   readonly cid: string
   readonly bytes: number
+  /**
+   * The verified bytes themselves — the same array whose digest was compared to
+   * {@link LoadedArtifact.cid} above, handed back rather than dropped.
+   *
+   * **Added because a page that only gets a `Module` cannot dispatch what it fetched.**
+   * A job in this fabric names a module by CID and carries no bytes, so the bytes have to
+   * be in a blockstore some executor can reach; `demo/main.ts#fetchModule` puts these into
+   * the tab's own store. Without this field the only way to get them is a second fetch —
+   * which is precisely the option this module's header rejects, on the ground that *the
+   * two requests can return different bytes, so the artifact that was verified is not
+   * necessarily the artifact that was compiled*. Re-fetching to obtain the bytes would
+   * reintroduce that gap through the back door.
+   *
+   * It costs nothing to carry: `verified.value` is already fully materialised by the time
+   * the digest can be computed at all, so this is the array that existed anyway rather
+   * than a copy taken for the caller's benefit. A caller that does not want it drops the
+   * reference and the whole result becomes garbage together.
+   *
+   * Present only on the success arm, and that is the guarantee: bytes that failed the
+   * digest comparison are not returned in any form, so no caller can reach them by
+   * reading a field instead of a flag.
+   *
+   * Typed `Uint8Array<ArrayBuffer>` rather than the bare alias, because the whole point of
+   * the field is that a blockstore can take it — and `Blockstore.put` in this tree is
+   * declared over a non-shared buffer. The bare `Uint8Array` defaults to `ArrayBufferLike`,
+   * which admits `SharedArrayBuffer` and would not assign. The value here is always the
+   * former: it is constructed from `Response.arrayBuffer()`.
+   */
+  readonly content: Uint8Array<ArrayBuffer>
   /** False below {@link CODE_CACHE_MIN_BYTES}: V8 will never cache this module. */
   readonly cacheEligible: boolean
   /** Wall time across `compileStreaming`, from `performance.now()`. */
@@ -364,6 +393,9 @@ export async function loadArtifact(options: LoadOptions): Promise<LoadResult> {
       url,
       cid: cid.toString(),
       bytes: bytes.length,
+      // Reached only past the digest comparison above, which is the whole of why this
+      // field can be handed out at all.
+      content: bytes,
       cacheEligible: bytes.length >= CODE_CACHE_MIN_BYTES,
       compileMs: compiled.value.compileMs,
     },
