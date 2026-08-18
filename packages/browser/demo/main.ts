@@ -108,6 +108,8 @@ import type {
 } from '@o2/browser'
 import { createTaskWorker } from '../src/worker-factory.ts'
 import { DialPlanner } from '../src/dial-plan.ts'
+// AOT-05's last mile. Relative, not through the barrel — see the module's own header.
+import { fetchModuleForDispatch } from '../src/gateway-module.ts'
 import * as pid from '@libp2p/peer-id'
 
 let node: BrowserNode | null = null
@@ -1407,6 +1409,50 @@ const api: TabApi = {
   async putModule(bytes) {
     const cid = await required().store.put(new Uint8Array(bytes))
     return cid.toString()
+  },
+
+  /**
+   * AOT-05 wired — the one production caller of `streaming-load.ts`.
+   *
+   * The decisions live in `../src/gateway-module.ts` so they can be driven with no DOM and
+   * no network by `gateway-module.node.test.ts`; what is here is the part that genuinely
+   * needs a running tab, which is the blockstore put.
+   *
+   * **The store is the second CID check and it is not decoration.** `IdbBlockstore.put`
+   * hashes what it is given and returns the CID it computed, so a byte that changed between
+   * `loadArtifact`'s digest comparison and this line produces a different address and the
+   * dispatch — which names the record's CID — would find nothing there. Comparing the two
+   * turns that from a `module block missing` several seconds later into a sentence naming
+   * what happened. It has no known way to fire, and it is three lines.
+   */
+  async fetchModule(options) {
+    const n = required()
+    const outcome = await fetchModuleForDispatch({
+      gatewayBase: options.gatewayBase,
+      moduleCid: options.moduleCid,
+      recordCid: options.recordCid,
+      recordName: options.recordName,
+    })
+    if (!outcome.ok) return outcome
+
+    const stored = await n.store.put(outcome.content)
+    if (stored.toString() !== outcome.cid) {
+      return {
+        ok: false,
+        reason:
+          `the verified bytes were stored as ${stored.toString()} rather than ${outcome.cid}, so ` +
+          'a dispatch naming the record’s cid would not find them — nothing was dispatched.',
+      }
+    }
+
+    return {
+      ok: true,
+      cid: outcome.cid,
+      bytes: outcome.bytes,
+      url: outcome.url,
+      cacheEligible: outcome.cacheEligible,
+      compileMs: outcome.compileMs,
+    }
   },
 
   async runJob(options) {

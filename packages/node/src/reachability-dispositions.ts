@@ -163,8 +163,33 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   'browser/VisibilityGovernor',
   'browser/browserLabel',
   'browser/browserWorkerExecutor',
+  // AOT-05's gateway loader and the three symbols behind it, added 2026-08-17 when
+  // `TabApi.fetchModule` gave `loadArtifact` a production consumer for the first time.
+  //
+  // **This is a class change, not a ceiling raise to make room.** All four sat in
+  // `OPEN_FINDINGS` under one shared reason — *"nothing in production imports
+  // `streaming-load.ts`"*, and, on `loadArtifact`'s own row, *"Nobody has wired a gateway
+  // fetch into a page and nobody has decided to."* Somebody has now: `#fetch-byo` in
+  // `demo/index.html` calls `window.o2.fetchModule`, which calls
+  // `src/gateway-module.ts#fetchModuleForDispatch`, which calls `loadArtifact`, which calls
+  // `gatewayUrl` and `cidDefect`; the refusal path renders `describeLoadFailure`. That chain
+  // is entirely cross-file and entirely real, and it is invisible here for exactly one
+  // reason: its head is a member of the `api` literal assigned to `window.o2`.
+  //
+  // Not read off the source. The derived case named all four verbatim, *"expected
+  // [ 'browser/cidDefect', 'browser/describeLoadFailure', 'browser/gatewayUrl',
+  // 'browser/loadArtifact' ] to deeply equal []"* — the G14 defence doing its job for the
+  // fifth recorded time, and the first time it has been used to *retire* open findings
+  // rather than to catch a missing entry.
+  //
+  // The three that remain open — `cacheVerdict`, `describeCacheVerdict`, `measureRepeatLoad`
+  // — are deliberately not here. They are the two-visit code-cache measurement, which
+  // `code-cache.e2e.test.ts` drives and no page calls. Wiring the loader did not wire them,
+  // and moving them would be the ceiling absorbing work nobody did.
+  'browser/cidDefect',
   'browser/classifyStartError',
   'browser/currentBrowserLabel',
+  'browser/describeLoadFailure',
   'browser/domThread',
   // AUTH-02, 2026-08-14. Called from `main.ts#start` — a member of the same `api` literal as
   // `classifyStartError`, `firstGap` and `probeEnvironment` three lines either side of it, and
@@ -173,8 +198,10 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   // G14 defence doing its job for the second recorded time.
   'browser/enrolledIssuer',
   'browser/firstGap',
+  'browser/gatewayUrl',
   'browser/grantConsent',
   'browser/identifyBrowser',
+  'browser/loadArtifact',
   'browser/probeEnvironment',
   'browser/readConsent',
   'browser/revokeConsent',
@@ -525,8 +552,26 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * and the open-findings list shrank by three, and what moved between them is a workload that
  * went from unrunnable to runnable — the owner taking UI-SPEC section 10's Option A. Had the
  * graph been able to trace that one assignment, none of the three entries would exist.
+ *
+ * **Raised 47 → 51, measured 2026-08-17 — four at once, and the same good direction.**
+ * `browser/cidDefect`, `browser/describeLoadFailure`, `browser/gatewayUrl` and
+ * `browser/loadArtifact`, by the established route: the derived case went red first and named
+ * all four verbatim, and the register was edited to agree with a measurement rather than a
+ * judgement. `TabApi.fetchModule` calls `fetchModuleForDispatch`, which calls `loadArtifact`,
+ * hidden by the same `window.o2` assignment as everything else on that list.
+ *
+ * Same direction as the primes three and for a stronger reason. All four came *out of
+ * `OPEN_FINDINGS`*, where `loadArtifact`'s row read *"Nobody has wired a gateway fetch into a
+ * page and nobody has decided to."* Somebody has: `#fetch-byo` on the bring-your-own surface
+ * pulls a module this bundle does not ship, verifies its bytes against the CID, and puts them
+ * where the dispatch can reach them — which is the only route by which anything
+ * `tools/aot/cli.ts` produces can reach a browser at all. The register grew by four and the
+ * open-findings list shrank by four. **What did not move is the point of the row**: the three
+ * code-cache measurement symbols in that module (`cacheVerdict`, `describeCacheVerdict`,
+ * `measureRepeatLoad`) are still open, because wiring a fetch did not wire a two-visit
+ * measurement and a ceiling that absorbed them would be recording work nobody did.
  */
-export const DISPOSITION_CEILING = 47
+export const DISPOSITION_CEILING = 51
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {

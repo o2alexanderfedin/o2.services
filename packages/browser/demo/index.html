@@ -989,6 +989,34 @@
             rather than left to be discovered.
           </p>
 
+          <!--
+            AOT-05's last mile. A dispatch names a module and carries no bytes, so a CID this
+            bundle does not ship has to be *pulled* before it can be dispatched — and until this
+            control existed there was no way to pull one, which made every foreign CID a
+            `module block missing` on every shard.
+
+            `type="button"`, deliberately: this is not the form's submit and pressing Enter in
+            any field must still reach `#run-byo`. And it is NOT disabled by the validity model.
+            Two of the refusals it exists to show — a record that vouches for some other
+            artifact, a gateway that answers an error page — can only be *read* if the control
+            can be pressed in the state that produces them.
+          -->
+          <div class="field">
+            <label for="byo-gateway">gateway root</label>
+            <input class="input mono" id="byo-gateway" name="gatewayBase" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <p class="card-note">
+            A path-gateway root ending in a slash, with no query string: the engine’s code
+            cache is keyed on the URL, so a cache-busting parameter makes every visit a miss
+            and the loader refuses such a base rather than building one. The gateway must answer
+            <code>Content-Type: application/wasm</code> — the streaming compiler accepts nothing
+            else — and the fetched bytes are checked against the CID before they are stored.
+            A gateway that answers anything else is named below rather than worked around.
+          </p>
+          <p class="controls">
+            <button id="fetch-byo" type="button" class="btn" aria-describedby="byo-fetch">Fetch this module</button>
+          </p>
+
           <p class="controls">
             <button id="run-byo" type="submit" class="btn btn-primary" disabled aria-describedby="byo-validity">Dispatch this module</button>
             <!--
@@ -1188,6 +1216,13 @@
             not fully translate.
           </p>
         </div>
+
+        <!--
+          What the gateway fetch did, in the loader's own words. Its own view rather than a line
+          in `#byo-report`: a fetch happens before a dispatch, can happen without one following,
+          and must survive the one that does — see the catalogue entry for `byo/fetch`.
+        -->
+        <pre id="byo-fetch" class="text-view" data-region="byo/fetch" data-kind="text-view" data-source="the #byo-fetch text view">nothing fetched yet</pre>
 
         <pre id="byo-report" class="text-view" data-region="byo/report" data-kind="text-view" data-source="the #byo-report text view">nothing dispatched yet</pre>
       </section>
@@ -1711,6 +1746,7 @@
         BYO_READING_IDS,
         DEFAULT_FORM,
         PROVENANCE_NOTICE,
+        describeFetch as describeByoFetch,
         format as formatByo,
         formatConstants as formatByoConstants,
         recordOf,
@@ -2504,6 +2540,57 @@
           $('byo-status').textContent = 'the run stopped'
         }
         refreshByo()
+      })
+
+      // ---- AOT-05's last mile: pull a module this bundle does not ship ------------------
+      //
+      // **`window.o2.fetchModule` has a caller in this page as of this line**, and with it
+      // `loadArtifact` — the gateway loader that had been built, tested and barrel-exported
+      // with no production consumer at all. Same shape as the dispatch handler above: the
+      // arguments come from the form the visitor filled, the reading goes to one pure
+      // formatter, and one `writeReading` writes the one region it returns.
+      //
+      // Not `applyRender`: `byo/fetch` is a text view and belongs to no run — see its
+      // catalogue entry for why it is not a `reading`.
+      $('fetch-byo').addEventListener('click', async () => {
+        const form = readByoForm()
+        // The bytes go into this tab's own blockstore, which a stopped tab does not have. Said
+        // here rather than discovered as whatever `required()` throws, because a named refusal
+        // a visitor can act on is the whole discipline of this surface.
+        if (window.o2.activity() === null) {
+          writeReading(
+            'byo/fetch',
+            'Nothing was fetched: this tab’s node is stopped, so there is no store to put the ' +
+              'bytes in.',
+          )
+          return
+        }
+        $('fetch-byo').disabled = true
+        // Digit-free is not required here — `#byo-fetch` carries a `data-region`, so its
+        // figures are declared. It is short because it is a transient.
+        writeReading('byo/fetch', 'fetching…')
+        try {
+          const report = await window.o2.fetchModule({
+            gatewayBase: $('byo-gateway').value,
+            moduleCid: form.moduleCid.trim(),
+            // The record's cid and the module cid are read as TWO values and compared by the
+            // fetch, never collapsed here into one. They are two spellings of one fact and the
+            // whole point of passing both is that the fetch refuses when they disagree —
+            // exactly as `guardModuleProvenance` refuses the dispatch when they do.
+            recordCid: form.cid.trim(),
+            recordName: form.name.trim(),
+          })
+          // The hook the e2e compares the screen against, as `window.__o2LastByoRun` is for the
+          // dispatch: a run returns its report once and there is no accessor for the last one,
+          // so without this a spec could only compare the page with itself.
+          window.__o2LastByoFetch = report
+          writeReading('byo/fetch', describeByoFetch(report))
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          window.__o2LastByoFetch = null
+          writeReading('byo/fetch', `The fetch stopped: ${message}.`)
+        }
+        $('fetch-byo').disabled = false
       })
 
       $('verify').addEventListener('click', () => {
