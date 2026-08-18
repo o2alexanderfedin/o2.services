@@ -1262,8 +1262,30 @@ function inFlightRefusal(slotKey: string): string {
  * Throws rather than returning an error, and only on an input this function constructs
  * itself — a record of two strings and an array of strings, which the canonical codec
  * cannot refuse. Same call {@link receiptFor} makes for its own assembly invariant.
+ *
+ * ## Exported on 2026-08-17, and the reason is the read half of CHURN-03
+ *
+ * This was module-private, and that was the correct scope for as long as nobody could
+ * resume anything: the only caller was `submitJob`, thirteen hundred lines below, and an
+ * export with no production caller is what `reachability-guard.node.test.ts` reddens on.
+ *
+ * What changed is that a resume needs the id **before** the submit that would derive it.
+ * {@link SubmitOptions.resumeFrom} takes handles, a stored handle has to be looked up
+ * under *something*, and `resumeState` refuses a handle whose checkpoint names another
+ * job by name — so the key a store files handles under must be this id and cannot be
+ * anything looser. `packages/browser/src/idb-checkpoints.ts` is that store and
+ * `demo/main.ts#runColouring` is its caller; both are downstream of this function being
+ * callable from outside this module.
+ *
+ * **A second derivation of the same fact is the hazard, and it is bounded rather than
+ * denied.** A caller must still canonicalise its own shard values to obtain `inputCids`,
+ * which is a step this function does not perform for it — see `submitJob`'s own loop, and
+ * `submit.test.ts`'s *"a caller derives the id `submitJob` will derive"* case, which
+ * re-derives an id outside `submitJob` and compares it against the one the checkpoint
+ * block actually carries. That case is what makes the demo's lookup key true by
+ * measurement instead of by reading.
  */
-async function jobIdOf(moduleCid: CID, inputCids: readonly CID[]): Promise<string> {
+export async function jobIdOf(moduleCid: CID, inputCids: readonly CID[]): Promise<string> {
   const encoded = await canonicalCid({
     module: moduleCid.toString(),
     inputs: inputCids.map((cid) => cid.toString()),

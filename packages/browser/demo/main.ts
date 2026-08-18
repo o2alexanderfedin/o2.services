@@ -41,7 +41,14 @@
  * a third party I was here".
  */
 
-import { checkpointsInto, decodeCanonical, verifyCertificate } from '@o2/core'
+import {
+  canonicalCid,
+  checkpointsInto,
+  decodeCanonical,
+  jobIdOf,
+  readCheckpoint,
+  verifyCertificate,
+} from '@o2/core'
 import type {
   Blockstore,
   CanonicalValue,
@@ -108,9 +115,22 @@ import type {
 } from '@o2/browser'
 import { createTaskWorker } from '../src/worker-factory.ts'
 import { DialPlanner } from '../src/dial-plan.ts'
+// CHURN-03's read half. Relative and **deliberately not through the barrel**, on
+// `demo-regions.ts`'s stated rule and for its stated reason: a barrel export whose only
+// caller is inside the `window.o2` literal is an exported-but-unreachable symbol in front of
+// `reachability-guard.node.test.ts`, bought for nothing. `IdbIdentityStore` and
+// `IdbSovereignCids` are off the barrel already, reached the same way by `browser-node.ts`.
+import { IdbCheckpoints } from '../src/idb-checkpoints.ts'
 // AOT-05's last mile. Relative, not through the barrel — see the module's own header.
 import { fetchModuleForDispatch } from '../src/gateway-module.ts'
 import * as pid from '@libp2p/peer-id'
+// **`import type`, and the distinction matters here rather than being pedantry.** This file's
+// convention is that `CID` is reached through `await import('multiformats/cid')` — see
+// `aggregateTotalFrom` for the argument and for the measurement that was withdrawn from it.
+// That convention is about the *value*: a static value import emits a real edge in the module
+// graph. A type-only import is erased before anything runs, emits no edge, and is the only way
+// to annotate a binding the dynamic import produces.
+import type { CID } from 'multiformats/cid'
 
 let node: BrowserNode | null = null
 let consent: GrantedConsent | null = null
@@ -145,6 +165,44 @@ function notify(): void {
 function required(): BrowserNode {
   if (node === null) throw new Error('node not started')
   return node
+}
+
+/**
+ * The open handle store for this tab, opened once — CHURN-03's read half.
+ *
+ * **Named off the blockstore this node actually opened**, not off a constant and not off the
+ * option `start` was called with: `${node.store.name}-checkpoints` is the same derivation
+ * `browser-node.ts` uses for `-identity`, `-sovereign` and `-issuance`, and it is what keeps
+ * two tabs isolated. Every end-to-end harness on this page isolates its tabs by passing
+ * distinct `blockstoreName`s — `o2-colouring-a` and `o2-colouring-b` in
+ * `colouring-demo.e2e.test.ts` — and a checkpoint database named by a constant would have
+ * been shared across all of them on one origin. Tab B would then have resumed tab A's job,
+ * carried every cube, and reported `complete: false` on a fabric that was working perfectly.
+ *
+ * A separate database from the blocks, for the reason `idb-checkpoints.ts` gives at length:
+ * a pointer that is evicted independently of the blocks it names is worse than no pointer.
+ *
+ * Memoised per name rather than per call. Opening the same IndexedDB database twice from one
+ * page is legal and wasteful, and a second connection also blocks a `deleteDatabase` — the
+ * hazard `start-unwind.browser.test.ts` reads on the blockstore's own connection.
+ */
+let checkpointRecords: { readonly name: string; readonly store: Promise<IdbCheckpoints> } | null =
+  null
+function checkpointsFor(blockstoreName: string): Promise<IdbCheckpoints> {
+  const name = `${blockstoreName}-checkpoints`
+  const held = checkpointRecords
+  if (held?.name !== name) {
+    // The previous connection is closed rather than dropped, for `start-unwind.browser.test.ts`'s
+    // reason one database over: an open IndexedDB connection makes `deleteDatabase` fire
+    // `blocked` instead of completing, and a page that restarted its node under a different
+    // store name would leave one open for the lifetime of the tab. `catch` because a store that
+    // failed to open has nothing to close and its rejection is the *next* call's to report.
+    if (held !== null) void held.store.then((store) => store.close()).catch(() => {})
+    const opened = { name, store: IdbCheckpoints.open(name) }
+    checkpointRecords = opened
+    return opened.store
+  }
+  return held.store
 }
 
 /**
@@ -1099,6 +1157,80 @@ const api: TabApi = {
       // is has no identity to mint from either.
       ...options.peerIds.map((id) => new RemoteExecutor(id, node.rpc, 'dispatches-unauthenticated')),
     ]
+    // ── CHURN-03's READ half — closed here, and it has to happen BEFORE the submit ─────
+    //
+    // The write half landed on 2026-08-16 and the comment on `checkpoints:` below still
+    // records what it could not do: *"there is no stable key under which the newest handle
+    // could be left for a returning tab to find … discovering that CID unaided needs a
+    // mutable key space this port does not have."* `../src/idb-checkpoints.ts` is that key
+    // space, and these lines are the tab finding its own handle again.
+    //
+    // **The lookup key can only be the job id, and that is measured rather than chosen.**
+    // `resumeState` refuses a handle whose checkpoint names a different job —
+    // `checkpoint-names-another-job` — so a store keyed on anything looser hands back a
+    // handle for the wrong job and `submitJob` answers `ok: false`, which the line below
+    // turns into a thrown `submit failed` on a visitor's screen. That exact failure was
+    // measured on 2026-08-18 in `bin/bench.ts`, where one handle was applied across a sweep
+    // of differently-shaped jobs: every rung refused and the driver printed a benchmark over
+    // nothing while exiting 0.
+    //
+    // So the id is derived here, from `@o2/core`'s own `jobIdOf`, before the call that will
+    // derive it again internally — the one thing this page must not do is spell it its own
+    // way. `submit.test.ts`'s *"a caller derives the id `submitJob` will derive"* case is
+    // what holds the two together: it re-derives an id by exactly this recipe and compares it
+    // against the one the written checkpoint block carries.
+    const encodedInput = await canonicalCid(input)
+    if (!encodedInput.ok) {
+      throw new Error(
+        `this run has no job id: the colouring input would not canonicalise — ` +
+          JSON.stringify(encodedInput.error),
+      )
+    }
+    // **One CID repeated, and that is the input this job actually has.** `shards` below is
+    // `options.cubes` copies of the same `input` value, deliberately — a cube is distinguished
+    // by `partition()` alone — so the ordered input CIDs `submitJob` canonicalises are this
+    // one CID, `options.cubes` times. The count is in the id, which is correct: a four-cube
+    // run and an eight-cube run partition the same data differently and are different jobs.
+    const jobId = await jobIdOf(
+      moduleCid,
+      Array.from({ length: options.cubes }, () => encodedInput.cid),
+    )
+    const records = await checkpointsFor(node.store.name)
+    const offered = await records.newestHandleFor(jobId)
+    // Dynamic, following this file's existing convention at the three other `CID` sites.
+    const { CID } = await import('multiformats/cid')
+    /** Why a stored handle was dropped, in `readCheckpoint`'s own vocabulary. */
+    let refused: string | null = null
+    let resumeFrom: CID[] | null = null
+    if (offered !== null) {
+      // **Read before it is offered to `submitJob`, and this is not belt-and-braces.**
+      // `submitJob` answers `ok: false` with `checkpoint-unreadable` when the newest handle's
+      // block is gone, and this page throws on `ok: false` — so a browser that evicted the
+      // checkpoint block while keeping this pointer would have turned the Run button into a
+      // permanent error. Browsers evict IndexedDB silently under storage pressure;
+      // `idb-checkpoints.ts` says so against its own interest, and a resume that is worse
+      // than starting over is not a resume. Checked through `readCheckpoint`, which is the
+      // same validating reader `resumeState` uses, so a handle that passes here is a handle
+      // that passes there.
+      const handle = CID.parse(offered)
+      const read = await readCheckpoint(handle, node.store)
+      if (!read.ok) refused = read.failure.kind
+      // **Unreachable by construction, and kept anyway.** The record was fetched *by* this
+      // job id, so a checkpoint naming another job means the store handed back a row it was
+      // not asked for. No test executes this branch — stated rather than left for a reader to
+      // wonder — and it costs three lines to make the one refusal that breaks this page
+      // impossible to reach from here rather than merely unlikely.
+      else if (read.checkpoint.jobId !== jobId) refused = 'names-another-job'
+      else resumeFrom = [handle]
+      // Forgotten rather than left to be re-read next run: a pointer that failed to resolve
+      // once will fail the same way again, and keeping it would spend a block read per run
+      // forever to reach the same answer.
+      if (refused !== null) await records.forget(jobId)
+    }
+    // Hoisted out of the options bag it used to be constructed inside, because the read half
+    // needs it *after* the job as well: `newest()` is the newest handle this run confirmed,
+    // and that is what the next run of this job will be offered.
+    const written = checkpointsInto(node.store)
     // `submitJobWithEgress`, not bare `submitJob` — DATA-05/DATA-06's manifest,
     // sliced off `node.egress` (the guard `BrowserNode.start` already wraps this
     // tab's transport in), reachable from this call's own result rather than only
@@ -1187,10 +1319,39 @@ const api: TabApi = {
         // The block is recoverable by anyone holding its CID; discovering that CID unaided
         // needs a mutable key space this port does not have. Said here rather than left
         // for a reader to assume the resume story is complete.
-        checkpoints: checkpointsInto(node.store),
+        //
+        // **CORRECTED 2026-08-17, and the paragraph above is quoted rather than deleted
+        // because this comment's argument runs through it.** The mutable key space now
+        // exists — `../src/idb-checkpoints.ts`, one record per job id — and the block above
+        // this call looks this job's newest handle up in it. What the paragraph says about
+        // the *blockstore* is still exactly true: it is content-addressed and it holds no
+        // such key. What was wrong was reading that as a statement about the port.
+        checkpoints: written,
+        // CHURN-03's read half, and `undefined` is not spelled here on purpose:
+        // `exactOptionalPropertyTypes` makes an explicit `undefined` a different type from an
+        // absent field, and `resumeState` distinguishes the two.
+        ...(resumeFrom === null ? {} : { resumeFrom }),
       },
     )
     if (!result.ok) throw new Error(`submit failed: ${JSON.stringify(result.error)}`)
+    // **Counted off the fabric's own report, never off `resumeFrom`.** The pointer says what
+    // was *asked for*; `ending` says what was *carried*. A run where those two disagree is a
+    // checkpoint that named fewer shards than the caller hoped, and reporting the request as
+    // though it were the outcome is how a resume comes to be claimed and not performed.
+    const carried = result.job.shards.filter(
+      (shard) => shard.ending === 'carried-from-checkpoint',
+    ).length
+    // **Only ever a CONFIRMED handle**, which is `newest()`'s whole definition —
+    // `checkpointsInto` keeps `confirmed` and `unconfirmed` apart precisely because an
+    // unconfirmed handle did not read back out of the store, and filing one would leave the
+    // next run a pointer that resolves to nothing.
+    //
+    // `null` leaves the previous pointer standing rather than clearing it, and that is the
+    // right way round: a run that carried every cube dispatches nothing, so it records
+    // nothing, so it confirms nothing — and the handle that made that possible is still the
+    // best one this tab has.
+    const confirmed = written.newest()
+    if (confirmed !== null) await records.remember(jobId, confirmed.toString())
     // Exactly one guard was supplied above, so exactly one manifest comes back.
     const manifest = result.manifests[0]
     if (manifest === undefined) throw new Error('unreachable: no manifest for the sole guard')
@@ -1249,6 +1410,10 @@ const api: TabApi = {
         kind: 'not-attempted',
         reason: 'this run produced no shard, so there was nothing to compose a quorum for',
       },
+      // CHURN-03 — the four facts assembled above, in the order they were established:
+      // the id this run derived, the pointer it found, why it dropped one if it did, how
+      // many cubes the fabric says it carried, and what it left for the next run.
+      resume: { jobId, offered, refused, carried, remembered: confirmed?.toString() ?? null },
     }
   },
 

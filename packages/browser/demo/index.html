@@ -369,6 +369,19 @@
               may simply have had nothing to hold back.
             </p>
           </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Where this run started — resumed, or from nothing</p>
+            <pre data-region="colouring/resume" data-kind="reading" data-source="TabApi.runColouring().resume"></pre>
+            <p class="card-note">
+              Every run writes a checkpoint into this tab's own storage as each cube is
+              answered, and every run looks one up before it starts. Run the ladder a second
+              time and the cubes come back out of storage instead of being computed again —
+              which is also why the receipt above it reads weaker on a resumed run: a cube
+              nobody was asked to compute is a cube nobody signed for.
+            </p>
+          </div>
         </div>
 
         <pre id="run-report" class="text-view" data-region="colouring/run-report" data-kind="text-view" data-source="the #run-report text view — the colouring run, rendered as lines"></pre>
