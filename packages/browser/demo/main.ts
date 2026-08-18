@@ -1134,6 +1134,13 @@ const api: TabApi = {
       },
       node.store,
       [node.egress],
+      // CHURN-03 — stated, not defaulted, and written here on 2026-08-18 because it was
+      // **not**: the reason for this opt-out lived only in `checkpoint-optout-scope.node.
+      // test.ts`'s pin table, and a reader of this file found a bare sentinel. A π run is
+      // one submit whose shards all name the same input block, so there is no partial
+      // progress a resume could pick up. What `runColouring` has and this does not is a
+      // ladder of rungs to be resumed *between*; the store is equally durable in both, so
+      // this is a decision about the workload's shape and not about where a handle lives.
       { checkpoints: 'checkpoints-nothing' },
     )
     if (!result.ok) throw new Error(`pi submit failed: ${JSON.stringify(result.error)}`)
@@ -1259,6 +1266,11 @@ const api: TabApi = {
       },
       node.store,
       [node.egress],
+      // CHURN-03 — stated, not defaulted, and written here on 2026-08-18 for the reason
+      // given above `runPi`'s: the reason existed only in the guard's pin table. A primes
+      // run is one submit whose shards all name the same input block, so it either
+      // completes or is re-dispatched whole, and there is no partial progress a resume
+      // could pick up. Correct on exactly `runPi`'s grounds rather than by inheritance.
       { checkpoints: 'checkpoints-nothing' },
     )
     if (!result.ok) throw new Error(`primes submit failed: ${JSON.stringify(result.error)}`)
@@ -1933,9 +1945,15 @@ const api: TabApi = {
       // would suggest otherwise.
       {
         sovereignCids: n.sovereignCids,
-        // CHURN-03 — as `runColouring` above, and for the same reason. Note this is the
-        // one production submit that already passes an options bag, so it is the only one
-        // of the five where the new field cost a line rather than an argument.
+        // CHURN-03 — stated, not defaulted. **This comment read *"as `runColouring` above,
+        // and for the same reason … the only one of the five where the new field cost a line
+        // rather than an argument"* until 2026-08-18, and both halves had gone stale.**
+        // `runColouring` passes a real `checkpointsInto(node.store)` sink since 2026-08-16,
+        // so pointing at it points at the opposite decision; and there are nine production
+        // submit sites now, not five. The reason that does hold is `runPi`'s, one screen up:
+        // one submit, no ladder of rungs to be resumed between. Quoted rather than deleted
+        // because a reader tracing why this site was ever grouped with `runColouring` needs
+        // to find the sentence that grouped them.
         checkpoints: 'checkpoints-nothing',
       },
     )

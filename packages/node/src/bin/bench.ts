@@ -1708,6 +1708,15 @@ async function realFabric(
           },
           requestor.store,
           [requestor.egress],
+          // CHURN-03 — stated, not defaulted, and written here on 2026-08-18 because it was
+          // **not**: the reason for this opt-out lived only in `checkpoint-optout-scope.node.
+          // test.ts`'s pin table, so a reader of this file found a bare sentinel. Two grounds,
+          // either of which is sufficient. The store both bench submits use is built under
+          // `mkdtemp(tmpdir(), 'o2-bench-')` and removed by `close()`, so a handle published
+          // from here would name a block that is gone before anything could resume from it.
+          // And this is the `--sovereign` leg's **one-shard** dispatch-path demonstration,
+          // run once per rig outside every timed region — with one shard there is no partial
+          // progress for a resume to pick up.
           { checkpoints: 'checkpoints-nothing' },
         )
         const legMs = performance.now() - legStarted

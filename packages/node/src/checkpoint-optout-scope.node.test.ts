@@ -184,6 +184,37 @@ function codeOccurrences(file: string, needle: string): number {
   return stripComments(readFileSync(join(ROOT, file), 'utf8')).split(needle).length - 1
 }
 
+/**
+ * The file whose sentinel occurrences **declare** the opt-out rather than take it.
+ *
+ * `submit.ts` says the literal twice in code — once in `SubmitOptions.checkpoints`' own
+ * union type, once in the branch that reads it — and neither is a submitter deciding
+ * anything. Excluding it by name rather than by a heuristic, because a heuristic that
+ * guessed which occurrences are "declarations" would be exactly the silent exemption this
+ * file exists to refuse: a new submitter could fall into the exemption by accident.
+ */
+const DECLARES_THE_SENTINEL = 'packages/core/src/job/submit.ts'
+
+/**
+ * The contiguous comment block immediately above `index`, or `''` if the line above is code.
+ *
+ * Walks up over `//` lines and over the interior of a block comment, stopping at the first
+ * line that is neither. Blank lines stop it too, on purpose: a reason separated from the
+ * site it explains by an empty line is a reason a reader has to guess belongs to it, and
+ * the whole point of this case is that the reason be *at* the site.
+ */
+function commentBlockAbove(lines: readonly string[], index: number): string {
+  const block: string[] = []
+  for (let above = index - 1; above >= 0; above--) {
+    const text = (lines[above] ?? '').trim()
+    const isComment =
+      text.startsWith('//') || text.startsWith('*') || text.startsWith('/*') || text.endsWith('*/')
+    if (!isComment) break
+    block.unshift(text)
+  }
+  return block.join('\n')
+}
+
 describe('the set of production files that opt out of checkpointing is pinned', () => {
   const sources = trackedProductionSources()
 
@@ -225,6 +256,55 @@ describe('the set of production files that opt out of checkpointing is pinned', 
     expect(counts).toEqual(
       Object.fromEntries(CHECKPOINT_OPTOUTS.map(({ file, count }) => [file, count])),
     )
+  })
+
+  it('gives every opt-out its reason at the site, not only in this file', () => {
+    // **Added 2026-08-18, because `REQUIREMENTS.md`'s CHURN-03 row claimed this and it was
+    // false.** The row said *"Each opt-out carries a written reason and
+    // `checkpoint-optout-scope.node.test.ts` pins the set in both directions, so this is
+    // scope stated rather than scope hidden"*. The reasons were real — every one of them is
+    // written into {@link CHECKPOINT_OPTOUTS} above — but they were written **here**, and a
+    // reader of `demo/main.ts` or `bin/bench.ts` found a bare `'checkpoints-nothing'` with
+    // nothing above it. Measured that day: of the seven opt-out sites, three carried a
+    // sound reason at the site, one carried a reason that had gone stale, and **three
+    // carried none at all**.
+    //
+    // So this case does not add a rule; it moves an existing claim from prose that nobody
+    // could check into a reading a machine takes on every run. That is the same move
+    // `requirements-ledger.node.test.ts` makes on the ledger's own sentences, one level up:
+    // a claim a search can hold is worth more than a claim that is merely true.
+    //
+    // The marker is the requirement id rather than a form of words, because the id is what
+    // a reader greps for and what survives rewriting.
+    const missing: string[] = []
+    let scanned = 0
+    for (const { file } of CHECKPOINT_OPTOUTS) {
+      if (file === DECLARES_THE_SENTINEL) continue
+      const lines = readFileSync(join(ROOT, file), 'utf8').split('\n')
+      // Comments stripped for *finding* the sites and kept for *reading* the reason —
+      // `stripComments` preserves line structure, so the two views index alike. Finding
+      // them in stripped code is what stops a sentinel quoted inside a docblock (there are
+      // several, in `submit.ts` and in this file) from being scored as a site with no reason.
+      const code = stripComments(lines.join('\n')).split('\n')
+      for (let at = 0; at < lines.length; at++) {
+        if (!(code[at] ?? '').includes(SENTINEL)) continue
+        scanned += 1
+        if (commentBlockAbove(lines, at).includes('CHURN-03')) continue
+        missing.push(
+          `${file}:${at + 1} opts out of CHURN-03 checkpointing with no reason at the site. ` +
+            'The reason may not live only in CHECKPOINT_OPTOUTS above: a reader of the ' +
+            'submitter has to find it where the decision is taken. Write it in the comment ' +
+            'directly above the sentinel and name CHURN-03 in it.',
+        )
+      }
+    }
+    expect(missing).toEqual([])
+    // Anti-vacuity, and it is not decoration: the loop above is satisfied by finding no
+    // sites at all, which is what a broken `stripComments` or a mis-rooted read would
+    // produce. Seven is the census `REQUIREMENTS.md`'s CHURN-03 row states — seven of nine
+    // production submit sites pass the sentinel — minus nothing, because `submit.ts`'s two
+    // are excluded above and are not submit sites.
+    expect(scanned).toBe(7)
   })
 
   it('reads criterion 7 directly: the definition and exactly one implementation name CheckpointSink', () => {
