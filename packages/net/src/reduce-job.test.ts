@@ -310,6 +310,11 @@ describe('MR-04 / MR-05 / MR-07 — eight shards reduce over eight peers that ca
 
       const executorIds = fabric.workers.map((w) => w.id)
       const result = await reduceJob(submitted.job, {
+        // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+        // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+        // local-preferring requestor would answer every combine in-process and there would be
+        // no rendezvous assignment and no churn repair left to observe.
+        placement: 'requires-remote-combining',
         rpc: fabric.originRpc,
         executors: executorIds,
         blockstore: fabric.originStore,
@@ -429,6 +434,12 @@ describe('reduceJob names what it could not do, rather than presenting a partial
     // is attributed to its own partition index. Stated for the same reason as the line
     // above: the option is required so a caller cannot arrive at a leaf key by default.
     contributors: 'attributes-each-shard-to-its-own-partition-index' as const,
+    // Every case in this block refuses *before* a combine is placed anywhere, so the
+    // placement never runs. The remote sentinel is nonetheless the honest statement for
+    // them: a local-preferring fixture would be claiming these refusals hold on a path
+    // that combines in-process, which is a different claim and one this block does not
+    // measure. `describe('the owner's placement ruling …')` below is where that path is.
+    placement: 'requires-remote-combining' as const,
     ...over,
   })
 
@@ -753,6 +764,11 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
       const fabric = await combineFabric(workers)
       try {
         const result = await reduceJob(agreedJob(2), {
+          // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+          // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+          // local-preferring requestor would answer every combine in-process and there would be
+          // no rendezvous assignment and no churn repair left to observe.
+          placement: 'requires-remote-combining',
           rpc: fabric.requestorRpc,
           executors: fabric.ids,
           blockstore: fabric.requestorStore,
@@ -794,6 +810,11 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
     ])
     try {
       const result = await reduceJob(agreedJob(2), {
+        // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+        // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+        // local-preferring requestor would answer every combine in-process and there would be
+        // no rendezvous assignment and no churn repair left to observe.
+        placement: 'requires-remote-combining',
         rpc: fabric.requestorRpc,
         executors: fabric.ids,
         blockstore: fabric.requestorStore,
@@ -837,6 +858,11 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
     ])
     try {
       const result = await reduceJob(agreedJob(5), {
+        // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+        // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+        // local-preferring requestor would answer every combine in-process and there would be
+        // no rendezvous assignment and no churn repair left to observe.
+        placement: 'requires-remote-combining',
         rpc: fabric.requestorRpc,
         executors: fabric.ids,
         blockstore: fabric.requestorStore,
@@ -878,6 +904,11 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
     ])
     try {
       const result = await reduceJob(agreedJob(2), {
+        // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+        // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+        // local-preferring requestor would answer every combine in-process and there would be
+        // no rendezvous assignment and no churn repair left to observe.
+        placement: 'requires-remote-combining',
         rpc: fabric.requestorRpc,
         executors: fabric.ids,
         blockstore: fabric.requestorStore,
@@ -917,6 +948,9 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
         project,
         redundancy: 1,
         contributors: 'attributes-each-shard-to-its-own-partition-index' as const,
+        // This case is about what a requestor can establish from a *peer's* combine
+        // signature, so the combine has to happen on a peer.
+        placement: 'requires-remote-combining' as const,
       }
       const checking = await reduceJob(agreedJob(2), { ...common, trustedIssuers: fabric.trustedIssuers })
       const unchecking = await reduceJob(agreedJob(2), {
@@ -949,6 +983,11 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
     ])
     try {
       const result = await reduceJob(agreedJob(1), {
+        // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+        // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+        // local-preferring requestor would answer every combine in-process and there would be
+        // no rendezvous assignment and no churn repair left to observe.
+        placement: 'requires-remote-combining',
         rpc: fabric.requestorRpc,
         executors: fabric.ids,
         blockstore: fabric.requestorStore,

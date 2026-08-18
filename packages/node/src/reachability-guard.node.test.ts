@@ -483,14 +483,32 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     //
     // The direction is unambiguous this time and needs no defending paragraph: nothing was
     // disposed to obtain it, and the undisposed residue moved 15 → 2 in the same change.
+    // ## Lowered 68 → 67, measured 2026-08-18 (second lowering that day) — ONE out, wired
+    //
+    // `core/localDispatch` left, and it left by the only route this note counts as work:
+    // production calls it. `@o2/net`'s `reduceJob` composes it as the `dispatch` half of the
+    // `prefers-local-combining` placement the owner ruled for on 2026-08-18, so a requestor
+    // combines in its own process wherever its own capacity and its own authorizer admit it.
+    // Nothing was disposed and nothing was retired from a barrel to obtain this.
+    //
+    // **Measured, not derived.** The guard's own exported API was called over this tree —
+    // `unreachableExports(barrelExports(), buildCallGraph(), ROOT)` — and returned **67**, with
+    // `core/localDispatch` absent from the list and `core/isComplete` the single undisposed
+    // remainder. 68 − 1 also being 67 was refused as the proof, per this note's standing habit.
+    //
+    // **The residue is 1 and Phase 22's criterion 1 still does not close.** That is stated here
+    // rather than left to the register, because this is the number a reader checks first: the
+    // parked owner decision that held `localDispatch` open has been taken, and `core/isComplete`
+    // has not — its row below re-read the one site that could take it on 2026-08-18 and found
+    // that site already printing the same fact.
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(
       found.length,
       `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-18 was 68. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
+        'on 2026-08-18 was 67. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(68)
+    ).toBeLessThanOrEqual(67)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
@@ -1293,26 +1311,6 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       'shorter; and retiring the export would move the gap out of this instrument while ' +
       "CHURN-03's row still holds `isComplete has no production caller` as the stated reason its " +
       'own box does not tick. Neither is work. The deferral quoted above is unchanged.',
-  },
-  {
-    key: 'core/localDispatch',
-    declaredIn: 'packages/core/src/reduce.ts',
-    callers: 'none',
-    reason:
-      'The local sibling of `net/remoteCombineDispatch`, which IS on the production reduce path — ' +
-      "`reduce-job.ts:510` composes the remote one and wraps it at `:516`. A requestor's own " +
-      'combines go out over RPC like everyone else\'s, so nothing composes the "local blockstore ' +
-      'plus pure combiner" form. `net/combine.ts:4` names the pair and draws the contrast; it ' +
-      'does not decline the wiring. Nobody has built a local-only combine path and nobody has ' +
-      'decided to. **This is the whole of why criterion 1 does not close clean, re-read ' +
-      '2026-08-18, and it is a PARKED OWNER DECISION rather than a gap somebody forgot.** Three ' +
-      'possibilities were checked against the tree and only the third survives: there is no ' +
-      'production destination — `executeReduce`\'s dispatcher is composed once, unconditionally, ' +
-      'from the remote arm; no source sentence declines it, so `deferred-in-source` would be a ' +
-      'cause invented for the occasion; and retiring the barrel export would hide the question ' +
-      'rather than answer it, because the symbol is a real capability under twenty cases in ' +
-      "`reduce.test.ts` and the question is whether `reduce-job`'s dispatcher wants a local " +
-      'combine arm at all. So it stays here, named, and the phase stays PARTIAL on it.',
   },
 ]
 

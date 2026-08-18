@@ -2474,6 +2474,19 @@ function runnerOver(acquire: (nodes: number) => Promise<Fabric>, state: RunnerSt
         // three places at once (here, the disposition register, and MR-02's ledger row) and
         // a reader who met one of the other two needs to find the retraction here too.
         contributors: 'attributes-each-shard-to-its-own-partition-index',
+        // The placement ruling's *"requested to do so"* clause, and this driver is the
+        // clearest case for it. Every reduce figure this sweep publishes —
+        // `combineExecutors` off `executedBy`, `recomputes`, `treeDepth` — is a
+        // measurement of **the fabric's** combine placement, which is what MR-05 and
+        // MR-06 are claims about. A local-preferring requestor answers every combine in
+        // its own process, so the published table would read one executor and zero
+        // recomputes on every row, and it would be reporting one process rather than a
+        // fabric. An instrument pins the variable it measures.
+        //
+        // **This is not the demo's answer and must not be copied into it.** The tab is
+        // the path an operator actually runs, and it prefers local — see
+        // `packages/browser/demo/main.ts`.
+        placement: 'requires-remote-combining',
       })
       const reduceMs = performance.now() - reduceStarted
       // **`reduced.ok` alone here, and deliberately not the conjunction below.** The two

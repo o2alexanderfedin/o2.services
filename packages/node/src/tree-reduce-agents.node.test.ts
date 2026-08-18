@@ -622,6 +622,11 @@ describe('AUTH-03 / 16-05 — a real bin/agent.ts process answers a combine', ()
     // (ii) — the production driver, end to end, over eight OS processes.
     const job = await runMap(fabric)
     const result = await reduceJob(job, {
+      // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+      // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+      // local-preferring requestor would answer every combine in-process and there would be
+      // no rendezvous assignment and no churn repair left to observe.
+      placement: 'requires-remote-combining',
       rpc: submitter.rpc,
       executors: executorIds,
       blockstore: submitter.store,
@@ -680,6 +685,11 @@ describe('MR-04…MR-07 — eight bin/agent.ts processes walk one derived tree',
     // so passing the fetching wrapper would work and would only obscure the intent.
     // Redundancy is left at its default of 1 — criterion 3 is where 2 is measured.
     const result = await reduceJob(job, {
+      // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+      // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+      // local-preferring requestor would answer every combine in-process and there would be
+      // no rendezvous assignment and no churn repair left to observe.
+      placement: 'requires-remote-combining',
       rpc: submitter.rpc,
       executors: executorIds,
       blockstore: submitter.store,
@@ -785,6 +795,11 @@ describe('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired else
     // run that produced no aggregate at all, so (a) and (b) are the instrument check that
     // has to come before every other assertion in this test.
     const healthy = await reduceJob(job, {
+      // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+      // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+      // local-preferring requestor would answer every combine in-process and there would be
+      // no rendezvous assignment and no churn repair left to observe.
+      placement: 'requires-remote-combining',
       rpc: submitter.rpc,
       executors: executorIds,
       blockstore: submitter.store,
@@ -891,6 +906,11 @@ describe('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired else
     // aggregate. Plan 16-02 measured a run that reported `ok: true` with
     // `outcome.ok: false` and no aggregate whatsoever.
     const second = await reduceJob(job, {
+      // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+      // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+      // local-preferring requestor would answer every combine in-process and there would be
+      // no rendezvous assignment and no churn repair left to observe.
+      placement: 'requires-remote-combining',
       rpc: submitter.rpc,
       executors: executorIds,
       blockstore: submitter.store,
@@ -961,6 +981,11 @@ describe('MR-07 — two replicas dedupe, and a duplicate from a fresh process co
 
     // Step 1 — the reduce at redundancy 2.
     const result = await reduceJob(job, {
+      // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+      // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+      // local-preferring requestor would answer every combine in-process and there would be
+      // no rendezvous assignment and no churn repair left to observe.
+      placement: 'requires-remote-combining',
       rpc: submitter.rpc,
       executors: executorIds,
       blockstore: submitter.store,
@@ -1133,6 +1158,11 @@ describe('MR-03 — the commutative half, read off reduceJob across eight bin/ag
 
     const reduceUnder = (contributors: ReadonlyMap<number, string>) =>
       reduceJob(job, {
+        // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+        // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+        // local-preferring requestor would answer every combine in-process and there would be
+        // no rendezvous assignment and no churn repair left to observe.
+        placement: 'requires-remote-combining',
         rpc: submitter.rpc,
         executors: executorIds,
         blockstore: submitter.store,

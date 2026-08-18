@@ -1166,6 +1166,29 @@ const api: TabApi = {
       // leaves would be a sovereignty claim about a page that made none. `reduceSovereignJob`
       // is where a leaf is keyed on an owner.
       contributors: 'attributes-each-shard-to-its-own-partition-index',
+      // ── The owner's placement ruling, 2026-08-18, on the path an operator runs. ─────
+      //
+      // *"Always prefer local execution, unless it must be executed remotely … or the
+      // current node is fully loaded."* This tab is the node, so it offers itself every
+      // combine first and reaches for a peer only when one of the named conditions
+      // refuses it. Both ports are **this tab's own**, not second copies: `node.admission`
+      // is the `LocalCapacity` its `serveAgent` refuses a peer's combine on, and
+      // `node.authorize` is the one authorizer it serves with. A tab admitting its own
+      // work by a different rule would be more permissive to itself than to everybody
+      // else.
+      //
+      // **What this costs is stated on screen and in the outcome, not hidden.** A combine
+      // this tab performed is signed by nobody — `localDispatch` signs nothing on purpose,
+      // because a signature this tab made would be it attesting to itself — so
+      // `reduced.outcome.locallyCombined` names each one and `aggregateAttestation` comes
+      // back as the named absence saying the aggregation was performed by the party that
+      // wanted the answer. At `redundancy >= 2` a peer still answers the second replica,
+      // so a local result that disagrees with a peer's still surfaces as a disagreement.
+      placement: {
+        kind: 'prefers-local-combining',
+        capacity: node.admission,
+        authorize: node.authorize,
+      },
     })
 
     // The aggregate's VALUE, fetched rather than assumed. `ReduceOutcome` carries `rootCid`
@@ -1293,6 +1316,14 @@ const api: TabApi = {
       trustedIssuers: 'checks-no-combine-signatures',
       // MR-02 — every shard here is `label: 'public'`, so its partials are the requestor's own.
       contributors: 'attributes-each-shard-to-its-own-partition-index',
+      // The placement ruling, on the same terms `runPi` states in full above: this tab
+      // offers itself every combine and falls to the ranking only where a named condition
+      // — its own capacity, its own authorizer — refuses it.
+      placement: {
+        kind: 'prefers-local-combining',
+        capacity: node.admission,
+        authorize: node.authorize,
+      },
     })
 
     // The aggregate's VALUE, fetched rather than assumed — see `aggregateTotalFrom`.

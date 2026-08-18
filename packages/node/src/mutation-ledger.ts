@@ -830,16 +830,23 @@ export const MUTATIONS: readonly Mutation[] = [
       'not the argument-equality check that also fires: that check is source text, and ' +
       'the same defect planted in both factories would satisfy it.',
     file: 'packages/browser/src/browser-node.ts',
+    // **Re-indented 2026-08-18, not re-aimed.** The authorizer was hoisted out of the
+    // `serveAgent({…})` literal into a `const authorize` above the node construction, so
+    // the local-combine path could read the same value; the four lines this plants into
+    // are byte-identical apart from losing two spaces of indent. The entry is edited
+    // rather than retired because the defect it plants, and the reading that catches it,
+    // are unchanged — and because a ledger entry silently dropped on a refactor is the
+    // failure the drift check above exists to make impossible.
     find:
-      '        ownerId: sovereignty.ownerId,\n' +
-      '        ...(sovereignty.ownerKey === undefined ? {} : { ownerKey: sovereignty.ownerKey }),\n' +
-      '        audience,\n' +
-      '        now: Date.now,',
+      '      ownerId: sovereignty.ownerId,\n' +
+      '      ...(sovereignty.ownerKey === undefined ? {} : { ownerKey: sovereignty.ownerKey }),\n' +
+      '      audience,\n' +
+      '      now: Date.now,',
     replace:
-      "        ownerId: sovereignty.ownerKey ?? '',\n" +
-      '        ...(sovereignty.ownerKey === undefined ? {} : { ownerKey: sovereignty.ownerId }),\n' +
-      "        audience: 'deadbeef',\n" +
-      '        now: () => 0,',
+      "      ownerId: sovereignty.ownerKey ?? '',\n" +
+      '      ...(sovereignty.ownerKey === undefined ? {} : { ownerKey: sovereignty.ownerId }),\n' +
+      "      audience: 'deadbeef',\n" +
+      '      now: () => 0,',
     caughtBy: ['packages/node/src/browser-capability.e2e.test.ts'],
     project: 'e2e',
     signature: "to contain 'no capability chain supplied'",
