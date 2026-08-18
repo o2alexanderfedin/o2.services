@@ -230,9 +230,63 @@ function cubeGrid(statuses: readonly string[]): string {
 }
 
 /**
- * The whole colouring surface, from the ladder's outcomes — C1 through C17 and the text view.
+ * How much of a handle is shown — enough to recognise, not enough to retype.
  *
- * Every one of the seventeen is in the returned record in every state, so nothing is left
+ * A CID is 59 characters and there are two of them in C23. Shown whole they would be the
+ * longest thing on the surface and would read as noise; shown as *a checkpoint* with no
+ * identifier at all, a visitor could not tell the handle this run was offered from the one it
+ * left behind, which is the single most informative thing about a resumed run.
+ */
+const HANDLE_SHOWN = 12
+function shortHandle(cid: string): string {
+  return cid.length <= HANDLE_SHOWN ? cid : `${cid.slice(0, HANDLE_SHOWN)}…`
+}
+
+/**
+ * C23 — whether this run picked up where an earlier one stopped. CHURN-03's read half.
+ *
+ * **Four arms, because `TabResume` carries four facts that do not reduce to one.** *Nothing
+ * was stored* and *something was stored and refused* both produce a run that computed every
+ * cube, and only the second says this tab's storage was holding a pointer to blocks that are
+ * gone. A boolean over them would render the same sentence for a healthy first visit and for
+ * an eviction.
+ *
+ * **The count comes from `carried`, which is counted off the shards, never from `offered`.**
+ * `main.ts` counts `ending === 'carried-from-checkpoint'` on `submitJob`'s own answer, so this
+ * sentence reports what the fabric did rather than what the page asked for. The two disagree
+ * exactly when a checkpoint named fewer shards than the pointer promised, which is the case a
+ * page must not paper over.
+ *
+ * The second line is always present and always says something: what the *next* run of this job
+ * will be offered. A resume the visitor cannot see coming is as invisible as one they cannot
+ * see happening.
+ */
+export function resumeLines(run: TabColouringRun): string[] {
+  const { offered, refused, carried, remembered } = run.resume
+  const first =
+    refused !== null
+      ? `Started over: a stored checkpoint was refused (${refused}) and dropped, so every cube ran.`
+      : offered === null
+        ? 'Started from nothing: this tab had stored no checkpoint for this job.'
+        : `Resumed from ${shortHandle(offered)}: ${carried} of ${run.cubes} cube(s) came out of it ` +
+          'and were dispatched nowhere.'
+  const second =
+    remembered === null
+      ? 'Nothing stored for a next run: this run confirmed no handle.'
+      : `Stored for a next run: ${shortHandle(remembered)}`
+  return [first, second]
+}
+
+/**
+ * The whole colouring surface, from the ladder's outcomes — C1 through C17, C22, C23 and the
+ * text view.
+ *
+ * *(Read "C1 through C17" until 2026-08-17. It was already false when C22 landed on 2026-08-14
+ * and is corrected here rather than left, because the count below is what the sentence is for.
+ * `colouring-surface.node.test.ts` derives the set from `REGIONS` and has been asserting the
+ * real one throughout — the comment drifted, not the code.)*
+ *
+ * Every one of the nineteen is in the returned record in every state, so nothing is left
  * holding a value from a previous run: a region with no reading carries its named absence, and
  * a rung the ladder never reached says so in the catalogue's words rather than staying at
  * whatever was last painted there. A stale reading is a placeholder that used to be true.
@@ -312,6 +366,9 @@ export function format(state: ColouringState): SurfaceRender {
     // unlike C15 and C17 this region has one: "no rung settled" is a state that existed
     // when C22 was written, so its `unavailable` arm was written for it.
     regions['colouring/quorum'] = absence('colouring/quorum', 'unavailable')
+    // C23 takes its sentence from the catalogue on C22's terms — "no rung settled" is a state
+    // that existed when C23 was written, so its `unavailable` arm was written for it.
+    regions['colouring/resume'] = absence('colouring/resume', 'unavailable')
     return { regions, text }
   }
 
@@ -324,6 +381,9 @@ export function format(state: ColouringState): SurfaceRender {
   const attLines = attestationLines(best.attestation)
   const quoLines = quorumLines(best.quorum)
   const egress = egressLines(best.egress)
+  // C23. One binding, read by the region and by the text view below — P6's rule, and the
+  // reason nothing below re-formats anything above it.
+  const resume = resumeLines(best)
 
   text.push('')
   text.push(`Best settled: n = ${bestN}, every cube agreed: ${best.complete}`)
@@ -341,6 +401,12 @@ export function format(state: ColouringState): SurfaceRender {
   text.push(...placement.slice(0, 8).map((line) => `  ${line}`))
   if (placement.length > 8) text.push(`  … and ${placement.length - 8} more`)
   text.push(...egress)
+  // CHURN-03, directly under the egress lines and above the invitation to check the answer,
+  // because it is the last thing that is true *about this run* — everything below it is about
+  // what the visitor does next. A resumed run also explains, on its own terms, why the
+  // attestation lines above it read weaker than a visitor expects: a carried cube was
+  // dispatched to nobody, so this requestor holds no signature over it from anybody.
+  text.push('', ...resume)
   text.push('', 'This answer has not been checked. The button below checks it.')
 
   regions['colouring/cube-grid'] = cubeGrid(best.statuses)
@@ -368,6 +434,10 @@ export function format(state: ColouringState): SurfaceRender {
   // sentence explaining it come out of one call to one function and cannot be separated by
   // anything that renders them.
   regions['colouring/egress'] = egress.join('\n').trim()
+  // **ONE region, the count and its sentence together**, on C17's rule directly above and for
+  // the same reason: `0 of 8` alone reads as a failed resume on a first visit where there was
+  // nothing to resume, and a handle alone says nothing about whether it was used.
+  regions['colouring/resume'] = resume.join('\n')
 
   return { regions, text }
 }
