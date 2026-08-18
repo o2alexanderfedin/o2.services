@@ -463,9 +463,16 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // entries of slack. So the move recorded here is 75 → 68, seven out, and 78 was never a
     // reading of anything after that commit.
     //
-    // **Measured, not derived**: this ceiling was set to 0 and the guard reported *"the guard
-    // found 68 unreachable callable barrel exports"*, naming all sixty-eight with the seven
-    // visibly absent. 75 − 7 also being 68 was refused as the proof, per this note's own habit.
+    // **Measured, not derived**: this ceiling was set to 0 and the guard reported, verbatim,
+    // *"the guard found 68 unreachable callable barrel exports … expected 68 to be less than or
+    // equal to 0"*. 75 − 7 also being 68 was refused as the proof, per this note's own habit.
+    //
+    // **The names were read separately, and the distinction is worth keeping** — earlier notes
+    // here say "naming all N", and this assertion does not name anything: its message carries a
+    // count, and the set-equality case beside it prints a vitest-truncated diff. So the list was
+    // taken by calling `unreachableExports` over the same corpus and graph outside the runner,
+    // and all seven departing symbols are absent from the 68 it returns. A note that claimed the
+    // failing assertion named them would be describing output nobody saw.
     //
     // Three **type** exports left `@o2/browser`'s barrel in the same change — `CacheVerdict`,
     // `CompilePair`, `RepeatMeasurement`, the types of the retired measurement — and they move
@@ -1419,6 +1426,47 @@ function openFindingKeys(register: readonly OpenFinding[] = OPEN_FINDINGS): Set<
  *
  * That plant is the argument for the `callers` column being in the register at all: set equality
  * alone is green about it, and so is the ceiling.
+ *
+ * ## Four more plants, each watched red — 2026-08-18, `--project node`, exit 1 read directly
+ *
+ * Taken when thirteen rows left this register, because a register that shrinks needs the same
+ * proof as one that grows: the cases have to still fail. Each was restored by the surgical
+ * inverse of its own edit, `cmp`-verified byte-identical against a snapshot taken immediately
+ * before it, and `shasum -a 256`-matched; all four `cmp`s exited 0 and `git status --porcelain`
+ * was empty after each.
+ *
+ * ### Plant D — a NEWLY-WIRED symbol loses its call site. `tools/aot/lift.ts`, one line: the
+ * `describeRefusal(failure.reason)` interpolation replaced by a literal. **3 failed | 32
+ * passed**, and the one that names it:
+ *
+ * ```
+ * AssertionError: these callable barrel exports have no call path from any of the five entry
+ * points and are in neither register. Wire them, or add a row to OPEN_FINDINGS with a reason a
+ * reader can check — a count no longer covers for them: expected
+ * [ 'aot/describeRefusal' ] to deeply equal []
+ * ```
+ *
+ * ### Plant E — the same, for the other wire. `packages/core/src/job/submit.ts`, two lines:
+ * both `checkLease(lease, …).expired` calls put back to the `>=` comparison they replaced.
+ * **3 failed | 32 passed**, naming `[ 'core/checkLease' ]` in the same assertion, with the count
+ * ceiling reading *"the guard found 69 … expected 69 to be less than or equal to 68"* beside it.
+ *
+ * ### Plant F — a NEW unwired barrel export, repeated from Plant A because the population it is
+ * asserted over changed. `packages/demo/src/index.ts`, +4 lines. **3 failed | 32 passed**,
+ * naming `[ 'demo/plantedUnwiredCapability' ]`.
+ *
+ * ### Plant G — the NEW hidden-caller row names the wrong member. `relayAddrForHost`'s `through`
+ * planted from `…seed-server.ts#configureServer` to `…#bootstrapInfoFor`, which the graph *can*
+ * see. **1 failed | 34 passed**, and only the mechanism case moved:
+ *
+ * ```
+ * AssertionError: packages/node/src/seed-server.ts#bootstrapInfoFor has a caller the graph CAN
+ * see, so "proxy-trap-dispatch" is not what hides node/relayAddrForHost — the row names the
+ * wrong mechanism: expected 1 to be +0
+ * ```
+ *
+ * That last one is the one that matters for a disposition arriving: it proves the row is held
+ * against the real graph rather than against its own prose.
  */
 describe('WIRE-02 — every unreachable export is named by a register, in both directions', () => {
   /** `barrel/symbol` for every callable barrel export the walk cannot reach. */
