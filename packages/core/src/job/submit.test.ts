@@ -813,7 +813,14 @@ describe('SCHED-03 — submitJob places by offers when it is given a way to ask'
       admit: (offer: Offer): Admission => {
         seen.push(offer.nodeId)
         return refuse.has(offer.nodeId)
-          ? { accepted: false, reason: reason(offer.nodeId), capacity: 'states-no-capacity' }
+          ? {
+              accepted: false,
+              reason: reason(offer.nodeId),
+              capacity: 'states-no-capacity',
+              // Refusing this offer, not standing down: these cases count re-picks, and
+              // a stub that stood a node down would stop the loop it is measuring.
+              standing: 'declining-this-offer',
+            }
           : { accepted: true, capacity: 'states-no-capacity' }
       },
       offered: () => seen,

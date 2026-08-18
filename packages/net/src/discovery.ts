@@ -204,6 +204,14 @@ export function rpcAdmission(
     // every shard of every job, which is invisible while the requestor sits outside
     // its own pool and fatal the moment it does not: measured 2026-08-16, a two-tab
     // demo run at `redundancy: 2` reached one replica and `job.complete` was false.
+    // **Every refusal this function composes *itself* is `declining-this-offer`, and
+    // that is a deliberate non-change.** `unreachable`, a malformed frame and a missing
+    // local port are all things the *requestor* concluded, not standings a node stated.
+    // Standing a node down on them would be inventing a restriction from a failure to
+    // hear one — the same error the absent-`standing` parse refuses — and it would
+    // silently rewrite churn retry behaviour, which is a different requirement's call.
+    // Only a peer's own `declining-all-work` stands a peer down, and it arrives below
+    // through `response.standing`.
     if (offer.nodeId === rpc.localId) {
       return (
         local?.would(offer) ?? {
@@ -212,6 +220,7 @@ export function rpcAdmission(
             'no local capacity port was supplied to rpcAdmission, so this node cannot answer ' +
             'an offer addressed to itself',
           capacity: 'states-no-capacity',
+          standing: 'declining-this-offer',
         }
       )
     }
@@ -223,18 +232,24 @@ export function rpcAdmission(
         accepted: false,
         reason: `unreachable: ${cause instanceof Error ? cause.message : String(cause)}`,
         capacity: 'states-no-capacity',
+        standing: 'declining-this-offer',
       }
     }
     const response = parseResponse(body)
     if (response?.kind !== 'offer') {
-      return { accepted: false, reason: 'malformed offer response', capacity: 'states-no-capacity' }
+      return {
+        accepted: false,
+        reason: 'malformed offer response',
+        capacity: 'states-no-capacity',
+        standing: 'declining-this-offer',
+      }
     }
     // `capacity: null` on the wire is the node stating nothing, which is a named
     // absence here rather than a zero.
     const capacity = response.capacity ?? 'states-no-capacity'
     return response.accepted
       ? { accepted: true, capacity }
-      : { accepted: false, reason: response.reason, capacity }
+      : { accepted: false, reason: response.reason, capacity, standing: response.standing }
   }
 
   return async (offer: Offer): Promise<Admission> => {
@@ -246,6 +261,8 @@ export function rpcAdmission(
             accepted: false,
             reason: `unreachable: no answer in ${probeTimeoutMs}ms`,
             capacity: 'states-no-capacity',
+            // Silence is not a standing — see the note above `ask`.
+            standing: 'declining-this-offer',
           }),
         probeTimeoutMs,
       )

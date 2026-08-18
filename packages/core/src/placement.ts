@@ -112,6 +112,34 @@ export interface NodeCapacity {
 }
 
 /**
+ * How much of a refusal a refusal is — SCHED-03, the requestor's half.
+ *
+ * **This is a typed name, and it exists because a reason string could not be one.**
+ * `net/src/agent.ts` composes `paused: <id> is declining all work right now`, and that
+ * file also records the rule this repository holds to: *"a requestor cannot tell
+ * `malformed request` from `over-committed: …` without reading the string"*, and nothing
+ * branches control flow on a reason. So a paused node was, until this union existed,
+ * indistinguishable to a planner from a node that merely had no room for one shard.
+ *
+ * The two are not the same and the difference is measurable. A node at capacity answers
+ * `inFlight === slots`, so {@link planWithOffers}' headroom tally reads 0 and drops it
+ * for the rest of the plan after **one** probe. A paused node correctly publishes its
+ * capacity **unchanged** — reporting zero slots would be the misattribution the paused
+ * state exists to remove — so its headroom stays positive, it is never dropped, and its
+ * advertised load of 0 makes power-of-d-choices *prefer* it. On a 64-shard job that was
+ * 64 probes at a node that had already stepped out, each bounded by the probe timeout.
+ *
+ * So the standing has to travel beside the capacity rather than inside it, and the
+ * filter that reads it has to be something other than the headroom map — because the
+ * headroom map is reading a figure that is, correctly, unchanged.
+ *
+ * - `'declining-this-offer'` — this shard did not fit. Says nothing about the next one.
+ * - `'declining-all-work'` — this node has stepped out. The next shard will not fit
+ *   either, and asking again before something changes is a wasted round trip.
+ */
+export type OfferStanding = 'declining-this-offer' | 'declining-all-work'
+
+/**
  * What a node answers when offered work. A refusal must say why.
  *
  * Both arms carry a capacity, or the stated absence of one. A refusal that did not
@@ -123,6 +151,12 @@ export interface NodeCapacity {
  * assume the node is full. Assuming full would make every node running an older
  * build invisible to a node running this one: a fabric that partitions itself on an
  * upgrade.
+ *
+ * **`standing` is required on the refusal arm and has no default**, on the same ground
+ * `FabricNodeOptions.relayAdmission` is a required named union: a defaulted field lets a
+ * construction site mean nothing by silence, and this one decides whether a node is
+ * asked again. Every site states which kind of refusal it is composing. See
+ * {@link OfferStanding} for why a reason string could not carry this.
  */
 export type Admission =
   | { readonly accepted: true; readonly capacity: NodeCapacity | 'states-no-capacity' }
@@ -130,6 +164,7 @@ export type Admission =
       readonly accepted: false
       readonly reason: string
       readonly capacity: NodeCapacity | 'states-no-capacity'
+      readonly standing: OfferStanding
     }
 
 /** An offer of one shard to one node. */
@@ -329,6 +364,17 @@ export async function planWithOffers(
   // unbounded — never zero. Defaulting it to a finite number would bound a node
   // on a figure the requestor invented.
   const headroom = new Map<string, number>()
+  // SCHED-03. **A second tally, deliberately not folded into the headroom map**, because
+  // the two answer different questions and a paused node's headroom is — correctly —
+  // untouched. A node that says `declining-all-work` publishes its real capacity, so it
+  // keeps positive headroom and would otherwise be re-offered every remaining shard while
+  // its advertised load of 0 made power-of-d-choices prefer it.
+  //
+  // Membership means "this node said it has stepped out", never "this node is full", and
+  // nothing removes a member: within one plan a stood-down node stays stood down. The
+  // scope is one call, as the headroom tally's is — a later job asks again, which is
+  // right, because pausing is a thing a node stops doing.
+  const stoodDown = new Set<string>()
   const admit = options.admit
   const recording: AdmissionControl | undefined =
     admit === undefined
@@ -340,6 +386,9 @@ export async function planWithOffers(
               offer.nodeId,
               Math.max(0, decision.capacity.slots - decision.capacity.inFlight),
             )
+          }
+          if (!decision.accepted && decision.standing === 'declining-all-work') {
+            stoodDown.add(offer.nodeId)
           }
           // The node's figure was read before this offer's own effect, so an
           // acceptance has to be subtracted here. On an unlearned node that
@@ -355,7 +404,9 @@ export async function planWithOffers(
 
   for (const request of requests) {
     const available = nodes.filter(
-      (node) => (headroom.get(node.nodeId) ?? Number.POSITIVE_INFINITY) > 0,
+      (node) =>
+        !stoodDown.has(node.nodeId) &&
+        (headroom.get(node.nodeId) ?? Number.POSITIVE_INFINITY) > 0,
     )
 
     if (available.length === 0 && nodes.length > 0) {
@@ -364,10 +415,29 @@ export async function planWithOffers(
       // `Rejection`: that field's doc fixes it as the node's own words, and a node
       // held back here was never asked, so it never refused. `probed: 0` and an
       // empty rejection list are the honest record of a shard nobody was asked about.
+      //
+      // **The two causes are counted separately rather than summarised**, because the
+      // old single sentence — "all N are at the capacity they stated" — became false the
+      // moment a node could be held back for standing instead of for room, and an
+      // operator reading it would go looking for load that is not there. A node that
+      // stepped out is not a node that is full; that distinction is the whole of
+      // SCHED-03 and it must survive into the one line anybody actually reads.
+      const out = nodes.filter((node) => stoodDown.has(node.nodeId)).length
+      const full = nodes.length - out
+      // **The capacity-only sentence is byte-identical to the one this function has
+      // always composed**, deliberately: nothing about that case changed, and rewording
+      // it would break readers for a reason that does not exist. Only the two new
+      // causes get new words.
+      const reason =
+        out === 0
+          ? `no candidate for ${request.shardId} has headroom left; all ${full} are at the capacity they stated`
+          : full === 0
+            ? `no candidate for ${request.shardId} is available; all ${out} have stepped out and are declining all work`
+            : `no candidate for ${request.shardId} is available; ${full} are at the capacity they stated and ${out} have stepped out`
       placements.push({
         shardId: request.shardId,
         status: 'unplaceable',
-        reason: `no candidate for ${request.shardId} has headroom left; all ${nodes.length} are at the capacity they stated`,
+        reason,
         rejections: [],
         probed: 0,
       })
@@ -658,11 +728,18 @@ export class LocalCapacity {
     // themselves are untouched: `over-committed: N of M slots in use` is
     // wire-visible and SCHED-06 requires it by name, so it stays composed in
     // exactly this one place.
+    // Both arms below are `declining-this-offer`, and neither is a judgement call:
+    // this object answers about **room**, and a node with no room for this shard may
+    // have room for the next one the moment a slot is released. `declining-all-work`
+    // is composed only where a node has stepped out, which is `net/src/agent.ts`'s
+    // pause branch — a decision this class cannot see and must not infer from a full
+    // slot table.
     if (this.#inFlight.has(offer.shardId)) {
       return {
         accepted: false,
         reason: `${offer.shardId} is already in flight here`,
         capacity: this.#capacity(slots),
+        standing: 'declining-this-offer',
       }
     }
     if (this.#inFlight.size >= slots) {
@@ -674,6 +751,7 @@ export class LocalCapacity {
         accepted: false,
         reason: `over-committed: ${this.#inFlight.size} of ${slots} slots in use${throttled}`,
         capacity: this.#capacity(slots),
+        standing: 'declining-this-offer',
       }
     }
     return { accepted: true, capacity: this.#capacity(slots) }
