@@ -781,8 +781,18 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * the measurement straight back down rather than keeping the slack the departure opened —
  * `OPEN_FINDING_CEILING`'s rule that *a ceiling with slack in it stops binding*, applied within
  * the hour instead of the next time somebody notices.
+ *
+ * **Lowered 14 → 10 on 2026-08-18, and the size of that drop is itself a finding.** `AOT-04`
+ * left the register that day by being ticked, taking it 11 → 10 — but the ceiling had been
+ * standing at 14 against a register of **eleven** for four days, three of slack, while this
+ * docblock's first sentence claimed it was *"sited at the register's own size with no slack"*.
+ * The comment and the constant disagreed and the comment was the one being believed. Three
+ * ids had left between 2026-08-14 and 2026-08-17 — the sweep that removed each of them
+ * lowered nothing — so the rule was stated, then not applied, three times running. Re-sited
+ * here at the measurement, and the drop is written as one number rather than smuggled in as
+ * part of the tick, because the tick is worth 1 of it and the unenforced rule is worth 3.
  */
-const REREAD_REGISTER_CEILING = 14
+const REREAD_REGISTER_CEILING = 10
 
 /**
  * ## The rule this list encodes
@@ -1331,35 +1341,24 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     reread: '2026-08-17',
     witnesses: ['tools/aot/cross-machine.node.test.ts'],
   },
-  // **Re-read 2026-08-16, and the sentence that kept it here is gone.** The row's own
-  // words were *"the browser tier's composition is present and its runtime behaviour is
-  // **unmeasured** — no tab has ever executed a translated artifact"*, and
-  // `packages/node/src/aot-tab.e2e.test.ts` now measures exactly that: a live Chromium tab
-  // running a real `BrowserNode`, handed the lifted echo guest over a direct WebSocket,
-  // routing it to its WASI arm and echoing the value back — with a source-compiled module
-  // through the same tab's native arm beside it, so the reading is about the router rather
-  // than about one arm answering everything.
+  // `AOT-04` was here until 2026-08-18 and is **REMOVED**, by the second of the two exits
+  // the rule allows: its row is `Done`, so it leaves the population and the set equality
+  // below makes the removal compulsory rather than optional.
   //
-  // **It stays in the register anyway, and the reason is a condition on the evidence.**
-  // The new file is `describe.skipIf` on a gitignored artifact — the identical condition
-  // this row already carries for `aot-dispatch.node.test.ts` — and it is one engine, not
-  // the three the `browser` project runs. Ticking AOT-04's box is a decision for whoever
-  // owns the phase, taken against the row rather than against this comment; what is
-  // recorded here is that the *stated* gap is closed and the promise is now to decide,
-  // not to measure. Understating is the safe direction and the direction AOT-03 already
-  // takes for its own half.
-  {
-    id: 'AOT-04',
-    because: 'tier-or-configuration',
-    reread: '2026-08-16',
-    witnesses: [
-      'packages/aot/src/admission.test.ts',
-      'packages/aot/src/wasi-executor.test.ts',
-      'packages/node/src/aot-dispatch.node.test.ts',
-      'packages/node/src/aot-tab.e2e.test.ts',
-      'packages/node/src/fabric-node.node.test.ts',
-    ],
-  },
+  // **The entry's own last re-read had already narrowed it to a decision.** On 2026-08-16
+  // it recorded that the stated gap — *"no tab has ever executed a translated artifact"* —
+  // was closed by `packages/node/src/aot-tab.e2e.test.ts`, and that what kept the id here
+  // afterwards was **a condition on the evidence rather than on the mechanism**: both
+  // readings are `describe.skipIf` on a gitignored lifted artifact, and the browser one is
+  // one engine rather than the three the `browser` project runs. It said the promise was
+  // now to *decide*, not to measure, and that the decision belonged to the row.
+  //
+  // **The decision was taken on 2026-08-18, against the row, after re-running both tiers
+  // rather than citing them** — `aot-dispatch.node.test.ts` EXIT=0 3 passed, and
+  // `aot-tab.e2e.test.ts` EXIT=0 2 passed, neither skipping a case. Both conditions are
+  // written into the row permanently, in the past tense, so that ticking cannot be read as
+  // retiring them; a reader who holds that one engine is not "the fabric" is told to clear
+  // the box rather than left to guess the condition was overlooked.
   // `AOT-05` was here until 2026-08-11 and is **REMOVED**, and it is the first id this
   // register itself closed rather than a hand sweep. Flagged at 15 days outstanding; the
   // re-read found its open leg was a call-site fact all along and had merely never been
