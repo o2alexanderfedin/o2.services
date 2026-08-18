@@ -1161,72 +1161,49 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       'the thing to do about it", reaches nobody outside `elf.test.ts`. Nobody has decided whether ' +
       'the lift driver should print it, and nothing in the source declines to.',
   },
+  // ## The streaming-load rows, from seven to three — corrected 2026-08-17
+  //
+  // All seven of this module's rows rested on one sentence, and that sentence is now **false**:
+  // *"nothing in production imports `streaming-load.ts`"*. `demo/index.html`'s `#fetch-byo`
+  // calls `window.o2.fetchModule`, which calls `src/gateway-module.ts#fetchModuleForDispatch`,
+  // which calls `loadArtifact`. Four of the seven — `loadArtifact`, `gatewayUrl`, `cidDefect`,
+  // `describeLoadFailure` — moved to `GLOBAL_OBJECT_HOP`, where the derived case put them by
+  // name before this file was touched.
+  //
+  // The three below did **not** move, and the reason is the distinction this register exists to
+  // hold: wiring a *fetch* did not wire a *two-visit code-cache measurement*. They still have no
+  // production caller and the module now having one does not give them one. Their old reasons
+  // pointed at `browser/loadArtifact` for the module-level fact; that pointer is deleted rather
+  // than left dangling at a row which is now a disposition and says the opposite.
   {
     key: 'browser/cacheVerdict',
     declaredIn: 'packages/browser/src/streaming-load.ts',
     callers: 'unreachable-only',
     reason:
-      'Called from `measureRepeatLoad` (`streaming-load.ts:486`), which is itself in this ' +
-      "register. See `browser/loadArtifact` for the one fact all seven of this module's rows " +
-      'rest on: nothing in production imports `streaming-load.ts`.',
-  },
-  {
-    key: 'browser/cidDefect',
-    declaredIn: 'packages/browser/src/streaming-load.ts',
-    callers: 'unreachable-only',
-    reason:
-      'Called from `loadArtifact` (`streaming-load.ts:282`), which is itself in this register. ' +
-      'See `browser/loadArtifact` for the module-level fact that keeps the whole file uncalled.',
+      'Called from `measureRepeatLoad` (`streaming-load.ts:486`) and by nothing else, and ' +
+      '`measureRepeatLoad` is itself still in this register. The module has a production caller ' +
+      'as of 2026-08-17 and this symbol is not on that path: `fetchModuleForDispatch` loads once ' +
+      'and reports `cacheEligible` off the byte count, which is a field rather than a verdict.',
   },
   {
     key: 'browser/describeCacheVerdict',
     declaredIn: 'packages/browser/src/streaming-load.ts',
     callers: 'none',
     reason:
-      'The renderer for a verdict nothing in production computes. No page displays a code-cache ' +
-      'verdict, because no page loads an artifact — see `browser/loadArtifact` for why not.',
-  },
-  {
-    key: 'browser/describeLoadFailure',
-    declaredIn: 'packages/browser/src/streaming-load.ts',
-    callers: 'none',
-    reason:
-      'The renderer for a failure nothing in production produces. Same module-level fact as ' +
-      '`browser/loadArtifact`: the loader has never been on a production path, so neither has its ' +
-      'failure sentence.',
-  },
-  {
-    key: 'browser/gatewayUrl',
-    declaredIn: 'packages/browser/src/streaming-load.ts',
-    callers: 'unreachable-only',
-    reason:
-      'Called from `loadArtifact` (`streaming-load.ts:290`), which is itself in this register. ' +
-      'See `browser/loadArtifact` for the module-level fact that keeps the whole file uncalled.',
-  },
-  {
-    key: 'browser/loadArtifact',
-    declaredIn: 'packages/browser/src/streaming-load.ts',
-    callers: 'unreachable-only',
-    reason:
-      "AOT-05's gateway loader has no production importer at all. Every reference to " +
-      '`streaming-load.ts` outside the module itself is `packages/browser/src/index.ts` (the ' +
-      'barrel, which is a conduit and never a caller), `streaming-load.browser.test.ts`, and ' +
-      '`code-cache.e2e.test.ts`, which imports it into a real page over Vite. **No page fetches ' +
-      'an artifact**: the demo puts bundled kernel bytes straight into its own blockstore — ' +
-      '`piKernelBytes` at `demo/main.ts:787` and `kernelBytes` at `:869`. ' +
-      "`requirements-ledger.node.test.ts` closed AOT-05's re-read row on exactly this reading, in " +
-      'its own words: *"the demo loads its kernel from `primes-bytes.ts`/`pi-bytes.ts` and ' +
-      '`loadArtifact` has no production caller at all"*. Nobody has wired a gateway fetch into a ' +
-      'page and nobody has decided to.',
+      'The renderer for a verdict nothing in production computes. The bring-your-own surface now ' +
+      'displays a fetch, and deliberately not a cache verdict: a verdict needs two loads of one ' +
+      'URL in one page, which is a measurement `code-cache.e2e.test.ts` makes and not something a ' +
+      'visitor pressing *Fetch this module* has asked for.',
   },
   {
     key: 'browser/measureRepeatLoad',
     declaredIn: 'packages/browser/src/streaming-load.ts',
     callers: 'none',
     reason:
-      'The two-visit cache measurement. It is driven by `code-cache.e2e.test.ts` as a measurement ' +
-      'and by nothing in production, for the reason `browser/loadArtifact` gives — and measured ' +
-      'is not wired.',
+      'The two-visit cache measurement. Driven by `code-cache.e2e.test.ts` as a measurement and ' +
+      'by nothing in production — and **measured is not wired** stays the whole of the reason ' +
+      'now that the module around it is wired. Fetching a module twice to time it is not ' +
+      'something the page has any reason to do to a visitor.',
   },
   {
     key: 'core/checkLease',

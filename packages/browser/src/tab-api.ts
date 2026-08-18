@@ -9,6 +9,7 @@
 
 import type { BrowserTally, ShardAttestation, ShardQuorum } from '@o2/core'
 import type { EgressManifest } from '@o2/net'
+import type { FetchReport } from './gateway-module.ts'
 
 /**
  * A `NameRecord` in the shape that survives `page.evaluate` — DET-03, DATA-08.
@@ -753,6 +754,38 @@ export interface TabApi {
   heldPeers(): TabHeldPeer[]
   connectionsTo(peerId: string): TabConnection[]
   putModule(bytes: number[]): Promise<string>
+  /**
+   * AOT-05's last mile — pull a module's bytes from a content-addressed gateway, verify
+   * them against the CID, and put them where this tab's dispatch can reach them.
+   *
+   * {@link putModule} is the other way bytes get in, and the two are not alternatives.
+   * `putModule` takes bytes a caller already has: the page uses it for the kernels this
+   * bundle ships, and a harness uses it to plant a fixture. This method is for the case
+   * neither covers and which had no route at all until it existed — **a CID for an
+   * artifact this bundle does not carry**, which is every artifact `tools/aot/cli.ts` has
+   * ever produced. Without it the form could hold the record and never the module, and the
+   * fabric answered `module block missing` on every shard.
+   *
+   * Returns a report and never throws for a refusal: a gateway that answered an error page,
+   * bytes that did not hash to the CID, a record naming some other artifact. Those are
+   * outcomes the page shows, not exceptions — see {@link FetchReport}.
+   *
+   * **This is not an admission decision and must not be read as one.** It establishes that
+   * the bytes are the bytes the record names. Whether the *record* is signed by a key this
+   * tab pins is decided by `guardModuleProvenance` on every executor the shard reaches,
+   * including this tab's own, and a module that fetches cleanly here can still be refused
+   * there — which is the fabric working.
+   */
+  fetchModule(options: {
+    /** A path-gateway root with a trailing slash and no query string. */
+    gatewayBase: string
+    /** The CID the dispatch will name. */
+    moduleCid: string
+    /** The CID the signed record vouches for. Compared against `moduleCid`, never assumed. */
+    recordCid: string
+    /** The record's name, so a mismatch is worded the way the executor words it. */
+    recordName: string
+  }): Promise<FetchReport>
   storedBlocks(): Promise<number>
   governor(): TabGovernorState
   /**

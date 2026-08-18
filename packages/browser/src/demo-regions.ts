@@ -1476,6 +1476,23 @@ export const REGIONS: readonly Region[] = [
     source: 'the #byo-report text view',
   },
   {
+    /**
+     * AOT-05's fetch, and a `text-view` rather than a `reading` on purpose.
+     *
+     * A fetch is not a property of a *run*: it happens before one, it can happen without one
+     * ever following, and it survives the dispatch that follows it. Declaring it a `reading`
+     * would enrol it in `BYO_READING_IDS`, which is what the submit handler repaints with
+     * *"The run stopped"* on a throw and what `paintSurfaceAbsence` walks — so a successful
+     * fetch would be overwritten by a sentence about a dispatch that had nothing to do with
+     * it. The catalogue's own division is the right one here: a text view is written directly,
+     * by whatever produced the text, and is not part of any surface's per-run record.
+     */
+    id: 'byo/fetch',
+    surface: 'byo',
+    kind: 'text-view',
+    source: 'the #byo-fetch text view',
+  },
+  {
     id: 'fabric/report',
     surface: 'fabric',
     kind: 'text-view',

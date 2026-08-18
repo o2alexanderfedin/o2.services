@@ -200,6 +200,17 @@ export const BUNDLED_MODULES: ReadonlyMap<string, Uint8Array> = new Map([
   [PI_RECORD.cid.toString(), piKernelBytes],
 ])
 
+/**
+ * AOT-05's fetch sentence, re-exported so this surface keeps ONE import site on the page.
+ *
+ * It is declared in `../../src/gateway-module.ts` beside the fetch it describes, for the
+ * reason every formatter here is declared beside nothing at all: it must be callable with no
+ * DOM and no network, and `gateway-module.node.test.ts` calls it that way. It is re-exported
+ * rather than re-implemented because a sentence held in two places is two sentences that can
+ * drift — the same argument this file's header makes about `PROVENANCE_NOTICE`.
+ */
+export { describeFetch } from '../../src/gateway-module.ts'
+
 /** Whether the form may be dispatched, and the reason when it may not. */
 export type Validity =
   | { readonly ok: true }

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { signName, toHex } from '@o2/core'
-import { KERNEL_RECORD, KERNEL_TRUST_ANCHOR } from '@o2/demo'
+import { KERNEL_RECORD, KERNEL_TRUST_ANCHOR, kernelBytes, piKernelBytes } from '@o2/demo'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
 import { createServer } from 'vite'
@@ -346,6 +346,9 @@ describe('bring your own — the record is required, and the refusal is read rat
         notice: (document.getElementById('byo-notice')?.textContent ?? '').trim(),
         primaries: panel.querySelectorAll('.btn-primary').length,
         buttons: panel.querySelectorAll('button').length,
+        secondaries: Array.from(panel.querySelectorAll('button'))
+          .filter((button) => !button.classList.contains('btn-primary'))
+          .map((button) => button.id),
         describedBy: document.getElementById('run-byo')?.getAttribute('aria-describedby') ?? '',
         formDescribedBy: document.getElementById('byo-form')?.getAttribute('aria-describedby') ?? '',
         statusRole: document.getElementById('byo-status')?.getAttribute('role') ?? '',
@@ -373,13 +376,20 @@ describe('bring your own — the record is required, and the refusal is read rat
     // UI-SPEC section 7.5: a visible label per input, and no placeholder standing in for one.
     expect(shape.unlabelled, 'an input on this form has no visible label').toEqual([])
     expect(shape.placeholders, 'a placeholder is standing in for a label').toEqual([])
-    // A floor: an empty input set would satisfy both of the above.
-    expect(Object.keys(shape.values).length).toBe(8)
+    // A floor: an empty input set would satisfy both of the above. Nine as of 2026-08-17 —
+    // the seven record fields, the owner id, and `#byo-gateway`, which AOT-05's fetch added.
+    expect(Object.keys(shape.values).length).toBe(9)
 
-    // One primary, and no other button at all — so P5 in `demo-liveness.e2e.test.ts` has
-    // exactly one control to discover and drive on this surface.
+    // **One primary, and now exactly one secondary — changed 2026-08-17 from "no other button
+    // at all", and the reason the sentence changed is worth keeping.** It read that way so P5
+    // in `demo-liveness.e2e.test.ts` had exactly one control to discover on this surface. P5
+    // does not in fact require that: it drives the primary and then drives every *non*-primary
+    // button it finds enabled, which is why `#fetch-byo` is deliberately not `.btn-primary`.
+    // What the original assertion was really protecting is that a visitor cannot mistake which
+    // control dispatches, and that survives: `Dispatch this module` is still the only primary.
     expect(shape.primaries).toBe(1)
-    expect(shape.buttons).toBe(1)
+    expect(shape.buttons).toBe(2)
+    expect(shape.secondaries).toEqual(['fetch-byo'])
     expect(shape.describedBy).toBe('byo-validity')
     expect(shape.formDescribedBy).toBe('byo-failures')
     expect(shape.statusRole).toBe('status')
@@ -394,6 +404,12 @@ describe('bring your own — the record is required, and the refusal is read rat
     expect(shape.values['byo-record-signer']).toBe(KERNEL_RECORD.signer)
     expect(shape.values['byo-record-signature']).toBe(KERNEL_RECORD.signature)
     expect(shape.values['byo-owner-id']).toBe('')
+    // AOT-05's gateway root opens **empty**, and that is a decision rather than an oversight.
+    // A path gateway must answer `Content-Type: application/wasm` or the streaming compiler
+    // refuses the response, and public IPFS path gateways sniff a type from the payload — so a
+    // baked-in default would be a real host that always fails. `gateway-module.ts`'s header
+    // carries the argument; this line is what stops one being added quietly.
+    expect(shape.values['byo-gateway']).toBe('')
     expect(shape.sovereignChecked).toBe(false)
 
     // Y1, on screen and equal to the anchor a stock tab pins.
@@ -847,4 +863,173 @@ describe('bring your own — the record is required, and the refusal is read rat
       }
     }, 900_000)
   })
+})
+
+/**
+ * AOT-05's last mile, driven through the page a visitor uses — added 2026-08-17.
+ *
+ * ## What was missing, exactly
+ *
+ * `streaming-load.ts` has been able to fetch a `.wasm` from a content-addressed gateway,
+ * verify it against its CID and compile it through the streaming API since Plan 26. Nothing
+ * called it. `reachability-guard.node.test.ts` carried the fact in its own words —
+ * *"Nobody has wired a gateway fetch into a page and nobody has decided to"* — so the two
+ * halves of the AOT flow never met: `tools/aot/cli.ts` writes bytes and signs a record, the
+ * form above can carry the **record**, and the **bytes** had no route into a running tab.
+ * Every CID this bundle does not ship came back `module block missing` from every shard.
+ *
+ * `#fetch-byo` is that route and these arms are what say so from outside the page.
+ *
+ * ## The gateway is intercepted, and that is the point rather than a convenience
+ *
+ * `page.route` answers `https://gateway.invalid/ipfs/…` in-process. A real gateway could
+ * only ever demonstrate the honest case; the case that matters is a gateway that answers
+ * with **the wrong artifact**, which no honest gateway produces and which is precisely what
+ * the CID check exists to catch. So the refused arm serves a real, valid, compilable
+ * WebAssembly module — this bundle's *other* kernel — under the CID of the one that was
+ * asked for. Nothing about it is malformed. Only its identity is wrong.
+ *
+ * ## `hasBlock` before and after is the whole proof, and the dispatch is not
+ *
+ * The block transition is unambiguous: this tab has never dispatched, so nothing but the
+ * fetch can have put those bytes in its store. The dispatch that follows is deliberately
+ * *not* offered as proof that the fetch supplied the bytes — the submit handler also puts a
+ * bundled module when the form names one, so on this CID the two are indistinguishable after
+ * the fact. It is here to show the fetched module then runs, which is the other half of the
+ * sentence, and it is stated this way rather than left for a reader to work out.
+ */
+describe('bring your own — a module pulled from a gateway, verified, and refused when it is not the one', () => {
+  const GATEWAY = 'https://gateway.invalid/ipfs/'
+  const MODULE_CID = KERNEL_RECORD.cid.toString()
+
+  /** A fresh tab, so nothing it holds can have come from an earlier arm of this file. */
+  let tabC: Page
+
+  /** Requests the routed gateway actually received. Asserted, never merely printed. */
+  let served: string[] = []
+
+  /** Answer every gateway request with `bytes`, as a path gateway serving a raw block would. */
+  async function serve(page: Page, bytes: Uint8Array): Promise<void> {
+    await page.unroute(`${GATEWAY}*`).catch(() => {})
+    await page.route(`${GATEWAY}*`, async (route) => {
+      served.push(route.request().url())
+      await route.fulfill({
+        status: 200,
+        // Exact, parameters and all — `loadArtifact` compares the whole header and the
+        // WebAssembly Web API spec forbids even an empty parameter.
+        contentType: 'application/wasm',
+        // The page is on http://localhost and the gateway is another origin, so without this
+        // the fetch fails as a CORS error and every arm below would pass for the wrong reason.
+        headers: { 'access-control-allow-origin': '*' },
+        body: Buffer.from(bytes),
+      })
+    })
+  }
+
+  /** Press *Fetch this module* and wait for its own text view to be rewritten. */
+  async function fetchModule(page: Page): Promise<string> {
+    const before = (await page.textContent('#byo-fetch')) ?? ''
+    await page.click('#fetch-byo')
+    await page.waitForFunction(
+      (was) => {
+        const text = document.getElementById('byo-fetch')?.textContent ?? ''
+        return text !== was && text !== 'fetching…'
+      },
+      before,
+      { timeout: 120_000 },
+    )
+    return (await page.textContent('#byo-fetch')) ?? ''
+  }
+
+  const holdsModule = async (page: Page): Promise<boolean> =>
+    page.evaluate(async (cid) => window.o2.hasBlock(cid), MODULE_CID)
+
+  it('opens a tab that holds no module at all, and fills the gateway root', async () => {
+    tabC = await openPage('c', `?relay=${encodeURIComponent(relayAddr)}`)
+    await tabC.waitForFunction(
+      () => document.getElementById('join')?.hasAttribute('disabled') === false,
+      null,
+      { timeout: 60_000 },
+    )
+    await tabC.click('#join')
+    await tabC.waitForFunction(
+      () => document.getElementById('state')?.dataset['tone'] === 'live',
+      null,
+      { timeout: 120_000 },
+    )
+    await showByo(tabC)
+
+    // The premise every arm below rests on. This tab has dispatched nothing and executed
+    // nothing, so it holds no module — and a tab that already held it would make the accepted
+    // arm's transition unreadable.
+    expect(
+      await holdsModule(tabC),
+      'this tab has dispatched nothing, so it must hold no module before the fetch — an arm that ' +
+        'starts holding it cannot show the fetch put it there',
+    ).toBe(false)
+
+    // The form opens on this bundle's own record; only the gateway root is typed, through the
+    // input a visitor types into.
+    await tabC.fill('#byo-gateway', GATEWAY)
+    expect(await tabC.textContent('#byo-fetch')).toBe('nothing fetched yet')
+  }, 900_000)
+
+  it('refuses bytes that are not the artifact the CID names, and stores nothing', async () => {
+    // A real module, correctly typed, that compiles — and is the wrong one. Served under the
+    // colouring kernel's CID, so only the digest comparison can tell.
+    served = []
+    await serve(tabC, piKernelBytes)
+    const text = await fetchModule(tabC)
+
+    expect(served, 'the arm did not reach the gateway at all, so it proves nothing').toEqual([
+      `${GATEWAY}${MODULE_CID}`,
+    ])
+    expect(text).toContain('Nothing was fetched')
+    expect(text).toContain(MODULE_CID)
+    expect(text).toContain('was requested but')
+    expect(text).toContain('the artifact was not stored, returned, or run')
+    // The refusal is not decoration. The bytes arrived, compiled, and were dropped.
+    expect(
+      await holdsModule(tabC),
+      'the page rendered a cid-mismatch refusal and stored the bytes anyway — the sentence and ' +
+        'the behaviour have come apart, which is worse than either failure alone',
+    ).toBe(false)
+  }, 900_000)
+
+  it('fetches the real artifact, verifies it, and puts it where a dispatch can reach it', async () => {
+    served = []
+    await serve(tabC, kernelBytes)
+    const text = await fetchModule(tabC)
+
+    expect(served).toEqual([`${GATEWAY}${MODULE_CID}`])
+    expect(text).toContain('and verified them against')
+    expect(text).toContain(MODULE_CID)
+    expect(text).toContain(`${GATEWAY}${MODULE_CID}`)
+    expect(text).toContain(String(kernelBytes.length))
+    // The page says what it has NOT established in the same breath. A visitor reading
+    // "verified" is one step from "cleared to run", and the signature has not been checked by
+    // anything yet.
+    expect(text).toContain('Verified is not cleared to run')
+
+    // The transition nothing else in this tab can explain.
+    expect(
+      await holdsModule(tabC),
+      'the page reported a verified fetch and the module is not in the store — the reading and ' +
+        'the store disagree',
+    ).toBe(true)
+  }, 900_000)
+
+  it('then dispatches the module it fetched, and every shard agrees', async () => {
+    // Not offered as proof that the FETCH supplied the bytes — see this describe's header. It
+    // is the other half of the sentence: a module pulled from a gateway runs.
+    const elapsed = await dispatch(tabC, 600_000)
+    const hook = await byoHook(tabC)
+    expect(hook.complete, `dispatch of the fetched module did not complete in ${elapsed} ms`).toBe(
+      true,
+    )
+    expect(hook.failures).toEqual([])
+    // The fetch reading survives the dispatch. It is its own text view precisely so a run
+    // cannot overwrite what a visitor was told about where the module came from.
+    expect(await tabC.textContent('#byo-fetch')).toContain('and verified them against')
+  }, 900_000)
 })

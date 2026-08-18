@@ -340,19 +340,41 @@ describe('P5 — after a real two-tab run, a surface with a run control no longe
       const panelBefore = await readPanel(a.page, surface)
       const viewBefore = digestOf(panelBefore)
 
+      // **Every text view on the surface, not the first one — corrected 2026-08-17.** This read
+      // `panel?.querySelector('.text-view')` and took whichever came first in the DOM, which
+      // was a hidden assumption that a surface has exactly one. Bring-your-own now has two:
+      // `#byo-fetch`, written when a module is pulled from a gateway, and `#byo-report`,
+      // written by the dispatch. The gateway view is above the report, so the singular
+      // selector started watching an element the primary control does not write and this
+      // property **timed out at 600 s** rather than reporting anything — the least useful
+      // failure it could give, and one that would have been paid again by the next surface to
+      // grow a second view.
+      //
+      // Joined and compared as one string, computed by the same expression on both sides so
+      // the before and the after cannot differ for a reason that is not the run. Any view
+      // changing is the run having produced a reading, which is what the singular form meant.
+      const viewsOf = (name: string): Promise<string> =>
+        a.page.evaluate(
+          (id) =>
+            Array.from(document.getElementById(`s-${id}`)?.querySelectorAll('.text-view') ?? [])
+              .map((view) => (view.textContent ?? '').trim())
+              .join('\u0000'),
+          name,
+        )
+      const viewsBefore = await viewsOf(surface)
+
       await a.page.click(`#s-${surface} .btn-primary`)
 
-      // Completion, generically: the surface's text view is written by `applyRender` in the
-      // same call that writes the regions, so it changing IS the run having produced a
-      // reading. The primary control is deliberately NOT the signal — this page's reconciler
+      // Completion, generically: a surface's text views are written by `applyRender` in the
+      // same call that writes the regions, so one of them changing IS the run having produced
+      // a reading. The primary control is deliberately NOT the signal — this page's reconciler
       // re-enables it on a one-second tick while the run is still climbing.
       await a.page.waitForFunction(
-        (arg) => {
-          const panel = document.getElementById(`s-${arg.surface}`)
-          const view = panel?.querySelector('.text-view')
-          return view !== null && view !== undefined && (view.textContent ?? '').trim() !== arg.was
-        },
-        { surface, was: (panelBefore.find((r) => r.kind === 'text-view')?.text ?? '') },
+        (arg) =>
+          Array.from(document.getElementById(`s-${arg.surface}`)?.querySelectorAll('.text-view') ?? [])
+            .map((view) => (view.textContent ?? '').trim())
+            .join('\u0000') !== arg.was,
+        { surface, was: viewsBefore },
         { timeout: 600_000 },
       )
 
