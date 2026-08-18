@@ -758,6 +758,50 @@ export type IssuanceHistory = IssuanceLedger | 'remembers-only-within-this-proce
  */
 export const DEFAULT_ISSUANCE_WINDOW_MS = 3_600_000
 
+/**
+ * Certificates one user key may obtain per {@link DEFAULT_ISSUANCE_WINDOW_MS}.
+ *
+ * **Raised from 5 to 32 on 2026-08-17, in the change that made stable user keys
+ * reachable from a browser tab** — which is the pairing
+ * `.planning/consults/2026-08-18-sizing-the-enrolment-rate-limiter.md` §"What was
+ * deliberately not done" asks for by name: *"The default was not changed. The regression
+ * cannot occur until stable user keys ship (#21), because no default path passes
+ * `enrollment` today … The recommendation is recorded here so #21's design can adopt it
+ * in the same change that makes it matter."* This is that change, so this is that adoption.
+ *
+ * ## Why a bigger number is the safe direction here, which is the opposite of the usual
+ *
+ * **This bound protects nobody from anybody, and that is measured rather than argued.**
+ * The paragraph at the top of this file states it: nothing in an enrolment request is
+ * scarce, a fresh user key is one `ed25519.keygen()`, and *"Phase 17 measured that —
+ * twenty requests under twenty distinct user keys all succeeded, and deleting the
+ * per-user guard left the reading unchanged."* An attacker rotates around this bound for
+ * free. {@link AuthorityOptions.maxIssuedPerWindow} is the one that binds them, it is
+ * required rather than defaulted, and none of the security argument lives here.
+ *
+ * What is left for this number to do is stop **one honest-but-buggy client** — a page in
+ * a re-enrolment loop — from consuming a provider's whole aggregate window. That inverts
+ * the sizing trade: a value that buys no security must never refuse an honest owner.
+ *
+ * ## Why 32 and not some other number
+ *
+ * The one common case that is both unbounded and innocent is a **session restore on a
+ * fresh profile**. `browser-node.ts`'s seed read and write are not in one transaction and
+ * there is no cross-tab lock, so N tabs opening at once against a cleared origin each read
+ * `null`, each mint a distinct seed, and each enrol separately — twenty-plus restored tabs
+ * is ordinary, and at 5 the sixth is refused. The steady state is not the problem and never
+ * was: a persisted certificate lives 30 days = 720 of these windows and is reused without
+ * contacting the provider at all, so a returning visitor spends nothing in 719 hours of 720.
+ *
+ * 32 is one power of two above the ~20-tab restore case, leaving headroom for a person's
+ * device and profile fan-out inside one hour while staying far below any aggregate budget
+ * an operator would plausibly set — so one buggy client still cannot drain a window.
+ *
+ * **A reader who takes this for an anti-abuse control will size it back down and
+ * reintroduce the refusal it exists to prevent.** Read the two paragraphs above first.
+ */
+export const DEFAULT_MAX_PER_WINDOW = 32
+
 /** What the sentinel selects: a history that lives and dies with this object. */
 class InProcessIssuance implements IssuanceLedger {
   readonly #byUser = new Map<PublicKeyHex, number[]>()
@@ -781,7 +825,11 @@ class InProcessIssuance implements IssuanceLedger {
 
 export interface AuthorityOptions {
   readonly providerPrivateKey: Uint8Array
-  /** Certificates one user key may obtain per window. */
+  /**
+   * Certificates one user key may obtain per window. Defaults to **32**, and the number
+   * is sized as a blast-radius bound on accidents rather than as a defence — see
+   * {@link DEFAULT_MAX_PER_WINDOW}.
+   */
   readonly maxPerWindow?: number
   /**
    * Certificates this authority will sign per window in total. See {@link IssuanceBudget}
@@ -875,7 +923,7 @@ export class EnrollmentAuthority {
   constructor(options: AuthorityOptions) {
     this.#privateKey = options.providerPrivateKey
     this.#issuer = toHex(ed25519.getPublicKey(options.providerPrivateKey))
-    this.#maxPerWindow = options.maxPerWindow ?? 5
+    this.#maxPerWindow = options.maxPerWindow ?? DEFAULT_MAX_PER_WINDOW
     this.#maxIssuedPerWindow = options.maxIssuedPerWindow
     this.#windowMs = options.windowMs ?? DEFAULT_ISSUANCE_WINDOW_MS
     this.#lifetimeMs = options.certificateLifetimeMs ?? 30 * 24 * 3_600_000

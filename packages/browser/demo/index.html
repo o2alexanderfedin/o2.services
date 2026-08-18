@@ -122,6 +122,39 @@
           data-kind="prose"
           data-source="the version number in the Circuit Relay protocol name, and the name of this project"
         ></p>
+
+        <!--
+          AUTH-01/02/04 — the enrolment offer. **The fourth hop of a four-hop flow whose
+          last hop did not exist**: `bin/seed.ts --enrollment-provider` produced the value,
+          `/bootstrap.json` transported it, `TabApi.discoverRelays()` parsed it, and until
+          2026-08-17 nothing on this page referenced the field at all.
+
+          It is an OFFER and not a setting, and the difference is the whole design. The
+          origin that served this page may say where a joiner can knock; it may not decide
+          that this tab knocks, and it may not say who this tab is. So the address below is
+          rendered for a person to look at, and `#enrol` is the only thing that acts — it
+          calls `TabApi.acceptEnrolment()`, which takes no arguments, so there is nothing on
+          it for an origin to fill in.
+
+          `hidden` until the offer is read, so an origin that names no provider — every
+          static host, and every open seed — shows nothing here rather than an empty
+          promise. Buttons carry no `data-region` for the reason `#join` and `#allow` do
+          not: the catalogue is of figures the page displays, and a control is not one.
+        -->
+        <div id="enrol-offer" hidden>
+          <p class="note" id="enrol-status"></p>
+          <p
+            class="note"
+            id="enrol-provider"
+            data-region="session/prose-enrolment"
+            data-kind="prose"
+            data-source="the enrolment provider's address as the origin published it — its protocol version, its port, and the peer id that names it — and, once enrolled, the issuer key of the certificate this tab holds"
+          ></p>
+          <p class="controls">
+            <button id="enrol" class="btn">Enrol this tab</button>
+            <button id="unenrol" class="btn" hidden>Withdraw</button>
+          </p>
+        </div>
         <p
           class="note"
           id="peers"
@@ -2754,6 +2787,79 @@
       }
       $('refresh-report').addEventListener('click', refreshReport)
 
+      /**
+       * AUTH-01/02/04 — render the enrolment question, or render nothing.
+       *
+       * The one place this page turns `TabApi.enrolmentOffer()` into a sentence. Called
+       * after the relay is known and again after every accept, withdrawal and start, so the
+       * copy always describes the tab as it is rather than as it was when the page loaded.
+       *
+       * `#enrol-offer` stays hidden unless there is genuinely something to ask, which is the
+       * ordinary case: a static host and an open seed both name no provider, and neither
+       * should show a visitor a control that would refuse them.
+       */
+      const paintEnrolmentOffer = async () => {
+        const offer = await window.o2.enrolmentOffer()
+        const offerEl = $('enrol-offer')
+        const enrolEl = $('enrol')
+        const unenrolEl = $('unenrol')
+
+        // Nothing published, or nothing this browser could hold a key for. Both are facts
+        // about where this page is running rather than about the visitor, and neither is a
+        // failure worth a control — so the block is simply absent.
+        if (!offer.offered && !offer.accepted) {
+          offerEl.hidden = true
+          return
+        }
+        if (!offer.canHoldKey) {
+          offerEl.hidden = false
+          $('enrol-status').textContent =
+            'This page is not served over a secure origin, so this browser cannot hold a ' +
+            'key that the page itself is unable to read. Enrolling here would mean handing ' +
+            'the page your identity, so it is not offered.'
+          $('enrol-provider').textContent = ''
+          enrolEl.hidden = true
+          unenrolEl.hidden = true
+          return
+        }
+
+        offerEl.hidden = false
+        enrolEl.hidden = offer.accepted
+        unenrolEl.hidden = !offer.accepted
+
+        // The address, verbatim and undecorated. It is the origin's word for who this tab
+        // would ask, and the visitor is entitled to read it before answering.
+        // Written straight to `textContent`, exactly as `#explain` is. Declared prose is
+        // written by the page rather than by the catalogue's writer — the writer's business
+        // is readings and their absence sentences, and this element's absence is that it is
+        // empty inside a block that is hidden.
+        $('enrol-provider').textContent =
+          offer.heldIssuer === undefined
+            ? (offer.providerAddr ?? '')
+            : `${offer.providerAddr ?? ''} — signed by ${offer.heldIssuer}`
+
+        if (offer.accepted) {
+          $('enrol-status').textContent = offer.appliedToRunningNode
+            ? 'This tab is enrolled. It holds a signed identity from the provider below, ' +
+              'which other nodes can check offline — and it takes blocks only from peers ' +
+              'that same provider certified. Withdrawing stops this node and forgets the key.'
+            : 'You chose to enrol, and this node started before you did. Stop and start it ' +
+              'again for that to take effect.'
+          return
+        }
+        if (offer.gap === 'provider-changed') {
+          $('enrol-status').textContent =
+            'This page now names a different enrolment provider from the one you accepted, ' +
+            'so it is asking again. Your tab still uses the one you agreed to until you answer.'
+          return
+        }
+        $('enrol-status').textContent =
+          'This page is served by a host that names an enrolment provider. Enrolling asks ' +
+          'that provider to sign an identity for this tab, using a key made in this browser ' +
+          'that this page cannot read — some relays admit only peers that hold one. Nothing ' +
+          'is sent unless you choose it, and you can withdraw.'
+      }
+
       const reveal = async () => {
         if (revealed) return
         revealed = true
@@ -2784,6 +2890,8 @@
           writeReading('session/relay', relayAddrs[0])
           joinEl.disabled = false
         }
+
+        await paintEnrolmentOffer()
 
         joinEl.addEventListener('click', async () => {
           joinEl.disabled = true
@@ -2820,6 +2928,9 @@
             // dialled cold, so nobody will announce themselves to this tab.
             setInterval(findPeers, 4_000)
             await refreshReport()
+            // The running node now either matches the visitor's decision or is the reason
+            // there is nothing outstanding to say. Either way the offer's copy changes.
+            await paintEnrolmentOffer()
           } catch (error) {
             setState(
               'blocked',
@@ -2840,6 +2951,62 @@
       $('allow').addEventListener('click', async () => {
         window.o2.grantConsent({ reporting: $('reporting').checked })
         await reveal()
+      })
+
+      /*
+        AUTH-01/02/04 — the visitor's explicit action, and the only thing on this page that
+        causes a tab to enrol. `acceptEnrolment()` takes no arguments: the provider comes
+        from the offer that is on screen, the key is minted in this browser and cannot be
+        read by this script, and the operator id is derived from that key. So there is no
+        parameter here through which the origin that served this page could name any of the
+        three — which is what the standing objection asks for, and it is the difference
+        between a page a visitor CONFIGURES and one that CONFIGURES the visitor.
+
+        Not merged into `#join`, deliberately. A single button reading `Start node` that
+        also obtained a signed identity from a third party would be exactly the silent
+        default this page exists not to be.
+      */
+      $('enrol').addEventListener('click', async () => {
+        const enrolEl = $('enrol')
+        enrolEl.disabled = true
+        try {
+          await window.o2.acceptEnrolment()
+          // The decision is recorded and the key exists; the running node, if any, predates
+          // both. Restarting here rather than leaving the visitor to do it — they pressed a
+          // button whose sentence promised an enrolled tab, and `appliedToRunningNode` is a
+          // report of a gap, not an instruction to hand them.
+          if (window.o2.activity() !== null) {
+            setState('working', 'restarting so this tab enrols…')
+            await window.o2.stop()
+            const { peerId } = await window.o2.autoStart({})
+            setState('live', 'node running — enrolled')
+            writeReading('session/peer-id', peerId)
+          }
+        } catch (error) {
+          setState(
+            'blocked',
+            `could not enrol: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        } finally {
+          enrolEl.disabled = false
+          await paintEnrolmentOffer()
+        }
+      })
+
+      $('unenrol').addEventListener('click', async () => {
+        const unenrolEl = $('unenrol')
+        unenrolEl.disabled = true
+        try {
+          // Stops the node and forgets the key as well as the decision — see
+          // `TabApi.declineEnrolment`. A withdrawal that left the tab running would be a
+          // preference rather than a withdrawal.
+          await window.o2.declineEnrolment()
+          setState('idle', 'stopped — this tab is no longer enrolled')
+          paintSurfaceAbsence('session', 'stopped')
+        } finally {
+          unenrolEl.disabled = false
+          await paintEnrolmentOffer()
+        }
       })
 
       $('decline').addEventListener('click', () => {

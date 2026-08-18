@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { requestEnrollment, toHex, verifyCertificate } from '@o2/core'
+import { DEFAULT_MAX_PER_WINDOW, requestEnrollment, toHex, verifyCertificate } from '@o2/core'
 import type { NodeCertificate } from '@o2/core'
 import { SEED_BYTES, peerIdForNodeKey } from '@o2/libp2p'
 import { RpcRecordIndex, enrolOverRpc } from '@o2/net'
@@ -492,9 +492,13 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
     const client = await startClient('burst-client')
     await client.dial(provider.multiaddrs[0] as string)
 
-    // Reproducible node seeds: a failure names which request it was.
+    // Reproducible node seeds: a failure names which request it was. The population is
+    // derived from the shipped default rather than written down — it read `length: 20`
+    // until 2026-08-17, when the default moved from 5 to 32 and twenty stopped being a
+    // burst at all. A fixed literal beside a moving default does not fail loudly; it goes
+    // green and stops measuring, which is worse.
     const outcomes = await Promise.all(
-      Array.from({ length: 20 }, async (_, i) =>
+      Array.from({ length: DEFAULT_MAX_PER_WINDOW + 3 }, async (_, i) =>
         enrolOverRpc(
           client.rpc,
           provider.peerId,
@@ -512,11 +516,19 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
       (o): o is Extract<EnrolOutcome, { kind: 'refused' }> => !o.ok && o.kind === 'refused',
     )
 
-    expect(accepted.length + refused.length).toBe(20)
+    expect(accepted.length + refused.length).toBe(DEFAULT_MAX_PER_WINDOW + 3)
     expect(refused.length).toBeGreaterThan(0)
 
     const first = refused[0]?.refusal
-    expect(first).toMatchObject({ kind: 'rate-limited', limit: 5, windowMs: 3_600_000 })
+    // `limit: 5` stood here until 2026-08-17. The literal is kept — the refusal has to carry
+    // a specific number onto the wire, and reading it back out of the constant alone would
+    // prove only that this file and that file agree — and it is pinned to the shipped
+    // default on the line below so the two cannot drift apart in either direction.
+    expect(first).toMatchObject({ kind: 'rate-limited', limit: 32, windowMs: 3_600_000 })
+    expect(
+      first?.kind === 'rate-limited' ? first.limit : null,
+      'the number crossing the wire and the shipped default are one number',
+    ).toBe(DEFAULT_MAX_PER_WINDOW)
     if (first?.kind !== 'rate-limited') throw new Error('expected a rate-limited refusal')
     expect(first.retryAfterMs).toBeGreaterThan(0)
     expect(first.userKey).toBe(toHex(ed25519.getPublicKey(BURST_USER_SEED)))
@@ -613,14 +625,18 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
 
     // Exhaust the first provider's budget for this user key, one request at a time so the
     // refusal below cannot be an artefact of concurrency.
+    // Derived from the shipped default rather than written: this read `i <= 7` against a
+    // default of 5, and 7 stopped exhausting anything when the default became 32.
+    const exhausting = DEFAULT_MAX_PER_WINDOW + 2
     const againstFirst: EnrolOutcome[] = []
-    for (let i = 1; i <= 7; i++) againstFirst.push(await enrolOverRpc(client.rpc, first.peerId, await requestFor(i)))
+    for (let i = 1; i <= exhausting; i++) againstFirst.push(await enrolOverRpc(client.rpc, first.peerId, await requestFor(i)))
     expect(againstFirst.some((o) => !o.ok && o.kind === 'refused')).toBe(true)
 
-    // The eighth node key, refused by the first provider and accepted by the second.
-    const refusedByFirst = await enrolOverRpc(client.rpc, first.peerId, await requestFor(8))
+    // One more node key, refused by the first provider and accepted by the second.
+    const nextSeed = exhausting + 1
+    const refusedByFirst = await enrolOverRpc(client.rpc, first.peerId, await requestFor(nextSeed))
     expect(refusedByFirst.ok).toBe(false)
-    const acceptedBySecond = await enrolOverRpc(client.rpc, second.peerId, await requestFor(8))
+    const acceptedBySecond = await enrolOverRpc(client.rpc, second.peerId, await requestFor(nextSeed))
     expect(acceptedBySecond.ok).toBe(true)
   }, 180_000)
 })

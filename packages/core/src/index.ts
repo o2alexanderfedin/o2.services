@@ -355,6 +355,11 @@ export {
   // as well as by the authority — see `IssuanceLedger` for why a host that guessed it
   // would widen a budget with nothing failing.
   DEFAULT_ISSUANCE_WINDOW_MS,
+  // Certificates one user key may obtain per window — a blast-radius bound on accidents
+  // and NOT a defence, which is why it is exported: a test that wants to witness the
+  // refusal has to be able to name the number, and a reader who takes it for anti-abuse
+  // is the failure mode its own doc warns about.
+  DEFAULT_MAX_PER_WINDOW,
   // How long a minted enrolment challenge stays spendable, and the number a
   // `stale-challenge` refusal carries so the joiner it refused knows the window it missed.
   ENROLLMENT_CHALLENGE_TTL_MS,
@@ -492,6 +497,11 @@ export type {
 export {
   createNobleSyncVerifier,
   Ed25519NotInitializedError,
+  // The visitor key's minter, exported because CRYPTO-01 forbids `@o2/browser` from
+  // holding its own `generateKey` call — the one production file permitted to perform
+  // WebCrypto Ed25519 operations is `ed25519-backend.ts`, so the call lives there and
+  // crosses the barrel rather than being duplicated at its caller.
+  generateSubtleKeyPair,
   getAsyncVerifier,
   getSyncVerifier,
   initEd25519,
