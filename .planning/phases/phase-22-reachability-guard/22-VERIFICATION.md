@@ -39,7 +39,31 @@ amendment_runs: # exit codes read with EXIT=$? on the line immediately after the
     result: >-
       197 files, 197 passed; 2950 passed | 1 skipped (2951). real 595.92 user 698.01 sys 113.91,
       i.e. (user+sys)/real = 1.36. Green in full, matching the pass's stated baseline of
-      197 files / 2950 passed exactly.
+      197 files / 2950 passed exactly. Taken on the JOB 1 tree at 530ec13.
+  - command: "/usr/bin/time -p npx vitest run --project node (FINAL, at d88b11d)"
+    exit: 0
+    result: >-
+      197 files, 197 passed; 2950 passed | 1 skipped (2951). real 769.71 user 727.85 sys 127.52,
+      i.e. (user+sys)/real = 1.11. Green in full on the final tree.
+  # A THIRD full run sits between those two and it was RED — recorded rather than dropped,
+  # because a run that is not reported is a run that did not happen.
+  - command: "/usr/bin/time -p npx vitest run --project node (intermediate, at d7b2167)"
+    exit: 1
+    result: >-
+      197 files, 5 failed | 192 passed; 6 failed | 2938 passed | 7 SKIPPED (2951). real 1035.69
+      user 768.45 sys 127.52 -> (user+sys)/real = 0.895, against 1.36 before it and 1.11 after.
+      ATTRIBUTED TO A STARVED HOST, and by measurement rather than by plausibility. Three
+      independent readings agree: (a) the six failures are in five files this pass never touched
+      — tools/aot/elfconv-differential, tools/aot/echo-guest, browser/src/colouring-surface,
+      node/src/closed-fabric-agents, node/src/late-combine — with zero overlap against the seven
+      files changed across both jobs; (b) the failure signatures are all timeouts and null exits,
+      including a DOM-free formatter spec timing out at 5000 ms, and the skip count rose 1 -> 7;
+      (c) late-combine.node.test.ts diagnosed it in its own assertion text — "ALL THREE inflated
+      together is a starved host, not this code ... the solo band is 1.32-1.63 and a whole
+      --project node run at 0.355 produced exactly this" — with standUp 14010 ms against a solo
+      ~1331. The five files were then re-run alone at the same commit: exit 0, 38 passed. That
+      re-run is corroboration and NOT the argument, since "passes in isolation" is a claim to
+      verify rather than a diagnosis; the argument is the disjoint file set plus the ratio.
   # ── SECOND amendment, 2026-08-18, code f5a8c66 / 0bbddb4 / 9035ee6 ─────────────────────
   - command: "npx tsc --noEmit"
     exit: 0
