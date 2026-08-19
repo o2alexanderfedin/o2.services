@@ -824,6 +824,13 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * above says the ceiling must follow. It is written here within the hour, as that paragraph
  * requires.
  *
+ * **Lowered 9 → 8 on 2026-08-18, in the same commit that removed `MR-04`.** That row left by
+ * the reword its own entry had twice recorded as drafted and unapplied, and the departure is
+ * the uncomfortable kind — a requirement's subject narrowed rather than a mechanism finished.
+ * The ceiling still follows, because the rule is about *unreached* rows and not about how a
+ * row stopped being one; what carries the honesty of that particular departure is the parsed
+ * `only through` claim the row acquired in the same commit, not this number.
+ *
  * **Lowered 10 → 9 on 2026-08-18, in the same commit that removed `AUTH-04`.** That row left
  * by the rarest of the departures this list records: nothing in the repository moved, and the
  * **owner's ruling** moved instead — an aggregate cap was ruled to be the cost AUTH-04 asks
@@ -832,7 +839,7 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * cannot. The rule is indifferent to which of the two moved: an id that is no longer
  * *unreached* leaves, and the ceiling follows it down in the same commit.
  */
-const REREAD_REGISTER_CEILING = 9
+const REREAD_REGISTER_CEILING = 8
 
 /**
  * ## The rule this list encodes
@@ -1393,43 +1400,28 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/node/src/static-rendezvous.e2e.test.ts',
     ],
   },
-  {
-    // **Re-read 2026-08-14, `because` corrected, and the row's own text is what is now in
-    // question rather than the tree.**
-    //
-    // The open clause is *"every participant computes an identical tree with no consensus is a
-    // claim about two participants deriving the same tree, and the page has one requestor
-    // deriving it once"* — a statement about an experiment nobody has run, hence
-    // `'experiment-not-run'`. It is also an experiment nobody **can** run as the row is
-    // written: `deriveReduceTree` has exactly one production call site and it is inside the
-    // requestor, and the projection closure never crosses a wire, so no second participant can
-    // compute even one leaf CID to derive from. The row additionally says the tree is derived
-    // *"from sorted partial CIDs"*, and the sort is on `contributorId NUL cid` — the contributor
-    // string, with the CID only breaking ties (`reduce.ts` `leafId`).
-    //
-    // Under the owner ruling of 2026-08-14 the property that sentence protects is **routing
-    // stability and dedup**, not fraud prevention, so the resolution is a reword on VER-03's
-    // precedent rather than an experiment. Drafted and returned for the owner; not applied.
-    // **Re-read 2026-08-18 and every clause above re-derives from the tree rather than from
-    // the entry.** `deriveReduceTree` is declared at `core/reduce.ts:190` and has exactly one
-    // production call site, `net/reduce-job.ts:505`, inside the requestor; `agent.ts` contains
-    // no occurrence of it, and `agent.ts:806-808` records the deliberate decision not to key a
-    // combine on `combineId` because it is "a requestor's claim about where in a tree this
-    // sits". The nearest readings are order-insensitivity inside one process, not
-    // independence. One further inaccuracy found and corrected in the row: it names
-    // `bin/bench.ts` as holding determinism, and `bin/bench.ts` never calls the function —
-    // it reaches it through `reduceJob` and holds shape, which `bench.ts:4319-4325` says of
-    // itself. The reword is still drafted and still not applied.
-    id: 'MR-04',
-    because: 'experiment-not-run',
-    reread: '2026-08-18',
-    witnesses: [
-      'packages/core/src/reduce.test.ts',
-      'packages/net/src/reduce-job.test.ts',
-      'packages/node/src/late-combine.node.test.ts',
-      'packages/node/src/tree-reduce-agents.node.test.ts',
-    ],
-  },
+  // ── `MR-04` was here until 2026-08-18 and is **REMOVED**, by the reword its own entry
+  // had been asking for since 2026-08-14 ──────────────────────────────────────────────
+  //
+  // Its entry said the open clause — *every participant computes an identical tree with no
+  // consensus* — described an experiment nobody has run **and nobody can run as the row is
+  // written**, because `deriveReduceTree` has one production call site inside the requestor
+  // and the projection closure never crosses a wire. It also recorded, twice and four days
+  // apart, that the reword *"is still drafted and still not applied"*. The owner applied it
+  // on 2026-08-18.
+  //
+  // **The exit is the one this register is least comfortable with and the entry is therefore
+  // worth keeping in view: the requirement's subject was narrowed.** The clause was
+  // *withdrawn*, not satisfied. What guards against that being a descope is not this list —
+  // it is that the narrowing's premise stopped being prose in the same commit: the row now
+  // says `deriveReduceTree` is reachable only through `reduceJob`, which is the
+  // {@link ONLY_THROUGH} shape, so the `only-through` case below re-derives the premise from
+  // the tree on every run and reddens the day a second production derivation site appears.
+  // An entry here is a promise to re-read by hand; a parsed claim is better than a promise,
+  // and swapping one for the other is the direction this list exists to encourage.
+  //
+  // The id leaves because its row is `Done` and the set equality below makes that compulsory;
+  // {@link REREAD_REGISTER_CEILING} follows it down in the same commit.
   // `MR-06` was here until 2026-08-18 and is **REMOVED**, by the second exit the rule allows:
   // its row is `Done`, so it leaves the population and the set equality below makes the
   // removal compulsory.

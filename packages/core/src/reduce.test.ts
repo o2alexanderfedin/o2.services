@@ -17,7 +17,7 @@ import {
   localDispatch,
   rendezvousRank,
 } from './reduce.ts'
-import type { Combiner, ReduceContribution } from './reduce.ts'
+import type { Combiner, ReduceContribution, ReduceTree } from './reduce.ts'
 import { signCombine, verifyCombineAttestation } from './result-attestation.ts'
 import type { ResultSigner } from './result-attestation.ts'
 
@@ -129,6 +129,97 @@ describe('MR-04 — the tree is derived, never agreed', () => {
     const { contributions } = await storePartials(store, 4)
     expect(() => deriveReduceTree(contributions, 1)).toThrow(RangeError)
     expect(() => deriveReduceTree([])).toThrow(RangeError)
+  })
+})
+
+/**
+ * A tree flattened to one string, so two derivations are compared as **bytes**.
+ *
+ * `toEqual` above is a structural comparison: it walks the object graph and would accept
+ * two trees whose fields arrived in a different order, or whose `level` was a string in
+ * one and a number in the other. MR-04 as reworded says *byte-identical*, so the reading
+ * has to be over a serialisation. Every field is mapped into a positional array rather
+ * than left as an object, so key order cannot vary between the two sides and the
+ * comparison cannot pass for the wrong reason.
+ */
+function flattened(tree: ReduceTree): string {
+  return JSON.stringify({
+    leaves: tree.leaves.map((leaf) => [leaf.id, leaf.cid]),
+    nodes: tree.nodes.map((node) => [node.id, node.children, node.level]),
+    root: tree.rootId,
+    fanout: tree.fanout,
+    depth: tree.depth,
+  })
+}
+
+/**
+ * MR-04 **as reworded by owner ruling on 2026-08-18**, and the two cases here are the
+ * whole of what the reworded sentence claims.
+ *
+ * The requirement read *"derived deterministically from sorted partial CIDs, so every
+ * participant computes an identical tree with no consensus"*. Two clauses of that were
+ * false of this file. The sort has never been on partial CIDs — {@link deriveReduceTree}
+ * sorts on `leafId`, which is `contributorId NUL cid`, so the contributor string decides
+ * and the CID only breaks a tie. And *"every participant"* names an experiment nobody can
+ * run as the system is built: `deriveReduceTree` has exactly one production call site and
+ * it is inside the requestor, so no second participant holds the contribution set to
+ * derive from. `.planning/REQUIREMENTS.md`'s MR-04 row carries that measurement and the
+ * ruling; this file carries the property the ruling kept.
+ *
+ * **What is NOT claimed here, stated so the narrowing is visible from the code as well as
+ * from the ledger**: nothing below involves two participants, because nothing can. These
+ * are two derivations in one process. The claim is determinism of the derivation given
+ * the same contributions — which is what routing stability and dedup rest on — and it is
+ * strictly weaker than the sentence it replaces.
+ */
+describe('MR-04 as reworded — the derivation is deterministic given the same contributions', () => {
+  it('derives byte-identical trees from identical inputs, compared as a serialisation', async () => {
+    const store = new MemoryBlockstore()
+    const { contributions } = await storePartials(store, 8)
+
+    // The second derivation is handed *reconstructed* CIDs rather than the same object
+    // references, so an accidental identity comparison somewhere cannot carry this.
+    const rebuilt: ReduceContribution[] = contributions.map((contribution) => ({
+      contributorId: contribution.contributorId,
+      cid: CID.parse(contribution.cid.toString()),
+    }))
+
+    expect(flattened(deriveReduceTree(rebuilt))).toBe(flattened(deriveReduceTree(contributions)))
+    // Anti-vacuity: a `flattened` that returned a constant would satisfy the line above
+    // and every other comparison in this describe. One differing contribution must differ.
+    const changed = await canonicalCid({ counts: { changed: 1 }, rows: 1 })
+    if (!changed.ok) throw new Error('the differing partial would not canonicalise')
+    expect(flattened(deriveReduceTree([...contributions.slice(0, 7), { contributorId: 'owner-7', cid: changed.cid }]))).not.toBe(
+      flattened(deriveReduceTree(contributions)),
+    )
+  })
+
+  it('orders leaves by contributor id, with the partial CID breaking ties only', async () => {
+    const store = new MemoryBlockstore()
+    const { contributions } = await storePartials(store, 4)
+    const sorted = contributions
+      .map((contribution) => contribution.cid)
+      .sort((a, b) => (a.toString() < b.toString() ? -1 : 1))
+    const low = sorted[0]
+    const high = sorted[sorted.length - 1]
+    if (low === undefined || high === undefined) throw new Error('need two distinct partials')
+    expect(low.toString()).not.toBe(high.toString())
+
+    // (1) The contributor string is PRIMARY. The later contributor is given the earlier
+    // CID, so a sort keyed on the CID — which is what the old requirement text described —
+    // would put them the other way round.
+    const primary = deriveReduceTree([
+      { contributorId: 'b-owner', cid: low },
+      { contributorId: 'a-owner', cid: high },
+    ])
+    expect(primary.leaves.map((leaf) => leaf.cid)).toEqual([high.toString(), low.toString()])
+
+    // (2) The CID is a TIE-BREAK, and only that. Same contributor, two partials.
+    const tiebreak = deriveReduceTree([
+      { contributorId: 'same-owner', cid: high },
+      { contributorId: 'same-owner', cid: low },
+    ])
+    expect(tiebreak.leaves.map((leaf) => leaf.cid)).toEqual([low.toString(), high.toString()])
   })
 })
 
