@@ -695,7 +695,19 @@ export interface IndexSource {
  *
  * The candidate second source is a node's own store answering without a round trip. It is
  * real work with a real test — the fallback must be *observed* to fire — and it is not
- * scheduled here. Until it is, NET-06 stays open and says so.
+ * scheduled here.
+ *
+ * **The last sentence read *"Until it is, NET-06 stays open and says so"* until 2026-08-18,
+ * and it is corrected rather than deleted, because it was a true reading of that row's
+ * state and a wrong reading of what held it open.** NET-06's open leg was never this class:
+ * it was that no browser-tier path *selected* executors from an index answer, while
+ * `bin/bench.ts --discover` did — a browser-versus-backbone asymmetry, which is the whole
+ * of what that id claims. `packages/browser/demo/main.ts`'s `discoveredPool` closed it, and
+ * the row is `[x]`. **This class is still uncomposed and still unwired, on exactly the
+ * argument above, which nothing here withdraws.** A second source does now exist in
+ * production — `DhtRecordIndex` asks the DHT and falls back to the RPC index — but it
+ * composes that itself rather than through this port, so what is deferred is this class,
+ * not the capability. `reachability-dispositions.ts` carries the disposition.
  */
 export class FallbackRecordIndex implements RecordIndex {
   readonly #sources: readonly IndexSource[]

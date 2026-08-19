@@ -790,7 +790,7 @@ describe('bring your own — the record is required, and the refusal is read rat
       //
       // **HALF OF THAT DAY ARRIVED ON 2026-08-18, and this guard is narrowed rather than
       // relaxed.** `attestedNodes` no longer declares `ownerId: 'public'` on *every*
-      // descriptor: SCHED-01's lookup (`discoveredDescriptors`, same file) replaces the
+      // descriptor: SCHED-01's lookup (`discoveredPool`, same file) replaces the
       // placeholder outright for every peer it qualifies, and a discovered descriptor carries
       // the certified user key. The literal below is now the **fallback** rather than the
       // rule, so the source check alone would go on passing while quietly ceasing to describe

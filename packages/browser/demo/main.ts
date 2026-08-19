@@ -555,6 +555,43 @@ const CANDIDATES_DEADLINE_MS = 5_000
  */
 let lastCandidates: TabCandidateLookup | null = null
 
+/** What one candidate lookup leaves a dispatch — {@link discoveredPool}. */
+interface DiscoveredPool {
+  /**
+   * Executors for the peers the lookup qualified that the caller **did not name** — NET-06.
+   *
+   * **The whole of what this page selects rather than accepts.** Every other executor a job
+   * runs on is built from an id in `options.peerIds`; these are built from a `providers`
+   * answer intersected with capability records this tab verified against an issuer it
+   * pinned before it spoke to anybody. Empty is the ordinary state — a cold fabric
+   * advertises nothing, and a fabric whose peers the caller already named leaves nothing
+   * over — so an empty list here is *not* the lookup having failed. Read
+   * {@link TabCandidateLookup.providers} beside it to tell those apart.
+   *
+   * **Taken from `discoverCandidates`'s own `executors` rather than rebuilt from the ids.**
+   * The helper exists precisely to turn a node key into something dispatchable, addressed
+   * by the peer id the transport knows; rebuilding a `RemoteExecutor` from a descriptor
+   * here would be this page re-deriving the one correlation `submit.ts` names
+   * `missing-node-descriptor` when it goes wrong.
+   *
+   * **This tab is filtered out of its own answer, and that is a bound rather than a
+   * formality.** A peer answers `providers` about itself alone, so the submitter should
+   * never appear here — but a peer that answered otherwise would put this tab's own id into
+   * a `RemoteExecutor`, and `rpcAdmission` already cost this repository four red e2e files
+   * on 2026-08-16 by asking the transport to dial self. The tab is in the pool once, as
+   * {@link BrowserNode.signingExecutor}, and that is the only way it may be in it.
+   */
+  readonly unnamed: readonly RemoteExecutor[]
+  /**
+   * One descriptor per qualified peer, keyed on the peer id its executor is addressed by.
+   *
+   * Keyed rather than listed because {@link attestedNodes} looks each executor up: the
+   * qualified peers and the named ones are two overlapping sets, and a list would make the
+   * overlap something the caller had to compute.
+   */
+  readonly descriptors: ReadonlyMap<string, NodeDescriptor>
+}
+
 /**
  * Who advertises the block this job will read, and hands over a capability record that
  * verifies — **SCHED-01, and this page is its first production caller.**
@@ -601,12 +638,28 @@ let lastCandidates: TabCandidateLookup | null = null
  * qualifies nobody and the later ones qualify the peers that ran it — that is `providers`
  * behaving exactly as specified, not a defect, and {@link TabCandidateLookup.providers}
  * exists so a reader can tell the two apart instead of inferring it from an empty list.
+ *
+ * ## NET-06 — and this is the half that was missing until 2026-08-18
+ *
+ * SCHED-01 is answered by the paragraphs above: the page asks who holds the block, on no
+ * flag, and the answer decides what each chosen peer's descriptor says. NET-06 asks
+ * something the paragraphs above deny doing — that the answer decide **who is asked at
+ * all**. Until this function returned {@link DiscoveredPool.unnamed} it did not: every
+ * executor a job ran on came from `options.peerIds`, a caller-supplied array on the
+ * {@link TabApi} contract, and the lookup's own `RemoteExecutor`s were built by
+ * `discoverCandidates` and then thrown away by this page.
+ *
+ * They are not thrown away now. A peer this lookup qualified and the caller never named is
+ * dispatched to on the strength of the index answer alone — which is a browser tier
+ * *selecting* executors from a routing query, the one thing `bin/bench.ts --discover` could
+ * do and no tab could. That is NET-06's asking half, on the same terms the backbone has it.
  */
-async function discoveredDescriptors(
+async function discoveredPool(
   n: BrowserNode,
+  peerIds: readonly string[],
   inputCid: CID,
-): Promise<ReadonlyMap<string, NodeDescriptor>> {
-  const none = new Map<string, NodeDescriptor>()
+): Promise<DiscoveredPool> {
+  const none: DiscoveredPool = { unnamed: [], descriptors: new Map() }
   const held = n.certificate
   if (held === null) {
     lastCandidates = {
@@ -684,7 +737,16 @@ async function discoveredDescriptors(
     excluded: found.excluded.map((one) => one.detail),
     undialable: [...found.undialable],
   }
-  return new Map(found.nodes.map((node) => [node.nodeId, node]))
+  // Reported above as the lookup answered it and filtered below for the dispatch: the two
+  // are different questions. `lastCandidates` says what the index returned, which is what a
+  // reader checking the mechanism needs; `unnamed` says who this job gains because of it.
+  const named = new Set(peerIds)
+  return {
+    unnamed: found.executors.filter(
+      (one) => one.nodeId !== n.peerId && !named.has(one.nodeId),
+    ),
+    descriptors: new Map(found.nodes.map((node) => [node.nodeId, node])),
+  }
 }
 
 /**
@@ -705,11 +767,15 @@ async function discoveredDescriptors(
 async function attestedNodes(
   n: BrowserNode,
   executors: readonly { readonly nodeId: string }[],
-  inputCid: CID,
+  discovered: ReadonlyMap<string, NodeDescriptor>,
 ): Promise<readonly NodeDescriptor[]> {
-  // SCHED-01. Run first and awaited, because what it answers decides which of the two
-  // descriptors below each executor gets.
-  const discovered = await discoveredDescriptors(n, inputCid)
+  // SCHED-01/NET-06. **Handed in rather than looked up here, and the move is the point.**
+  // This function ran the lookup itself until 2026-08-18, which meant the answer could only
+  // ever reach a descriptor — by the time it existed, `executors` had already been decided.
+  // The caller runs it now, *before* it composes the pool, so one lookup decides both who is
+  // dispatched to and what is said about them. Two lookups would have been the alternative
+  // and would have been worse than the gap: two answers taken a round trip apart can
+  // disagree, and a peer in the pool with no descriptor is `missing-node-descriptor`.
   // Concurrently: one round trip per peer, and asking in sequence would pay their sum for
   // no benefit — `RpcRecordIndex.providers` gives the same reason for the same shape.
   return Promise.all(
@@ -1293,9 +1359,17 @@ const api: TabApi = {
           '`npm run sign:kernel --workspace @o2/demo`',
       )
     }
+    // NET-06 — awaited before the pool is composed, because what it answers is *who is in
+    // it*. See `discoveredPool`; the same call supplies the descriptors below.
+    const pool = await discoveredPool(node, options.peerIds, moduleCid)
     const executors = [
       node.signingExecutor,
       ...options.peerIds.map((id) => new RemoteExecutor(id, node.rpc, 'dispatches-unauthenticated')),
+      // NET-06. The peers a routing query found and this caller never named. Appended
+      // rather than substituted: a caller's list is still honoured in full, so this changes
+      // nothing on a run where the index names nobody new and adds executors on one where
+      // it does.
+      ...pool.unnamed,
     ]
     const result = await submitJobWithEgress(
       {
@@ -1303,7 +1377,7 @@ const api: TabApi = {
         moduleRecord: PI_RECORD,
         shards: Array.from({ length: options.shards }, () => ({ value: input, label: 'public' as const })),
         executors,
-        nodes: await attestedNodes(node, executors, moduleCid),
+        nodes: await attestedNodes(node, executors, pool.descriptors),
         redundancy: options.redundancy,
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
@@ -1450,9 +1524,15 @@ const api: TabApi = {
           '`npm run sign:kernel --workspace @o2/demo`',
       )
     }
+    // NET-06 — as `runPi` above, and on every surface for that function's stated reason: a
+    // lookup that ran on one Run button and not the others would place two differently
+    // derived pools depending on which one a visitor pressed.
+    const pool = await discoveredPool(node, options.peerIds, moduleCid)
     const executors = [
       node.signingExecutor,
       ...options.peerIds.map((id) => new RemoteExecutor(id, node.rpc, 'dispatches-unauthenticated')),
+      // NET-06. See `runPi` above.
+      ...pool.unnamed,
     ]
     const result = await submitJobWithEgress(
       {
@@ -1463,7 +1543,7 @@ const api: TabApi = {
         // arrangement, reused rather than reinvented, and `primes.ts` says why in its header.
         shards: Array.from({ length: options.shards }, () => ({ value: input, label: 'public' as const })),
         executors,
-        nodes: await attestedNodes(node, executors, moduleCid),
+        nodes: await attestedNodes(node, executors, pool.descriptors),
         redundancy: options.redundancy,
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
@@ -1578,6 +1658,9 @@ const api: TabApi = {
       )
     }
 
+    // NET-06 — as `runPi`, and this is the surface the Run button reaches, so it is the one
+    // an ordinary visitor gets it on.
+    const pool = await discoveredPool(node, options.peerIds, moduleCid)
     const executors = [
       // VER-08/VER-09/VER-10 — `signingExecutor`, not `executor`, and the difference is
       // the whole of what a visitor is told about this run. Both names reach the same
@@ -1594,6 +1677,11 @@ const api: TabApi = {
       // step returns `null` for a public task in any case. The visitor whose tab this
       // is has no identity to mint from either.
       ...options.peerIds.map((id) => new RemoteExecutor(id, node.rpc, 'dispatches-unauthenticated')),
+      // NET-06. See `runPi` above. The sentinel these carry is the same one, written down
+      // at the lookup rather than here — `discoveredPool` passes it as
+      // `CandidateOptions.dispatch`, so a discovered candidate reaches its executor over
+      // exactly the layer a listed one does and nothing on this page mints a chain.
+      ...pool.unnamed,
     ]
     // ── CHURN-03's READ half — closed here, and it has to happen BEFORE the submit ─────
     //
@@ -1687,7 +1775,7 @@ const api: TabApi = {
         // account for. `publicNodes(executors)` stood here and answered
         // `'carries-no-certificate'` for every node unconditionally, which is what made
         // every receipt this demo has ever produced the named absence.
-        nodes: await attestedNodes(node, executors, moduleCid),
+        nodes: await attestedNodes(node, executors, pool.descriptors),
         redundancy: options.redundancy,
         // VER-03/VER-04. A tab fabric is routinely one operator, and routinely behind
         // one relay — which is the topology this demo exists to show, not a degenerate
@@ -2068,6 +2156,18 @@ const api: TabApi = {
   async runJob(options) {
     const n = required()
     const { CID } = await import('multiformats/cid')
+    // Bound once rather than parsed twice: SCHED-01's lookup asks who provides **this**
+    // module, and a second `CID.parse` of the same string would be a second value able to
+    // disagree with the one the dispatch names.
+    //
+    // **Hoisted above the executor list on 2026-08-18, and the move is NET-06's whole cost
+    // on this surface.** It was declared beside `shards` below while the lookup only ever
+    // produced descriptors; now the lookup also decides who is in the pool, so the pool
+    // cannot be built before the module it is looked up against exists.
+    const moduleCid = CID.parse(options.moduleCid)
+    // NET-06 — as `runPi`. This surface is the bring-your-own form, so the module a
+    // visitor names is what `providers` is asked about.
+    const pool = await discoveredPool(n, options.peerIds, moduleCid)
     const executors = [
       // This tab contributes its own compute when asked. With two tabs that is
       // what makes R=2 possible: one tab submits *and* executes, the other
@@ -2100,6 +2200,10 @@ const api: TabApi = {
       // arm reddens the day a tab is handed a real owner identity. Wire a chain here
       // *before* that day, not after it.
       ...options.peerIds.map((id) => new RemoteExecutor(id, n.rpc, 'dispatches-unauthenticated')),
+      // NET-06. See `runPi` above. The bound stated just above applies to these too: a
+      // discovered candidate is dispatched to unauthenticated exactly as a listed one is,
+      // so the sovereign arm's refusal is unchanged by where the executor came from.
+      ...pool.unnamed,
     ]
     // DET-03/DATA-08. Rebuilt field by field rather than spread, and that is not style:
     // this object arrived through structured cloning from whatever called
@@ -2133,10 +2237,6 @@ const api: TabApi = {
         ? { value: { a: i }, label: 'public' as const }
         : { value: { a: i }, label: 'sovereign' as const, ownerId: options.sovereign.ownerId },
     )
-    // Bound once rather than parsed twice: SCHED-01's lookup asks who provides **this**
-    // module, and a second `CID.parse` of the same string would be a second value able to
-    // disagree with the one the dispatch names.
-    const moduleCid = CID.parse(options.moduleCid)
     // `submitJobWithEgress`, not bare `submitJob` — see `runColouring` above for why.
     const result = await submitJobWithEgress(
       {
@@ -2147,7 +2247,7 @@ const api: TabApi = {
         // As `runColouring` above — see that call site for what replaced `publicNodes`
         // here and why. SCHED-01's lookup rides inside it, keyed on the module this form
         // named — which on this surface is the field that makes the sovereign arm placeable.
-        nodes: await attestedNodes(n, executors, moduleCid),
+        nodes: await attestedNodes(n, executors, pool.descriptors),
         redundancy: options.redundancy,
         // VER-03/VER-04 — the same choice and the same reason as `runColouring` above:
         // a tab fabric that refused every shard it could not independently verify would

@@ -643,7 +643,7 @@ describe('production RemoteExecutor call sites state the chain explicitly', () =
     //
     // **Five as of 2026-08-18, and the fifth is NOT a `RemoteExecutor` construction — which
     // is why the two counts below now differ and must.** SCHED-01's candidate lookup
-    // (`discoveredDescriptors`) passes the sentinel as `CandidateOptions.dispatch`, and
+    // (`discoveredPool`) passes the sentinel as `CandidateOptions.dispatch`, and
     // `discoverCandidates` builds every `RemoteExecutor` for the candidates it qualifies
     // *inside* the helper. So a sentinel arrived without a construction arriving with it, and
     // a reader meeting `5` against `4` should read that as the helper doing its job rather

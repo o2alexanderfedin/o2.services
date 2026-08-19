@@ -130,7 +130,7 @@ import { armOrphanLeash } from '../orphan-leash.ts'
  * not the same as fixing it.* This is that path.
  *
  * **This paragraph read *"This is that path"* as though it were the only one, and it stopped
- * being that on 2026-08-18.** `packages/browser/demo/main.ts`'s `discoveredDescriptors` is a
+ * being that on 2026-08-18.** `packages/browser/demo/main.ts`'s `discoveredPool` is a
  * second production caller, on the demo page with no flag in front of it, built under the
  * owner ruling of 2026-08-15 (*"It must work with no flag"*) — which held that reachability
  * from a flagged branch is not the same as being shipped. The reachability sentence above is

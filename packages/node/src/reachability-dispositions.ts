@@ -374,8 +374,13 @@ const DEFERRED_IN_SOURCE: readonly string[] = [
   // whole argument: a fallback chain needs a genuine second source, and an empty
   // `MemoryRecordIndex` in front of the RPC index would compose the types and demonstrate
   // nothing, because a first link that is always empty always falls through. Composed on
-  // those terms the finding would go green and NET-06 would be no truer, so it stays open
-  // and says so. **Disposed on the source's stated deferral, not on the finding being tiresome.**
+  // those terms the finding would go green and NET-06 would be no truer — which is the one
+  // clause of this note that survived 2026-08-18 intact, and the tail of it that read
+  // *"so it stays open and says so"* did not. NET-06 is `[x]`, closed on a different leg
+  // entirely: no browser-tier path selected executors from an index answer while
+  // `bin/bench.ts --discover` did, and `demo/main.ts`'s `discoveredPool` ended that. The
+  // deferral of these two is unchanged and rests on its own argument, not on that row's
+  // state. **Disposed on the source's stated deferral, not on the finding being tiresome.**
   'core/FallbackRecordIndex',
   'core/MemoryRecordIndex',
   // CRYPTO-03, owner ruling 2026-08-11, moved out of `OPEN_FINDINGS` on 2026-08-18. See the

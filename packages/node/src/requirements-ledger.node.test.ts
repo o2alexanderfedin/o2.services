@@ -819,7 +819,7 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  *
  * **Lowered 11 → 10 on 2026-08-18, in the same commit that removed `SCHED-01`.** That row
  * acquired the thing its entry promised — a caller of `discoverCandidates` with no flag in
- * front of it, `packages/browser/demo/main.ts`'s `discoveredDescriptors` — so it left by
+ * front of it, `packages/browser/demo/main.ts`'s `discoveredPool` — so it left by
  * being satisfied rather than by being re-recorded, which is the departure the paragraph
  * above says the ceiling must follow. It is written here within the hour, as that paragraph
  * requires.
@@ -838,8 +838,16 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * to measure is not implemented"*, which is exactly the state a decision resolves and a commit
  * cannot. The rule is indifferent to which of the two moved: an id that is no longer
  * *unreached* leaves, and the ceiling follows it down in the same commit.
+ *
+ * **Lowered 8 → 7 on 2026-08-18, in the same commit that removed `NET-06`.** That row left by
+ * the ordinary exit and the one this list exists to encourage: its entry promised *"to build
+ * the reader rather than to look for one"*, and the reader was built — `demo/main.ts`'s
+ * `discoveredPool` puts peers a routing query qualified, and no caller named, into the pool a
+ * job dispatches over. See the removal note above the entries for what did **not** move with
+ * it, which is stated there rather than here because a ceiling is a count and the argument is
+ * not.
  */
-const REREAD_REGISTER_CEILING = 8
+const REREAD_REGISTER_CEILING = 7
 
 /**
  * ## The rule this list encodes
@@ -1298,37 +1306,39 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     ],
   },
   //
-  // **RE-READ 2026-08-18 at 13 days outstanding — one day from the bound — and the leg is
-  // now stated as the seam it is rather than as an absence.** Every claim in the row
-  // re-measures true: `index: records` on both tiers (`fabric-node.ts:2681`,
-  // `browser-node.ts:1974`), and the demo's per-peer `records` lookup on no flag
-  // (`main.ts:514` in `peerCertificate`, reached from `attestedNodes` at `:579`, itself
-  // reached from four job-submitting surfaces).
+  // ── `NET-06` was here until 2026-08-18 and is **REMOVED**, by the first exit the rule
+  // allows: its row is `Done`, so it leaves the population and the set equality below makes
+  // the removal compulsory. {@link REREAD_REGISTER_CEILING} follows it down in the same
+  // commit ─────────────────────────────────────────────────────────────────────────────
   //
-  // What is open is a **missing consumer on a port that is already built and composed on
-  // both tiers**. `BrowserNode.#compose` builds `DhtRecordIndex` over
-  // `RpcRecordIndex(rpc, () => verifier.verifiedPeers)` at `browser-node.ts:1526` and
-  // exposes it as `readonly recordIndex` at `:917` — and `.recordIndex` occurs exactly
-  // twice in the whole repository, both assignments (`browser-node.ts:1092`,
-  // `fabric-node.ts:1621`). Nothing on either tier reads it. A tab's executor pool still
-  // comes from a caller-supplied `options.peerIds`, and the index answer still lands in a
-  // descriptor's `certificate` field as an annotation rather than as a filter, which
-  // `peerCertificate`'s own docblock states.
+  // **It left because the thing it promised was built, which is the exit an entry here is
+  // supposed to have and the one it least often gets.** Its promise, written the same
+  // morning, was *"to build the reader rather than to look for one"* — the reader of a
+  // routing answer that decides **who is dispatched to**, as opposed to the one already
+  // shipping that decides what a descriptor says about a peer somebody else chose. That
+  // reader is `demo/main.ts`'s `discoveredPool`: it keeps the `RemoteExecutor`s
+  // `discoverCandidates` built for the peers it qualified and the caller never named, and
+  // each of the four job surfaces appends them to its pool. Read across real processes by
+  // `attestation-ui.e2e.test.ts`'s NET-06 case at `peerIds: []`, and planted — the append
+  // replaced by a zero-length slice — where the run collapses to the submitter alone.
   //
-  // **The last sentence of this paragraph read *"`packages/browser/**` contains zero
-  // occurrences of `discoverCandidates` or `discoverExecutors`"* until 2026-08-18, and it
-  // stopped being true that day.** `demo/main.ts`'s `discoveredDescriptors` calls
-  // `discoverCandidates` on every dispatch this page makes, which is what closed `SCHED-01`
-  // and removed its entry from below. It does **not** close this row, and the distinction is
-  // the one this entry was already about: `discoverCandidates` builds its own bare
-  // `RpcRecordIndex` internally (`discover-candidates.ts:194`) and has no field through which
-  // a caller could hand it `BrowserNode.recordIndex`. So the composed `DhtRecordIndex` is
-  // still the port with no reader, and the promise this id carries is unchanged.
-  //
-  // Phrased as a symbol claim this would read *"`recordIndex` is written and never read"*,
-  // which is not a shape `parseRows` reads — the `NO_CALLER` family is about call sites,
-  // and this is a property access. Hence the entry stays, with the promise now to build the
-  // reader rather than to look for one.
+  // **What did NOT move, recorded because it is the claim this entry spent thirteen days
+  // on and because a reader meeting a smaller register needs to know it was not waved
+  // through.** `BrowserNode.recordIndex` — `DhtRecordIndex` over
+  // `RpcRecordIndex(rpc, () => verifier.verifiedPeers)`, composed at `browser-node.ts:1543`
+  // and exposed at `:917` — still has no reader, and `discoverCandidates` still builds its
+  // own bare `RpcRecordIndex` internally with no field to hand it one. That was this
+  // entry's stated seam and it is *unchanged*. What changed is the reading of whose seam it
+  // is: `.recordIndex` occurs exactly twice repo-wide, both assignments
+  // (`browser-node.ts:1108`, `fabric-node.ts:1621`), so the **Node tier has no reader
+  // either**. A port neither tier consumes is not a browser being a lesser peer, and
+  // NET-06's sentence is *"a browser peer differs from a backbone peer only in that it
+  // cannot bind a listening socket"*. The asymmetry that did exist — `bin/bench.ts
+  // --discover` selecting executors from an index answer while no tab could — is the one
+  // that closed. Wiring the DHT index into the page's 5 s per-dispatch budget was declined
+  // rather than forgotten: `DHT_QUERY_TIMEOUT_MS` is 5 000, `discoverExecutors` calls
+  // `recordsFor` in sequence, `CANDIDATES_DEADLINE_MS` is also 5 000, and no spec in this
+  // repository has ever measured a kad query across processes.
   // ── Added 2026-08-18 under the owner's flag ruling of 2026-08-15 ───────────────────
   //
   // `.planning/consults/2026-08-15-owner-ruling-off-by-default-flag.md`: *"It must work with
@@ -1341,7 +1351,7 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // **`SCHED-01`'s entry stood here and was removed on 2026-08-18, the same day it was
   // added, because the row was satisfied rather than re-recorded.** Its promise was *"to
   // build a no-flag caller, not to look for one"*, and `packages/browser/demo/main.ts`'s
-  // `discoveredDescriptors` is that caller. The removal is recorded rather than silent
+  // `discoveredPool` is that caller. The removal is recorded rather than silent
   // because the set equality below is a two-way check and a reader meeting a smaller
   // register needs to find which direction moved it. `MR-02` did not move with it: what
   // that row needs is a sovereign shard that **executes**, and the same day's measurement
@@ -1388,16 +1398,6 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/net/src/reduce-sovereign.test.ts',
       'packages/node/src/sovereign-aggregation.node.test.ts',
       'packages/node/src/sovereign-arm.node.test.ts',
-    ],
-  },
-  {
-    id: 'NET-06',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-18',
-    witnesses: [
-      'packages/core/src/discovery.test.ts',
-      'packages/net/src/discovery.test.ts',
-      'packages/node/src/static-rendezvous.e2e.test.ts',
     ],
   },
   // ── `MR-04` was here until 2026-08-18 and is **REMOVED**, by the reword its own entry
@@ -1927,7 +1927,39 @@ describe('the corpus and the ledger were really read', () => {
         line: `checkable claims parsed out of the rows: ${claims}, floor 5`,
       })
     }
-    ledgerFloor(UNREACHED.length, BUILT_NOT_WIRED.length, 'rows whose verdict says not fully reached') // 32 vs 14
+    // ── Re-sited 2026-08-18 from `> BUILT_NOT_WIRED.length` to `> 5`, and the reason is
+    // that the comparison was never between the populations its own comment named ────────
+    //
+    // It read `ledgerFloor(UNREACHED.length, BUILT_NOT_WIRED.length, …) // 32 vs 14`, which
+    // reads as *"more rows are unreached than are unreached-and-unwired"* — a nesting, and a
+    // safe one. It is not that. {@link BUILT_NOT_WIRED} is `cell.includes('Built, not
+    // wired')`, a **substring test over the whole status cell**, so it counts every row whose
+    // prose so much as mentions the marker — including the rows this ledger's convention
+    // keeps their history in after they close. Measured on 2026-08-18, the two sets are
+    // nearly disjoint: `UNREACHED` is `VER-09, AUTH-02, AUTH-03, NET-03, MR-02, CHURN-04,
+    // BENCH-06, AOT-03`; the mentions are `VER-03, NET-06, SCHED-05, MR-02, MR-03, CHURN-01,
+    // CHURN-03, CHURN-04`, of which **six are `Done`**. The intersection is two rows.
+    //
+    // **So the floor decayed as the project succeeded, which is the one direction a guard
+    // must never fail in.** Closing a row takes it out of the left-hand count and leaves it
+    // in the right-hand one, because closing a row here means *adding* prose that quotes what
+    // the row used to say. It fired for the first time on the commit that closed `NET-06` —
+    // 8 against 8 — and it would have fired on the next close whichever row that was. A
+    // guard that reddens on progress and can only be satisfied by leaving a row open is the
+    // shape this file exists to catch, not to be.
+    //
+    // **What is NOT given up, checked rather than asserted.** This is an anti-vacuity floor —
+    // the case is titled *"rather than matching nothing"* — and the failure it exists for is
+    // `parseRows` losing the verdict while still returning rows. That failure still reddens
+    // here: `verdict` comes off the em-dash split and `builtNotWired` off a substring test,
+    // so a broken split takes `UNREACHED` to 0 while the mentions stay at 8 — under any
+    // floor. The stronger guard over the same event is the set equality in *"leaves every
+    // unreached row either checkable or recorded as not"*, which names rows rather than
+    // counting them, and it is untouched.
+    //
+    // Sited at `> 5`: two below the 2026-08-18 measurement of 8, which is the same rule the
+    // `claims` floor above sites itself by and is written down there.
+    ledgerFloor(UNREACHED.length, 5, 'rows whose verdict says not fully reached') // 8 on 2026-08-18; 9 before NET-06 closed
     expect(blocking('requirements-ledger/claim-floor', findings, SCOPE)).toEqual([])
   })
 })
