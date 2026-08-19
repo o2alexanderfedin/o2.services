@@ -1309,14 +1309,19 @@ const api: TabApi = {
       },
       node.store,
       [node.egress],
-      // CHURN-03 — stated, not defaulted, and written here on 2026-08-18 because it was
-      // **not**: the reason for this opt-out lived only in `checkpoint-optout-scope.node.
-      // test.ts`'s pin table, and a reader of this file found a bare sentinel. A π run is
+      // CHURN-03 — **this site opted out until 2026-08-18 and no longer does.** The
+      // sentence it passed the sentinel under is quoted rather than deleted, because the
+      // owner's ruling is only legible against the argument it overturned: *"A π run is
       // one submit whose shards all name the same input block, so there is no partial
       // progress a resume could pick up. What `runColouring` has and this does not is a
-      // ladder of rungs to be resumed *between*; the store is equally durable in both, so
-      // this is a decision about the workload's shape and not about where a handle lives.
-      { checkpoints: 'checkpoints-nothing' },
+      // ladder of rungs to be resumed *between*."* The first clause was the weak one and
+      // said so — `submitJob` writes one checkpoint per **answered shard**, and a π run
+      // has `options.shards` of them, so the partial progress it denied is exactly what
+      // the sink records. The ladder distinction is real and is about the *read* half:
+      // this page offers no `resumeFrom` here, so what a closed tab leaves behind is a
+      // chain in IndexedDB that `bin/agent.ts --resume-from` or a second requestor holding
+      // the CID can finish from — not a Run button that picks up where it left off.
+      { checkpoints: checkpointsInto(node.store) },
     )
     if (!result.ok) throw new Error(`pi submit failed: ${JSON.stringify(result.error)}`)
     const manifest = result.manifests[0]
@@ -1464,12 +1469,16 @@ const api: TabApi = {
       },
       node.store,
       [node.egress],
-      // CHURN-03 — stated, not defaulted, and written here on 2026-08-18 for the reason
-      // given above `runPi`'s: the reason existed only in the guard's pin table. A primes
-      // run is one submit whose shards all name the same input block, so it either
-      // completes or is re-dispatched whole, and there is no partial progress a resume
-      // could pick up. Correct on exactly `runPi`'s grounds rather than by inheritance.
-      { checkpoints: 'checkpoints-nothing' },
+      // CHURN-03 — **this site opted out until 2026-08-18 and no longer does**, on the
+      // same owner ruling as `runPi`'s one screen up, and its superseded sentence is kept
+      // for the same reason: *"A primes run is one submit whose shards all name the same
+      // input block, so it either completes or is re-dispatched whole, and there is no
+      // partial progress a resume could pick up."* That last clause was false of the
+      // mechanism — a checkpoint is written per **answered shard**, not per submit — and
+      // `options.shards` of them are answered here. As at `runPi`, only the write half is
+      // wired: nothing on this page hands `resumeFrom` back, so a tab closed mid-run
+      // leaves a chain another requestor can finish from rather than a resuming button.
+      { checkpoints: checkpointsInto(node.store) },
     )
     if (!result.ok) throw new Error(`primes submit failed: ${JSON.stringify(result.error)}`)
     const manifest = result.manifests[0]
@@ -2168,10 +2177,25 @@ const api: TabApi = {
         // rather than an argument"* until 2026-08-18, and both halves had gone stale.**
         // `runColouring` passes a real `checkpointsInto(node.store)` sink since 2026-08-16,
         // so pointing at it points at the opposite decision; and there are nine production
-        // submit sites now, not five. The reason that does hold is `runPi`'s, one screen up:
-        // one submit, no ladder of rungs to be resumed between. Quoted rather than deleted
-        // because a reader tracing why this site was ever grouped with `runColouring` needs
-        // to find the sentence that grouped them.
+        // submit sites now, not five. Quoted rather than deleted because a reader tracing
+        // why this site was ever grouped with `runColouring` needs to find the sentence
+        // that grouped them.
+        //
+        // **It then read *"The reason that does hold is `runPi`'s, one screen up: one
+        // submit, no ladder of rungs to be resumed between"* — for a few hours of the same
+        // day.** The owner ruled later on 2026-08-18 that `runPi` and `runPrimes` keep
+        // checkpoints, so that borrowed reason went with them and this site is the last
+        // sentinel on the page. It is left as an opt-out **whose stated reason has been
+        // withdrawn**, which is worth more than a replacement reason invented to fill the
+        // gap: the ruling covered two sites and did not cover this one.
+        //
+        // What has to be answered before it moves is specific and is not about the
+        // workload's shape. A checkpoint record is a block written into `node.store` — the
+        // same store `serveAgent` answers peers' block requests from — and it **names**
+        // each shard's result CID rather than carrying it. `sovereignCids` above is the set
+        // this tab refuses to serve. Whether a servable block naming sovereign result CIDs
+        // is inside or outside that refusal is **unmeasured**, and stating it as unmeasured
+        // is the whole of this comment's claim.
         checkpoints: 'checkpoints-nothing',
       },
     )

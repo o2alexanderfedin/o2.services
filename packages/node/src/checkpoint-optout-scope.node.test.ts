@@ -65,6 +65,25 @@ import { stripComments } from './strip-comments.ts'
  * `runPi` or the sovereign run is given a sink is the next day this file must be rewritten
  * by hand.
  *
+ * ## Rewritten by hand again on 2026-08-18, on the other event this file said would force it
+ *
+ * The sentence directly above named `runPi`, and the owner ruled that day that `runPi` and
+ * `runPrimes` should both keep checkpoints. Three assertions reddened and all three were
+ * rewritten rather than relaxed — which is what the sentence promised and is the only reason
+ * it is worth keeping:
+ *
+ * 1. `main.ts`'s sentinel count fell from 3 to **1**.
+ * 2. The at-the-site scan's anti-vacuity floor fell from 7 to **5**, and the property it
+ *    protects is unchanged: it is a hand-written census that can still contradict the pin
+ *    table above it, which is the one thing a derived figure could not do.
+ * 3. The positive reading rose from 1 `checkpointsInto(node.store)` to **3**.
+ *
+ * The census is now **five sentinel against four sinks** over nine production submit sites.
+ * That is a ratio this file states and does not score: the sites that still opt out submit
+ * into stores that die with the process (`task-worker.ts`, `perf-workload.ts`,
+ * `bin/bench.ts` twice) plus the demo's sovereign run, whose reason was withdrawn with
+ * `runPi`'s rather than replaced.
+ *
  * Node-only: reads tracked source files off disk.
  */
 
@@ -148,11 +167,30 @@ const CHECKPOINT_OPTOUTS: readonly {
     // progress a resume could pick up. What differs from `runColouring` is not the shard
     // count but where the work lives — a colouring ladder walks rungs and can be resumed
     // between them; a single submit either completes or is re-dispatched whole.
-    count: 3,
+    //
+    // **ONE on 2026-08-18, and this is the second time the good direction has moved this
+    // number.** The owner ruled that `runPi` and `runPrimes` should both keep checkpoints,
+    // and both now pass `checkpointsInto(node.store)`. The paragraph above is kept because
+    // the ruling overturns an argument written *here* as well as at the sites: *"there is no
+    // partial progress a resume could pick up"* is false of the mechanism — `submitJob`
+    // writes one checkpoint per **answered shard** and both workloads submit
+    // `options.shards` of them. What survives of it is a statement about the *read* half,
+    // which neither page path wires: only `runColouring` looks a handle back up.
+    //
+    // **The one that remains is the sovereign run, and it is now an opt-out with its
+    // previous reason withdrawn rather than an opt-out with a reason.** Its comment cited
+    // `runPi`'s grounds by name, and those grounds have just been overturned — so the
+    // honest state is that the owner ruled on two of the three sites and this one was not
+    // in the ruling. What has to be answered before it moves is written at the site and is
+    // specific: a checkpoint record is a block in the same `node.store` this tab serves
+    // block requests from, and it **names** result CIDs, so whether it is safe here is a
+    // question about `sovereignCids` and the serving path — not about the workload's shape.
+    // Unmeasured, and recorded as unmeasured.
+    count: 1,
     role:
-      'the demo page, three times: runPi, runPrimes and the sovereign run. runColouring left' +
-      ' this list on 2026-08-16 — it supplies a real sink over the tab store, which is why it' +
-      ' was here',
+      'the demo page, once: the sovereign run. runColouring left this list on 2026-08-16 and' +
+      ' runPi and runPrimes left it on 2026-08-18 — all three supply a real sink over the tab' +
+      ' store, which is why they were here',
   },
 ]
 
@@ -301,10 +339,16 @@ describe('the set of production files that opt out of checkpointing is pinned', 
     expect(missing).toEqual([])
     // Anti-vacuity, and it is not decoration: the loop above is satisfied by finding no
     // sites at all, which is what a broken `stripComments` or a mis-rooted read would
-    // produce. Seven is the census `REQUIREMENTS.md`'s CHURN-03 row states — seven of nine
-    // production submit sites pass the sentinel — minus nothing, because `submit.ts`'s two
-    // are excluded above and are not submit sites.
-    expect(scanned).toBe(7)
+    // produce. The figure is the census `REQUIREMENTS.md`'s CHURN-03 row states, minus
+    // nothing, because `submit.ts`'s two are excluded above and are not submit sites.
+    //
+    // **Seven until 2026-08-18, five after it**, and the floor moves with the census by
+    // hand rather than being derived from `CHECKPOINT_OPTOUTS`: derived, it would agree
+    // with the pin table by construction and could no longer contradict it, which is the
+    // one thing it is here to be able to do. The owner's ruling gave `runPi` and
+    // `runPrimes` a real sink, so nine production submit sites now split **five sentinel,
+    // four sink**.
+    expect(scanned).toBe(5)
   })
 
   it('reads criterion 7 directly: the definition and exactly one implementation name CheckpointSink', () => {
@@ -331,7 +375,7 @@ describe('the set of production files that opt out of checkpointing is pinned', 
     ])
   })
 
-  it('reads the write half positively: the shipped colouring run supplies the sink', () => {
+  it('reads the write half positively: the shipped demo runs supply the sink', () => {
     // The three assertions above are all *negative* — they say where the sentinel is not
     // and where the type is not named. A guard built only from those is satisfied by a
     // repository in which nothing checkpoints and nothing submits, which is exactly the
@@ -339,7 +383,14 @@ describe('the set of production files that opt out of checkpointing is pinned', 
     // names the call: an entry point an operator runs hands a real sink to a real submit.
     const demo = 'packages/browser/demo/main.ts'
     expect(sources).toContain(demo)
-    expect(codeOccurrences(demo, 'checkpointsInto(node.store)')).toBe(1)
+    // **One until 2026-08-18, three after it**, and this figure is pinned rather than
+    // floored for the reason the sentinel counts are: a site that *stops* passing the sink
+    // is a change of scope in the direction nothing else in this file can see. The three
+    // are `runColouring`, `runPi` and `runPrimes` — every multi-shard submit the page has.
+    // The page's remaining sentinel is the sovereign run, which is one submit of
+    // owner-labelled shards and is recorded above as an opt-out whose reason was withdrawn
+    // rather than replaced.
+    expect(codeOccurrences(demo, 'checkpointsInto(node.store)')).toBe(3)
     // And it is the *store* that outlives the process, not a scratch one built for the
     // call. `browser-node.ts` declares `readonly store: IdbBlockstore`, so naming
     // `node.store` here is naming IndexedDB. The honest claim is that a checkpoint block

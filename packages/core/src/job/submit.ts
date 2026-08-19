@@ -2420,15 +2420,31 @@ export interface SubmitOptions {
    *
    * ## What this does NOT do — do not read it as more than it is
    *
-   * **Requiring the field does not make the write half reachable.** Every production
-   * submitter now says `'checkpoints-nothing'` explicitly instead of saying nothing; not
-   * one supplies a real sink, so no checkpoint block is written by anything an operator
-   * runs, and ROADMAP criterion 7 stays **PARTIAL**. What changed is that a *future*
-   * submitter must decide, and that a new opt-out is visible rather than silent —
+   * **Requiring the field does not make the write half reachable**, and what follows is
+   * what that meant when this field was introduced. It is quoted rather than deleted
+   * because it is the argument the field was built on, and because a reader who finds only
+   * the correction cannot tell a claim that was withdrawn from one that was satisfied:
+   *
+   * > Every production submitter now says `'checkpoints-nothing'` explicitly instead of
+   * > saying nothing; not one supplies a real sink, so no checkpoint block is written by
+   * > anything an operator runs, and ROADMAP criterion 7 stays **PARTIAL**. […] Closing the
+   * > criterion needs a runnable entry point holding a store that outlives its process;
+   * > that is a separate ruling and is not this field's doing.
+   *
+   * **Every clause of that is false as of 2026-08-18 and the last one was false from
+   * 2026-08-16**, which is two days this docblock went on asserting the opposite of the
+   * tree. Four production submit sites supply a real sink: `browser/demo/main.ts`'s
+   * `runColouring`, `runPi` and `runPrimes` — into `node.store`, an `IdbBlockstore`, which
+   * is precisely the *"runnable entry point holding a store that outlives its process"* the
+   * quotation says would be needed — and `node/src/bin/agent.ts`'s `--coordinate` leg, into
+   * the store `--job-store` names. Five sites still say the sentinel, and each states why
+   * at the site rather than only in the guard.
+   *
+   * What is unchanged is the *reason* the field is required: a **future** submitter must
+   * decide, and a new opt-out is visible rather than silent —
    * `checkpoint-optout-scope.node.test.ts` pins the set of production files allowed to say
-   * the sentinel, on `sovereign-block-refusal.node.test.ts`'s model. Closing the criterion
-   * needs a runnable entry point holding a store that outlives its process; that is a
-   * separate ruling and is not this field's doing.
+   * the sentinel and how often, on `sovereign-block-refusal.node.test.ts`'s model, and pins
+   * the demo page's three sink sites by an exact count in both directions.
    */
   readonly checkpoints: CheckpointSink | 'checkpoints-nothing'
   /**
