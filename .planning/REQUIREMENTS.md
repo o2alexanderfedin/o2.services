@@ -23,8 +23,8 @@ them was the reason.** `requirements-ledger.node.test.ts` derived `moved` as
 before the audit, and `AOT-05` broke it: it is one of the four rows that were never checked
 before the audit and it has since been ticked, so the subtraction counted a row that never
 moved. The four are `AOT-03`, `AOT-05`, `BENCH-06` and `NET-03`, read out of the last
-revision of this file whose v1 section holds 68 `[x]`; three of them are still open, and
-and **every** row that ever moved is now closed: `AUTH-03`, `MR-02` and `VER-09` all shut
+revision of this file whose v1 section holds 68 `[x]`; three of them are still open. And
+**every** row that ever moved is now closed: `AUTH-03`, `MR-02` and `VER-09` all shut
 on 2026-08-19, so the three still open are exactly the three that were never checked before
 the audit. `moved` is therefore 0, which is the first time it has been, and it is the reading
 that says nothing in this ledger is unticked because work was undone. The guard now derives the split from that membership rather than from

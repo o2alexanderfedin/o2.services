@@ -1096,6 +1096,74 @@ if (
 /** The enrolled user key when there is one, the operator's label when there is not. */
 const ownerId = enrolledOwnerId ?? values['owner-id']
 
+/**
+ * One owner's contribution to a sovereign job: the key its chain is rooted at, the seed that
+ * signs it, the bytes of its row, and the CID its own node answers a provider lookup for.
+ */
+interface Contribution {
+  readonly ownerKey: PublicKeyHex
+  readonly seed: Uint8Array
+  readonly value: Uint8Array<ArrayBuffer>
+  readonly cid: CID
+}
+
+/**
+ * The sovereign coordinator leg's contributions, loaded **before `FabricNode.start`** —
+ * AUTH-03 / MR-02 / VER-09.
+ *
+ * **Here rather than inside the leg at the bottom of this file, and the position is the
+ * point.** Every failure below is an operator's typo — a seed file that is not there, one
+ * that is the wrong length, a row file that cannot be read — and `refuse` is exit 2 *plus the
+ * usage line*, which is the right answer to a typo and the wrong answer to hand a process
+ * that has already bound a socket, started a worker thread and begun serving other peers'
+ * work. `--peer-addr`'s dial failure records the same distinction from the other side, and
+ * has to stop the node before refusing precisely because it cannot be checked this early.
+ * These can be, so they are.
+ *
+ * `[]` when the flag is absent, which is what makes the leg at the bottom one comparison
+ * against zero.
+ */
+const contributions: Contribution[] = []
+for (const [index, seedPath] of sovereignOwners.entries()) {
+  // `identityFromSeed` and not a second derivation: it is this repository's one
+  // seed→public-key route, and `--owner-id`'s docblock records why a second one here would be
+  // the extra source of truth this tree keeps refusing to create. The value it returns is
+  // byte-for-byte what a provider signs into `NodeCertificate.userKey` for the same seed,
+  // which is what makes the shard's `ownerId` and the descriptor's `ownerId` comparable at all.
+  const seed = await readUserSeed(seedPath, '--sovereign-owner')
+  const ownerKey = (await identityFromSeed(seed)).nodeKey
+  const rowPath = sovereignRows[index] as string
+  let raw: Buffer
+  try {
+    raw = await readFile(rowPath)
+  } catch (cause) {
+    refuse(
+      `--sovereign-row ${rowPath} could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
+    )
+  }
+  // Copied out of Node's `Buffer` pool rather than handed on as a view into a shared slab —
+  // `readUserSeed` and `FsBlockstore.get` copy for the same reason.
+  const value = new Uint8Array(raw.byteLength)
+  value.set(raw)
+  const encoded = await canonicalCid(value)
+  if (!encoded.ok) {
+    // Not `refuse`: an encoding this process could not perform is not a usage error, and the
+    // usage line is the wrong thing to print at somebody whose command line was fine. Same
+    // distinction the `--coordinate` leg draws for its own input.
+    process.stderr.write(
+      `agent.ts: --sovereign-row ${rowPath} will not canonicalise: ${JSON.stringify(encoded.error)}\n`,
+    )
+    process.exit(1)
+  }
+  contributions.push({ ownerKey, seed, value, cid: encoded.cid })
+}
+
+/** Which seed roots the chain for a given owner. Built once; read per dispatch. */
+const seedFor = new Map<PublicKeyHex, Uint8Array>(
+  contributions.map((one) => [one.ownerKey, one.seed]),
+)
+
+
 // Resolved once so the line printed below reports what was actually pinned rather
 // than re-deriving it and risking the two disagreeing.
 const trustAnchors = values['trust-anchor'] ?? [KERNEL_TRUST_ANCHOR]
@@ -1997,6 +2065,12 @@ if (values.coordinate !== undefined) {
  * was before the flag existed — the standing rule on this binary, the same shape
  * `--coordinate` above is written in.
  *
+ * **The owners and their rows were loaded before `FabricNode.start`**, above, so every
+ * refusal an operator can cause by typing the command line wrongly has already happened by
+ * the time this block runs — see {@link contributions} for why that position is load-bearing
+ * rather than tidy. What is left here is the fabric's answers, and those are reported rather
+ * than refused with a usage line.
+ *
  * ## What it is, in one sentence
  *
  * Each owner's row is already resident on that owner's own node; this process asks each of
@@ -2069,56 +2143,6 @@ if (sovereignOwners.length > 0) {
    * against the *serving* node's clock. A configuration choice, not a measurement.
    */
   const CHAIN_TTL_MS = 3_600_000
-
-  /**
-   * One owner's contribution: the key its chain is rooted at, the seed that signs it, the
-   * bytes of its row, and the CID its own node answers a provider lookup for.
-   */
-  interface Contribution {
-    readonly ownerKey: PublicKeyHex
-    readonly seed: Uint8Array
-    readonly value: Uint8Array<ArrayBuffer>
-    readonly cid: CID
-  }
-
-  const contributions: Contribution[] = []
-  for (const [index, seedPath] of sovereignOwners.entries()) {
-    // `identityFromSeed` and not a second derivation: it is this repository's one
-    // seed→public-key route, and `--owner-id`'s docblock records why a second one here would
-    // be the extra source of truth this tree keeps refusing to create. The value it returns
-    // is byte-for-byte what a provider signs into `NodeCertificate.userKey` for the same
-    // seed, which is what makes the shard's `ownerId` below and the descriptor's `ownerId`
-    // comparable at all.
-    const seed = await readUserSeed(seedPath, '--sovereign-owner')
-    const ownerKey = (await identityFromSeed(seed)).nodeKey
-    const rowPath = sovereignRows[index] as string
-    let raw: Buffer
-    try {
-      raw = await readFile(rowPath)
-    } catch (cause) {
-      refuse(
-        `--sovereign-row ${rowPath} could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
-      )
-    }
-    // Copied out of Node's `Buffer` pool rather than handed on as a view into a shared slab
-    // — `readUserSeed` and `FsBlockstore.get` copy for the same reason.
-    const value = new Uint8Array(raw.byteLength)
-    value.set(raw)
-    const encoded = await canonicalCid(value)
-    if (!encoded.ok) {
-      process.stderr.write(
-        `agent.ts: --sovereign-row ${rowPath} will not canonicalise: ${JSON.stringify(encoded.error)}\n`,
-      )
-      await node.stop().catch(() => {})
-      process.exit(1)
-    }
-    contributions.push({ ownerKey, seed, value, cid: encoded.cid })
-  }
-
-  /** Which seed roots the chain for a given owner. Built once; read per dispatch. */
-  const seedFor = new Map<PublicKeyHex, Uint8Array>(
-    contributions.map((one) => [one.ownerKey, one.seed]),
-  )
 
   /**
    * AUTH-03's requestor half: the chain one candidate is dispatched under.
