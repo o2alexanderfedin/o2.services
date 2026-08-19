@@ -107,15 +107,46 @@ import {
   canonicalCid,
   checkpointChain,
   checkpointsInto,
+  decodeCanonical,
+  delegate,
   jobIdOf,
   publicNodes,
   recoverCheckpoint,
   remainingWork,
 } from '@o2/core'
-import type { Executor, LeaseEvent, SubmitOptions } from '@o2/core'
-import { DEFAULT_BUDGET, KERNEL_RECORD, KERNEL_TRUST_ANCHOR, buildInput, kernelBytes } from '@o2/demo'
-import { SEED_BYTES, identityFromSeed, parseKeyHex } from '@o2/libp2p'
-import { RemoteExecutor, rpcAdmission, submitJobWithEgress } from '@o2/net'
+import type {
+  Delegation,
+  Executor,
+  LeaseEvent,
+  NodeDescriptor,
+  PublicKeyHex,
+  ShardAttestation,
+  ShardResult,
+  SubmitOptions,
+  Task,
+} from '@o2/core'
+import {
+  DEFAULT_BUDGET,
+  KERNEL_RECORD,
+  KERNEL_TRUST_ANCHOR,
+  PRIMES_RECORD,
+  PRIME_COUNT_KEY,
+  buildInput,
+  kernelBytes,
+  primesKernelBytes,
+  projectPrimeCount,
+  readPrimeCount,
+} from '@o2/demo'
+import { SEED_BYTES, audienceKeyOf, identityFromSeed, parseKeyHex, peerIdForNodeKey } from '@o2/libp2p'
+import {
+  MIN_SOVEREIGN_COMBINE_REPLICAS,
+  RemoteExecutor,
+  discoverCandidates,
+  reduceSovereignJob,
+  rpcAdmission,
+  submitJobWithEgress,
+} from '@o2/net'
+import type { CapabilitySupplier } from '@o2/net'
 import { CID } from 'multiformats/cid'
 import { FabricNode } from '../fabric-node.ts'
 import { FsBlockstore } from '../fs-blockstore.ts'
@@ -657,11 +688,81 @@ const { values } = parseArgs({
     // is a hash of content, it is printed on this process's own stdout when it writes one,
     // and it names a block anybody holding the store can already read.
     'resume-from': { type: 'string', multiple: true },
+    // AUTH-03 / MR-02 / VER-09 — **the sovereign coordinator leg's owner half.** Repeatable;
+    // each value is the path to a file holding one owner's 32-byte seed, an owner that has
+    // authorised this process to ask the fabric to compute over its data.
+    //
+    // ## Why this is a ROLE SELECTOR and not a feature gate, which is the whole reason it
+    // ## may exist at all
+    //
+    // `.planning/consults/2026-08-15-owner-ruling-off-by-default-flag.md` rules that a
+    // capability reachable only behind an off-by-default flag is **not shipped** — *"It must
+    // work with no flag."* `.planning/consults/2026-08-18-owner-ruling-role-selector-vs-
+    // feature-gate.md` refines it with a test that is about the **default**, not about the
+    // word "flag": *would the capability be correct if the flag defaulted on?* If yes it is
+    // a feature gate and the first ruling applies; if **no default would be correct, because
+    // the flag names which of several roles this process takes**, it is a role selector and
+    // the ruling does not apply.
+    //
+    // This flag has no correct default and the reason is not stylistic: its value is *whose
+    // data this process acts for*. A default would have to name some particular owner, and
+    // there is no owner a shipped binary could name — the same argument `--owner-key` and
+    // `--can-execute-sovereign` already carry on the serving side, where defaulting would
+    // pin every agent to an owner it was never given. An agent with no owner seed has
+    // nothing to coordinate a sovereign job over, exactly as an agent with no
+    // `--coordinate` has no job to coordinate.
+    //
+    // ## A path, never the seed itself — this binary's standing rule
+    //
+    // argv is world-readable in `ps` to every account on the host, so a private key on a
+    // command line is a private key everybody has. `--user-key` is a path for that reason
+    // and this is the same rule applied to the same kind of value. The file must be exactly
+    // `SEED_BYTES` long and a missing one is exit 2 rather than a fresh key — minting one
+    // would root a capability chain at an owner nobody controls and report success.
+    //
+    // ## Why the requestor holds an owner's ROOT key here, stated as the limit it is
+    //
+    // `capability.ts` supports multi-link chains — *"the owner delegates to a coordinator,
+    // the coordinator may delegate onward"* — so a real deployment would hand this process a
+    // delegation rather than a seed. It is not modelled here because no production surface
+    // in this repository carries a delegation between processes, and every requestor that
+    // mints a chain today signs with the owner's own key: `bin/bench.ts`'s
+    // `sovereignSupplierFor`, and `sovereign-aggregation.node.test.ts`'s `dispatchAs`. This
+    // flag is that same arrangement made runnable, not a new trust model.
+    'sovereign-owner': { type: 'string', multiple: true },
+    // MR-02 — **the sovereign coordinator leg's data half.** Repeatable; each value is the
+    // path to a file holding one row of the correspondingly-positioned `--sovereign-owner`'s
+    // data, as the bytes that owner's guest will read.
+    //
+    // **Paired by position, and the counts must be equal or the process exits 2.** Two
+    // repeatable flags read in order is the only pairing available without inventing a
+    // separator parser, which this file refuses twice by name — `--trust-anchor` and
+    // `--trusted-issuer` are repeatable rather than comma-separated *"because a comma-split
+    // string would be a parser nobody asked for"*.
+    //
+    // **The bytes are not interpreted here.** They become the shard's `value` unchanged, so
+    // what an owner's guest reads is what the operator put in the file. The leg dispatches
+    // `@o2/demo`'s prime-counting kernel, so a well-formed row is `buildPrimesInput(n)`'s
+    // eight bytes; anything else is refused *by the guest*, and `readPrimeCount` turns that
+    // refusal into a named failure rather than a zero summed into the aggregate. Validating
+    // the shape here would put the coordinator in the business of understanding the owner's
+    // data, which is the one thing a sovereign requestor must not need to do.
+    //
+    // **This row must already be resident on its owner's node**, and that is the premise
+    // rather than an omission: `submitJobWithEgress` registers every sovereign shard's
+    // canonical bytes on this process's own `EgressGuard` for the job's duration, so an
+    // owner that did not already hold its row would ask this process for the block and the
+    // guard would refuse the reply. The job completing at all is therefore evidence that no
+    // raw row crossed the wire — `sovereign-aggregation.node.test.ts` states the same
+    // consequence from the other side, and seeds each owner's `--dir` before its agent
+    // starts. That is what "the owner's data lives on the owner's node" means as a fact
+    // about a blockstore rather than as a slogan.
+    'sovereign-row': { type: 'string', multiple: true },
   },
 })
 
 const USAGE =
-  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--admit-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--inbound-threshold <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...] [--coordinate <shards> [--coordinate-n <n>] [--lease-ms <ms>] [--job-store <dir>] [--resume-from <cid> ...]]\n'
+  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--admit-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--inbound-threshold <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...] [--coordinate <shards> [--coordinate-n <n>] [--lease-ms <ms>] [--job-store <dir>] [--resume-from <cid> ...]] [--sovereign-owner <seed-path> --sovereign-row <row-path> ... (paired, at least twice)]\n'
 
 /**
  * The one exit-2 path, extended rather than duplicated.
@@ -853,8 +954,65 @@ for (const handle of values['resume-from'] ?? []) {
 }
 
 /**
+ * The sovereign coordinator leg's configuration, refused at parse time rather than at
+ * dispatch time — AUTH-03 / MR-02 / VER-09.
+ *
+ * Every refusal below names a condition under which the leg could **start and then produce
+ * nothing**, which is the failure mode this whole region exists to remove: a sovereign shard
+ * that is never placed comes back `unplaceable` with nothing anywhere obviously wrong, and
+ * `--owner-id`'s own docblock records the day that cost. An operator's misconfiguration
+ * belongs with the usage line, before a socket is bound.
+ */
+const sovereignOwners = values['sovereign-owner'] ?? []
+const sovereignRows = values['sovereign-row'] ?? []
+if (sovereignOwners.length !== sovereignRows.length) {
+  refuse(
+    `--sovereign-owner was given ${String(sovereignOwners.length)} time(s) and --sovereign-row` +
+      ` ${String(sovereignRows.length)}; they are read in order and pair one row to one owner,` +
+      ' so the counts must be equal',
+  )
+}
+if (sovereignOwners.length > 0) {
+  // Two, and it is `MIN_SOVEREIGN_COMBINE_REPLICAS`' sibling rather than a round number.
+  // `deriveReduceTree` **promotes** a lone contribution instead of combining it, so a job
+  // with one owner-pinned row produces an aggregation with no combine in it at all and
+  // `reduceSovereignJob` refuses it by name. One row is therefore a job this process could
+  // dispatch and could never aggregate — the shape MR-02 is about — and refusing it here is
+  // cheaper than discovering it after two spawns and a dispatch.
+  //
+  // A second row may belong to the *same* owner: what the aggregation requires is two
+  // **contributions**, not two identities, which `reduce-sovereign.test.ts` measures
+  // directly. So passing one seed file twice is legal and means one owner contributing two
+  // rows.
+  if (sovereignOwners.length < 2) {
+    refuse(
+      '--sovereign-owner/--sovereign-row must be given at least twice: a sovereign aggregation' +
+        ' combines contributions, and a single contribution is promoted rather than combined',
+    )
+  }
+  if ((values['peer-addr'] ?? []).length === 0) {
+    refuse('--sovereign-owner requires at least one --peer-addr to dispatch to')
+  }
+  // Discovery verifies each candidate's certificate **offline** against the issuers this
+  // process pins, and a process pinning none qualifies nobody — so the leg would find no
+  // executor and report a curve measured on nothing. Named here rather than at the lookup,
+  // for the reason above.
+  if ((values['trusted-issuer'] ?? []).length === 0) {
+    refuse(
+      '--sovereign-owner requires at least one --trusted-issuer <hex>: a sovereign candidate is' +
+        " qualified by the certificate a provider signed about it, and this process pins nobody's",
+    )
+  }
+}
+
+/**
  * Read the user seed named by `--user-key`, refusing anything that is not exactly the
  * right size.
+ *
+ * `flag` names the option in the refusal because two flags now pass through here —
+ * `--user-key`, this process's own enrolment identity, and `--sovereign-owner`, an owner that
+ * authorised this process to act for it. Both name a **user** key, which is why one reader
+ * serves both; an operator who mistyped one path needs to be told which one.
  *
  * A wrong-length file is exit 2 for the same reason `loadOrCreateSeed` throws on one:
  * reinterpreting a truncated file as a key would enrol this node under a user key nobody
@@ -863,15 +1021,15 @@ for (const handle of values['resume-from'] ?? []) {
  * The bytes are copied out of Node's `Buffer` pool rather than handed on as a view into a
  * shared slab — the same reason `loadOrCreateSeed` and `FsBlockstore.get` copy.
  */
-async function readUserSeed(path: string): Promise<Uint8Array> {
+async function readUserSeed(path: string, flag = '--user-key'): Promise<Uint8Array> {
   let raw: Buffer
   try {
     raw = await readFile(path)
   } catch (cause) {
-    refuse(`--user-key ${path} could not be read: ${cause instanceof Error ? cause.message : String(cause)}`)
+    refuse(`${flag} ${path} could not be read: ${cause instanceof Error ? cause.message : String(cause)}`)
   }
   if (raw.length !== SEED_BYTES) {
-    refuse(`--user-key ${path} holds ${String(raw.length)} bytes, expected exactly ${String(SEED_BYTES)}`)
+    refuse(`${flag} ${path} holds ${String(raw.length)} bytes, expected exactly ${String(SEED_BYTES)}`)
   }
   const seed = new Uint8Array(SEED_BYTES)
   seed.set(raw)
@@ -1829,4 +1987,561 @@ if (values.coordinate !== undefined) {
         : { ok: false, error: result.error },
     })}\n`,
   )
+}
+
+/**
+ * AUTH-03 / MR-02 / VER-09 — **the sovereign coordinator leg.**
+ *
+ * Everything below runs only when `--sovereign-owner` was given. With the flag absent this
+ * block is one comparison against zero and the process is byte-for-byte the serving node it
+ * was before the flag existed — the standing rule on this binary, the same shape
+ * `--coordinate` above is written in.
+ *
+ * ## What it is, in one sentence
+ *
+ * Each owner's row is already resident on that owner's own node; this process asks each of
+ * those nodes to compute a partial over its own row, carrying a capability chain rooted at
+ * that owner's key, and then aggregates the partials redundantly across the same nodes. No
+ * row moves. `PROJECT.md` splits the integrity claim on exactly this line — *the owner's
+ * contribution is trusted; the aggregation over contributions is verified* — and this leg is
+ * that sentence made runnable.
+ *
+ * ## Why it may exist at all, given the flag ruling
+ *
+ * `.planning/consults/2026-08-15-owner-ruling-off-by-default-flag.md` rules that a capability
+ * behind an off-by-default flag is not shipped. `.planning/consults/2026-08-18-owner-ruling-
+ * role-selector-vs-feature-gate.md` refines it: a flag that could correctly have defaulted
+ * **on** is a feature gate and the ruling applies; a flag for which **no** default would be
+ * correct, because it names which role this process takes, is a role selector and the ruling
+ * does not. `--sovereign-owner`/`--sovereign-row` name *whose data this process acts for and
+ * which rows it contributes*, and a shipped binary can default to neither. The argument is
+ * written out in full at `--sovereign-owner`'s own key above, where a reader meets it — which
+ * is the burden that ruling places on any new flag claiming the exemption.
+ *
+ * ## The workload, and why it is the prime-counting kernel rather than a fixture
+ *
+ * `@o2/demo`'s `primesKernelBytes`, vouched for by `PRIMES_RECORD` — signed under
+ * `KERNEL_TRUST_ANCHOR`, which is this binary's own default `--trust-anchor`. So a stock
+ * agent started with no anchor flag accepts it, and this leg needs no build authority of its
+ * own. That is not a convenience: the alternative was a signing seed committed in this
+ * source, and a *deployed* node pinning a publicly-known anchor would run any module anybody
+ * signed with it. `bin/bench.ts` may hold such a seed because it starts its own throwaway
+ * nodes; this binary's peers are somebody else's agents.
+ *
+ * **And the guest genuinely reads the owner's row**, which is the property MR-02 turns on.
+ * `sovereign-aggregation.node.test.ts` states the trap in full: every *other* fixture in this
+ * repository emits the partition index — a number the host supplied — so a partial projected
+ * from one is a pure function of something the requestor already held, and the aggregate
+ * would be identical whether the guests read anything at all. π(n) is a function of the eight
+ * bytes in the owner's own block and of nothing else, and the aggregate is the sum of the
+ * owners' counts, which is decomposable and checkable against a table this project did not
+ * write.
+ *
+ * ## Redundancy, twice, on two different axes — conflating them is the standing error
+ *
+ * The dispatch is `redundancy: 1` because a sovereign shard runs on the one node holding its
+ * owner's row: pinning removes the second independent executor. The *combine* reads only
+ * content-addressed partials, is runnable anywhere, and is therefore redundant at
+ * {@link MIN_SOVEREIGN_COMBINE_REPLICAS}. The map cannot be redundant and the aggregation
+ * must be; that is the whole of the split, and neither number is a dial this leg exposes.
+ */
+if (sovereignOwners.length > 0) {
+  /**
+   * How long this process waits for the peers it dialled to clear verification.
+   *
+   * A dial is not a verdict: `PeerVerifier` fetches and checks a peer's certificate after the
+   * connection is up, and `discoverCandidates` is handed `verifiedPeers` rather than the
+   * connected set because *"a provider list steers where work goes, so a peer that has not
+   * cleared verification does not get to contribute one"*. Without this wait the lookup below
+   * would run against an empty set on a fast start and report that nothing qualified — a
+   * race, reported as a fabric with no candidates.
+   *
+   * Bounded rather than unbounded: a peer that never verifies is a real condition and the
+   * honest answer is to proceed and let the lookup say what it found, not to hang.
+   */
+  const VERDICT_DEADLINE_MS = 30_000
+  /**
+   * How long a minted chain is good for.
+   *
+   * One hour, computed per dispatch rather than at module load so a slow run cannot expire a
+   * chain minted for it. The expiry is a constraint and not a formality: an unbounded
+   * delegation is the thing AUTH-03 exists to make impossible, and `verifyChain` checks it
+   * against the *serving* node's clock. A configuration choice, not a measurement.
+   */
+  const CHAIN_TTL_MS = 3_600_000
+
+  /**
+   * One owner's contribution: the key its chain is rooted at, the seed that signs it, the
+   * bytes of its row, and the CID its own node answers a provider lookup for.
+   */
+  interface Contribution {
+    readonly ownerKey: PublicKeyHex
+    readonly seed: Uint8Array
+    readonly value: Uint8Array<ArrayBuffer>
+    readonly cid: CID
+  }
+
+  const contributions: Contribution[] = []
+  for (const [index, seedPath] of sovereignOwners.entries()) {
+    // `identityFromSeed` and not a second derivation: it is this repository's one
+    // seed→public-key route, and `--owner-id`'s docblock records why a second one here would
+    // be the extra source of truth this tree keeps refusing to create. The value it returns
+    // is byte-for-byte what a provider signs into `NodeCertificate.userKey` for the same
+    // seed, which is what makes the shard's `ownerId` below and the descriptor's `ownerId`
+    // comparable at all.
+    const seed = await readUserSeed(seedPath, '--sovereign-owner')
+    const ownerKey = (await identityFromSeed(seed)).nodeKey
+    const rowPath = sovereignRows[index] as string
+    let raw: Buffer
+    try {
+      raw = await readFile(rowPath)
+    } catch (cause) {
+      refuse(
+        `--sovereign-row ${rowPath} could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
+      )
+    }
+    // Copied out of Node's `Buffer` pool rather than handed on as a view into a shared slab
+    // — `readUserSeed` and `FsBlockstore.get` copy for the same reason.
+    const value = new Uint8Array(raw.byteLength)
+    value.set(raw)
+    const encoded = await canonicalCid(value)
+    if (!encoded.ok) {
+      process.stderr.write(
+        `agent.ts: --sovereign-row ${rowPath} will not canonicalise: ${JSON.stringify(encoded.error)}\n`,
+      )
+      await node.stop().catch(() => {})
+      process.exit(1)
+    }
+    contributions.push({ ownerKey, seed, value, cid: encoded.cid })
+  }
+
+  /** Which seed roots the chain for a given owner. Built once; read per dispatch. */
+  const seedFor = new Map<PublicKeyHex, Uint8Array>(
+    contributions.map((one) => [one.ownerKey, one.seed]),
+  )
+
+  /**
+   * AUTH-03's requestor half: the chain one candidate is dispatched under.
+   *
+   * ## A function OF THE NODE ID, and that is not incidental
+   *
+   * `CandidateOptions.dispatch` takes a function of the node id returning the supplier,
+   * because a chain's audience must be the node it is sent to: *"a chain minted for node A is
+   * refused at node B with `wrong-audience`"*. One supplier shared across a candidate set can
+   * name at most one audience. `audienceKeyOf` derives that key from the peer id, and it is
+   * the identical derivation the serving node applies to its own `libp2p.peerId` — nothing is
+   * exchanged to make the two agree.
+   *
+   * ## Signed with the seed of the task's OWN owner, never one fixed seed
+   *
+   * `delegate` derives the chain's `issuer` from the key that signs it, and
+   * `authorizeCapability` refuses a chain whose root is not the serving node's pinned
+   * `ownerKey`. A leg that signed every shard with one seed would therefore have every worker
+   * cleared for the *other* owner refuse every shard — reported as `unplaceable` with nothing
+   * anywhere obviously wrong, which is the failure `bin/bench.ts`'s `sovereignSupplierFor`
+   * records having actually had.
+   *
+   * ## `[]` for anything not owner-labelled is the correct answer, not a stub
+   *
+   * A public task has no owner and therefore no key a chain could be rooted at, and
+   * `authorizeCapability` returns `null` for one before it ever looks at a chain. This leg
+   * submits no public shard, so the branch is a statement of the contract rather than a live
+   * case — and a throw there would be wrong, because the supplier is per-executor and an
+   * executor built here could in principle be handed one.
+   *
+   * ## Copied from `bin/bench.ts` and from `capability-fixture.ts`, deliberately not imported
+   *
+   * `capability-fixture.ts` is test-only and outside the barrel, and importing it from a
+   * runnable entry point would manufacture exactly the reachability finding this leg exists to
+   * remove. `bin/bench.ts` is a sibling entry point, not a library. **The three must be kept
+   * in step by hand**, which is said at each of them.
+   */
+  function sovereignSupplierFor(nodeId: string): CapabilitySupplier {
+    return (task: Task): readonly Delegation[] => {
+      if (task.label !== 'sovereign' || task.ownerId === undefined) return []
+      const seed = seedFor.get(task.ownerId)
+      // A throw and never an empty list: `[]` is the *correct* answer for a public task and
+      // would here be indistinguishable from one, so an owner this process cannot root a
+      // chain at has to stop the dispatch rather than send it unauthenticated.
+      if (seed === undefined) {
+        throw new Error(
+          `--sovereign-owner: a task is pinned to owner ${task.ownerId}, which is none of this` +
+            ' process’s owners, so no chain can be rooted at it',
+        )
+      }
+      return [
+        delegate(seed, {
+          ownerId: task.ownerId,
+          audience: audienceKeyOf(nodeId),
+          abilities: ['execute'],
+          expiresAt: Date.now() + CHAIN_TTL_MS,
+        }),
+      ]
+    }
+  }
+
+  /**
+   * How strongly one shard was attested — VER-09's display half on this binary.
+   *
+   * Composed from `ShardAttestation`'s own fields, exactly as `bin/bench.ts`'s
+   * `strengthReading` is, so the two entry points cannot come to describe one result
+   * differently. `description` is the string `attestationReceipt` already filled from
+   * `describeAttestation`; rendering it rather than re-deriving it is what keeps this a
+   * display of the fabric's verdict instead of a second opinion about it.
+   */
+  function strengthReading(attestation: ShardAttestation): string {
+    if ('kind' in attestation) {
+      return (
+        `none established (agreeing ${attestation.agreeing}, verified ${attestation.verified}) — ` +
+        attestation.reason
+      )
+    }
+    return (
+      `${attestation.strength} (replicas ${attestation.replicas},` +
+      ` operators ${attestation.operators.length}) — ${attestation.description}`
+    )
+  }
+
+  // A dial is not a verdict — see {@link VERDICT_DEADLINE_MS}. Membership rather than a
+  // count: a count of two is satisfied by the wrong two peers.
+  const verdictDeadline = Date.now() + VERDICT_DEADLINE_MS
+  while (
+    !peers.every((peerId) => node.verifiedPeers.includes(peerId)) &&
+    Date.now() < verdictDeadline
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+
+  /**
+   * The candidate set, one lookup per contribution.
+   *
+   * **Per owner, because a lookup is about one owner's clearance**, and the union is what
+   * goes to `submitJob`: `eligibleNodes` narrows each shard to its own owner's nodes, so the
+   * merged pool is what a real multi-owner requestor holds and the narrowing still happens
+   * per shard. A per-owner *submission* would place each shard against a pool containing only
+   * its owner, which would make the placement claim vacuous.
+   *
+   * Deduplicated by node id, because two lookups may qualify the same node and `submitJob`
+   * correlates `executors` to `nodes` by that id.
+   */
+  const trustedIssuers = new Set<PublicKeyHex>(values['trusted-issuer'] ?? [])
+  const executorsById = new Map<string, RemoteExecutor>()
+  const descriptorsById = new Map<string, NodeDescriptor>()
+  let excluded = 0
+  for (const contribution of contributions) {
+    const found = await discoverCandidates(
+      { inputCid: contribution.cid, sovereignFor: contribution.ownerKey },
+      {
+        rpc: node.rpc,
+        peers: () => node.verifiedPeers,
+        trustedIssuers,
+        now: () => Date.now(),
+        peerIdFor: peerIdForNodeKey,
+        // AUTH-03 — **one argument, and it is the whole requestor half.** Every
+        // `RemoteExecutor` this helper builds inherits what is written here, which is why the
+        // dispatch below constructs none of its own. The sentinel
+        // `'dispatches-unauthenticated'` is what every other production candidate site in
+        // this repository writes, and it is correct there because every shard those sites
+        // submit is public; it would be wrong here, and a shard dispatched under it is
+        // refused at the executor with `unauthorized: no capability chain supplied`.
+        dispatch: sovereignSupplierFor,
+      },
+    )
+    for (const executor of found.executors) {
+      if (!executorsById.has(executor.nodeId)) executorsById.set(executor.nodeId, executor)
+    }
+    for (const descriptor of found.nodes) {
+      if (!descriptorsById.has(descriptor.nodeId)) descriptorsById.set(descriptor.nodeId, descriptor)
+    }
+    excluded += found.excluded.length
+  }
+  const executors = [...executorsById.values()]
+  const descriptors = [...descriptorsById.values()]
+
+  // The module, and the guard the demo page carries for the same reason: a kernel rebuilt
+  // without being re-signed produces a provenance refusal at dispatch on every peer, and this
+  // says so here instead of leaving an operator to read `module-not-vouched-for` off three
+  // agents at once.
+  const moduleCid = await node.store.put(primesKernelBytes)
+  if (moduleCid.toString() !== PRIMES_RECORD.cid.toString()) {
+    process.stderr.write(
+      `agent.ts: the bundled primes kernel hashes to ${moduleCid.toString()} but the committed` +
+        ` record vouches for ${PRIMES_RECORD.cid.toString()} — rebuilt without re-signing\n`,
+    )
+    await node.stop().catch(() => {})
+    process.exit(1)
+  }
+
+  const sovereignShards = contributions.map((one) => ({
+    value: one.value,
+    label: 'sovereign' as const,
+    ownerId: one.ownerKey,
+  }))
+  const distinctOwners = new Set(sovereignShards.map((one) => one.ownerId)).size
+
+  process.stdout.write(
+    `${JSON.stringify({
+      coordinatingSovereign: {
+        owners: distinctOwners,
+        rows: sovereignShards.length,
+        moduleCid: moduleCid.toString(),
+        inputCids: contributions.map((one) => one.cid.toString()),
+        candidates: executors.map((one) => one.nodeId),
+        // The descriptors' own owner ids, which is the half a requestor cannot forge: a
+        // discovery-derived `NodeDescriptor.ownerId` **is** `certificate.userKey`. Printing
+        // them beside the shards' owner ids is what lets a reader see that the two agree
+        // rather than take it on trust.
+        descriptorOwners: descriptors.map((one) => one.ownerId),
+        excluded,
+      },
+    })}\n`,
+  )
+
+  const dispatched = await submitJobWithEgress(
+    {
+      moduleCid,
+      // DET-03/DATA-08 — the signed mapping, not a bare CID, so every executor this reaches
+      // checks the module against its own pinned anchors before the bytes are fetched.
+      moduleRecord: PRIMES_RECORD,
+      shards: sovereignShards,
+      executors,
+      // The **discovered** descriptors, never `publicNodes`: that helper hardcodes
+      // `ownerId: 'public'`, `eligibleNodes` matches owner ids exactly, and a sovereign shard
+      // against a pool of `public` descriptors is `unplaceable` — which is precisely the
+      // state the demo page's bring-your-own arm is measured in.
+      nodes: descriptors,
+      // 1, and it is the honest figure rather than a weakened one: each owner runs one node
+      // here, and pinning data to one owner removes the second independent executor by
+      // construction. That is the half redundancy cannot carry, which is why the aggregation
+      // below asks for two.
+      redundancy: 1,
+      // A coordinator on a hand-built fabric is routinely a small operator set with no
+      // composable quorum, which is the topology this leg exists to run on;
+      // `'refuses-the-shard'` here would refuse every shard of every run of it.
+      onQuorumShortfall: 'runs-at-available-redundancy',
+    },
+    node.store,
+    [node.egress],
+    {
+      // CHURN-03 — this leg keeps no checkpoints, and the reason is its own rather than
+      // borrowed. A checkpoint record is a block in the same `node.store` this process serves
+      // block requests from, and it **names** result CIDs; whether that is safe for a job
+      // whose results are owner-pinned is a question about `sovereignCids` and the serving
+      // path, and it is unmeasured. `browser/demo/main.ts`'s sovereign run records the
+      // identical open question at its own site. Taking that decision silently, inside a leg
+      // about sovereignty, is the one thing that must not happen here.
+      checkpoints: 'checkpoints-nothing',
+      // DATA-10's at-rest half. `FabricNode` resolves this to a real `FsSovereignCids` when
+      // it has a blockstore directory, which it always does on this binary; the sentinel arm
+      // cannot be passed to `submitJob`, so the narrowing says so rather than being cast away.
+      ...(node.sovereignCids === 'forgets-sovereignty-between-jobs'
+        ? {}
+        : { sovereignCids: node.sovereignCids }),
+    },
+  )
+
+  const shards: readonly ShardResult[] = dispatched.ok ? dispatched.job.shards : []
+  const agreed = shards.filter((one) => one.verification.status === 'agreed').length
+
+  /**
+   * **VER-09's reading, on the sovereign path and from a runnable entry point.**
+   *
+   * The row is about *an owner with fewer than two live nodes*: the task executes once and
+   * the receipt records it as **owner-attested rather than verified**. Each shard here is
+   * pinned to an owner running one node, so `classifyAttestation` — one expression for every
+   * case — reaches that label, and this line renders it through the same `description` the
+   * demo page's receipt panel renders.
+   *
+   * Printed **per shard** and **before** the aggregation, so a leg that is about to exit
+   * non-zero has still said what the fabric attested. A reader handed a failure with no
+   * receipt has to re-run to learn whether the shard was never placed or placed and
+   * unaccounted for.
+   */
+  for (const shard of shards) {
+    process.stdout.write(
+      `${JSON.stringify({
+        sovereignAttestation: {
+          partitionIndex: shard.partitionIndex,
+          ownerId: sovereignShards[shard.partitionIndex]?.ownerId ?? null,
+          status: shard.verification.status,
+          ranOn:
+            shard.verification.status === 'agreed'
+              ? shard.verification.agreeing.map((replica) => replica.nodeId)
+              : [],
+          attempted: shard.attempted,
+          /**
+           * MR-02 — **this owner's own contribution**, which is what "each owner computes a
+           * local partial over its own data" reduces to as a number.
+           *
+           * `readPrimeCount` **throws** on a shard the guest refused rather than returning
+           * zero, and that distinction is the reason it exists: a refusal reported as a count
+           * of zero is indistinguishable from a range that genuinely held no primes. Caught
+           * here so the line still prints for a shard that failed — as `null`, which a reader
+           * cannot mistake for a count — rather than taking the whole leg down before the
+           * receipt above it has been written.
+           */
+          count: ((): number | null => {
+            if (shard.verification.status !== 'agreed') return null
+            try {
+              return readPrimeCount(shard.verification.output)
+            } catch {
+              return null
+            }
+          })(),
+          reading: strengthReading(shard.attestation),
+        },
+      })}\n`,
+    )
+  }
+
+  /**
+   * MR-02's aggregation half.
+   *
+   * Everything above is the *map*: each partial was computed by the node holding its owner's
+   * row, and `PROJECT.md` says that half is owner-attested rather than verified. What carries
+   * the verification claim for owner-pinned data is the aggregation **over** those partials,
+   * and it is redundant at {@link MIN_SOVEREIGN_COMBINE_REPLICAS} because a combine reads only
+   * content-addressed partials and is runnable anywhere.
+   *
+   * Attempted only where the fabric can carry it, and it says so when it cannot: a run whose
+   * candidate set came back with one executor has no second node to combine on, and printing
+   * the refusal rather than skipping silently is the same rule the zero-refusal below follows.
+   */
+  const combineExecutors = executors.map((executor) => executor.nodeId)
+  let aggregationRefusal: string | null = null
+  if (!dispatched.ok) {
+    aggregationRefusal = `the dispatch above did not return a job: ${JSON.stringify(dispatched.error)}`
+    process.stdout.write(
+      `${JSON.stringify({ sovereignAggregation: { attempted: false, reason: aggregationRefusal } })}\n`,
+    )
+  } else if (combineExecutors.length < MIN_SOVEREIGN_COMBINE_REPLICAS) {
+    aggregationRefusal =
+      `this fabric qualified ${String(combineExecutors.length)} combine executor(s) and a` +
+      ` sovereign aggregation is verified at ${String(MIN_SOVEREIGN_COMBINE_REPLICAS)}`
+    process.stdout.write(
+      `${JSON.stringify({ sovereignAggregation: { attempted: false, reason: aggregationRefusal } })}\n`,
+    )
+  } else {
+    const reduced = await reduceSovereignJob(
+      dispatched.job,
+      {
+        moduleCid,
+        moduleRecord: PRIMES_RECORD,
+        shards: sovereignShards,
+        executors,
+        nodes: descriptors,
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      {
+        rpc: node.rpc,
+        executors: combineExecutors,
+        // This process's own store: it is what peers fetch the leaves from and where each
+        // combine's result comes back to.
+        blockstore: node.store,
+        // `projectPrimeCount` **throws** on a shard the guest refused rather than returning
+        // zero, and that is load-bearing here: a refusal summed into the aggregate is
+        // indistinguishable from a range that genuinely held no primes, and the total would
+        // be quietly short by exactly the primes that owner was meant to count.
+        project: projectPrimeCount,
+        // Stated rather than defaulted. No agent this leg dispatches to is configured to sign
+        // a combine, so the honest statement is that this requestor checks no combine
+        // signature; the aggregation's verification here is redundancy and agreement, which
+        // is what `minReplicas` and `disagreements` read.
+        trustedIssuers: 'checks-no-combine-signatures',
+        // EGR-01's evidence, carried from the dispatch rather than rebuilt: the arm refuses
+        // unless the weakest guard registered at least as many sovereign rows as the job
+        // pinned. A manifest reporting zero registrations for a job with sovereign shards is
+        // a guard that was never given them.
+        egress: dispatched.manifests,
+        redundancy: MIN_SOVEREIGN_COMBINE_REPLICAS,
+      },
+    )
+
+    if (!reduced.ok) aggregationRefusal = reduced.reason
+    /**
+     * The aggregate, and **the coverage cannot be dropped on the way to the number.**
+     * `CoveredAggregate` has no `.value` shortcut for exactly that reason: printing the
+     * aggregate without its denominator is the failure that type exists to prevent, so the
+     * line carries both or it carries the refusal.
+     *
+     * `total` is fetched from the store rather than assumed. `ReduceOutcome` carries
+     * `rootCid`, and the merged block is read back through the same blockstore the combines
+     * wrote to — an aggregate nobody re-read is a claim about a CID rather than about a value.
+     */
+    let total: number | null = null
+    if (reduced.ok && reduced.aggregate.value.outcome.rootCid !== null) {
+      const rootBytes = await node.store.get(CID.parse(reduced.aggregate.value.outcome.rootCid))
+      if (rootBytes !== undefined) {
+        const merged = decodeCanonical(rootBytes) as {
+          counts?: Record<string, unknown>
+        }
+        const counted = merged.counts?.[PRIME_COUNT_KEY]
+        total = typeof counted === 'number' ? counted : null
+      }
+    }
+
+    process.stdout.write(
+      `${JSON.stringify({
+        sovereignAggregation: reduced.ok
+          ? {
+              attempted: true,
+              ok: true,
+              combines: reduced.aggregate.value.outcome.combines,
+              minReplicas: reduced.aggregate.value.outcome.minReplicas,
+              disagreements: reduced.aggregate.value.outcome.disagreements.length,
+              coverage: {
+                covered: reduced.aggregate.coverage.covered,
+                total: reduced.aggregate.coverage.total,
+                complete: reduced.aggregate.coverage.complete,
+              },
+              contributors: reduced.aggregate.value.contributions.map((one) => one.ownerId),
+              egress: {
+                registeredSovereign: reduced.aggregate.value.egress.registeredSovereign,
+                pinnedShards: reduced.aggregate.value.egress.pinnedShards,
+              },
+              rootCid: reduced.aggregate.value.outcome.rootCid,
+              total,
+            }
+          : { attempted: true, ok: false, reason: reduced.reason },
+      })}\n`,
+    )
+  }
+
+  /**
+   * **A non-zero exit and never a reported zero.**
+   *
+   * A leg printing `0 of 2 agreed` is indistinguishable from a leg that was never wired, and
+   * both look like a line that ran — which is the exact shape the flag ruling exists to
+   * remove. So the process leaves with the fabric's own words: each shard's status, and each
+   * node's refusal as that node worded it, which is where a chain the worker rejected arrives
+   * (`unauthorized: …`).
+   *
+   * `--coordinate` above does not do this, deliberately: that leg reports a `JobResult` an
+   * operator reads, and a public job at redundancy 1 has ordinary partial outcomes. A
+   * sovereign leg has no ordinary partial outcome — either the owner's node ran the owner's
+   * row under a chain rooted at the owner's key, or the claim this leg exists to make was not
+   * made.
+   */
+  if (agreed !== sovereignShards.length || aggregationRefusal !== null) {
+    const said = shards
+      .map((shard) => {
+        const failures =
+          shard.verification.status === 'agreed'
+            ? ''
+            : shard.verification.failures
+                .map((failure) => `; ${failure.nodeId}: ${failure.reason}`)
+                .join('')
+        return `shard ${String(shard.partitionIndex)}: ${shard.verification.status}${failures}`
+      })
+      .join(' | ')
+    process.stderr.write(
+      `agent.ts: --sovereign-owner: ${String(agreed)} of ${String(sovereignShards.length)}` +
+        ` owner-pinned shards agreed across ${String(distinctOwners)} owner(s)` +
+        `${aggregationRefusal === null ? '' : `, aggregation refused — ${aggregationRefusal}`}` +
+        `${said === '' ? `; submit refused: ${dispatched.ok ? 'no shard returned' : dispatched.error.kind}` : `; ${said}`}\n`,
+    )
+    await node.stop().catch(() => {})
+    process.exit(1)
+  }
 }

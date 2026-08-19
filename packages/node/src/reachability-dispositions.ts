@@ -257,16 +257,29 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   // *"expected [ 'demo/buildPrimesInput', 'demo/projectPrimeCount', 'demo/readPrimeCount' ] to
   // deeply equal []"*, which is the G14 defence doing its job for the fourth recorded time.
   //
-  // `readPrimeCount` has no direct call in `main.ts` and belongs here anyway: `projectPrimeCount`
-  // calls it, so it is reachable through the same hop one edge further along.
+  // `readPrimeCount` has no direct call in `main.ts` and belonged here for that reason:
+  // `projectPrimeCount` calls it, so it was reachable through the same hop one edge further
+  // along.
+  //
+  // **`demo/projectPrimeCount` and `demo/readPrimeCount` left this list on 2026-08-19, and
+  // they are gone rather than rewritten** — the same shape, and the same direction, as
+  // `core/checkpointsInto` above. `bin/agent.ts`'s sovereign coordinator leg (AUTH-03/MR-02/
+  // VER-09) calls both from a Node entry point the graph traces directly: `projectPrimeCount`
+  // is the aggregation's projection and `readPrimeCount` prints each owner's own contribution.
+  // Nothing hides them any more, so there is nothing left to dispose. Not read off the source:
+  // the derived case went red first and named them verbatim, *"expected [
+  // 'demo/projectPrimeCount', 'demo/readPrimeCount' ] to deeply equal []"* — the G14 defence
+  // working in the other direction for the second recorded time.
+  //
+  // `demo/buildPrimesInput` stays: the leg takes each owner's row as **bytes from a file**
+  // rather than building one, which is the whole of `--sovereign-row`'s contract, so the
+  // builder is still reached only through the page's hop.
   'demo/buildPrimesInput',
   'demo/colourOf',
   'demo/estimatePi',
   'demo/piErrorBound',
   'demo/projectPiPartial',
-  'demo/projectPrimeCount',
   'demo/readPiPartial',
-  'demo/readPrimeCount',
   'demo/verifyColouring',
   'net/findReservedPeers',
   'net/publishStartOutcome',
@@ -738,8 +751,20 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * The no-slack rule is kept: 66 is exactly the register's size. `global-object-hop` is still
  * derived and still reddens in both directions, and the six arrivals are in the two causes whose
  * membership the guard re-measures or whose sentence a second guard holds.
+ *
+ * **LOWERED 66 → 64, measured 2026-08-19 — the second time it has gone down, and by the same
+ * mechanism as the first.** `demo/projectPrimeCount` and `demo/readPrimeCount` left the register
+ * because `bin/agent.ts`'s sovereign coordinator leg (AUTH-03/MR-02/VER-09) calls both from a
+ * **Node** entry point, which the graph traces without needing to follow `window.o2` at all.
+ * Neither symbol became reachable — both already were, through `TabApi.runPrimes` — they became
+ * reachable **by a route the guard can see**, which is the difference between a disposition and
+ * a call path, and is exactly what `core/checkpointsInto`'s note one paragraph up records.
+ *
+ * Lowered rather than left with two entries of slack, on the no-slack rule stated above: a
+ * ceiling above the register's size is a permission for a silent addition. Not read off the
+ * source — the derived case went red first and named both verbatim.
  */
-export const DISPOSITION_CEILING = 66
+export const DISPOSITION_CEILING = 64
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {

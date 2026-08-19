@@ -864,8 +864,16 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * passing was widened; see the removal note at the entry's old position for what the close
  * does **not** establish, which is stated there rather than here because a ceiling is a count
  * and the argument is not.
+ *
+ * **Lowered 5 → 4 on 2026-08-19, in the same commit that removed `AUTH-03`.** The ordinary
+ * exit once more, and it is the second consecutive instance of the cleanest form: the entry
+ * had already written down what was missing, *"no no-flag dispatch hands a real
+ * `CapabilitySupplier` to a `RemoteExecutor`"*, and named the two files whose executors were
+ * the sentinel. A third entry point now hands one. Nothing was descoped and no definition of
+ * passing was widened; see the removal note at the entry's old position for what the close
+ * does and does not establish.
  */
-const REREAD_REGISTER_CEILING = 5
+const REREAD_REGISTER_CEILING = 4
 
 /**
  * ## The rule this list encodes
@@ -1196,22 +1204,37 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // because `attestedNodes` declares `ownerId: 'public'` on every descriptor, making the
   // shard structurally unplaceable — the source says so at `:1855-1868` and names the
   // escape hatch.
-  {
-    id: 'AUTH-03',
-    because: 'tier-or-configuration',
-    reread: '2026-08-18',
-    witnesses: [
-      'packages/core/src/capability.test.ts',
-      'packages/net/src/capability-dispatch.test.ts',
-      'packages/net/src/combine.test.ts',
-      'packages/net/src/distributed.test.ts',
-      'packages/node/src/browser-capability.e2e.test.ts',
-      'packages/node/src/capability-dispatch.node.test.ts',
-      'packages/node/src/fabric-node.node.test.ts',
-      'packages/node/src/serve-agent-hooks.node.test.ts',
-      'packages/node/src/tree-reduce-agents.node.test.ts',
-    ],
-  },
+  //
+  // ── `AUTH-03` was here until 2026-08-19 and is **REMOVED**, by the exit this list exists
+  // to encourage: the entry's own promise named the thing that was built ────────────────
+  //
+  // Its row is `Done`, so it is out of the *unreached* population and the set equality below
+  // makes the removal compulsory. {@link REREAD_REGISTER_CEILING} follows it down in the same
+  // commit.
+  //
+  // **The promise above is discharged literally, symbol for symbol.** It read: *"no no-flag
+  // dispatch hands a real `CapabilitySupplier` to a `RemoteExecutor`. Every demo executor is
+  // `'dispatches-unauthenticated'` and so is `bin/agent.ts:1602`."* `bin/agent.ts`'s sovereign
+  // coordinator leg hands `discoverCandidates` a `(nodeId) => CapabilitySupplier` that signs
+  // with the seed of the task's own owner, and every `RemoteExecutor` that helper builds
+  // inherits it. `sovereign-agent.e2e.test.ts` reads the consequence off four spawned
+  // processes: each owner-pinned shard agreed on its own owner's process, and the descriptors
+  // it was placed against carry `certificate.userKey` as `ownerId` — a fact about a signed
+  // statement the requestor verified, not a value it chose.
+  //
+  // **And the flag question the entry was waiting on is answered rather than dodged.** The
+  // ruling of 2026-08-15 says a capability behind an off-by-default flag is not shipped; the
+  // refinement of 2026-08-18 says a flag for which **no** default would be correct, because it
+  // names which role the process takes, is a role selector and is exempt. `--sovereign-owner`
+  // names *whose data this process acts for*: a shipped binary can default to no owner, for
+  // the same reason `--owner-key` has no default on the serving side. The argument is written
+  // at the flag itself, which is the burden that refinement places on any flag claiming it.
+  //
+  // The nine witnesses go with it. The one worth naming is the pair the close turns on:
+  // `packages/node/src/browser-capability.e2e.test.ts`, which shows a live tab *judging* a
+  // chain, and `packages/node/src/sovereign-agent.e2e.test.ts`, which shows a runnable binary
+  // *minting and carrying* one. The difference between those two sentences is the whole of
+  // what this row was waiting for.
   //
   // ── `AUTH-04` was here until 2026-08-18 and is **REMOVED**, by the exit this register
   // has the fewest instances of: the decision it was waiting on was taken ────────────────
@@ -1375,14 +1398,30 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     // day a tab is handed a real owner identity. The promise is to hand it one.
     id: 'MR-02',
     because: 'entry-point-not-driven',
-    reread: '2026-08-18',
-    // Measured the same way as `SCHED-01` above. Note `sovereign-aggregation.node.test.ts` and
-    // `sovereign-arm.node.test.ts` are both here and they measure different things — the first
-    // is the two-owner, two-process reading that needs no flag, the second reads the receipt
-    // off a driver spawned WITH both flags. The row's open leg is the second one's entry point.
+    // **RE-READ 2026-08-19, and the promise is discharged — but the row is not ticked in the
+    // commit that records this, and the gap is deliberate rather than an oversight.** The
+    // sentence above says the promise is *"to hand [a tab or an agent] a real owner
+    // identity"*. `bin/agent.ts`'s sovereign coordinator leg does exactly that for an agent:
+    // `--sovereign-owner` names the owner, discovery builds descriptors whose `ownerId` is
+    // `certificate.userKey`, and `reduceSovereignJob` acquires its second production call
+    // site. The new witness reads the whole of it off four spawned processes.
+    //
+    // The re-read is recorded here in the commit that lands the mechanism, under `AUTH-03`'s
+    // name, because that is the commit whose spec file made this entry drift. The row's own
+    // tick — its box, its verdict, and the header re-derived — is one commit later, so that
+    // each closed row's evidence and its tick travel together and can be read apart. An entry
+    // that is about to leave still has to be true while it is here.
+    reread: '2026-08-19',
+    // Measured the same way as `SCHED-01` above. Note `sovereign-aggregation.node.test.ts`,
+    // `sovereign-arm.node.test.ts` and `sovereign-agent.e2e.test.ts` all sit here and measure
+    // different things — the first is the two-owner, two-process reading with an in-process
+    // requestor, the second reads the receipt off a driver spawned WITH both flags, and the
+    // third is the same claim with every process spawned from `bin/agent.ts`. The row's open
+    // leg was the second one's entry point, and the third is what replaces it.
     witnesses: [
       'packages/core/src/reduce.test.ts',
       'packages/net/src/reduce-sovereign.test.ts',
+      'packages/node/src/sovereign-agent.e2e.test.ts',
       'packages/node/src/sovereign-aggregation.node.test.ts',
       'packages/node/src/sovereign-arm.node.test.ts',
     ],
@@ -1979,7 +2018,29 @@ describe('the corpus and the ledger were really read', () => {
     //
     // Sited at `> 5`: two below the 2026-08-18 measurement of 8, which is the same rule the
     // `claims` floor above sites itself by and is written down there.
-    ledgerFloor(UNREACHED.length, 5, 'rows whose verdict says not fully reached') // 6 on 2026-08-18, after AUTH-02 closed
+    //
+    // ── **RE-SITED 2026-08-19 from `> 5` to `> 0`, and this is the second time in two days
+    // that closing rows has walked into this floor** ──────────────────────────────────────
+    //
+    // `AUTH-03`, `MR-02` and `VER-09` close in this pass, which takes `UNREACHED` from 6 to
+    // **3** — `NET-03`, `BENCH-06`, `AOT-03`, the three rows that were never `[x]` before the
+    // v1.0 audit. The floor fires on the *first* of the three, at 5, so it had to move.
+    //
+    // Sited by the same rule as before — two below the measurement — which at 3 is 1, so the
+    // assertion is `> 0`. That is a weak floor and saying so is better than dressing it up:
+    // with three rows left there is no number above zero that does not redden on the next
+    // close, and *"a guard that reddens on progress and can only be satisfied by leaving a row
+    // open is the shape this file exists to catch, not to be"* is written four paragraphs up.
+    //
+    // **What it still catches is exactly what the case is titled for.** The failure this floor
+    // exists for is `parseRows` losing the verdict while still returning rows: `verdict` comes
+    // off the em-dash split, so a broken split takes `UNREACHED` to **0** and reddens here
+    // under any floor including this one. What it no longer does is bound the population, and
+    // nothing here ever claimed to — the population is bounded by the rows themselves, and the
+    // stronger guard over the same event is the set equality in *"leaves every unreached row
+    // either checkable or recorded as not"*, which names rows rather than counting them and is
+    // untouched.
+    ledgerFloor(UNREACHED.length, 0, 'rows whose verdict says not fully reached') // 3 on 2026-08-19, after AUTH-03, MR-02 and VER-09 closed
     expect(blocking('requirements-ledger/claim-floor', findings, SCOPE)).toEqual([])
   })
 })

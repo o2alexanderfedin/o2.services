@@ -78,7 +78,9 @@ import { stripComments } from './strip-comments.ts'
  *    table above it, which is the one thing a derived figure could not do.
  * 3. The positive reading rose from 1 `checkpointsInto(node.store)` to **3**.
  *
- * The census is now **five sentinel against four sinks** over nine production submit sites.
+ * The census is now **six sentinel against four sinks** over ten production submit sites — it
+ * read *"five … over nine"* until 2026-08-19, when `bin/agent.ts` grew a sovereign coordinator
+ * leg that opts out for a reason no other site can give: its results are owner-pinned.
  * That is a ratio this file states and does not score: the sites that still opt out submit
  * into stores that die with the process (`task-worker.ts`, `perf-workload.ts`,
  * `bin/bench.ts` twice) plus the demo's sovereign run, whose reason was withdrawn with
@@ -139,6 +141,28 @@ const CHECKPOINT_OPTOUTS: readonly {
     role:
       'the CLI measurement driver, twice: the measured job path, and the --sovereign leg’s' +
       ' one-shard dispatch. Both submit into a store that is an mkdtemp close() rm -rf s',
+  },
+  {
+    file: 'packages/node/src/bin/agent.ts',
+    // **Added 2026-08-19 by the sovereign coordinator leg (AUTH-03/MR-02/VER-09)**, and this
+    // guard is the reason it was a decision rather than a default: the file already had a
+    // production submit — the `--coordinate` leg — which supplies a **real sink**
+    // (`checkpointsInto`), so membership here is a statement that the *second* submit in the
+    // same file decided the other way.
+    //
+    // Decided, and the reason is this leg's own rather than borrowed from `runPi`'s — whose
+    // grounds the owner overturned on 2026-08-18, which is what left the demo page's sovereign
+    // run as an opt-out with its reason withdrawn. A checkpoint record is a block in the same
+    // `node.store` this process serves block requests from, and it **names** result CIDs; the
+    // results here are owner-pinned, so whether publishing one is safe is a question about
+    // `sovereignCids` and the serving path rather than about the workload's shape. That
+    // question is unmeasured. Taking it silently, inside a leg whose whole subject is
+    // sovereignty, is the one thing that must not happen — so the leg keeps no checkpoints and
+    // says why at the site.
+    count: 1,
+    role:
+      'the agent binary, once: the sovereign coordinator leg. Its --coordinate leg in the same' +
+      ' file supplies a real sink, so this is a second submit deciding the other way',
   },
   {
     file: 'packages/browser/demo/main.ts',
@@ -348,7 +372,15 @@ describe('the set of production files that opt out of checkpointing is pinned', 
     // one thing it is here to be able to do. The owner's ruling gave `runPi` and
     // `runPrimes` a real sink, so nine production submit sites now split **five sentinel,
     // four sink**.
-    expect(scanned).toBe(5)
+    //
+    // **Six on 2026-08-19**, and the census with it: `bin/agent.ts`'s sovereign coordinator
+    // leg is a **tenth** production submit site, so the split is now **six sentinel, four
+    // sink**. It is a raise, and the direction is worth naming rather than absorbing — this
+    // is a new submitter choosing the opt-out, not an existing one changing its mind. The
+    // reason it chose it is at the site and in the pin table above, and it is a reason no
+    // other entry here can give: this is the only submitter in the repository whose results
+    // are owner-pinned.
+    expect(scanned).toBe(6)
   })
 
   it('reads criterion 7 directly: the definition and exactly one implementation name CheckpointSink', () => {
