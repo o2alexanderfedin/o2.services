@@ -795,8 +795,29 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * **Lowered 10 → 9 the same day, when `MR-06` was ticked.** Same rule, applied in the same
  * hour rather than the next time somebody notices — which is the habit the 14 → 10 note
  * above exists to record the absence of.
+ *
+ * **RAISED 9 → 11 later the same day, and a raise here needs its reason written next to it,
+ * so here it is.** Two ids were added — `SCHED-01` and `MR-02` — under the owner's flag ruling
+ * of 2026-08-15 (`.planning/consults/2026-08-15-owner-ruling-off-by-default-flag.md`), which
+ * answered *"It must work with no flag"* and thereby put work back on the board rather than
+ * taking any off. Three rows were unticked; two of them carry no claim this file can read and
+ * are therefore **required** additions, which is the only kind of raise this ceiling permits.
+ *
+ * **It was measured before it was written**: the entries were added first with the ceiling
+ * still at 9 and the register's own set equality was the thing that named them — *"SCHED-01 is
+ * Partial and carries no claim this file can read, and is not recorded as such"*, and the same
+ * for `MR-02`. So the raise follows a red the guard produced, not an intention. `VER-09` was
+ * unticked in the same sweep and is deliberately **not** here: it carries `describeAttestation`
+ * has no production caller, which another case in this file already reads, and recording a
+ * readable row as unreadable is the failure this list's set equality exists to catch.
+ *
+ * **The rule that this is still sited at the register's own size with no slack is unchanged**,
+ * and it is what makes the raise legible as a cost: 11 is the measurement, not a headroom
+ * grant, and the next departure lowers it within the hour rather than the next time somebody
+ * notices. A ceiling raised to 12 "in case" would be the 14-against-11 defect above, repeated
+ * by an agent who had just finished reading the note about it.
  */
-const REREAD_REGISTER_CEILING = 9
+const REREAD_REGISTER_CEILING = 11
 
 /**
  * ## The rule this list encodes
@@ -1284,6 +1305,75 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // which is not a shape `parseRows` reads — the `NO_CALLER` family is about call sites,
   // and this is a property access. Hence the entry stays, with the promise now to build the
   // reader rather than to look for one.
+  // ── Added 2026-08-18 under the owner's flag ruling of 2026-08-15 ───────────────────
+  //
+  // `.planning/consults/2026-08-15-owner-ruling-off-by-default-flag.md`: *"It must work with
+  // no flag."* Three rows were unticked under it — `SCHED-01`, `MR-02` and `VER-09` — and
+  // only two arrive here, which is the register working rather than the sweep being
+  // incomplete. `VER-09` carries `describeAttestation` **has no production caller**, a claim
+  // this file reads for itself, so adding it would be recording as unreadable a row another
+  // case in this same file already reads.
+  //
+  // Both entries below are `entry-point-not-driven` in the most literal sense the bucket has:
+  // the mechanism is measured, and the only thing that reaches it is a command-line flag that
+  // is off unless somebody types it. Neither can be phrased as one of the three checkable
+  // shapes, and the reason is the same for both — the symbol they turn on **does** have a
+  // production caller, so `NO_CALLER` is false of it, and `ONLY_THROUGH` cannot express
+  // *"reachable only when `DISCOVER` is true"* because `DISCOVER` is a module-scope `const` in
+  // `bin/bench.ts` and not an export, so the extraction filters it out and the sentence
+  // silently stops being a claim. That is the gap this register exists for.
+  {
+    // `SCHED-01` — discovery by querying providers of a data CID intersected with capability
+    // records. `discoverCandidates` has exactly ONE production call site, `bin/bench.ts:1541`,
+    // inside `if (DISCOVER) {` at `:1521`; `discoverExecutors` is reached only through it
+    // (`net/src/discover-candidates.ts:198`). The behavioural half is untouched and is
+    // measured across seven real spawned `bin/agent.ts` processes.
+    //
+    // **The promise this id carries is to build a no-flag caller, not to look for one**, and
+    // the shape is already precedented one requirement over: `admit` moved onto the demo
+    // page's Run button on 2026-08-16 and that is why `SCHED-02` and `SCHED-03` kept their
+    // boxes on this same sweep. Discovery has had no equivalent move.
+    id: 'SCHED-01',
+    because: 'entry-point-not-driven',
+    reread: '2026-08-18',
+    // Measured, not typed: added empty, and the drift case named these four on the run that
+    // followed — which is the field doing the job its docblock claims for it.
+    witnesses: [
+      'packages/core/src/discovery.test.ts',
+      'packages/net/src/discover-candidates.test.ts',
+      'packages/net/src/provider-merge.test.ts',
+      'packages/node/src/provider-answering.node.test.ts',
+    ],
+  },
+  {
+    // `MR-02` — each owner computes a local partial over its own data with no map-side
+    // movement. `reduceSovereignJob` has exactly one production call site, `bin/bench.ts:1799`,
+    // which that driver calls *"the only production call to `reduceSovereignJob` in the
+    // repository"* at `:1767`, and it is **two** flags deep: `SOVEREIGN` forces `DISCOVER` on
+    // at `bin/bench.ts:229`. The ruling names the remedy in its own words — *"a sovereign
+    // aggregation reachable without two flags"*.
+    //
+    // **The blocker is not a missing caller, it is a missing owner identity**, which is why
+    // this is `entry-point-not-driven` rather than `experiment-not-run`: the demo page's
+    // bring-your-own arm submits sovereign shards already, and every one is unplaceable
+    // because `attestedNodes` declares `ownerId: 'public'` on every descriptor it builds while
+    // `eligibleNodes` matches owner ids exactly. `demo-byo.e2e.test.ts` names that literal
+    // `OWNER_THE_NODES_DECLARE` and asserts it is still there precisely so the arm reddens the
+    // day a tab is handed a real owner identity. The promise is to hand it one.
+    id: 'MR-02',
+    because: 'entry-point-not-driven',
+    reread: '2026-08-18',
+    // Measured the same way as `SCHED-01` above. Note `sovereign-aggregation.node.test.ts` and
+    // `sovereign-arm.node.test.ts` are both here and they measure different things — the first
+    // is the two-owner, two-process reading that needs no flag, the second reads the receipt
+    // off a driver spawned WITH both flags. The row's open leg is the second one's entry point.
+    witnesses: [
+      'packages/core/src/reduce.test.ts',
+      'packages/net/src/reduce-sovereign.test.ts',
+      'packages/node/src/sovereign-aggregation.node.test.ts',
+      'packages/node/src/sovereign-arm.node.test.ts',
+    ],
+  },
   {
     id: 'NET-06',
     because: 'entry-point-not-driven',

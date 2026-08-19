@@ -729,7 +729,24 @@ describe('the ledger this suite parses is the real ledger', () => {
     // values and fails this line. It closed when `bin/bench.ts`'s `--sovereign` leg began
     // enrolling its workers under two owners and aggregating each owner's own partial —
     // `coverage 2/2 owners complete`, read off a spawned driver by `sovereign-arm.node.test.ts`.
-    expect(locate('MR-02')?.satisfied).toBe(true) // v1 section, closed 2026-08-14
+    //
+    // **Moved true → false again on 2026-08-18, and the paragraph above is now doing the job
+    // it only described before.** The owner's flag ruling of 2026-08-15
+    // (`.planning/consults/2026-08-15-owner-ruling-off-by-default-flag.md`) — *"It must work
+    // with no flag"* — unticked this row: `reduceSovereignJob` has exactly one production call
+    // site, `bin/bench.ts:1799`, and it is two flags deep, with `SOVEREIGN` forcing `DISCOVER`
+    // on at `:229`. The aggregation is unaffected and `sovereign-arm.node.test.ts` still reads
+    // `coverage 2/2 owners complete` off the spawned driver; what the ruling denies is that a
+    // runnable entry point reaches it.
+    //
+    // **This line is the only `false` in the list, and until today there was none** — every
+    // other assertion here reads `true`, so a parser that returned a constant `true` would
+    // have passed the whole case. The docblock above has claimed since 2026-08-14 that a
+    // state-changing id is what protects this list from exactly that, and for those four days
+    // the protection was described rather than present. It is present now, and if this row is
+    // ever re-ticked the next agent must put a genuinely open id in its place rather than flip
+    // this line and leave the case all-`true` again.
+    expect(locate('MR-02')?.satisfied).toBe(false) // v1 section, UNTICKED 2026-08-18
     expect(locate('SCHED-06')?.satisfied).toBe(true) // v1.1 section, closed
     // **WIRE-02 closed 2026-08-14 and this line moved with it** — `false` until then. It was
     // the list's only open v1.1 row, and the paragraph above says why an id that CHANGES state
