@@ -490,12 +490,23 @@ export async function executeReduce(run: ReduceRun): Promise<ReduceOutcome> {
       failed: [tree.rootId],
       disagreements: [],
       minReplicas: 0,
-      // **The local placement is not consulted on this arm, and that is deliberate.**
-      // An empty executor set is a caller that named nobody to combine over, which is a
-      // different condition from a fabric whose peers are unreachable — `@o2/net`'s
-      // `reduceJob` refuses it by name one layer up (`no executor to combine on`) before
-      // this function is ever called. Answering it with a local combine would turn a
-      // caller's construction error into a silently self-computed aggregate.
+      // **The local placement is not consulted on this arm, and this is the one place
+      // the 2026-08-18 placement ruling is NOT applied.** It is flagged rather than
+      // quietly decided either way.
+      //
+      // An empty executor set never reaches this function from `@o2/net` — `reduceJob`
+      // refuses it one layer up, by name, with `no executor to combine on`, and that
+      // refusal predates the ruling. **The case it covers is not only a construction
+      // error.** A lone browser tab with no peers connected passes `executors: []`
+      // honestly, and *"always prefer local execution"* read strictly would have that tab
+      // aggregate its own job rather than report no reduce at all.
+      //
+      // It is left alone because the change is not this one: it would have to move the
+      // refusal in `reduceJob` **and** this early return, and it would change a demo
+      // surface whose one-tab arm is asserted as `NOT-ATTEMPTED` in
+      // `packages/node/src/demo-pi.e2e.test.ts` — *"no tree: no reduce was attempted"*.
+      // That is an owner call about what a lone tab should display, not a placement
+      // question about a combine that is going to run somewhere regardless.
       locallyCombined: [],
       localRefusals: [],
     }

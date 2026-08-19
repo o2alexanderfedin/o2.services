@@ -1174,10 +1174,6 @@ describe("the requestor combines its own job unless a named condition sends it o
       { operatorId: 'alice-op', seedByte: 141, behaviour: 'the production agent' },
     ])
     try {
-      // The ports are supplied to the *fixture* and not to `reduceJob`, which takes the
-      // sentinel — so "never asked" is a claim about this run and not about an absence.
-      const capacity = roomy()
-      const authorizer = counting('serves-unauthenticated')
       const result = await reduceJob(agreedJob(5), {
         rpc: fabric.requestorRpc,
         executors: fabric.ids,
@@ -1203,11 +1199,15 @@ describe("the requestor combines its own job unless a named condition sends it o
           'this caller requires remote combining, so the requestor did not offer itself this combine',
         )
       }
-      // Neither port was consulted: the caller's instruction is checked before them, and
-      // a run that read a capacity it had been told not to use would be deciding
-      // placement twice.
-      expect(authorizer.asked).toEqual([])
-      expect(capacity.peakInFlight).toBe(0)
+      // **No "the ports were never asked" assertion here, and its absence is deliberate.**
+      // An earlier draft built a capacity and an authorizer, passed neither — the sentinel
+      // arm carries no ports, by construction — and then asserted they were untouched.
+      // That assertion could not fail, which makes it worse than no assertion: it reads
+      // like evidence of an ordering. The ordering claim on this arm is a *type-level* one
+      // — `'requires-remote-combining'` has nowhere to put a port — and the runtime claim
+      // that capacity is asked before authorisation is carried by the full-node case
+      // below, where both ports are supplied and the authorizer is measurably never
+      // reached.
     } finally {
       fabric.close()
     }

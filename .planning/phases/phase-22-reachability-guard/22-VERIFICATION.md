@@ -1,13 +1,14 @@
 ---
 phase: phase-22-reachability-guard
-amended: 2026-08-18T09:47:15Z # criterion 1 NARROWED from 47 open to 2 and is STILL DECLINED; see the AMENDMENT at the end of this file
-status: gaps_found # UNCHANGED. Criterion 1 is still PARTIAL — on two named symbols instead of forty-seven
-score: 2/3 criteria MET (1 PARTIAL, 0 FAILED) — UNCHANGED. The gap is narrower; it is not closed
+amended: 2026-08-18T17:05:00Z # SECOND amendment. Criterion 1 NARROWED again, 2 open to 1, and is STILL DECLINED; see the AMENDMENT at the end of this file
+status: gaps_found # UNCHANGED. Criterion 1 is still PARTIAL — on ONE named symbol, core/isComplete
+score: 2/3 criteria MET (1 PARTIAL, 0 FAILED) — UNCHANGED. The gap is one symbol wide; it is not closed
 original_status: gaps_found
 original_score: 2/3
 date: 2026-08-08
 verified_at: d7beefe
-amended_at: 14a2670 # branch feature/phase-20-checkpoint-agent; code landed at f65ada1 and 14a2670
+amended_at: 9035ee6 # branch feature/phase-20-checkpoint-agent; second amendment. First amendment was 14a2670,
+                   # code for it at f65ada1 and 14a2670; this one's code is f5a8c66, 0bbddb4 and 9035ee6
 requirements: [WIRE-02]
 amendment_runs: # exit codes read with EXIT=$? on the line immediately after the command, no pipes
   - command: "npx tsc --noEmit"
@@ -443,3 +444,132 @@ absent from the 68 it returns.
   all seven hook guards by hand and reading the results directly. The five `vocabulary` findings
   the hook printed are in `.planning/milestones/v1.1-ROADMAP.md`, untouched here, and the hook
   itself classified them as *"outside this commit — reported, not blocking"*.
+
+---
+
+# AMENDMENT — 2026-08-18 (second that day), criterion 1 is NARROWED from 2 open to 1, and still DECLINED
+
+**Amended:** 2026-08-18T17:05:00Z
+**Code commits:** `f5a8c66`, `0bbddb4`, `9035ee6` on branch `feature/phase-20-checkpoint-agent`
+**Host:** MacBookPro18,3, 8 cores, 32 GB, Darwin 25.5.0
+**Status after amendment:** `gaps_found` — unchanged
+**Score after amendment: 2/3** — unchanged. Criterion 1 is still PARTIAL, on **one** named symbol
+instead of two.
+
+Everything above this line stays as written, including the first amendment. This one closes one of
+the two symbols that amendment named, by the only route it counts as work: **production calls it
+now.** Nothing was disposed, nothing was retired from a barrel, and the remaining symbol is
+reported rather than made to disappear.
+
+---
+
+## The superseded verdict, quoted before it is replaced
+
+From the AMENDMENT of 2026-08-18T09:55:00Z, § *RULING A held. Nothing here rewrites the criterion*:
+
+> **It still does not pass clean, so criterion 1 does not tick.** `core/localDispatch` and
+> `core/isComplete` are callable barrel exports with no traced path and no disposition. Two is not
+> zero, and this pass declines to make it zero the two ways that were available: adding a call site
+> that exists to be counted, or retiring an export to move a question out of the instrument that
+> holds it.
+
+and the table it moved:
+
+> | | before this pass | after |
+> |---|--:|--:|
+> | unreachable from the five entry points | **75** | **68** |
+> | …disposed with a stated cause | 60 | 66 |
+> | …**open, with no production caller anywhere** | **15** | **2** |
+
+and, from `OPEN_FINDINGS`' own row for the symbol that has now left it:
+
+> Nobody has built a local-only combine path and nobody has decided to. **This is the whole of why
+> criterion 1 does not close clean, re-read 2026-08-18, and it is a PARKED OWNER DECISION rather
+> than a gap somebody forgot.**
+
+**The parked decision was taken.** Owner ruling, 2026-08-18, verbatim: *"Always prefer local
+execution, unless it must be executed remotely (requested to do so, or needs certain permissions
+that cannot be satisfied or data ownership requires, etc.) or the current node is fully loaded."*
+
+## The reading now
+
+Measured by calling the guard's own exported API over this tree — `barrelExports()`,
+`buildCallGraph()`, `unreachableExports()`, `disposedKeys()` — run under
+`node --experimental-strip-types`, exit `0`:
+
+| | before this pass | after |
+|---|--:|--:|
+| unreachable from the five entry points | **68** | **67** |
+| …disposed with a stated cause | 66 | **66** |
+| …**open, with no production caller anywhere** | **2** | **1** |
+
+```
+unreachable 67
+disposed 66
+open 1
+openKeys ["core/isComplete"]
+```
+
+`68 − 1 = 67` was refused as the proof, per this file's standing habit: the number above is what
+the probe printed, and the open list is a **list** rather than a count, so the remaining symbol is
+named rather than inferred. `DISPOSITION_CEILING` did not move — this is wiring, not a cause being
+written down — and the total ceiling in `reachability-guard.node.test.ts` followed the measurement
+down, **68 → 67**, with the note recording the route.
+
+## What the wiring is
+
+`core/localDispatch` is now composed by `@o2/net`'s `reduceJob` as the `dispatch` half of a
+`LocalCombinePlacement`, so a requestor performs a combine **in its own process** whenever its own
+capacity and its own authorizer admit it, and walks the rendezvous ranking only for the combines
+they refuse. The two ports are the ones a peer answers a combine with — `LocalAdmission.would` and
+the node's `Authorizer` — asked in `runCombine`'s own order, so a requestor is not more permissive
+to itself than to everybody else. `packages/browser/demo/main.ts` supplies both from the tab that
+is running the job.
+
+**This is a real call path and not a decoration.** The guard re-derives it on every run: deleting
+the `localDispatch(` call in `reduce-job.ts` would put the row back, and the row is gone because
+the path is there.
+
+## Criterion 1 does NOT close, and here is exactly what remains
+
+The criterion still reads:
+
+> *Running the reachability guard after Phases 11-21 land passes clean — every capability exported
+> from a package barrel has a traced call path from one of the five runnable entry points.*
+
+**One capability does not: `core/isComplete`.** One is not zero. Its `OPEN_FINDINGS` row is
+unchanged and was re-read again here rather than re-stated:
+
+- **Wiring it would be the same fact twice.** `bin/agent.ts`'s `--coordinate` leg already prints
+  `remaining: [...remainingWork(...)]` in the same JSON object. A `complete` field beside it would
+  be a boolean over a list already in the frame, added to make this list shorter — which is a call
+  site that exists to be counted, the exact thing the first amendment refused.
+- **Retiring the export would move the question out of the instrument that holds it.** CHURN-03's
+  ledger row states `isComplete has no production caller` as the reason its own box does not tick;
+  taking the symbol off the barrel would silence the guard and leave that row unsupported.
+- **Disposing it would be widening what counts as passing.** There is no mechanism hiding this
+  symbol from the graph — no global-object hop, no proxy trap, no source sentence declining it. A
+  `DISPOSITIONS` row would be a cause invented for the occasion, which is the failure
+  `22-CONTEXT.md` § *The disposition register, not an allow-list* names.
+
+So the honest call is the one the first amendment made about two symbols, made again about one:
+**the phase stays `gaps_found` at 2/3**, and closing criterion 1 requires an owner decision about
+`isComplete` — wire it and accept the duplicated fact, or rule the duplication acceptable grounds
+for a disposition. Neither is this pass's to take.
+
+## What is NOT claimed
+
+- **Criterion 1 is not met.** `core/isComplete` has no traced path from any of the five entry
+  points and no disposition.
+- **Nothing was disposed to obtain the lower number.** `DISPOSITION_CEILING` is untouched at 66 and
+  no barrel lost an export.
+- **The reduce curve `bin/bench.ts` publishes is unaffected**, and deliberately so: that driver
+  states `placement: 'requires-remote-combining'`, because every reduce figure it publishes —
+  `combineExecutors` off `executedBy`, `recomputes`, `treeDepth` — is a measurement of the
+  *fabric's* combine placement. An instrument pins the variable it measures.
+- **A locally combined aggregate is self-attested, and that is carried rather than hidden.**
+  `ReduceOutcome.locallyCombined` names every combine the requestor performed, and
+  `reduceJob`'s `aggregateAttestation` reads the named absence with a reason that says the
+  aggregation *"was performed by the party that wanted the answer"*. Whether that is acceptable for
+  the public tier is an open question for the owner — recorded in
+  `.planning/consults/2026-08-18-owner-ruling-prefer-local-execution.md`, not settled here.
