@@ -1559,7 +1559,14 @@ if (values.coordinate !== undefined) {
   )
 
   /**
-   * The one sink implementation in this repository, over the job's own store.
+   * This process's sink, over the job's own store.
+   *
+   * **This docblock opened *"The one sink implementation in this repository"* until
+   * 2026-08-18, and it was loose when written and false by the end of that day.**
+   * `checkpointsInto` (`core/checkpoint.ts`) is the one sink *implementation*; this is one
+   * *use* of it, and there are four — `browser/demo/main.ts`'s `runColouring`, `runPi` and
+   * `runPrimes`, and this leg. `checkpoint-optout-scope.node.test.ts` pins both figures, so
+   * a second implementation and a fifth use are each a decision rather than a diff.
    *
    * `checkpointsInto` reads each handle's block back out through the same validating reader a
    * resume would use, so `confirmed` is a statement that the bytes came back and not that
@@ -1575,9 +1582,14 @@ if (values.coordinate !== undefined) {
    *
    * A named binding rather than an inline literal, so that what this process states sits at
    * one place a reader can find. The other legal value of this field is the sentinel
-   * `'checkpoints-nothing'`, and six of the repository's production submitters say it for
-   * reasons written beside each of them; this one is the leg that says the other thing, and it
-   * is the whole of ROADMAP criterion 7's first clause.
+   * `'checkpoints-nothing'`, and **five** of the repository's nine production submit sites
+   * say it for reasons written beside each of them. **This sentence read "six" until
+   * 2026-08-18**, and the figure is re-derived here rather than decremented: the owner ruled
+   * that day that the demo page's `runPi` and `runPrimes` keep checkpoints, and a scan of
+   * comment-stripped production source now finds five sentinel sites against four sinks.
+   * Whether "six" was right when it was written is not asserted — what is asserted is the
+   * count `checkpoint-optout-scope.node.test.ts` floors on every run. This is the leg that
+   * says the other thing, and it is the whole of ROADMAP criterion 7's first clause.
    */
   const checkpoints: SubmitOptions['checkpoints'] = {
     publish: async (handle, checkpoint): Promise<void> => {
