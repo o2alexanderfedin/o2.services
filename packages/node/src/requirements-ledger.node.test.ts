@@ -872,8 +872,14 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * the sentinel. A third entry point now hands one. Nothing was descoped and no definition of
  * passing was widened; see the removal note at the entry's old position for what the close
  * does and does not establish.
+ *
+ * **Lowered 4 → 3 on 2026-08-19, in the same commit that removed `MR-02`.** Third consecutive
+ * ordinary exit, and the second in one day: the entry named the thing that was missing — a
+ * surface able to hand *a tab or an agent* a real owner identity — and the agent got one. The
+ * half it did not get is recorded in the row rather than absorbed here, which is the
+ * distinction a ceiling cannot make and a removal note must.
  */
-const REREAD_REGISTER_CEILING = 4
+const REREAD_REGISTER_CEILING = 3
 
 /**
  * ## The rule this list encodes
@@ -1377,55 +1383,27 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // true"* because `DISCOVER` is a module-scope `const` in `bin/bench.ts` and not an export,
   // so the extraction filters it out and the sentence silently stops being a claim. That is
   // the gap this register exists for.
-  {
-    // `MR-02` — each owner computes a local partial over its own data with no map-side
-    // movement. `reduceSovereignJob` has exactly one production call site, `bin/bench.ts:1799`,
-    // which that driver calls *"the only production call to `reduceSovereignJob` in the
-    // repository"* at `:1767`, and it is **two** flags deep — and deeper than "implied":
-    // `bin/bench.ts:228-236` REFUSES with exit 2 if `--sovereign` is given without
-    // `--discover`, saying *"--sovereign requires --discover and does not imply it"*, so both
-    // must be typed. (This comment said `SOVEREIGN` *forces* `DISCOVER` on when it was first
-    // written, which was wrong in the direction that flatters the row; corrected against the
-    // source the same hour.) The ruling names the remedy in its own words — *"a sovereign
-    // aggregation reachable without two flags"*.
-    //
-    // **The blocker is not a missing caller, it is a missing owner identity**, which is why
-    // this is `entry-point-not-driven` rather than `experiment-not-run`: the demo page's
-    // bring-your-own arm submits sovereign shards already, and every one is unplaceable
-    // because `attestedNodes` declares `ownerId: 'public'` on every descriptor it builds while
-    // `eligibleNodes` matches owner ids exactly. `demo-byo.e2e.test.ts` names that literal
-    // `OWNER_THE_NODES_DECLARE` and asserts it is still there precisely so the arm reddens the
-    // day a tab is handed a real owner identity. The promise is to hand it one.
-    id: 'MR-02',
-    because: 'entry-point-not-driven',
-    // **RE-READ 2026-08-19, and the promise is discharged — but the row is not ticked in the
-    // commit that records this, and the gap is deliberate rather than an oversight.** The
-    // sentence above says the promise is *"to hand [a tab or an agent] a real owner
-    // identity"*. `bin/agent.ts`'s sovereign coordinator leg does exactly that for an agent:
-    // `--sovereign-owner` names the owner, discovery builds descriptors whose `ownerId` is
-    // `certificate.userKey`, and `reduceSovereignJob` acquires its second production call
-    // site. The new witness reads the whole of it off four spawned processes.
-    //
-    // The re-read is recorded here in the commit that lands the mechanism, under `AUTH-03`'s
-    // name, because that is the commit whose spec file made this entry drift. The row's own
-    // tick — its box, its verdict, and the header re-derived — is one commit later, so that
-    // each closed row's evidence and its tick travel together and can be read apart. An entry
-    // that is about to leave still has to be true while it is here.
-    reread: '2026-08-19',
-    // Measured the same way as `SCHED-01` above. Note `sovereign-aggregation.node.test.ts`,
-    // `sovereign-arm.node.test.ts` and `sovereign-agent.e2e.test.ts` all sit here and measure
-    // different things — the first is the two-owner, two-process reading with an in-process
-    // requestor, the second reads the receipt off a driver spawned WITH both flags, and the
-    // third is the same claim with every process spawned from `bin/agent.ts`. The row's open
-    // leg was the second one's entry point, and the third is what replaces it.
-    witnesses: [
-      'packages/core/src/reduce.test.ts',
-      'packages/net/src/reduce-sovereign.test.ts',
-      'packages/node/src/sovereign-agent.e2e.test.ts',
-      'packages/node/src/sovereign-aggregation.node.test.ts',
-      'packages/node/src/sovereign-arm.node.test.ts',
-    ],
-  },
+  //
+  // ── `MR-02` was here until 2026-08-19 and is **REMOVED**, by the ordinary exit: its row is
+  // `Done`, so it leaves the *unreached* population and the set equality below makes the
+  // removal compulsory. {@link REREAD_REGISTER_CEILING} follows it down in the same commit ──
+  //
+  // **The promise is discharged on the half of the row's own sentence it named.** The entry
+  // read that the cause is `entry-point-not-driven` and that *"the promise is to hand [a tab or
+  // an agent] one"* — a real owner identity. `bin/agent.ts`'s sovereign coordinator leg hands an
+  // agent one: `--sovereign-owner` names the owner, discovery builds descriptors whose `ownerId`
+  // is `certificate.userKey`, and `reduceSovereignJob` gains its second production call site and
+  // its first with no flag in front of it. `sovereign-agent.e2e.test.ts` reads one combine at two
+  // replicas, coverage 2/2 complete, and an aggregate of 655 that decomposes into two quoted π
+  // differences — off four spawned processes, with each owner's store holding only its own row
+  // when read back after both were stopped.
+  //
+  // **The tab half did not arrive and the row says so in its own words rather than in this
+  // list.** That is worth stating here because this register's failure mode is the opposite:
+  // an entry that leaves while the thing it named is still open. It did not. The row's subject
+  // is *an owner computing a local partial over its own data*, two owners now do that from a
+  // command line, and the page's separate refusal is recorded in `VER-09`'s row where the
+  // mechanism actually sits.
   // ── `MR-04` was here until 2026-08-18 and is **REMOVED**, by the reword its own entry
   // had been asking for since 2026-08-14 ──────────────────────────────────────────────
   //

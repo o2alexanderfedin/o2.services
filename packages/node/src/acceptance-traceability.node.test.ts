@@ -746,7 +746,15 @@ describe('the ledger this suite parses is the real ledger', () => {
     // the protection was described rather than present. It is present now, and if this row is
     // ever re-ticked the next agent must put a genuinely open id in its place rather than flip
     // this line and leave the case all-`true` again.
-    expect(locate('MR-02')?.satisfied).toBe(false) // v1 section, UNTICKED 2026-08-18
+    //
+    // **`MR-02` stood on this line until 2026-08-19 and it is REPLACED rather than flipped**,
+    // which is the instruction the paragraph above wrote for exactly this day: the row closed
+    // on `bin/agent.ts`'s sovereign coordinator leg, so its `false` was about to become a
+    // fifth `true` and the case would have gone back to being satisfiable by a parser that
+    // returns a constant. `NET-03` takes its place and is a better anchor than the id it
+    // replaces: it is one of the three rows that have been `[ ]` in **every** revision of the
+    // ledger, so it will not quietly close underneath this line the way `MR-02` did.
+    expect(locate('NET-03')?.satisfied).toBe(false) // v1 section, never ticked in any revision
     expect(locate('SCHED-06')?.satisfied).toBe(true) // v1.1 section, closed
     // **WIRE-02 closed 2026-08-14 and this line moved with it** — `false` until then. It was
     // the list's only open v1.1 row, and the paragraph above says why an id that CHANGES state
