@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import type { SpawnSyncReturns } from 'node:child_process'
-import { mkdtempSync, readFileSync, symlinkSync } from 'node:fs'
+import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -14,6 +14,7 @@ import {
   describeArgFailure,
   describeEntryVerdict,
   parseAotArgs,
+  publishArtifact,
   type EntryVerdict,
 } from './cli.ts'
 import {
@@ -789,4 +790,188 @@ describe('the command a person types names what it produced, and refuses a borro
     }
     cleanupStubs()
   })
+})
+
+// ---------------------------------------------------------------------------
+// AOT-02 — the mismatch report, through the program a person runs
+// ---------------------------------------------------------------------------
+
+/**
+ * The second half of AOT-02's cache-key clause, and the half that did not exist.
+ *
+ * `describeKey`'s docblock has always read *"Human-readable, for a build log and for a
+ * mismatch report"*, and there was no mismatch report: nothing in the tree held two
+ * `TranslationKey`s at once and nothing persisted one, so a consumer had no way to ask
+ * whether the artifact it received came out of the translation its publisher signed.
+ *
+ * The owner's decision of 2026-08-18 was that the **signed artifact record** carries it.
+ * `NameRecord.translationKeyCid` is inside the signature; `--publish-as` writes it;
+ * `--against-record` reads it back and holds it beside a fresh lift's key.
+ *
+ * ## Why this is driven through spawned CLI runs rather than through `vouchedTranslation`
+ *
+ * `lift.node.test.ts` holds the function's three answers directly, which is the cheap
+ * reading. What that cannot say is whether the *program* signs the key, writes it into
+ * the file, reads that file back, and refuses on disagreement — four steps that live in
+ * `main` and in `naming.ts`'s codec, none of them reachable from a call to the predicate.
+ * The re-tag work of 2026-08-18 made the same argument for the same reason, one section
+ * up: *"a parser spec cannot reach either"*.
+ *
+ * **No Docker.** `stubLift` writes the artifact and a `meta.txt` this file supplies, so
+ * the two runs below differ in exactly one toolchain version and therefore in exactly one
+ * translation key — which is the whole arrangement the mismatch needs.
+ */
+describe('AOT-02 — a lift is checked against the translation key its publisher signed', () => {
+  const CLI = fileURLToPath(new URL('./cli.ts', import.meta.url))
+
+  /** 64 lowercase hex. Any value works: nothing here pins a signer. */
+  const SIGNING_KEY = '11'.repeat(32)
+
+  const runCli = (args: readonly string[]): SpawnSyncReturns<string> =>
+    spawnSync(process.execPath, ['--experimental-strip-types', CLI, ...args], {
+      encoding: 'utf8',
+    })
+
+  /**
+   * One lift through the real CLI, optionally publishing, optionally checking.
+   *
+   * `clang` is the knob: it is one of the five versions that go into the translation key,
+   * so two runs differing only in it produce two different keys over identical bytes —
+   * which is the case the requirement is about and the one a byte comparison cannot see.
+   */
+  const lift = (options: {
+    readonly slug: string
+    readonly clang: string
+    readonly publishTo?: string
+    readonly against?: string
+  }): { readonly run: SpawnSyncReturns<string>; readonly out: string } => {
+    // Written per call rather than once for the describe: the section above ends in
+    // `afterAll(cleanupStubs)`, which removes every stub directory — including the one a
+    // describe-body `writeAcceptableElf()` would have put this file in, before any case
+    // here runs. Measured, not guessed: the first version of this block failed with
+    // `subject could not be read: ENOENT` on all three cases.
+    const elfPath = writeAcceptableElf()
+    const docker = stubLift({ meta: { ...STUB_TOOLCHAIN, clang: options.clang } })
+    const out = join(stubDir(options.slug), 'artifact.wasm')
+    const run = runCli([
+      elfPath,
+      '--docker',
+      docker.path,
+      '--out',
+      out,
+      ...(options.publishTo === undefined
+        ? []
+        : ['--publish-as', 'demo/lifted', '--signing-key', SIGNING_KEY, '--record-out', options.publishTo]),
+      ...(options.against === undefined ? [] : ['--against-record', options.against]),
+    ])
+    return { run, out }
+  }
+
+  it(
+    'signs the translation key into the record, and accepts a lift that reproduces it',
+    () => {
+      const recordPath = join(stubDir('o2-cli-vouch-'), 'artifact.record.json')
+      const published = lift({ slug: 'o2-cli-vouch-lift-', clang: 'clang 16.0.6', publishTo: recordPath })
+      expect(published.run.status, published.run.stderr).toBe(0)
+
+      // (1) The key really is in the file, and it is the key the CLI printed — not a
+      // second CID, and not the artifact's. Read off the record rather than off stdout,
+      // because the file is what a consumer receives.
+      const record: unknown = JSON.parse(readFileSync(recordPath, 'utf8'))
+      expect(typeof record === 'object' && record !== null).toBe(true)
+      const fields = record as Record<string, unknown>
+      const signedKey = fields['translationKeyCid']
+      expect(typeof signedKey).toBe('string')
+      expect(signedKey).toBe(cidOnLine(published.run.stdout, KEY_CID_LABEL))
+      // …and it is not the artifact CID. Both render `bafyrei…`, so this is the assertion
+      // that kills "sign the artifact CID into the translation field".
+      expect(signedKey).not.toBe(fields['cid'])
+
+      // (2) A second lift of the same bytes under the same toolchain reproduces the key,
+      // and the CLI says so rather than staying silent — silence is what a check that
+      // never ran also produces.
+      const again = lift({
+        slug: 'o2-cli-vouch-again-',
+        clang: 'clang 16.0.6',
+        against: recordPath,
+      })
+      expect(again.run.status, again.run.stderr).toBe(0)
+      expect(again.run.stdout).toContain('translation key agrees with the record for "demo/lifted"')
+      expect(again.run.stdout).toContain(String(signedKey))
+    },
+    240_000,
+  )
+
+  it(
+    'refuses a lift whose toolchain differs, over bytes the record vouches for exactly',
+    () => {
+      const recordPath = join(stubDir('o2-cli-mismatch-'), 'artifact.record.json')
+      const published = lift({
+        slug: 'o2-cli-mismatch-lift-',
+        clang: 'clang 16.0.6',
+        publishTo: recordPath,
+      })
+      expect(published.run.status, published.run.stderr).toBe(0)
+
+      const other = lift({
+        slug: 'o2-cli-mismatch-other-',
+        // One version different. Everything else — the input ELF, the target, the image
+        // digest, the feature set, and therefore the artifact bytes — is identical.
+        clang: 'clang 17.0.1',
+        against: recordPath,
+      })
+      expect(other.run.status, other.run.stdout).toBe(1)
+
+      // **The load-bearing reading: the artifact CID is UNCHANGED and the lift is still
+      // refused.** `stubLift` writes the same bytes both times, so the record vouches for
+      // exactly the artifact this run produced — a `cid-mismatch` could not fire here, and
+      // a byte comparison would report agreement. This is the case the translation key
+      // exists for.
+      expect([...new Uint8Array(readFileSync(other.out))]).toEqual([...ACCEPTABLE_ARTIFACT])
+
+      // Both keys are named. Neither is the artifact CID, and they are not each other.
+      const record = JSON.parse(readFileSync(recordPath, 'utf8')) as Record<string, unknown>
+      const producedKey = cidOnLine(other.run.stdout, KEY_CID_LABEL)
+      expect(producedKey).toBeDefined()
+      expect(producedKey).not.toBe(record['translationKeyCid'])
+      expect(other.run.stderr).toContain(String(record['translationKeyCid']))
+      expect(other.run.stderr).toContain(String(producedKey))
+      // …and this side's key is rendered, not merely named, so the operator can see what
+      // differs on the half that is in hand. `describeKey`'s second stated purpose.
+      expect(other.run.stderr).toContain('clang 17.0.1')
+      expect(other.run.stderr).toContain(LIFT_TARGET)
+      // The record's own name, so an operator knows which record was consulted.
+      expect(other.run.stderr).toContain('demo/lifted')
+    },
+    240_000,
+  )
+
+  it(
+    'says a record carrying no translation key is nothing to compare against, not a mismatch',
+    async () => {
+      // Every record signed before 2026-08-18 is this one, including the demo's committed
+      // kernel records — so the arm is reachable by ordinary use rather than by corruption,
+      // and it must not be reported as "these are two different translations".
+      const bare = await publishArtifact(ACCEPTABLE_ARTIFACT, {
+        name: 'demo/unlifted',
+        signingKey: SIGNING_KEY,
+      })
+      expect(bare.ok, bare.ok ? '' : bare.reason).toBe(true)
+      if (!bare.ok) return
+      expect(bare.record.translationKeyCid).toBeUndefined()
+
+      const recordPath = join(stubDir('o2-cli-bare-'), 'bare.record.json')
+      writeFileSync(recordPath, bare.text)
+
+      const checked = lift({ slug: 'o2-cli-bare-lift-', clang: 'clang 16.0.6', against: recordPath })
+      expect(checked.run.status, checked.run.stdout).toBe(1)
+      expect(checked.run.stderr).toContain('carries no translation key')
+      expect(checked.run.stderr).toContain('demo/unlifted')
+      // The two arms must not read alike: this is the distinction they exist to draw.
+      expect(checked.run.stderr).not.toContain('this lift produced')
+    },
+    240_000,
+  )
+
+  afterAll(cleanupStubs)
 })

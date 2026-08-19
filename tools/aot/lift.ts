@@ -593,6 +593,54 @@ export type LiftFailure =
    * {@link unidentifiedIn} does not report it either. See {@link LiftedArtifact.unidentifiedTools}.
    */
   | { readonly kind: 'unnameable'; readonly reason: KeyFailure }
+  /**
+   * AOT-02 — the lift produced a translation key the signed record does not vouch for.
+   *
+   * **This is the report `describeKey` has always named as its second reason for
+   * existing** — *"Human-readable, for a build log and for a mismatch report"* — and until
+   * 2026-08-18 there was no mismatch report, because nothing in the tree held two
+   * `TranslationKey`s at once and nothing persisted one. `NameRecord.translationKeyCid`
+   * persists one, inside the signature; {@link vouchedTranslation} is what holds two.
+   *
+   * `guardModuleProvenance`'s `cid-mismatch` is the shape this imitates deliberately, one
+   * level up: that arm says *the record is for a different artifact*, this one says *the
+   * record is for a different translation*. The two are independent — an artifact can hash
+   * to exactly the CID a record vouches for and still have come out of a different
+   * toolchain, which is the case a byte comparison cannot see and a cache is most damaged
+   * by.
+   *
+   * **What it can and cannot name.** Both keys are named, by their CIDs, which is what
+   * naming a translation means here. Only {@link produced} can be *rendered*: the record
+   * carries the publisher's key by CID and not by field, so a reader sees this side's four
+   * fields and the other side's name. See `NameRecord.translationKeyCid` for why.
+   */
+  | {
+      readonly kind: 'translation-key-mismatch'
+      /** The record's own name, so an operator knows which record was consulted. */
+      readonly name: string
+      /** The translation key CID the publisher signed. */
+      readonly signed: string
+      /** The translation key CID this lift produced. */
+      readonly produced: string
+      /** This lift's key through `describeKey` — the side that is in hand. */
+      readonly producedKey: string
+    }
+  /**
+   * AOT-02 — a record was supplied to compare against and it vouches for no translation.
+   *
+   * Its own discriminant rather than a `signed: null` inside the arm above, because the two
+   * mean opposite things to whoever reads them: that one says *these are two different
+   * translations*, and this says *there is nothing here to compare against*. The same
+   * distinction `cache-key.ts` draws between `empty-field` and `unencodable`, and the same
+   * one `lift.ts` already draws between `docker-unavailable` and `host-cannot-spawn` — a
+   * refusal that names the wrong thing is a defect even when the operation correctly fails.
+   *
+   * Reachable by design rather than by accident: `translationKeyCid` is optional, every
+   * record signed before 2026-08-18 lacks it, and a record signed by any publisher that
+   * does not lift also lacks it. Comparing against one of those is an operator error with a
+   * specific remedy — re-publish through `aot:lift --publish-as` — and the sentence says so.
+   */
+  | { readonly kind: 'record-vouches-for-no-translation'; readonly name: string }
 
 export type LiftOutcome =
   | { readonly ok: true; readonly verdict: 'clean'; readonly artifact: LiftedArtifact }
@@ -1436,6 +1484,58 @@ export function describeLiftFailure(failure: LiftFailure): string {
         ` — the bytes are reproducible by re-running, and a cache entry under a name that ` +
         `identifies no particular toolchain is not`
       )
+    case 'translation-key-mismatch':
+      // Both CIDs, then this side's key in full. The publisher's key is named and not
+      // shown, and the sentence says which is which rather than presenting two CIDs and
+      // leaving a reader to work out whose is whose.
+      return (
+        `the signed record for "${failure.name}" vouches for translation key ` +
+        `${failure.signed}, and this lift produced ${failure.produced} — the same bytes may ` +
+        `still have come out of a different toolchain, target or feature set, which is ` +
+        `exactly what a byte comparison cannot see. This lift's key was: ` +
+        `${failure.producedKey}. The record carries the publisher's key by CID and not by ` +
+        `field, so it can be named here and not shown`
+      )
+    case 'record-vouches-for-no-translation':
+      return (
+        `the signed record for "${failure.name}" carries no translation key, so there is ` +
+        `nothing to compare this lift against — it was signed over bytes alone. Re-publish ` +
+        'it with `aot:lift --publish-as`, which signs the translation key alongside the ' +
+        'artifact CID, or drop --against-record and accept that this lift is unchecked'
+      )
+  }
+}
+
+/**
+ * AOT-02 — hold this lift's translation key beside the one a signed record vouches for.
+ *
+ * The **whole** of the mismatch check, and it is three comparisons rather than one because
+ * the three answers are different statements: the record vouches for this translation, the
+ * record vouches for a different one, or the record vouches for none. Only the first is
+ * silence.
+ *
+ * Pure, and takes the record structurally rather than as a `NameRecord`, so a caller can
+ * hand it a decoded file without this module importing a decoder. `null` means agreement —
+ * the same convention `resolveImage`'s callers already read, and the reason the return type
+ * is a `LiftFailure` rather than a bespoke union is that an operator reads one sentence
+ * function for every way this driver can refuse.
+ */
+export function vouchedTranslation(
+  artifact: Pick<LiftedArtifact, 'translation'>,
+  record: { readonly name: string; readonly translationKeyCid?: { toString(): string } },
+): LiftFailure | null {
+  if (record.translationKeyCid === undefined) {
+    return { kind: 'record-vouches-for-no-translation', name: record.name }
+  }
+  const signed = record.translationKeyCid.toString()
+  const produced = artifact.translation.keyCid.toString()
+  if (signed === produced) return null
+  return {
+    kind: 'translation-key-mismatch',
+    name: record.name,
+    signed,
+    produced,
+    producedKey: describeKey(artifact.translation.key),
   }
 }
 

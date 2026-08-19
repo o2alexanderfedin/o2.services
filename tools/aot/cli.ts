@@ -64,11 +64,12 @@
  */
 
 import { realpathSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { MemoryBlockstore, decodeNameRecord, encodeNameRecord, signName } from '@o2/core'
 import type { NameRecord } from '@o2/core'
-import { describeLift, describeLiftFailure, liftElf } from './lift.ts'
+import type { CID } from 'multiformats/cid'
+import { describeLift, describeLiftFailure, liftElf, vouchedTranslation } from './lift.ts'
 
 const EXIT_CLEAN = 0
 const EXIT_FAILED = 1
@@ -92,7 +93,11 @@ const USAGE =
   // a build authority, because `guardModuleProvenance` refuses a bare CID.
   '  --publish-as   name to sign the artifact under; needs --signing-key\n' +
   '  --signing-key  the build authority seed, 64 lowercase hex\n' +
-  '  --record-out   where the signed record goes (default <out>.record.json)'
+  '  --record-out   where the signed record goes (default <out>.record.json)\n' +
+  // AOT-02's mismatch report. The publish step signs the translation key into the record;
+  // this is the reader that holds it beside a fresh lift's key — see `lift.ts`'s
+  // `translation-key-mismatch`.
+  '  --against-record  a signed record whose translation key this lift must agree with'
 
 /**
  * Why the arguments could not be used.
@@ -153,6 +158,14 @@ export type AotArgs =
       readonly signingKey?: string
       /** Where the signed record goes. Defaults to `<out>.record.json`. */
       readonly recordOut?: string
+      /**
+       * AOT-02 — a signed record whose translation key this lift must agree with.
+       *
+       * Independent of the publish flags on purpose: checking somebody else's record is the
+       * ordinary case, and requiring `--signing-key` to do it would mean an operator needed
+       * a build authority's private key to verify a build authority's claim.
+       */
+      readonly againstRecord?: string
     }
   | { readonly ok: false; readonly failure: ArgFailure }
 
@@ -188,6 +201,7 @@ const VALUE_FLAGS = [
   '--publish-as',
   '--signing-key',
   '--record-out',
+  '--against-record',
 ] as const
 
 /**
@@ -253,10 +267,12 @@ export function parseAotArgs(argv: readonly string[]): AotArgs {
 
   const out = values.get('--out') ?? `${input}.wasm`
   const recordOut = values.get('--record-out')
+  const againstRecord = values.get('--against-record')
   return {
     ok: true,
     input,
     out,
+    ...(againstRecord === undefined ? {} : { againstRecord }),
     // Omitted rather than `undefined` — see {@link AotArgs}.
     ...(image === undefined ? {} : { image }),
     ...(docker === undefined ? {} : { docker }),
@@ -292,7 +308,21 @@ export type PublishResult =
  */
 export async function publishArtifact(
   bytes: Uint8Array,
-  options: { readonly name: string; readonly signingKey: string; readonly validForMs?: number; readonly now?: number },
+  options: {
+    readonly name: string
+    readonly signingKey: string
+    readonly validForMs?: number
+    readonly now?: number
+    /**
+     * AOT-02 — the translation key CID this artifact came out of, signed into the record.
+     *
+     * Optional here and required in practice at the one call site below, which is the same
+     * split `LiftOptions` keeps: the function stays usable for bytes that were not lifted
+     * (a hand-built fixture, a record re-signed after a key rotation), and the driver that
+     * *did* lift always has one to supply.
+     */
+    readonly translationKeyCid?: CID
+  },
 ): Promise<PublishResult> {
   // Copied into a fresh buffer rather than passed through. `LiftedArtifact.bytes` is a plain
   // `Uint8Array` over an `ArrayBufferLike`, and the blockstore's contract is the narrower
@@ -307,6 +337,10 @@ export async function publishArtifact(
     cid,
     version: 1,
     expiresAt: now + (options.validForMs ?? 3_600_000),
+    // Omitted rather than `undefined`, so a record for bytes with no translation behind it
+    // hashes exactly as it did before this field existed. `naming.ts` states the rule and
+    // `naming.test.ts` holds it as a byte comparison.
+    ...(options.translationKeyCid === undefined ? {} : { translationKeyCid: options.translationKeyCid }),
   })
   const text = encodeNameRecord(record)
   const readBack = decodeNameRecord(text)
@@ -354,10 +388,47 @@ async function main(argv: readonly string[]): Promise<number> {
   process.stdout.write(`${describeLift(outcome.artifact)}\n`)
   process.stdout.write(`  written to ${args.out}\n`)
 
+  // AOT-02 — the mismatch report. Placed AFTER the artifact is written and its summary
+  // printed, deliberately: the bytes exist and are worth keeping whatever the record says,
+  // and an operator comparing against somebody else's record needs to see what this lift
+  // produced in order to act on the refusal. It is a refusal about a *claim*, not about the
+  // lift, so it must not suppress the lift's own output.
+  if (args.againstRecord !== undefined) {
+    let text: string
+    try {
+      text = await readFile(args.againstRecord, 'utf8')
+    } catch (error) {
+      process.stderr.write(
+        `${args.againstRecord} could not be read: ${error instanceof Error ? error.message : String(error)}\n`,
+      )
+      return EXIT_FAILED
+    }
+    const record = decodeNameRecord(text)
+    if (record === null) {
+      // Not routed through `describeLiftFailure`: nothing about the lift is in question,
+      // and `decodeNameRecord` returns `null` for every rejection by design, so there is no
+      // reason to relay.
+      process.stderr.write(`${args.againstRecord} is not a signed name record\n`)
+      return EXIT_FAILED
+    }
+    const disagreement = vouchedTranslation(outcome.artifact, record)
+    if (disagreement !== null) {
+      process.stderr.write(`${describeLiftFailure(disagreement)}\n`)
+      return EXIT_FAILED
+    }
+    process.stdout.write(
+      `  translation key agrees with the record for "${record.name}": ${outcome.artifact.translation.keyCid.toString()}\n`,
+    )
+  }
+
   if (args.publishAs !== undefined && args.signingKey !== undefined && args.recordOut !== undefined) {
     const published = await publishArtifact(outcome.artifact.bytes, {
       name: args.publishAs,
       signingKey: args.signingKey,
+      // AOT-02. The record vouches for the bytes AND for the translation they came out of,
+      // so a consumer holding a lift of its own can compare the two — `--against-record`
+      // below is this driver's own reader for it.
+      translationKeyCid: outcome.artifact.translation.keyCid,
     })
     if (!published.ok) {
       process.stderr.write(`${published.reason}\n`)
@@ -369,6 +440,7 @@ async function main(argv: readonly string[]): Promise<number> {
     // The operator's next step, printed because it is the one thing they cannot derive from
     // the file: a serving node runs this artifact only if it pins THIS key.
     process.stdout.write(`  pin this build authority on serving nodes: --trust-anchor ${published.record.signer}\n`)
+    process.stdout.write(`  translation key signed into the record: ${published.record.translationKeyCid?.toString() ?? 'none'}\n`)
   }
 
   return outcome.verdict === 'clean' ? EXIT_CLEAN : EXIT_RESERVATIONS

@@ -34,6 +34,7 @@ import {
   translationKeyOf,
   unidentifiedIn,
   verdictOf,
+  vouchedTranslation,
 } from './lift.ts'
 import type {
   LiftFailure,
@@ -2306,6 +2307,21 @@ describe('the driver fails by name, and fails early', () => {
         detail: 'ENOENT',
       },
       unnameable: { kind: 'unnameable', reason: { kind: 'blank-version', tool: 'clang' } },
+      // AOT-02, added 2026-08-18 with the mismatch report. The two arms are separate
+      // because they mean opposite things — *these are two different translations* against
+      // *there is nothing here to compare against* — and this mapped type is what makes
+      // adding one without a sentence a compile error rather than an `[object Object]`.
+      'translation-key-mismatch': {
+        kind: 'translation-key-mismatch',
+        name: 'demo/echo',
+        signed: 'bafyreigsignedkeycidplaceholderaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        produced: 'bafyreigproducedkeycidplaceholderaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        producedKey: 'aarch64-wasi32 · input sha256:00 · clang 16.0.0 · needs bulk-memory',
+      },
+      'record-vouches-for-no-translation': {
+        kind: 'record-vouches-for-no-translation',
+        name: 'demo/echo',
+      },
     }
     for (const [key, failure] of Object.entries(every)) {
       const text = describeLiftFailure(failure)
@@ -2891,5 +2907,86 @@ describe(`a real binary goes through the real toolchain (${SKIP_NOTE})`, () => {
 
   afterAll(() => {
     if (work !== '') rmSync(work, { recursive: true, force: true })
+  })
+})
+
+/**
+ * AOT-02 — the predicate that holds two translation keys at once.
+ *
+ * Three answers rather than a boolean, and the three-way split is the assertion: *the
+ * record vouches for this translation*, *the record vouches for a different one*, and
+ * *the record vouches for none* are different statements with different remedies, and a
+ * boolean would collapse the last two into the first refusal an operator would go and
+ * debug the wrong thing about.
+ *
+ * The end-to-end reading — the CLI signing the key into the record, reading the file back
+ * and refusing on disagreement — is in `cli.node.test.ts`. This is the predicate alone.
+ */
+describe('AOT-02 — a lift is held beside the translation key a record vouches for', () => {
+  const artifactWith = async (clang: string): Promise<{ translation: TranslationRecord }> => {
+    const key = {
+      inputDigest: '12200a0b',
+      target: LIFT_TARGET,
+      toolchain: { clang, 'wasi-sdk': 'wasi-sdk-20.0' },
+      features: ['bulk-memory'],
+    }
+    const named = await translationCid(key)
+    if (!named.ok) throw new Error(describeKeyFailure(named.failure))
+    const artifactCid = await new MemoryBlockstore().put(new Uint8Array([0, 97, 115, 109]))
+    return { translation: { keyCid: named.cid, key: named.key, artifactCid } }
+  }
+
+  it('is silent when the record vouches for the key this lift produced', async () => {
+    const artifact = await artifactWith('16.0.6')
+    expect(
+      vouchedTranslation(artifact, {
+        name: 'demo/lifted',
+        translationKeyCid: artifact.translation.keyCid,
+      }),
+    ).toBeNull()
+  })
+
+  it('names both keys when they differ, and renders the one it holds', async () => {
+    const mine = await artifactWith('17.0.1')
+    const theirs = await artifactWith('16.0.6')
+    // Not equal, or the case below asserts nothing — the whole fixture rests on one
+    // toolchain version moving the key.
+    expect(mine.translation.keyCid.toString()).not.toBe(theirs.translation.keyCid.toString())
+
+    const failure = vouchedTranslation(mine, {
+      name: 'demo/lifted',
+      translationKeyCid: theirs.translation.keyCid,
+    })
+    expect(failure?.kind).toBe('translation-key-mismatch')
+    if (failure === null || failure.kind !== 'translation-key-mismatch') return
+    expect(failure.signed).toBe(theirs.translation.keyCid.toString())
+    expect(failure.produced).toBe(mine.translation.keyCid.toString())
+    // Rendered through `describeKey` rather than restated here, so the two cannot drift
+    // into two accounts of one key — the rule `describeLiftFailure` already follows for
+    // `describeKeyFailure` and `describeRefusal`.
+    expect(failure.producedKey).toBe(describeKey(mine.translation.key))
+
+    const text = describeLiftFailure(failure)
+    expect(text).toContain(theirs.translation.keyCid.toString())
+    expect(text).toContain(mine.translation.keyCid.toString())
+    expect(text).toContain('17.0.1')
+    expect(text).toContain('demo/lifted')
+    // The limit is stated in the sentence rather than left to be inferred: the record
+    // carries the publisher's key by CID, so their `16.0.6` is not in the report.
+    expect(text).not.toContain('16.0.6')
+    expect(text).toContain('by CID and not by field')
+  })
+
+  it('says a record with no key is nothing to compare against, not a mismatch', async () => {
+    const artifact = await artifactWith('16.0.6')
+    const failure = vouchedTranslation(artifact, { name: 'demo/unlifted' })
+    expect(failure?.kind).toBe('record-vouches-for-no-translation')
+    if (failure === null) return
+    const text = describeLiftFailure(failure)
+    expect(text).toContain('carries no translation key')
+    expect(text).toContain('demo/unlifted')
+    // The two sentences must not read alike. A reader who cannot tell them apart is a
+    // reader sent to compare toolchains when the file simply predates the field.
+    expect(text).not.toContain('this lift produced')
   })
 })
