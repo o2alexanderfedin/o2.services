@@ -624,7 +624,7 @@ describe('production RemoteExecutor call sites state the chain explicitly', () =
   // four other sites keep the original reason unchanged and a shared sentence would have
   // made them look conditional too.
 
-  it('demo/main.ts: all four peer dispatches are public work', () => {
+  it('demo/main.ts: four peer dispatches and one candidate lookup, all of them public work', () => {
     // **Two until 2026-08-08, three until 2026-08-17, and the number moves because the page
     // gains a job.** `runColouring`, `runPi`, `runJob` and now `runPrimes` — four
     // constructions, one per job the demo can run, and all four write the unauthenticated
@@ -640,9 +640,30 @@ describe('production RemoteExecutor call sites state the chain explicitly', () =
     // red at that commit — found by the v1.1 re-audit re-running the suite rather than by
     // anything at the time. Bumping the number is the smaller half of the fix; saying which
     // site arrived, and why it is public work, is what stops the next bump being a reflex.
-    expect(occurrences(DEMO_MAIN, "'dispatches-unauthenticated'")).toBe(4)
-    // The other half of the same fact, because a count of four is equally what moving a
-    // sentinel onto a *fifth*, newly-added site would produce.
+    //
+    // **Five as of 2026-08-18, and the fifth is NOT a `RemoteExecutor` construction — which
+    // is why the two counts below now differ and must.** SCHED-01's candidate lookup
+    // (`discoveredDescriptors`) passes the sentinel as `CandidateOptions.dispatch`, and
+    // `discoverCandidates` builds every `RemoteExecutor` for the candidates it qualifies
+    // *inside* the helper. So a sentinel arrived without a construction arriving with it, and
+    // a reader meeting `5` against `4` should read that as the helper doing its job rather
+    // than as a site that forgot to build one. `bin/bench.ts`'s row below records the same
+    // asymmetry from the other side.
+    //
+    // **Why the fifth site is public work, on its own grounds rather than by inheritance.**
+    // It is the one site here that is not a job at all: it is the lookup that decides which
+    // peers a job may be placed on, and it dispatches nothing. Passing a supplier there would
+    // mint a chain per candidate for work that has not been described yet, and every executor
+    // the helper built would carry it — including the ones that go on to carry the four public
+    // jobs above. The page mints no chain anywhere, and the sentinel is that written down.
+    // The consequence is stated rather than hidden: a sovereign shard from this page reaches
+    // its executor unauthenticated and is refused there, measured 2026-08-18 off
+    // `demo-byo.e2e.test.ts` as *"unauthorized: no pinned owner key"*.
+    expect(occurrences(DEMO_MAIN, "'dispatches-unauthenticated'")).toBe(5)
+    // The other half of the same fact, because a count of five is equally what moving a
+    // sentinel onto a *sixth*, newly-added site would produce. Held at four deliberately: the
+    // lookup adds no construction, so this number is what separates "a fifth dispatch site
+    // arrived" from "a lookup arrived".
     expect(occurrences(DEMO_MAIN, 'new RemoteExecutor(')).toBe(4)
   })
 

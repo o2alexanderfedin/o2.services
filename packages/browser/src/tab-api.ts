@@ -153,6 +153,52 @@ export interface TabDiscoveryRound {
   readonly stalled: string[]
 }
 
+/**
+ * What the candidate lookup this page runs before every dispatch answered — SCHED-01.
+ *
+ * **Not {@link TabDiscoveryRound}, and the two are different questions asked of different
+ * things.** That one is about *connectivity*: who is here, and can this tab dial them. This
+ * one is about *eligibility*: of the peers already dialled, which ones advertise the block
+ * the job will read **and** hand over a capability record whose certificate verifies
+ * against an issuer this tab pinned. A peer can be in `dialed` and absent from `qualified`
+ * — that is the ordinary case for a peer that has not fetched the module yet — and the
+ * page must be able to say which of the two it is looking at.
+ *
+ * Every field is a reading of one lookup rather than a running total, so a caller comparing
+ * two of these is comparing two dispatches rather than a history.
+ */
+export interface TabCandidateLookup {
+  /**
+   * Whether the lookup ran at all.
+   *
+   * `false` is not a failure and is the ordinary state of an unenrolled tab: with no
+   * certificate this tab has pinned no issuer, and a records answer verified against an
+   * empty issuer set is a peer vouching for itself. {@link TabCandidateLookup.declined}
+   * carries which of the reasons it was.
+   */
+  readonly asked: boolean
+  /** Why the lookup did not run, or `null` when it did. */
+  readonly declined: string | null
+  /** The CID whose providers were asked for — the module the dispatch will name. */
+  readonly inputCid: string
+  /** How many distinct node keys answered that they hold it, qualified or not. */
+  readonly providers: number
+  /** Peer ids that survived the intersection, in the order the lookup returned them. */
+  readonly qualified: string[]
+  /**
+   * The owner id each qualified peer's certificate names, index-aligned with `qualified`.
+   *
+   * This is the field the sovereign arm turns on: a descriptor built from a lookup carries
+   * the user key its certificate was signed over, where the placeholder this page falls
+   * back to declares the literal `public` for everybody.
+   */
+  readonly owners: string[]
+  /** Every provider the intersection rejected, as `<node key prefix>: <reason>`. */
+  readonly excluded: string[]
+  /** Qualified node keys naming no peer id this transport could dial. */
+  readonly undialable: string[]
+}
+
 /** BROW-03 — what the visibility governor is doing right now. */
 export interface TabGovernorState {
   readonly hidden: boolean
@@ -935,6 +981,17 @@ export interface TabApi {
    * this is the shape that cannot break it, because there is no field to branch on.
    */
   computePeers(): Promise<string[]>
+  /**
+   * What the last candidate lookup answered — SCHED-01 — or `null` before the first
+   * dispatch of this session.
+   *
+   * A reading of something that already happened rather than a way to make it happen: the
+   * lookup runs inside every dispatch this page makes, because the descriptors it produces
+   * are what placement is given. There is deliberately no method that runs one on demand —
+   * that would be a second lookup able to disagree with the one the job used, and the
+   * question this surface answers is *what did the run I just watched place over*.
+   */
+  lastCandidates(): TabCandidateLookup | null
   addresses(): TabAddresses
   /** Resolves once a relay reservation has produced a dialable `/webrtc` address. */
   waitForWebrtcAddr(timeoutMs: number): Promise<string[]>

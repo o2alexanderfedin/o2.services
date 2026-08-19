@@ -812,12 +812,19 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * readable row as unreadable is the failure this list's set equality exists to catch.
  *
  * **The rule that this is still sited at the register's own size with no slack is unchanged**,
- * and it is what makes the raise legible as a cost: 11 is the measurement, not a headroom
- * grant, and the next departure lowers it within the hour rather than the next time somebody
- * notices. A ceiling raised to 12 "in case" would be the 14-against-11 defect above, repeated
- * by an agent who had just finished reading the note about it.
+ * and it is what makes the raise legible as a cost: the number is the measurement, not a
+ * headroom grant, and the next departure lowers it within the hour rather than the next time
+ * somebody notices. A ceiling raised "in case" would be the 14-against-11 defect above,
+ * repeated by an agent who had just finished reading the note about it.
+ *
+ * **Lowered 11 → 10 on 2026-08-18, in the same commit that removed `SCHED-01`.** That row
+ * acquired the thing its entry promised — a caller of `discoverCandidates` with no flag in
+ * front of it, `packages/browser/demo/main.ts`'s `discoveredDescriptors` — so it left by
+ * being satisfied rather than by being re-recorded, which is the departure the paragraph
+ * above says the ceiling must follow. It is written here within the hour, as that paragraph
+ * requires.
  */
-const REREAD_REGISTER_CEILING = 11
+const REREAD_REGISTER_CEILING = 10
 
 /**
  * ## The rule this list encodes
@@ -1295,11 +1302,20 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // `RpcRecordIndex(rpc, () => verifier.verifiedPeers)` at `browser-node.ts:1526` and
   // exposes it as `readonly recordIndex` at `:917` — and `.recordIndex` occurs exactly
   // twice in the whole repository, both assignments (`browser-node.ts:1092`,
-  // `fabric-node.ts:1621`). Nothing on either tier reads it. A tab's executor pool comes
-  // from a caller-supplied `options.peerIds`; the index answer lands in a descriptor's
-  // `certificate` field as an annotation and never as a filter, which `peerCertificate`'s
-  // own docblock states at `main.ts:453-456`. `packages/browser/**` contains zero
-  // occurrences of `discoverCandidates` or `discoverExecutors`.
+  // `fabric-node.ts:1621`). Nothing on either tier reads it. A tab's executor pool still
+  // comes from a caller-supplied `options.peerIds`, and the index answer still lands in a
+  // descriptor's `certificate` field as an annotation rather than as a filter, which
+  // `peerCertificate`'s own docblock states.
+  //
+  // **The last sentence of this paragraph read *"`packages/browser/**` contains zero
+  // occurrences of `discoverCandidates` or `discoverExecutors`"* until 2026-08-18, and it
+  // stopped being true that day.** `demo/main.ts`'s `discoveredDescriptors` calls
+  // `discoverCandidates` on every dispatch this page makes, which is what closed `SCHED-01`
+  // and removed its entry from below. It does **not** close this row, and the distinction is
+  // the one this entry was already about: `discoverCandidates` builds its own bare
+  // `RpcRecordIndex` internally (`discover-candidates.ts:194`) and has no field through which
+  // a caller could hand it `BrowserNode.recordIndex`. So the composed `DhtRecordIndex` is
+  // still the port with no reader, and the promise this id carries is unchanged.
   //
   // Phrased as a symbol claim this would read *"`recordIndex` is written and never read"*,
   // which is not a shape `parseRows` reads — the `NO_CALLER` family is about call sites,
@@ -1309,42 +1325,30 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   //
   // `.planning/consults/2026-08-15-owner-ruling-off-by-default-flag.md`: *"It must work with
   // no flag."* Three rows were unticked under it — `SCHED-01`, `MR-02` and `VER-09` — and
-  // only two arrive here, which is the register working rather than the sweep being
+  // only two arrived here, which is the register working rather than the sweep being
   // incomplete. `VER-09` carries `describeAttestation` **has no production caller**, a claim
   // this file reads for itself, so adding it would be recording as unreadable a row another
   // case in this same file already reads.
   //
-  // Both entries below are `entry-point-not-driven` in the most literal sense the bucket has:
+  // **`SCHED-01`'s entry stood here and was removed on 2026-08-18, the same day it was
+  // added, because the row was satisfied rather than re-recorded.** Its promise was *"to
+  // build a no-flag caller, not to look for one"*, and `packages/browser/demo/main.ts`'s
+  // `discoveredDescriptors` is that caller. The removal is recorded rather than silent
+  // because the set equality below is a two-way check and a reader meeting a smaller
+  // register needs to find which direction moved it. `MR-02` did not move with it: what
+  // that row needs is a sovereign shard that **executes**, and the same day's measurement
+  // off `demo-byo.e2e.test.ts` shows the page cannot yet reach one — `authorizeCapability`
+  // answers *"no pinned owner key"* on every peer tab and `guardSovereignty` answers
+  // *"not cleared to execute sovereign data"* on the submitting one.
+  //
+  // The entry below is `entry-point-not-driven` in the most literal sense the bucket has:
   // the mechanism is measured, and the only thing that reaches it is a command-line flag that
-  // is off unless somebody types it. Neither can be phrased as one of the three checkable
-  // shapes, and the reason is the same for both — the symbol they turn on **does** have a
-  // production caller, so `NO_CALLER` is false of it, and `ONLY_THROUGH` cannot express
-  // *"reachable only when `DISCOVER` is true"* because `DISCOVER` is a module-scope `const` in
-  // `bin/bench.ts` and not an export, so the extraction filters it out and the sentence
-  // silently stops being a claim. That is the gap this register exists for.
-  {
-    // `SCHED-01` — discovery by querying providers of a data CID intersected with capability
-    // records. `discoverCandidates` has exactly ONE production call site, `bin/bench.ts:1541`,
-    // inside `if (DISCOVER) {` at `:1521`; `discoverExecutors` is reached only through it
-    // (`net/src/discover-candidates.ts:198`). The behavioural half is untouched and is
-    // measured across seven real spawned `bin/agent.ts` processes.
-    //
-    // **The promise this id carries is to build a no-flag caller, not to look for one**, and
-    // the shape is already precedented one requirement over: `admit` moved onto the demo
-    // page's Run button on 2026-08-16 and that is why `SCHED-02` and `SCHED-03` kept their
-    // boxes on this same sweep. Discovery has had no equivalent move.
-    id: 'SCHED-01',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-18',
-    // Measured, not typed: added empty, and the drift case named these four on the run that
-    // followed — which is the field doing the job its docblock claims for it.
-    witnesses: [
-      'packages/core/src/discovery.test.ts',
-      'packages/net/src/discover-candidates.test.ts',
-      'packages/net/src/provider-merge.test.ts',
-      'packages/node/src/provider-answering.node.test.ts',
-    ],
-  },
+  // is off unless somebody types it. It cannot be phrased as one of the three checkable
+  // shapes — the symbol it turns on **does** have a production caller, so `NO_CALLER` is
+  // false of it, and `ONLY_THROUGH` cannot express *"reachable only when `DISCOVER` is
+  // true"* because `DISCOVER` is a module-scope `const` in `bin/bench.ts` and not an export,
+  // so the extraction filters it out and the sentence silently stops being a claim. That is
+  // the gap this register exists for.
   {
     // `MR-02` — each owner computes a local partial over its own data with no map-side
     // movement. `reduceSovereignJob` has exactly one production call site, `bin/bench.ts:1799`,

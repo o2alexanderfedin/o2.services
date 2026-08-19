@@ -129,6 +129,16 @@ import { armOrphanLeash } from '../orphan-leash.ts'
  * adapter with no callers is the defect this milestone exists to remove, and naming it is
  * not the same as fixing it.* This is that path.
  *
+ * **This paragraph read *"This is that path"* as though it were the only one, and it stopped
+ * being that on 2026-08-18.** `packages/browser/demo/main.ts`'s `discoveredDescriptors` is a
+ * second production caller, on the demo page with no flag in front of it, built under the
+ * owner ruling of 2026-08-15 (*"It must work with no flag"*) — which held that reachability
+ * from a flagged branch is not the same as being shipped. The reachability sentence above is
+ * still true of this call site; what is no longer true is that it carries the requirement
+ * alone. The reason this flag stays off by default is below and is untouched by that ruling,
+ * because it is a statement about the published curve rather than about what counts as
+ * delivered.
+ *
  * ## Why it is off by default
  *
  * 15-CONTEXT.md decision 2 — a published scaling curve must not be reshaped by a change

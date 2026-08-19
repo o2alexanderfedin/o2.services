@@ -57,10 +57,11 @@ import type {
   StartFailure,
   StartOutcome,
 } from '@o2/core'
-import { nodeKeyForPeerId } from '@o2/libp2p'
+import { nodeKeyForPeerId, peerIdForNodeKey } from '@o2/libp2p'
 import {
   RemoteExecutor,
   RpcRecordIndex,
+  discoverCandidates,
   encodeRequest,
   findReservedPeers,
   parseResponse,
@@ -116,6 +117,7 @@ import {
 import type {
   GrantedConsent,
   TabApi,
+  TabCandidateLookup,
   TabConsentState,
   TabDiscoveryRound,
   TabEnrolmentOffer,
@@ -531,6 +533,161 @@ async function peerCertificate(
 }
 
 /**
+ * How long this page waits for the candidate lookup before dispatching without it.
+ *
+ * Sited at {@link RECORDS_DEADLINE_MS} and for that function's reason rather than by
+ * coincidence: both are per-dispatch lookups whose answer improves a placement, and a page
+ * that stalled a minute per peer to improve one would be a worse product than a page that
+ * placed on what it already knew. `discoverCandidates` fans `providers` out concurrently
+ * and `recordsFor` sequentially, so a single wedged peer can hold the whole lookup open for
+ * this tab's `rpcTimeoutMs` (60 s) — which is the case this deadline exists for and the
+ * only one, because a peer that is merely absent fails multistream negotiation at once.
+ */
+const CANDIDATES_DEADLINE_MS = 5_000
+
+/**
+ * The last candidate lookup this page ran — SCHED-01, and the reading
+ * {@link TabApi.lastCandidates} returns.
+ *
+ * Module-level beside {@link planner} and for the same reason: it describes a run rather
+ * than a node, so a tab that restarts must not report the candidates of a fabric whose
+ * connections no longer exist. Reset in {@link TabApi.stop}.
+ */
+let lastCandidates: TabCandidateLookup | null = null
+
+/**
+ * Who advertises the block this job will read, and hands over a capability record that
+ * verifies — **SCHED-01, and this page is its first production caller.**
+ *
+ * ## Why this exists at all when {@link attestedNodes} was already asking peers questions
+ *
+ * `attestedNodes` asks each *already-chosen* peer for its records and stops there; its own
+ * docblock says in as many words that *"it is **not** discovery … nothing in this function
+ * changes who is asked to run anything"*. SCHED-01 is the other half of that sentence: the
+ * requestor asks **who has the block**, and intersects that answer with the capability
+ * records. Until this call site existed, `discoverCandidates` had exactly one production
+ * caller in the repository — `bin/bench.ts:1541`, inside `if (DISCOVER)` — so no path a
+ * person could run without typing a flag ever queried providers of a data CID. The owner
+ * ruling of 2026-08-15 (`.planning/consults/2026-08-15-owner-ruling-off-by-default-flag.md`)
+ * answered *"It must work with no flag"*, and named the demo page's Run button as the
+ * method rather than the escape.
+ *
+ * ## What it changes about a dispatch, stated precisely so nothing more is read into it
+ *
+ * The descriptors this returns replace the placeholder ones **for the peers it qualifies
+ * and for nobody else**. That matters on exactly one field: a discovered descriptor's
+ * `ownerId` is `certificate.userKey`, the identity a provider signed, where
+ * {@link attestedNodes} declares the literal `public` for everybody. `eligibleNodes` places
+ * a sovereign shard only where the owner ids are **equal**, so a page whose descriptors all
+ * say `public` can never place an owner-pinned shard anywhere — which is what
+ * `demo-byo.e2e.test.ts`'s `[sovereign·unowned]` arm reads, and what this repairs.
+ *
+ * On a public shard it changes no placement, because `eligibleNodes` returns every node for
+ * a public request. That is not a reason to run it only on the sovereign arm: a lookup that
+ * ran on one surface and not the others would be a second thing able to disagree with the
+ * first, and the page would place over two differently-derived pools depending on which
+ * button was pressed.
+ *
+ * ## Two named absences, and neither is a failure
+ *
+ * **No certificate, so no anchor.** A tab nobody enrolled has pinned no issuer, and
+ * verifying a peer's records against an empty issuer set is accepting a peer's word for a
+ * peer's identity — the same argument {@link peerCertificate} makes at length. It answers
+ * `asked: false` and the page falls back, rather than qualifying nobody and calling that a
+ * result.
+ *
+ * **Nobody advertises the block yet.** A peer holds the module only once it has fetched it,
+ * which happens the first time it executes. So the first dispatch of a cold fabric
+ * qualifies nobody and the later ones qualify the peers that ran it — that is `providers`
+ * behaving exactly as specified, not a defect, and {@link TabCandidateLookup.providers}
+ * exists so a reader can tell the two apart instead of inferring it from an empty list.
+ */
+async function discoveredDescriptors(
+  n: BrowserNode,
+  inputCid: CID,
+): Promise<ReadonlyMap<string, NodeDescriptor>> {
+  const none = new Map<string, NodeDescriptor>()
+  const held = n.certificate
+  if (held === null) {
+    lastCandidates = {
+      asked: false,
+      declined:
+        'this tab holds no certificate, so it has pinned no issuer — a records answer checked ' +
+        'against an empty issuer set is a peer vouching for itself',
+      inputCid: inputCid.toString(),
+      providers: 0,
+      qualified: [],
+      owners: [],
+      excluded: [],
+      undialable: [],
+    }
+    return none
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const found = await Promise.race([
+    // Both arms land on the same named absence, exactly as `peerCertificate`'s race does:
+    // the one thing a lookup that decorates a placement may never do is throw into a job.
+    discoverCandidates(
+      { inputCid },
+      {
+        rpc: n.rpc,
+        // `verifiedPeers` and not `transport.peers` — `discover-candidates.ts`'s own
+        // recommendation, and it is load-bearing here rather than cautious: a provider list
+        // steers where work goes, so a peer that has not cleared verification does not get
+        // to put an entry in one. A tab that pinned nobody never reaches this line.
+        peers: () => n.verifiedPeers,
+        // The same anchor `peerCertificate` uses and for the same reason — this tab's own
+        // issuer is the only key it holds that was not handed to it by the peer being
+        // checked.
+        trustedIssuers: new Set([held.issuer]),
+        now: () => Date.now(),
+        peerIdFor: peerIdForNodeKey,
+        // AUTH-03's sentinel, matching every `RemoteExecutor` this page constructs. A
+        // discovered candidate is dispatched to over the same unauthenticated layer as a
+        // listed one; nothing here mints a chain, and claiming otherwise by passing a
+        // supplier that produced none would be worse than saying so.
+        dispatch: 'dispatches-unauthenticated',
+      },
+    ).catch(() => undefined),
+    new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), CANDIDATES_DEADLINE_MS)
+    }),
+  ]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer)
+  })
+
+  if (found === undefined) {
+    lastCandidates = {
+      asked: true,
+      declined: `no answer inside ${String(CANDIDATES_DEADLINE_MS)}ms`,
+      inputCid: inputCid.toString(),
+      providers: 0,
+      qualified: [],
+      owners: [],
+      excluded: [],
+      undialable: [],
+    }
+    return none
+  }
+
+  lastCandidates = {
+    asked: true,
+    declined: null,
+    inputCid: inputCid.toString(),
+    providers: found.providers,
+    qualified: found.nodes.map((node) => node.nodeId),
+    owners: found.nodes.map((node) => node.ownerId),
+    // `detail` and not `reason`: the kernel already writes one line per exclusion *"fit to
+    // show a human staring at an empty candidate list"*, and composing a second sentence
+    // here would be this page disagreeing with the fabric about why somebody was dropped.
+    excluded: found.excluded.map((one) => one.detail),
+    undialable: [...found.undialable],
+  }
+  return new Map(found.nodes.map((node) => [node.nodeId, node]))
+}
+
+/**
  * The candidate pool for a job this page composes, with signed statements where this tab
  * holds them — VER-09, VER-10.
  *
@@ -548,36 +705,54 @@ async function peerCertificate(
 async function attestedNodes(
   n: BrowserNode,
   executors: readonly { readonly nodeId: string }[],
+  inputCid: CID,
 ): Promise<readonly NodeDescriptor[]> {
+  // SCHED-01. Run first and awaited, because what it answers decides which of the two
+  // descriptors below each executor gets.
+  const discovered = await discoveredDescriptors(n, inputCid)
   // Concurrently: one round trip per peer, and asking in sequence would pay their sum for
   // no benefit — `RpcRecordIndex.providers` gives the same reason for the same shape.
   return Promise.all(
-    executors.map(async (executor) => ({
-      nodeId: executor.nodeId,
-      ownerId: 'public',
-      canExecuteSovereign: true,
-      load: 0,
-      // **AUTH-02 — what this tab's named absence will come to mean, and it does not mean
-      // it yet.** Today a tab holding no certificate joins, is advertised and is dialled on
-      // exactly the terms an enrolled one is; the absence costs it only a receipt a third
-      // party could check, which is what the panel already reports in the kernel's own
-      // words. Phase 24's ruling moves the decision to the relay reservation — where a
-      // node's life in the fabric begins — and then this same absence becomes the reason a
-      // tab is not let in. So: **this tab can enrol, and until it does it will not be
-      // admitted.**
+    executors.map(async (executor) => {
+      // **The discovered descriptor wins outright where there is one, and this is a
+      // replacement rather than a merge on purpose.** Its four fields were derived together
+      // from one certificate verified at one instant; taking `ownerId` from the lookup and
+      // `certificate` from the fallback would produce a descriptor no single reading ever
+      // supported, which is the shape `discover-candidates.ts` warns about when it explains
+      // why `replicaSets` is computed at the moment of qualification rather than later.
       //
-      // A fact about what *this tab* was handed, never a kind of node. Enrolment stays open
-      // precisely so a tab in this state can leave it, and the tab beside it that did enrol
-      // is the same class with a different value in this field.
-      //
-      // **Nothing in this repository refuses anybody on this ground as of 2026-08-06.** Plan
-      // 24-03 is the one that arms it; a reader meeting this before that lands is reading a
-      // promise about the next plan, not a description of this one.
-      certificate:
-        executor.nodeId === n.peerId
-          ? (n.certificate ?? 'carries-no-certificate')
-          : await peerCertificate(n, executor.nodeId),
-    })),
+      // Keyed on `nodeId`, which is the **peer id** on both sides — `discoverCandidates`
+      // builds its descriptors on the id the transport knows precisely so this comparison
+      // is possible, and `submit.ts` names the alternative `missing-node-descriptor`.
+      const found = discovered.get(executor.nodeId)
+      if (found !== undefined) return found
+      return {
+        nodeId: executor.nodeId,
+        ownerId: 'public',
+        canExecuteSovereign: true,
+        load: 0,
+        // **AUTH-02 — what this tab's named absence will come to mean, and it does not mean
+        // it yet.** Today a tab holding no certificate joins, is advertised and is dialled on
+        // exactly the terms an enrolled one is; the absence costs it only a receipt a third
+        // party could check, which is what the panel already reports in the kernel's own
+        // words. Phase 24's ruling moves the decision to the relay reservation — where a
+        // node's life in the fabric begins — and then this same absence becomes the reason a
+        // tab is not let in. So: **this tab can enrol, and until it does it will not be
+        // admitted.**
+        //
+        // A fact about what *this tab* was handed, never a kind of node. Enrolment stays open
+        // precisely so a tab in this state can leave it, and the tab beside it that did enrol
+        // is the same class with a different value in this field.
+        //
+        // **Nothing in this repository refuses anybody on this ground as of 2026-08-06.** Plan
+        // 24-03 is the one that arms it; a reader meeting this before that lands is reading a
+        // promise about the next plan, not a description of this one.
+        certificate:
+          executor.nodeId === n.peerId
+            ? (n.certificate ?? 'carries-no-certificate')
+            : await peerCertificate(n, executor.nodeId),
+      }
+    }),
   )
 }
 
@@ -1128,7 +1303,7 @@ const api: TabApi = {
         moduleRecord: PI_RECORD,
         shards: Array.from({ length: options.shards }, () => ({ value: input, label: 'public' as const })),
         executors,
-        nodes: await attestedNodes(node, executors),
+        nodes: await attestedNodes(node, executors, moduleCid),
         redundancy: options.redundancy,
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
@@ -1283,7 +1458,7 @@ const api: TabApi = {
         // arrangement, reused rather than reinvented, and `primes.ts` says why in its header.
         shards: Array.from({ length: options.shards }, () => ({ value: input, label: 'public' as const })),
         executors,
-        nodes: await attestedNodes(node, executors),
+        nodes: await attestedNodes(node, executors, moduleCid),
         redundancy: options.redundancy,
         onQuorumShortfall: 'runs-at-available-redundancy',
       },
@@ -1503,7 +1678,7 @@ const api: TabApi = {
         // account for. `publicNodes(executors)` stood here and answered
         // `'carries-no-certificate'` for every node unconditionally, which is what made
         // every receipt this demo has ever produced the named absence.
-        nodes: await attestedNodes(node, executors),
+        nodes: await attestedNodes(node, executors, moduleCid),
         redundancy: options.redundancy,
         // VER-03/VER-04. A tab fabric is routinely one operator, and routinely behind
         // one relay — which is the topology this demo exists to show, not a degenerate
@@ -1735,6 +1910,13 @@ const api: TabApi = {
     return answers.filter((peer): peer is string => peer !== null)
   },
 
+  lastCandidates() {
+    // Returned as held. Every field is already a scalar or a fresh array this module built
+    // and nothing else retains, so there is no copy to defend — and a `structuredClone`
+    // here would be ceremony that hid that fact rather than establishing it.
+    return lastCandidates
+  },
+
   addresses() {
     const n = required()
     return { peerId: n.peerId, webrtc: [...n.webrtcAddrs], circuit: [...n.circuitAddrs] }
@@ -1942,16 +2124,21 @@ const api: TabApi = {
         ? { value: { a: i }, label: 'public' as const }
         : { value: { a: i }, label: 'sovereign' as const, ownerId: options.sovereign.ownerId },
     )
+    // Bound once rather than parsed twice: SCHED-01's lookup asks who provides **this**
+    // module, and a second `CID.parse` of the same string would be a second value able to
+    // disagree with the one the dispatch names.
+    const moduleCid = CID.parse(options.moduleCid)
     // `submitJobWithEgress`, not bare `submitJob` — see `runColouring` above for why.
     const result = await submitJobWithEgress(
       {
-        moduleCid: CID.parse(options.moduleCid),
+        moduleCid,
         moduleRecord,
         shards,
         executors,
         // As `runColouring` above — see that call site for what replaced `publicNodes`
-        // here and why.
-        nodes: await attestedNodes(n, executors),
+        // here and why. SCHED-01's lookup rides inside it, keyed on the module this form
+        // named — which on this surface is the field that makes the sovereign arm placeable.
+        nodes: await attestedNodes(n, executors, moduleCid),
         redundancy: options.redundancy,
         // VER-03/VER-04 — the same choice and the same reason as `runColouring` above:
         // a tab fabric that refused every shard it could not independently verify would
@@ -2036,6 +2223,11 @@ const api: TabApi = {
     // tab has none of them, so carrying the counts across would let a fresh run inherit
     // a verdict — "given up on this peer" — that nothing in it justifies.
     planner = new DialPlanner()
+    // SCHED-01, and the same argument one line up: a candidate lookup names peer ids and
+    // owner keys of a fabric this tab is no longer in. Reported as "no lookup has run"
+    // rather than kept, because a stale one would be answered to a caller asking what the
+    // *next* run will place over.
+    lastCandidates = null
     notify()
   },
 }

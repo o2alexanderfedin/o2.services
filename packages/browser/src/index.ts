@@ -31,6 +31,10 @@ export type {
   TabActivity,
   TabAddresses,
   TabApi,
+  // SCHED-01 — exported for the reason `TabNameRecord` below is: the shape crosses
+  // `page.evaluate` into `packages/node`'s e2e harnesses, and a hand-written literal
+  // there would drift from what `lastCandidates()` actually returns.
+  TabCandidateLookup,
   TabConsentState,
   TabDiscoveryRound,
   TabEnrolmentOffer,
