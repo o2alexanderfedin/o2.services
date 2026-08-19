@@ -1629,6 +1629,39 @@ const MARKER_SPLIT = /(\d+) are \*Built, not wired\*, (\d+) are \*Partial\*/
 /** The count of `[x]` before the v1.0 audit, which the header quotes as its baseline. */
 const CHECKED_BEFORE_AUDIT = 68
 
+/**
+ * The v1 rows that were **already `[ ]` before the v1.0 audit** — the header's "never checked".
+ *
+ * ## Why this exists, and it is a defect this file was carrying
+ *
+ * The split below read `moved === CHECKED_BEFORE_AUDIT - V1_CHECKED` until 2026-08-19. That
+ * identity is not a definition; it is a **consequence** that holds only while every box now
+ * `[x]` was also `[x]` before the audit. `AOT-05` broke it — it is one of the four rows that
+ * were never checked before the audit and it has since been ticked — so the subtraction
+ * counts one row that did not move, and the header has been quoting `2 moved` / `4 never`
+ * where the tree says **3 and 3**. Nothing caught it because nothing here read membership.
+ *
+ * Two further consequences, both of which decided the rewrite rather than merely arguing for
+ * it. The subtraction goes **negative** the moment `V1_CHECKED` passes 68 — which the next
+ * three closes do — and a negative cannot be written into a sentence the regex parses as
+ * `(\d+)`. And a count derived from a count can only ever disagree with the prose; a count
+ * derived from *membership* can disagree with the tree, which is the thing worth catching.
+ *
+ * ## How this set was derived, so it can be checked rather than believed
+ *
+ * From this file's own git history, not from a summary. `9d8c1adefcc8b960bf12595ddc4443014bccbd36`
+ * is the last revision of `.planning/REQUIREMENTS.md` whose `## v1 Requirements` section holds
+ * 68 `[x]` — the baseline {@link CHECKED_BEFORE_AUDIT} quotes — and its four `[ ]` rows are
+ * exactly these. Re-derivable in one line:
+ *
+ *   git show 9d8c1ad:.planning/REQUIREMENTS.md | awk '/^## v1 Requirements/{f=1;next} \
+ *     /^## v1.1 Requirements/{f=0} f' | grep '^- \[ \]'
+ *
+ * The two figures are tied to each other below rather than both stated, so a future edit
+ * cannot move one without the other.
+ */
+const NEVER_CHECKED_BEFORE_AUDIT: readonly string[] = ['AOT-03', 'AOT-05', 'BENCH-06', 'NET-03']
+
 function numbers(pattern: RegExp): number[] {
   const match = pattern.exec(LEDGER_SOURCE)
   if (match === null) return []
@@ -2324,7 +2357,24 @@ describe('the header states counts that the ledger below it bears out', () => {
   it('splits the unchecked boxes into moved and never-checked, and the split closes', () => {
     const [unchecked, moved, never] = numbers(MOVED_AND_NEVER)
     expect(unchecked).toBe(V1_UNCHECKED)
-    expect(moved).toBe(CHECKED_BEFORE_AUDIT - V1_CHECKED)
+
+    // The baseline and the set are tied to each other rather than both asserted, so an edit
+    // cannot move one and leave the other. 72 boxes, 4 of which were `[ ]` before the audit,
+    // is what "down from the 68 that were checked" means as a statement about rows.
+    expect(CHECKED_BEFORE_AUDIT).toBe(V1_BOXES.size - NEVER_CHECKED_BEFORE_AUDIT.length)
+    // And every id in it is a real v1 row — otherwise a typo would silently shrink the
+    // never-checked count and inflate `moved`, which is the direction that flatters.
+    for (const id of NEVER_CHECKED_BEFORE_AUDIT) expect(V1_BOXES.has(id)).toBe(true)
+
+    // **Membership, not subtraction** — see {@link NEVER_CHECKED_BEFORE_AUDIT} for the defect
+    // the subtraction was carrying. "Never checked" is how many of the rows that were already
+    // `[ ]` before the audit are still `[ ]`; "moved" is the rest of the unchecked boxes, all
+    // of which were therefore `[x]` before it.
+    const stillNeverChecked = NEVER_CHECKED_BEFORE_AUDIT.filter(
+      (id) => V1_BOXES.get(id) === false,
+    ).length
+    expect(never).toBe(stillNeverChecked)
+    expect(moved).toBe(V1_UNCHECKED - stillNeverChecked)
     // The arithmetic this replaces did not close: it read 35 checked, down from 68,
     // with 37 moved. 68 − 35 is 33, and the missing 4 are the boxes never checked.
     expect((moved ?? 0) + (never ?? 0)).toBe(V1_UNCHECKED)

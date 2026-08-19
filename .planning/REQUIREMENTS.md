@@ -12,8 +12,18 @@
 ## How to read the checkboxes
 
 **66 of 72 are `[x]`.** That is down from the 68 that were checked before the v1.0
-milestone audit. Of the 6 now unchecked, **2 moved** and **4 were never checked**;
-none of the 6 moved because the work was undone. The one row that ever did — VER-02,
+milestone audit. Of the 6 now unchecked, **3 moved** and **3 were never checked**;
+none of the 6 moved because the work was undone. **These two figures read `2` and `4`
+until 2026-08-19 and both were wrong, and the guard that checks them was the reason.**
+`requirements-ledger.node.test.ts` derived `moved` as `68 − 66` — an identity that holds
+only while every box now `[x]` was also `[x]` before the audit, and `AOT-05` broke it: it
+is one of the four rows that were never checked before the audit and it has since been
+ticked, so the subtraction counted a row that never moved. The four are `AOT-03`,
+`AOT-05`, `BENCH-06` and `NET-03`, read out of the last revision of this file whose v1
+section holds 68 `[x]`; three of them are still open, and the other three open rows —
+`VER-09`, `AUTH-03`, `MR-02` — did move. The guard now derives the split from that
+membership rather than from a subtraction, so it can disagree with the tree instead of
+only with itself. The one row that ever did — VER-02,
 whose box was cleared on 2026-07-30 because the mechanism behind it was found to check
 nothing and was deleted — is checked again as of 2026-08-11, over a different mechanism.
 Read this before drawing a conclusion from the count.
