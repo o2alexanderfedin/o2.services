@@ -232,14 +232,14 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   'browser/revokeEnrolment',
   'browser/visitorKeyPair',
   'browser/visitorOperatorId',
-  // CHURN-03, 2026-08-16. `main.ts#runColouring` — a member of the same `api` literal as
-  // `runPi` and `verifyAnswer` — passes `checkpointsInto(node.store)` as `SubmitOptions.checkpoints`,
-  // which is what closes criterion 7's write half. It is hidden by the same `window.o2`
-  // assignment as everything else on this list and by nothing else: there is one caller, it is
-  // cross-file, and it is in the literal. Not read off the source — the derived case named it
-  // verbatim, *"expected [ 'core/checkpointsInto' ] to deeply equal []"*, which is the G14
-  // defence doing its job for the third recorded time.
-  'core/checkpointsInto',
+  // `core/checkpointsInto` stood here from 2026-08-16 until 2026-08-18 and its entry is gone
+  // rather than rewritten, because the symbol is no longer hidden by anything. It was on this
+  // list for one reason: its only caller was `main.ts#runColouring`, behind the `window.o2`
+  // assignment the walk cannot follow. `bin/agent.ts`'s `--coordinate` leg now calls it too,
+  // from a Node entry point the graph traces directly, so there is nothing left to dispose.
+  // Not read off the source: the derived case went red first and named it verbatim,
+  // *"expected [ 'core/checkpointsInto' ] to deeply equal []"* — the same G14 defence that
+  // put it here, working in the other direction.
   'core/describeStartReport',
   // AUTH-01, 2026-08-17. See the visitor-enrolment block above for why a `core/` symbol is on a
   // list of things the demo page hides: CRYPTO-01 requires the `generateKey` call to live in
@@ -257,16 +257,29 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   // *"expected [ 'demo/buildPrimesInput', 'demo/projectPrimeCount', 'demo/readPrimeCount' ] to
   // deeply equal []"*, which is the G14 defence doing its job for the fourth recorded time.
   //
-  // `readPrimeCount` has no direct call in `main.ts` and belongs here anyway: `projectPrimeCount`
-  // calls it, so it is reachable through the same hop one edge further along.
+  // `readPrimeCount` has no direct call in `main.ts` and belonged here for that reason:
+  // `projectPrimeCount` calls it, so it was reachable through the same hop one edge further
+  // along.
+  //
+  // **`demo/projectPrimeCount` and `demo/readPrimeCount` left this list on 2026-08-19, and
+  // they are gone rather than rewritten** — the same shape, and the same direction, as
+  // `core/checkpointsInto` above. `bin/agent.ts`'s sovereign coordinator leg (AUTH-03/MR-02/
+  // VER-09) calls both from a Node entry point the graph traces directly: `projectPrimeCount`
+  // is the aggregation's projection and `readPrimeCount` prints each owner's own contribution.
+  // Nothing hides them any more, so there is nothing left to dispose. Not read off the source:
+  // the derived case went red first and named them verbatim, *"expected [
+  // 'demo/projectPrimeCount', 'demo/readPrimeCount' ] to deeply equal []"* — the G14 defence
+  // working in the other direction for the second recorded time.
+  //
+  // `demo/buildPrimesInput` stays: the leg takes each owner's row as **bytes from a file**
+  // rather than building one, which is the whole of `--sovereign-row`'s contract, so the
+  // builder is still reached only through the page's hop.
   'demo/buildPrimesInput',
   'demo/colourOf',
   'demo/estimatePi',
   'demo/piErrorBound',
   'demo/projectPiPartial',
-  'demo/projectPrimeCount',
   'demo/readPiPartial',
-  'demo/readPrimeCount',
   'demo/verifyColouring',
   'net/findReservedPeers',
   'net/publishStartOutcome',
@@ -331,6 +344,42 @@ const BENCHMARK_DRIVER_ONLY: readonly string[] = [
  *   because it varies redundancy per rung, which this signature cannot express.
  * - `net/remoteDispatch` — carries NET-09's `'sender'` classification, which is the same deferral
  *   as `EgressRefusal` seen from the other end.
+ *
+ * ## The `ed25519-backend.ts` port, added 2026-08-18 — five rows, one ruling
+ *
+ * `core/createNobleSyncVerifier`, `core/Ed25519NotInitializedError`, `core/getAsyncVerifier`,
+ * `core/getSyncVerifier` and `core/initEd25519` sat in `OPEN_FINDINGS` until today, under a
+ * reason whose last sentence read *"An open decision, not a decision against wiring."* **That
+ * sentence is false, and it was false when it was written** — CRYPTO-03 had already taken the
+ * decision, four days earlier, with the measurement beside it. The row was describing the
+ * module's docblock, which predates the ruling, rather than the ledger that supersedes it.
+ *
+ * The sentence this class's contract asks each row to carry is CRYPTO-03's own, verbatim:
+ * *"The port therefore stays unwired **as a decision** rather than as a deferral."* What backs
+ * it is measured rather than preferred, and it is worth restating because it makes wiring these
+ * **affirmatively wrong** rather than merely undone. Routing the nine direct verification sites
+ * through the port *"would select nothing"* — `Ed25519Backend` is a one-member union and the
+ * initialiser sets the sync verifier to the noble arm unconditionally, discarding the probed
+ * backend, so it is the same `ed25519.verify` wrapped the same way. And it *"would only **add**
+ * a failure mode the trust path does not have"*: the not-initialised error thrown into a
+ * synchronous verification that arrives before three entry points have resolved the promise,
+ * whose fail-closed handling is a `catch` returning `false` — i.e. the `catch` that is already
+ * there, plus a bootstrap-ordering hazard.
+ *
+ * **Two things make this a disposition rather than either of the other two moves.** Wiring is
+ * refused above. Retiring the barrel exports is *blocked*, not declined:
+ * `libsodium-absence.e2e.test.ts` builds its CRYPTO-05 measurement page by importing two of
+ * these five **from the `@o2/core` barrel**, gzips the result and holds it against
+ * `VERIFIER_BUDGET_BYTES`, so removing them from the barrel deletes a measurement rather than a
+ * capability. A published surface with a written owner ruling against wiring it is exactly what
+ * this cause is for.
+ *
+ * **What this does NOT claim**, stated because five rows arriving together is the shape a
+ * register grows decorative in: none of the five acquires a call path here. They have none, they
+ * are named individually, and `requirements-ledger.node.test.ts` independently holds WIRE-02's
+ * own sentence that `getSyncVerifier` has no production caller — a claim that reddens the moment
+ * anybody wires one. This entry records who decided and on what measurement; it does not record
+ * work being done.
  */
 const DEFERRED_IN_SOURCE: readonly string[] = [
   'bench/sweepNodeCount',
@@ -338,10 +387,25 @@ const DEFERRED_IN_SOURCE: readonly string[] = [
   // whole argument: a fallback chain needs a genuine second source, and an empty
   // `MemoryRecordIndex` in front of the RPC index would compose the types and demonstrate
   // nothing, because a first link that is always empty always falls through. Composed on
-  // those terms the finding would go green and NET-06 would be no truer, so it stays open
-  // and says so. **Disposed on the source's stated deferral, not on the finding being tiresome.**
+  // those terms the finding would go green and NET-06 would be no truer — which is the one
+  // clause of this note that survived 2026-08-18 intact, and the tail of it that read
+  // *"so it stays open and says so"* did not. NET-06 is `[x]`, closed on a different leg
+  // entirely: no browser-tier path selected executors from an index answer while
+  // `bin/bench.ts --discover` did, and `demo/main.ts`'s `discoveredPool` ended that. The
+  // deferral of these two is unchanged and rests on its own argument, not on that row's
+  // state. **Disposed on the source's stated deferral, not on the finding being tiresome.**
   'core/FallbackRecordIndex',
   'core/MemoryRecordIndex',
+  // CRYPTO-03, owner ruling 2026-08-11, moved out of `OPEN_FINDINGS` on 2026-08-18. See the
+  // block above for the sentence that defers each of these and for why neither wiring nor
+  // retirement is the move. The two with in-file callers are `createNobleSyncVerifier` (from
+  // the initialiser) and `Ed25519NotInitializedError` (from both getters); the other three
+  // have no caller of any kind.
+  'core/Ed25519NotInitializedError',
+  'core/createNobleSyncVerifier',
+  'core/getAsyncVerifier',
+  'core/getSyncVerifier',
+  'core/initEd25519',
   'net/EgressRefusal',
   'net/checkBlockstoreConformance',
   'net/remoteDispatch',
@@ -452,6 +516,28 @@ export const HIDDEN_BY_DISPATCH: readonly HiddenCaller[] = [
     cause: 'proxy-trap-dispatch',
     composedAt:
       'bin/agent.ts:812 — `new ReservationWatcher()`, handed to libp2p at fabric-node.ts:1823',
+  },
+  {
+    // `seed-server.ts:272`, inside `bootstrapInfoFor`, which is called at `:469` inside
+    // `configureServer` — a method of the Vite plugin object literal at `:462`. **Same
+    // mechanism as the row above and not a variant of it**: no call expression anywhere in this
+    // repository or in Vite names that member, because the framework invokes it off the plugin
+    // object it was handed. Not a port, so this is the second `proxy-trap-dispatch` row rather
+    // than a sixth port row, and the port-grounding case below correctly does not read it.
+    //
+    // **This row is a ruling being taken, not a finding being discovered.** It sat in
+    // `OPEN_FINDINGS` from 2026-08-14 to 2026-08-18 with its whole mechanism already measured
+    // and written out, under the reason *"re-causing a symbol is a decision to **put** rather
+    // than to take in passing … Moving this row would lower the residue by one on nobody's
+    // ruling."* The ruling is now somebody's, and the measurement was re-taken rather than
+    // inherited on the day it moved: `configureServer` is a graph node, its in-degree is **0**,
+    // and rooting it flips exactly `["node/relayAddrForHost"]` and nothing else.
+    key: 'node/relayAddrForHost',
+    through: 'packages/node/src/seed-server.ts#configureServer',
+    cause: 'proxy-trap-dispatch',
+    composedAt:
+      'seed-server.ts:462 — the `o2-bootstrap` Vite plugin literal; Vite calls `configureServer`, ' +
+      'and every `/bootstrap.json` request runs this symbol through `bootstrapInfoFor`',
   },
 ]
 
@@ -623,8 +709,62 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * Had the graph been able to trace that one assignment, not one of these ten entries would
  * exist. The owner named in every `global-object-hop` row is still the fix: extract
  * `index.html`'s inline script, or teach the graph `window.o2`.
+ *
+ * **LOWERED 61 → 60, measured 2026-08-18 — the first time this number has ever gone down, and
+ * that is worth a sentence.** Every note above it records a raise, and each argues that the
+ * raise was the good direction because the register was absorbing *wiring that landed*. This
+ * one is the same event with the hop removed: `core/checkpointsInto` left the register because
+ * `bin/agent.ts`'s `--coordinate` leg calls it from a **Node** entry point, which the graph
+ * traces without needing to follow `window.o2` at all. So the symbol did not become reachable
+ * — it was already reachable — it became reachable **by a route the guard can see**, which is
+ * the difference between a disposition and a call path.
+ *
+ * The ceiling is lowered rather than left with one entry of slack, on the no-slack rule this
+ * file's earlier notes state: a ceiling that stays above the register's size is a permission
+ * for one silent addition, and the whole design here is that the derived case must name a new
+ * entrant before the register may admit it.
+ *
+ * **Raised 60 → 66, measured 2026-08-18, and this raise is a DIFFERENT KIND from every one
+ * above it — which is why it is described before it is defended.** Every prior raise absorbed
+ * symbols that had *just been created and wired*, hidden behind `window.o2`. Not one of these
+ * six is new, and not one of them gains a call path here. All six moved **out of
+ * `OPEN_FINDINGS`**, where each had a row, and what changed is the cause written against them:
+ *
+ * - `node/relayAddrForHost` → {@link HIDDEN_BY_DISPATCH}, `proxy-trap-dispatch`. It **runs in
+ *   production**, on every `/bootstrap.json` request, and its own open-findings row said so and
+ *   named the mechanism in full. It was held open on the explicit ground that *"re-causing a
+ *   symbol is a decision to put rather than to take in passing"*. The decision was put and
+ *   taken. Its three legs were re-measured on the day it moved rather than copied from the row
+ *   — in-degree 0, and rooting `configureServer` flips exactly that one key — and the guard
+ *   re-measures all three on every run, which no other cause in this file can say.
+ * - the five `ed25519-backend.ts` rows → {@link DEFERRED_IN_SOURCE}. These do **not** run in
+ *   production and are not claimed to. They carry CRYPTO-03's ruling, whose measurement is that
+ *   wiring them would select nothing and add a failure mode; see that cause's docblock.
+ *
+ * **So this number going up is the honest reading of a re-causing, and the population it is a
+ * ceiling over went DOWN in the same change**: the guard's total moved 75 → 68 and the
+ * undisposed residue 15 → 2, because two symbols were wired into production call sites and five
+ * barrel exports were retired. A register that grows while the thing it excuses shrinks is the
+ * good direction; a register that grows while the total holds still is the alarm. This is the
+ * first, and the arithmetic is stated so the next reader can tell which one they are looking at.
+ *
+ * The no-slack rule is kept: 66 is exactly the register's size. `global-object-hop` is still
+ * derived and still reddens in both directions, and the six arrivals are in the two causes whose
+ * membership the guard re-measures or whose sentence a second guard holds.
+ *
+ * **LOWERED 66 → 64, measured 2026-08-19 — the second time it has gone down, and by the same
+ * mechanism as the first.** `demo/projectPrimeCount` and `demo/readPrimeCount` left the register
+ * because `bin/agent.ts`'s sovereign coordinator leg (AUTH-03/MR-02/VER-09) calls both from a
+ * **Node** entry point, which the graph traces without needing to follow `window.o2` at all.
+ * Neither symbol became reachable — both already were, through `TabApi.runPrimes` — they became
+ * reachable **by a route the guard can see**, which is the difference between a disposition and
+ * a call path, and is exactly what `core/checkpointsInto`'s note one paragraph up records.
+ *
+ * Lowered rather than left with two entries of slack, on the no-slack rule stated above: a
+ * ceiling above the register's size is a permission for a silent addition. Not read off the
+ * source — the derived case went red first and named both verbatim.
  */
-export const DISPOSITION_CEILING = 61
+export const DISPOSITION_CEILING = 64
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {

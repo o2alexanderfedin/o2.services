@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { toHex } from './capability.ts'
 import { canonicalCid } from './canonical/encode.ts'
 import { decodeNameRecord, encodeNameRecord, SignedNameResolver, signName } from './naming.ts'
+import type { NameRecord } from './naming.ts'
+import type { CID } from 'multiformats/cid'
 
 /**
  * DATA-07 / DATA-08 — provenance, which content addressing does not provide.
@@ -215,5 +217,103 @@ describe('a signed record survives leaving the process', () => {
     expect(decodeNameRecord(JSON.stringify({ ...good, version: -1 }))).toBeNull()
     expect(decodeNameRecord(JSON.stringify({ ...good, version: 1.5 }))).toBeNull()
     expect(decodeNameRecord(JSON.stringify({ ...good, name: '' }))).toBeNull()
+  })
+})
+
+/**
+ * AOT-02 — the translation a signed artifact came out of, carried inside the signature.
+ *
+ * `NameRecord.cid` vouches for the bytes. `translationKeyCid` vouches for *why those bytes
+ * should be what they are*: `@o2/aot`'s `translationCid` hashes the input digest, the
+ * target, the toolchain versions and the required WASM feature set into one CID, and a
+ * consumer holding a lift of its own compares the two. `tools/aot/lift.ts` is where the
+ * comparison and its refusal live; what is checked here is the three properties that make
+ * the claim worth anything — it is signed, it is optional in a way that does not disturb
+ * records predating it, and it survives the wire form.
+ */
+describe('AOT-02 — a record can vouch for the translation as well as the bytes', () => {
+  const seed = new Uint8Array(32).fill(9)
+
+  async function twoCids(): Promise<{ artifact: CID; key: CID; otherKey: CID }> {
+    const artifact = await canonicalCid({ bytes: new Uint8Array([1, 2, 3]) })
+    const key = await canonicalCid({ target: 'aarch64-wasi32', clang: '16.0.6' })
+    const otherKey = await canonicalCid({ target: 'aarch64-wasi32', clang: '17.0.1' })
+    if (!artifact.ok || !key.ok || !otherKey.ok) throw new Error('fixture not encodable')
+    return { artifact: artifact.cid, key: key.cid, otherKey: otherKey.cid }
+  }
+
+  it('signs it, so it cannot be attached, stripped or swapped after the fact', async () => {
+    const { artifact, key, otherKey } = await twoCids()
+    const fields = { name: 'lifted', cid: artifact, version: 1, expiresAt: LATER } as const
+    const record = signName(seed, { ...fields, translationKeyCid: key })
+    const resolver = new SignedNameResolver([record.signer])
+
+    // The record as issued verifies.
+    expect(resolver.accept(record, NOW).ok).toBe(true)
+
+    // Swapped: the same signature over a different translation key is refused. This is the
+    // whole reason the field is inside the payload rather than beside it — a publisher's
+    // claim about the toolchain must not be editable by whoever relays the file.
+    const swapped = resolver.accept({ ...record, translationKeyCid: otherKey }, NOW)
+    expect(swapped.ok).toBe(false)
+    if (swapped.ok) return
+    expect(swapped.failure.kind).toBe('bad-signature')
+
+    // Stripped: removing it is equally a different record. Written by rebuilding the object
+    // without the key rather than by setting `undefined`, because an absent key and an
+    // explicit `undefined` are different values to a canonical encoder and only the first is
+    // what a stripped file would decode to.
+    const stripped = resolver.accept(
+      { name: record.name, cid: record.cid, version: record.version, expiresAt: record.expiresAt, signer: record.signer, signature: record.signature },
+      NOW,
+    )
+    expect(stripped.ok).toBe(false)
+
+    // Attached: a record signed WITHOUT one does not accept one being added.
+    const bare = signName(seed, fields)
+    expect(resolver.accept(bare, NOW).ok).toBe(true)
+    expect(resolver.accept({ ...bare, translationKeyCid: key }, NOW).ok).toBe(false)
+  })
+
+  it('leaves a record that carries none hashing exactly as it did before the field existed', async () => {
+    // The compatibility claim, as a byte comparison rather than as a sentence. Every record
+    // signed before 2026-08-18 — the demo's committed kernel records among them — has no
+    // translation behind it, and `payloadOf` omits the field entirely rather than encoding a
+    // null, so those signatures verify against byte-identical payloads. The reading is that
+    // the signature of a record built with no key equals the signature of one built by a
+    // signer that has never heard of the field, which is the same expression.
+    const { artifact } = await twoCids()
+    const fields = { name: 'unlifted', cid: artifact, version: 1, expiresAt: LATER } as const
+    const withoutField = signName(seed, fields)
+    const withUndefinedSpread = signName(seed, { ...fields })
+    expect(withoutField.signature).toBe(withUndefinedSpread.signature)
+    expect(withoutField.translationKeyCid).toBeUndefined()
+    // …and the encoded file has no such property at all, rather than a null one.
+    const encoded: Record<string, unknown> = JSON.parse(encodeNameRecord(withoutField))
+    expect('translationKeyCid' in encoded).toBe(false)
+  })
+
+  it('round-trips it, and refuses a present-but-unparseable one rather than dropping it', async () => {
+    const { artifact, key } = await twoCids()
+    const record = signName(seed, {
+      name: 'lifted',
+      cid: artifact,
+      version: 1,
+      expiresAt: LATER,
+      translationKeyCid: key,
+    })
+    const back = decodeNameRecord(encodeNameRecord(record))
+    expect(back?.translationKeyCid?.toString()).toBe(key.toString())
+    // And it still verifies after the round trip — a field that survives encoding but
+    // changes the payload is a file that looks like a publish and is not one.
+    expect(new SignedNameResolver([record.signer]).accept(back as NameRecord, NOW).ok).toBe(true)
+
+    // Present and unparseable is a malformed record, not a record without the field.
+    // Dropping it would hand the resolver a payload that differs from the one signed, and
+    // the signature check would then report `bad-signature` for a decoding bug.
+    const good: Record<string, unknown> = JSON.parse(encodeNameRecord(record))
+    expect(decodeNameRecord(JSON.stringify({ ...good, translationKeyCid: 'not-a-cid' }))).toBeNull()
+    expect(decodeNameRecord(JSON.stringify({ ...good, translationKeyCid: 7 }))).toBeNull()
+    expect(decodeNameRecord(JSON.stringify(good))).not.toBeNull()
   })
 })

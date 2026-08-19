@@ -781,8 +781,105 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * the measurement straight back down rather than keeping the slack the departure opened —
  * `OPEN_FINDING_CEILING`'s rule that *a ceiling with slack in it stops binding*, applied within
  * the hour instead of the next time somebody notices.
+ *
+ * **Lowered 14 → 10 on 2026-08-18, and the size of that drop is itself a finding.** `AOT-04`
+ * left the register that day by being ticked, taking it 11 → 10 — but the ceiling had been
+ * standing at 14 against a register of **eleven** for four days, three of slack, while this
+ * docblock's first sentence claimed it was *"sited at the register's own size with no slack"*.
+ * The comment and the constant disagreed and the comment was the one being believed. Three
+ * ids had left between 2026-08-14 and 2026-08-17 — the sweep that removed each of them
+ * lowered nothing — so the rule was stated, then not applied, three times running. Re-sited
+ * here at the measurement, and the drop is written as one number rather than smuggled in as
+ * part of the tick, because the tick is worth 1 of it and the unenforced rule is worth 3.
+ *
+ * **Lowered 10 → 9 the same day, when `MR-06` was ticked.** Same rule, applied in the same
+ * hour rather than the next time somebody notices — which is the habit the 14 → 10 note
+ * above exists to record the absence of.
+ *
+ * **RAISED 9 → 11 later the same day, and a raise here needs its reason written next to it,
+ * so here it is.** Two ids were added — `SCHED-01` and `MR-02` — under the owner's flag ruling
+ * of 2026-08-15 (`.planning/consults/2026-08-15-owner-ruling-off-by-default-flag.md`), which
+ * answered *"It must work with no flag"* and thereby put work back on the board rather than
+ * taking any off. Three rows were unticked; two of them carry no claim this file can read and
+ * are therefore **required** additions, which is the only kind of raise this ceiling permits.
+ *
+ * **It was measured before it was written**: the entries were added first with the ceiling
+ * still at 9 and the register's own set equality was the thing that named them — *"SCHED-01 is
+ * Partial and carries no claim this file can read, and is not recorded as such"*, and the same
+ * for `MR-02`. So the raise follows a red the guard produced, not an intention. `VER-09` was
+ * unticked in the same sweep and is deliberately **not** here: it carries `describeAttestation`
+ * has no production caller, which another case in this file already reads, and recording a
+ * readable row as unreadable is the failure this list's set equality exists to catch.
+ *
+ * **The rule that this is still sited at the register's own size with no slack is unchanged**,
+ * and it is what makes the raise legible as a cost: the number is the measurement, not a
+ * headroom grant, and the next departure lowers it within the hour rather than the next time
+ * somebody notices. A ceiling raised "in case" would be the 14-against-11 defect above,
+ * repeated by an agent who had just finished reading the note about it.
+ *
+ * **Lowered 11 → 10 on 2026-08-18, in the same commit that removed `SCHED-01`.** That row
+ * acquired the thing its entry promised — a caller of `discoverCandidates` with no flag in
+ * front of it, `packages/browser/demo/main.ts`'s `discoveredPool` — so it left by
+ * being satisfied rather than by being re-recorded, which is the departure the paragraph
+ * above says the ceiling must follow. It is written here within the hour, as that paragraph
+ * requires.
+ *
+ * **Lowered 9 → 8 on 2026-08-18, in the same commit that removed `MR-04`.** That row left by
+ * the reword its own entry had twice recorded as drafted and unapplied, and the departure is
+ * the uncomfortable kind — a requirement's subject narrowed rather than a mechanism finished.
+ * The ceiling still follows, because the rule is about *unreached* rows and not about how a
+ * row stopped being one; what carries the honesty of that particular departure is the parsed
+ * `only through` claim the row acquired in the same commit, not this number.
+ *
+ * **Lowered 10 → 9 on 2026-08-18, in the same commit that removed `AUTH-04`.** That row left
+ * by the rarest of the departures this list records: nothing in the repository moved, and the
+ * **owner's ruling** moved instead — an aggregate cap was ruled to be the cost AUTH-04 asks
+ * for. The entry's own last sentence had said the row *"cannot become a measurement: the thing
+ * to measure is not implemented"*, which is exactly the state a decision resolves and a commit
+ * cannot. The rule is indifferent to which of the two moved: an id that is no longer
+ * *unreached* leaves, and the ceiling follows it down in the same commit.
+ *
+ * **Lowered 8 → 7 on 2026-08-18, in the same commit that removed `NET-06`.** That row left by
+ * the ordinary exit and the one this list exists to encourage: its entry promised *"to build
+ * the reader rather than to look for one"*, and the reader was built — `demo/main.ts`'s
+ * `discoveredPool` puts peers a routing query qualified, and no caller named, into the pool a
+ * job dispatches over. See the removal note above the entries for what did **not** move with
+ * it, which is stated there rather than here because a ceiling is a count and the argument is
+ * not.
+ *
+ * **Lowered 7 → 6 on 2026-08-18, in the same commit that removed `CHURN-04`.** The ordinary
+ * exit, and the only one of the recent departures where the entry's own promise is what was
+ * kept: it named the arm that was missing — an expiry driven across real processes rather than
+ * on a virtual clock — and the arm was built. Both of the reasons that entry gave for not
+ * building it, a 30 s wall clock and a disturbed `slow-specs` table, were removed rather than
+ * accepted: `--lease-ms` makes the arm cost a second, and an `.e2e.test.ts` is outside the
+ * `node` project the table describes.
+ *
+ * **Lowered 6 → 5 on 2026-08-18, in the same commit that removed `AUTH-02`.** The ordinary
+ * exit again, and the cleanest instance of it this list has recorded: the entry had already
+ * written down what was missing — a spec observing a tab that enrolled THROUGH THE UI
+ * excluding a connected-but-unverified peer off the wire — and had priced it at *"~60-90
+ * lines, no production change needed"*. The spec was written, at that size, with no
+ * production file touched, and the row is `Done`. Nothing was descoped and no definition of
+ * passing was widened; see the removal note at the entry's old position for what the close
+ * does **not** establish, which is stated there rather than here because a ceiling is a count
+ * and the argument is not.
+ *
+ * **Lowered 5 → 4 on 2026-08-19, in the same commit that removed `AUTH-03`.** The ordinary
+ * exit once more, and it is the second consecutive instance of the cleanest form: the entry
+ * had already written down what was missing, *"no no-flag dispatch hands a real
+ * `CapabilitySupplier` to a `RemoteExecutor`"*, and named the two files whose executors were
+ * the sentinel. A third entry point now hands one. Nothing was descoped and no definition of
+ * passing was widened; see the removal note at the entry's old position for what the close
+ * does and does not establish.
+ *
+ * **Lowered 4 → 3 on 2026-08-19, in the same commit that removed `MR-02`.** Third consecutive
+ * ordinary exit, and the second in one day: the entry named the thing that was missing — a
+ * surface able to hand *a tab or an agent* a real owner identity — and the agent got one. The
+ * half it did not get is recorded in the row rather than absorbed here, which is the
+ * distinction a ceiling cannot make and a removal note must.
  */
-const REREAD_REGISTER_CEILING = 14
+const REREAD_REGISTER_CEILING = 3
 
 /**
  * ## The rule this list encodes
@@ -1018,111 +1115,158 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // a source-text reading of the shipped call, not a measurement of a renewal. It is here
   // because it is the only instrument that sees whether a production caller still exists, and
   // that is the fact the previous sentence got wrong for eleven days.
-  {
-    id: 'CHURN-04',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-16',
-    witnesses: [
-      'packages/core/src/lease.test.ts',
-      'packages/browser/src/colouring-surface.node.test.ts',
-      // Arrived 2026-08-16 and the drift case caught it the same hour it was written,
-      // which is the half of the guard that fires without waiting for the countdown
-      // doing exactly what its docblock claims. It witnesses the *precondition* rather
-      // than the renewal: `admit` was supplied on the default demo path by c1f95a2 and
-      // could not admit the submitting node, so the probe this row's renewal depends on
-      // refused the one node guaranteed to be present.
-      'packages/net/src/discovery.test.ts',
-    ],
-  },
+  //
+  // **RE-READ 2026-08-18, and the promise this entry carries is now a DIFFERENT one — the
+  // row was being held open on the wrong leg.** Everything above, and the row itself, holds
+  // CHURN-04 open on *renewal*. CHURN-04's own sentence is *"Task ownership is leased and
+  // **re-dispatched on lease expiry**"*, and renewal is the mechanism that PREVENTS an
+  // expiry. The substitution has stood since Phase 20.
+  //
+  // What the requirement asks is genuinely unread across real processes, and the reason is
+  // exact: `churn-agents.node.test.ts` filters losses on `expired || surrendered` and
+  // records at `:802` that **every loss it measures is a surrender** — a SIGKILLed socket
+  // closes well inside `RPC_TIMEOUT_MS`, so `submitJob` surrenders and the deadline never
+  // bites. The only spec that drives an `expired` through `submitJob` at all is
+  // `job/submit.test.ts:1460`, on a **virtual** clock. And the knob is already named by the
+  // file that cannot use it (`churn-agents.node.test.ts:805-807`): an `rpcTimeoutMs` above
+  // the lease, or a relay reservation outliving the process.
+  //
+  // So `because` still reads true on its second word — nothing an entry point drives ever
+  // reaches either leg — but the promise this id now carries is to drive an **expiry**, not
+  // a renewal, and that is MEASURING rather than a workload decision. Not taken in this pass
+  // because the arm costs 30 s of wall clock by construction and moves `slow-specs`' table.
+  //
+  // **REMOVED 2026-08-18, later the same day, because the promise above was kept.** This is
+  // the ordinary exit and the one this list exists to encourage: the entry named the arm that
+  // was missing, and the arm was built. `packages/node/src/lease-expiry.e2e.test.ts` drives an
+  // `expired` lease across six spawned `bin/agent.ts` processes and reads the re-dispatch that
+  // follows it, and `bin/agent.ts --lease-ms` — with `JobSpec.leaseMs` behind it — is what made
+  // that affordable: at `DEFAULT_LEASE_MS` the arm costs 30 s by construction, at
+  // `--lease-ms 2000` it costs two, and the *comparison between two lease values* is a stronger
+  // reading than either arm alone. **Neither of the two objections in the paragraph above
+  // survived contact.** The whole file runs in 24 s rather than the 30 s per arm the constant
+  // would have forced, and `slow-specs`' table did not move at all — the file is an
+  // `.e2e.test.ts` and the `node` project excludes that suffix, which a full sweep confirmed
+  // at 197 files unchanged. The row is `Done` in `REQUIREMENTS.md` and has
+  // therefore left the *unreached* population, which is what makes this removal compulsory
+  // rather than optional. {@link REREAD_REGISTER_CEILING} follows it down in the same commit.
+  //
+  // **What did NOT move with it**, stated here because a removal note that only lists wins is
+  // how the next substitution gets made: nothing drives a lease **renewal** on a live fabric,
+  // and nothing can with this instrument — a holder silenced hard enough for its lease to
+  // expire cannot answer the renewal probe. Renewal stays proven by `lease.test.ts` and
+  // `submit.test.ts`'s renewal pair on a virtual clock. That is a different sentence from
+  // CHURN-04's, which names expiry, and the four paragraphs above are kept precisely because
+  // they are the record of this row being held open on the wrong one for a whole phase.
   // ── The pre-existing entries ───────────────────────────────────────────────────────
-  // **Re-read 2026-08-14, and the promise this entry carries was partly discharged rather
-  // than renewed.** `because: 'tier-or-configuration'` named a real thing: `PeerVerifier`
-  // sat in `@o2/node`, `@o2/browser` does not depend on that package, so the browser tier
-  // reached no verdict about any peer and the asymmetry was a package boundary. The module
-  // moved to `@o2/libp2p` on 2026-08-14 and a tab now verifies on identical terms.
+  // ── `AUTH-02` was here until 2026-08-18 and is **REMOVED**, by the ordinary exit ────
   //
-  // **The entry stays, and the reason it stays is not the one it was written for.** What
-  // remains open is a *configuration* fact and no longer a tier one: a tab that passes no
-  // `trustedIssuers` still takes blocks from every connected peer — stated, not defaulted,
-  // because a fail-closed default would empty the block source of the relay a fresh tab's
-  // only peer is. So the row keeps a legitimately unreached leg, and `because` still reads
-  // true on its second word only. Rewriting it to `configuration` alone is the ledger
-  // owner's call, not this file's, because the row's verdict lives in `REQUIREMENTS.md`.
+  // Its row is `Done`, so it is out of the *unreached* population and the set equality below
+  // makes the removal compulsory. {@link REREAD_REGISTER_CEILING} follows it down in the same
+  // commit.
   //
-  // Two witnesses arrived with the move, and the second is the weaker of the two on purpose
-  // — see its own docblock. `peer-verifier.browser.test.ts` measures the verifier in three
-  // real engines; `browser-node-contract.node.test.ts` counts the composition literal.
+  // **It left by the exit this list exists to encourage: the entry's own promise names the
+  // thing that was built.** The last re-read, on 2026-08-18, recorded *"what is left is a
+  // configuration fact and a missing behavioural reading — no spec observes a tab that enrolled
+  // THROUGH THE UI excluding a connected-but-unverified peer off the wire"*, and priced it at
+  // *"~60-90 lines to join them, no production change needed"*. Both halves held.
+  // `visitor-enrolment.e2e.test.ts` gained a second case per engine that clicks `#allow`,
+  // `#enrol` and `#join`, restarts on the SAME ORIGIN through
+  // `/packages/browser/harness/capability.html` — which the seed's own Vite server serves on
+  // the same port as the demo page — and reads `fetchBlock` through the composed
+  // `FetchingBlockstore`. No production file changed.
   //
-  // **That sentence used to end "…which is the only instrument that sees which thunk the
-  // block source was handed", and it stopped being true on 2026-08-14.**
-  // `tab-pinning.e2e.test.ts` sees it *behaviourally*: a live tab pinning an issuer is
-  // asked for a block held only by a connected-but-unverified peer, and does not get it.
-  // The source-text count is still worth keeping — it fails faster and names the literal —
-  // but it is no longer the only thing standing between that line and a silent revert.
-  // Measured, not asserted: reverting the thunk to `() => transport.peers` reddens the e2e
-  // with *"expected 48 to be null"*.
+  // **`because: 'tier-or-configuration'` is worth a sentence on its way out, because both of
+  // its words were true at different times and neither is now.** It named a package boundary
+  // first — `PeerVerifier` sat in `@o2/node`, which `@o2/browser` does not depend on — and
+  // that ended when the module moved to `@o2/libp2p` on 2026-08-14. It then named a
+  // configuration fact: no production call site passed `trustedIssuers`, so a tab pinned
+  // nobody and `verifiedPeers`' empty-set fail-open handed it every connected peer. That
+  // ended on 2026-08-17, when the demo grew the enrolment control a visitor clicks. What
+  // outlived both was neither a tier nor a configuration but a **missing instrument**, and
+  // this register has no `because` for that — which is itself the observation, and the reason
+  // the entry sat here for two moves after the thing it named had been fixed.
   //
-  // **What re-reading the row against the new spec established, recorded because it is a
-  // gap and not a tick.** AUTH-02's own text asks that a node a person can run verify a
-  // certificate. A Node agent does, given `--trusted-issuer`. A browser tab now does too —
-  // `demo/main.ts` passes `trustedIssuers` from `enrolledIssuer` — **but only from the
-  // start after it has enrolled**, and the demo page carries no enrolment UI at all
-  // (`index.html` names `enrollment` zero times). So on the visitor path the argument is
-  // always empty and the tab still pins nobody. The call site is real and measured; the
-  // visitor's *route to it* is not built.
-  {
-    id: 'AUTH-02',
-    because: 'tier-or-configuration',
-    reread: '2026-08-14',
-    witnesses: [
-      'packages/browser/src/browser-node-contract.node.test.ts',
-      'packages/browser/src/peer-verifier.browser.test.ts',
-      'packages/core/src/enrollment.test.ts',
-      'packages/node/src/bench-admission.node.test.ts',
-      'packages/node/src/browser-enrollment.e2e.test.ts',
-      'packages/node/src/certificate-verification.node.test.ts',
-      'packages/node/src/enrol-through-a-closed-door.node.test.ts',
-      'packages/node/src/gated-admission.e2e.test.ts',
-      'packages/node/src/gated-seed.e2e.test.ts',
-      'packages/node/src/peer-dial.node.test.ts',
-      'packages/node/src/peer-gate.node.test.ts',
-      'packages/node/src/peer-verifier.node.test.ts',
-      'packages/node/src/relay-admission.node.test.ts',
-      'packages/node/src/tab-pinning.e2e.test.ts',
-    ],
-  },
-  {
-    id: 'AUTH-03',
-    because: 'tier-or-configuration',
-    reread: '2026-08-11',
-    witnesses: [
-      'packages/core/src/capability.test.ts',
-      'packages/net/src/capability-dispatch.test.ts',
-      'packages/net/src/combine.test.ts',
-      'packages/net/src/distributed.test.ts',
-      'packages/node/src/browser-capability.e2e.test.ts',
-      'packages/node/src/capability-dispatch.node.test.ts',
-      'packages/node/src/fabric-node.node.test.ts',
-      'packages/node/src/serve-agent-hooks.node.test.ts',
-      'packages/node/src/tree-reduce-agents.node.test.ts',
-    ],
-  },
-  {
-    id: 'AUTH-04',
-    because: 'tier-or-configuration',
-    reread: '2026-08-06',
-    witnesses: [
-      'packages/browser/src/idb-issuance.browser.test.ts',
-      'packages/core/src/enrollment.test.ts',
-      'packages/net/src/enrol-agent.test.ts',
-      'packages/node/src/enrol-through-a-closed-door.node.test.ts',
-      'packages/node/src/enrollment-cost.node.test.ts',
-      'packages/node/src/enrollment-dos.node.test.ts',
-      'packages/node/src/enrollment.node.test.ts',
-      'packages/node/src/enrolment-residual.node.test.ts',
-      'packages/node/src/fs-issuance.node.test.ts',
-    ],
-  },
+  // The fourteen witnesses go with it. Two are worth naming because they are the pair the
+  // close turns on and a later reader tracing this will want them:
+  // `packages/node/src/tab-pinning.e2e.test.ts`, which makes the same off-the-wire reading
+  // with key material a driver generated, and `packages/node/src/visitor-enrolment.e2e.test.ts`,
+  // which makes it on a tab a visitor enrolled with the mouse. The difference between those
+  // two sentences is the whole of what this row was waiting for.
+  //
+  // **RE-READ 2026-08-18, and the promise stops being a promise to wait.** The row said
+  // *"exactly one thing keeps this row open"* — whether a capability travelling only behind
+  // `--discover --sovereign` counts as entry-point reachable — and *"Owner's call"*. **The
+  // call was made on 2026-08-15** and is recorded at
+  // `.planning/consults/2026-08-15-owner-ruling-off-by-default-flag.md`: *"It must work with
+  // no flag."* This file was already applying that ruling in CHURN-04's entry above while
+  // `REQUIREMENTS.md` cited it nowhere — one document acting on a ruling the other had not
+  // heard of, and no guard can catch that, because a consult is not a row.
+  //
+  // So the open item is build work owed, and it is checkable by symbol: no no-flag dispatch
+  // hands a real `CapabilitySupplier` to a `RemoteExecutor`. Every demo executor is
+  // `'dispatches-unauthenticated'` and so is `bin/agent.ts:1602`. The nearest edge is
+  // `demo/main.ts:1900`, which emits `label: 'sovereign'` with no flag and carries no chain
+  // because `attestedNodes` declares `ownerId: 'public'` on every descriptor, making the
+  // shard structurally unplaceable — the source says so at `:1855-1868` and names the
+  // escape hatch.
+  //
+  // ── `AUTH-03` was here until 2026-08-19 and is **REMOVED**, by the exit this list exists
+  // to encourage: the entry's own promise named the thing that was built ────────────────
+  //
+  // Its row is `Done`, so it is out of the *unreached* population and the set equality below
+  // makes the removal compulsory. {@link REREAD_REGISTER_CEILING} follows it down in the same
+  // commit.
+  //
+  // **The promise above is discharged literally, symbol for symbol.** It read: *"no no-flag
+  // dispatch hands a real `CapabilitySupplier` to a `RemoteExecutor`. Every demo executor is
+  // `'dispatches-unauthenticated'` and so is `bin/agent.ts:1602`."* `bin/agent.ts`'s sovereign
+  // coordinator leg hands `discoverCandidates` a `(nodeId) => CapabilitySupplier` that signs
+  // with the seed of the task's own owner, and every `RemoteExecutor` that helper builds
+  // inherits it. `sovereign-agent.e2e.test.ts` reads the consequence off four spawned
+  // processes: each owner-pinned shard agreed on its own owner's process, and the descriptors
+  // it was placed against carry `certificate.userKey` as `ownerId` — a fact about a signed
+  // statement the requestor verified, not a value it chose.
+  //
+  // **And the flag question the entry was waiting on is answered rather than dodged.** The
+  // ruling of 2026-08-15 says a capability behind an off-by-default flag is not shipped; the
+  // refinement of 2026-08-18 says a flag for which **no** default would be correct, because it
+  // names which role the process takes, is a role selector and is exempt. `--sovereign-owner`
+  // names *whose data this process acts for*: a shipped binary can default to no owner, for
+  // the same reason `--owner-key` has no default on the serving side. The argument is written
+  // at the flag itself, which is the burden that refinement places on any flag claiming it.
+  //
+  // The nine witnesses go with it. The one worth naming is the pair the close turns on:
+  // `packages/node/src/browser-capability.e2e.test.ts`, which shows a live tab *judging* a
+  // chain, and `packages/node/src/sovereign-agent.e2e.test.ts`, which shows a runnable binary
+  // *minting and carrying* one. The difference between those two sentences is the whole of
+  // what this row was waiting for.
+  //
+  // ── `AUTH-04` was here until 2026-08-18 and is **REMOVED**, by the exit this register
+  // has the fewest instances of: the decision it was waiting on was taken ────────────────
+  //
+  // Its entry read that `because` was the weakest word in it, that what held the row open
+  // was neither a tier nor a configuration but *no graduated per-identity cost exists
+  // anywhere in this repository*, and — the sentence that matters — that **this is an
+  // OWNER DECISION and cannot become a measurement: the thing to measure is not
+  // implemented.** Every clause of that is still true of the tree. Nothing was built, no
+  // search result changed, and `core/enrollment.ts` still says against its own interest
+  // that no mitigation machinery exists.
+  //
+  // **What changed is the ruling, not the repository**, and that is the departure shape
+  // worth naming, because it is the one an agent is most likely to mistake for a descope.
+  // The owner ruled on 2026-08-18 that an aggregate cap **is** the cost AUTH-04 asks for.
+  // The row was then rewritten to state the property that is measured — issuance bounded
+  // per provider per window, on a quantity no request field can rotate around, surviving a
+  // restart — and it is measured, by `core/enrollment.test.ts`'s twenty-fresh-keys case
+  // and window slide and by `node/enrollment-cost.node.test.ts` across real spawned
+  // `bin/agent.ts` processes. The superseded sentence is quoted in the row rather than
+  // deleted, and the row states in its own words what it does *not* claim.
+  //
+  // So the id leaves by the same rule every other departure obeys — its row is `Done`, so
+  // it is out of the *unreached* population and the set equality below makes the removal
+  // compulsory — and {@link REREAD_REGISTER_CEILING} follows it down within the hour.
+  //
   // **Flagged by the first run of this register at 16 days outstanding, re-read
   // 2026-08-11, and it STANDS.** The row says the relay is browser-dialable and that
   // AutoTLS needs a public host. Its one witness carries the first half by name —
@@ -1177,54 +1321,130 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/node/src/seed-binary-join.e2e.test.ts',
     ],
   },
-  {
-    id: 'NET-06',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-05',
-    witnesses: [
-      'packages/core/src/discovery.test.ts',
-      'packages/net/src/discovery.test.ts',
-      'packages/node/src/static-rendezvous.e2e.test.ts',
-    ],
-  },
-  {
-    // **Re-read 2026-08-14, `because` corrected, and the row's own text is what is now in
-    // question rather than the tree.**
-    //
-    // The open clause is *"every participant computes an identical tree with no consensus is a
-    // claim about two participants deriving the same tree, and the page has one requestor
-    // deriving it once"* — a statement about an experiment nobody has run, hence
-    // `'experiment-not-run'`. It is also an experiment nobody **can** run as the row is
-    // written: `deriveReduceTree` has exactly one production call site and it is inside the
-    // requestor, and the projection closure never crosses a wire, so no second participant can
-    // compute even one leaf CID to derive from. The row additionally says the tree is derived
-    // *"from sorted partial CIDs"*, and the sort is on `contributorId NUL cid` — the contributor
-    // string, with the CID only breaking ties (`reduce.ts` `leafId`).
-    //
-    // Under the owner ruling of 2026-08-14 the property that sentence protects is **routing
-    // stability and dedup**, not fraud prevention, so the resolution is a reword on VER-03's
-    // precedent rather than an experiment. Drafted and returned for the owner; not applied.
-    id: 'MR-04',
-    because: 'experiment-not-run',
-    reread: '2026-08-14',
-    witnesses: [
-      'packages/core/src/reduce.test.ts',
-      'packages/net/src/reduce-job.test.ts',
-      'packages/node/src/late-combine.node.test.ts',
-      'packages/node/src/tree-reduce-agents.node.test.ts',
-    ],
-  },
-  {
-    id: 'MR-06',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-10',
-    witnesses: [
-      'packages/core/src/reduce.test.ts',
-      'packages/net/src/combine-wire.test.ts',
-      'packages/net/src/combine.test.ts',
-      'packages/node/src/tree-reduce-agents.node.test.ts',
-    ],
-  },
+  //
+  // ── `NET-06` was here until 2026-08-18 and is **REMOVED**, by the first exit the rule
+  // allows: its row is `Done`, so it leaves the population and the set equality below makes
+  // the removal compulsory. {@link REREAD_REGISTER_CEILING} follows it down in the same
+  // commit ─────────────────────────────────────────────────────────────────────────────
+  //
+  // **It left because the thing it promised was built, which is the exit an entry here is
+  // supposed to have and the one it least often gets.** Its promise, written the same
+  // morning, was *"to build the reader rather than to look for one"* — the reader of a
+  // routing answer that decides **who is dispatched to**, as opposed to the one already
+  // shipping that decides what a descriptor says about a peer somebody else chose. That
+  // reader is `demo/main.ts`'s `discoveredPool`: it keeps the `RemoteExecutor`s
+  // `discoverCandidates` built for the peers it qualified and the caller never named, and
+  // each of the four job surfaces appends them to its pool. Read across real processes by
+  // `attestation-ui.e2e.test.ts`'s NET-06 case at `peerIds: []`, and planted — the append
+  // replaced by a zero-length slice — where the run collapses to the submitter alone.
+  //
+  // **What did NOT move, recorded because it is the claim this entry spent thirteen days
+  // on and because a reader meeting a smaller register needs to know it was not waved
+  // through.** `BrowserNode.recordIndex` — `DhtRecordIndex` over
+  // `RpcRecordIndex(rpc, () => verifier.verifiedPeers)`, composed at `browser-node.ts:1543`
+  // and exposed at `:917` — still has no reader, and `discoverCandidates` still builds its
+  // own bare `RpcRecordIndex` internally with no field to hand it one. That was this
+  // entry's stated seam and it is *unchanged*. What changed is the reading of whose seam it
+  // is: `.recordIndex` occurs exactly twice repo-wide, both assignments
+  // (`browser-node.ts:1108`, `fabric-node.ts:1621`), so the **Node tier has no reader
+  // either**. A port neither tier consumes is not a browser being a lesser peer, and
+  // NET-06's sentence is *"a browser peer differs from a backbone peer only in that it
+  // cannot bind a listening socket"*. The asymmetry that did exist — `bin/bench.ts
+  // --discover` selecting executors from an index answer while no tab could — is the one
+  // that closed. Wiring the DHT index into the page's 5 s per-dispatch budget was declined
+  // rather than forgotten: `DHT_QUERY_TIMEOUT_MS` is 5 000, `discoverExecutors` calls
+  // `recordsFor` in sequence, `CANDIDATES_DEADLINE_MS` is also 5 000, and no spec in this
+  // repository has ever measured a kad query across processes.
+  // ── Added 2026-08-18 under the owner's flag ruling of 2026-08-15 ───────────────────
+  //
+  // `.planning/consults/2026-08-15-owner-ruling-off-by-default-flag.md`: *"It must work with
+  // no flag."* Three rows were unticked under it — `SCHED-01`, `MR-02` and `VER-09` — and
+  // only two arrived here, which is the register working rather than the sweep being
+  // incomplete. `VER-09` carries `describeAttestation` **has no production caller**, a claim
+  // this file reads for itself, so adding it would be recording as unreadable a row another
+  // case in this same file already reads.
+  //
+  // **`SCHED-01`'s entry stood here and was removed on 2026-08-18, the same day it was
+  // added, because the row was satisfied rather than re-recorded.** Its promise was *"to
+  // build a no-flag caller, not to look for one"*, and `packages/browser/demo/main.ts`'s
+  // `discoveredPool` is that caller. The removal is recorded rather than silent
+  // because the set equality below is a two-way check and a reader meeting a smaller
+  // register needs to find which direction moved it. `MR-02` did not move with it: what
+  // that row needs is a sovereign shard that **executes**, and the same day's measurement
+  // off `demo-byo.e2e.test.ts` shows the page cannot yet reach one — `authorizeCapability`
+  // answers *"no pinned owner key"* on every peer tab and `guardSovereignty` answers
+  // *"not cleared to execute sovereign data"* on the submitting one.
+  //
+  // The entry below is `entry-point-not-driven` in the most literal sense the bucket has:
+  // the mechanism is measured, and the only thing that reaches it is a command-line flag that
+  // is off unless somebody types it. It cannot be phrased as one of the three checkable
+  // shapes — the symbol it turns on **does** have a production caller, so `NO_CALLER` is
+  // false of it, and `ONLY_THROUGH` cannot express *"reachable only when `DISCOVER` is
+  // true"* because `DISCOVER` is a module-scope `const` in `bin/bench.ts` and not an export,
+  // so the extraction filters it out and the sentence silently stops being a claim. That is
+  // the gap this register exists for.
+  //
+  // ── `MR-02` was here until 2026-08-19 and is **REMOVED**, by the ordinary exit: its row is
+  // `Done`, so it leaves the *unreached* population and the set equality below makes the
+  // removal compulsory. {@link REREAD_REGISTER_CEILING} follows it down in the same commit ──
+  //
+  // **The promise is discharged on the half of the row's own sentence it named.** The entry
+  // read that the cause is `entry-point-not-driven` and that *"the promise is to hand [a tab or
+  // an agent] one"* — a real owner identity. `bin/agent.ts`'s sovereign coordinator leg hands an
+  // agent one: `--sovereign-owner` names the owner, discovery builds descriptors whose `ownerId`
+  // is `certificate.userKey`, and `reduceSovereignJob` gains its second production call site and
+  // its first with no flag in front of it. `sovereign-agent.e2e.test.ts` reads one combine at two
+  // replicas, coverage 2/2 complete, and an aggregate of 655 that decomposes into two quoted π
+  // differences — off four spawned processes, with each owner's store holding only its own row
+  // when read back after both were stopped.
+  //
+  // **The tab half did not arrive and the row says so in its own words rather than in this
+  // list.** That is worth stating here because this register's failure mode is the opposite:
+  // an entry that leaves while the thing it named is still open. It did not. The row's subject
+  // is *an owner computing a local partial over its own data*, two owners now do that from a
+  // command line, and the page's separate refusal is recorded in `VER-09`'s row where the
+  // mechanism actually sits.
+  // ── `MR-04` was here until 2026-08-18 and is **REMOVED**, by the reword its own entry
+  // had been asking for since 2026-08-14 ──────────────────────────────────────────────
+  //
+  // Its entry said the open clause — *every participant computes an identical tree with no
+  // consensus* — described an experiment nobody has run **and nobody can run as the row is
+  // written**, because `deriveReduceTree` has one production call site inside the requestor
+  // and the projection closure never crosses a wire. It also recorded, twice and four days
+  // apart, that the reword *"is still drafted and still not applied"*. The owner applied it
+  // on 2026-08-18.
+  //
+  // **The exit is the one this register is least comfortable with and the entry is therefore
+  // worth keeping in view: the requirement's subject was narrowed.** The clause was
+  // *withdrawn*, not satisfied. What guards against that being a descope is not this list —
+  // it is that the narrowing's premise stopped being prose in the same commit: the row now
+  // says `deriveReduceTree` is reachable only through `reduceJob`, which is the
+  // {@link ONLY_THROUGH} shape, so the `only-through` case below re-derives the premise from
+  // the tree on every run and reddens the day a second production derivation site appears.
+  // An entry here is a promise to re-read by hand; a parsed claim is better than a promise,
+  // and swapping one for the other is the direction this list exists to encourage.
+  //
+  // The id leaves because its row is `Done` and the set equality below makes that compulsory;
+  // {@link REREAD_REGISTER_CEILING} follows it down in the same commit.
+  // `MR-06` was here until 2026-08-18 and is **REMOVED**, by the second exit the rule allows:
+  // its row is `Done`, so it leaves the population and the set equality below makes the
+  // removal compulsory.
+  //
+  // **It left because its row was re-read against its own witness list, which is the exact
+  // thing an entry here promises and the exact thing that had not happened.** The entry sat
+  // at `because: 'entry-point-not-driven'` while `tree-reduce-agents.node.test.ts` — the
+  // fourth name in its own witnesses — was already carrying
+  // `describe('MR-05 / MR-06 — a combine node SIGKILLed mid-reduce is repaired elsewhere')`
+  // over eight real spawned `bin/agent.ts` processes, with the no-state-migration half read
+  // from both ends and the reduce re-run through the production `reduceJob` entry point.
+  // Re-run on the day it left: EXIT=0, 5 passed, real 12.56 / user 56.30, no `skipIf` in
+  // the file.
+  //
+  // **What had kept the row open was a clause the requirement does not contain** — that
+  // nothing on the demo page loses a combine to churn. That clause is true, is re-measured,
+  // and is retained in the row; it is simply not what MR-06 asks. This is the fifth instance
+  // of the failure this register was built for: the refuting evidence was in the tree, was
+  // named in the entry itself, and nothing put the two in front of the same reader.
   // **Re-read 2026-08-11 at 15 days outstanding, and it stays.** The row was read against
   // its witness. `harness.test.ts:17` does exercise `isSameMachine`, `machineLabel` and
   // `hostCount`, so the row's *same-machine* claim — the label stays derived from the
@@ -1331,35 +1551,24 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     reread: '2026-08-17',
     witnesses: ['tools/aot/cross-machine.node.test.ts'],
   },
-  // **Re-read 2026-08-16, and the sentence that kept it here is gone.** The row's own
-  // words were *"the browser tier's composition is present and its runtime behaviour is
-  // **unmeasured** — no tab has ever executed a translated artifact"*, and
-  // `packages/node/src/aot-tab.e2e.test.ts` now measures exactly that: a live Chromium tab
-  // running a real `BrowserNode`, handed the lifted echo guest over a direct WebSocket,
-  // routing it to its WASI arm and echoing the value back — with a source-compiled module
-  // through the same tab's native arm beside it, so the reading is about the router rather
-  // than about one arm answering everything.
+  // `AOT-04` was here until 2026-08-18 and is **REMOVED**, by the second of the two exits
+  // the rule allows: its row is `Done`, so it leaves the population and the set equality
+  // below makes the removal compulsory rather than optional.
   //
-  // **It stays in the register anyway, and the reason is a condition on the evidence.**
-  // The new file is `describe.skipIf` on a gitignored artifact — the identical condition
-  // this row already carries for `aot-dispatch.node.test.ts` — and it is one engine, not
-  // the three the `browser` project runs. Ticking AOT-04's box is a decision for whoever
-  // owns the phase, taken against the row rather than against this comment; what is
-  // recorded here is that the *stated* gap is closed and the promise is now to decide,
-  // not to measure. Understating is the safe direction and the direction AOT-03 already
-  // takes for its own half.
-  {
-    id: 'AOT-04',
-    because: 'tier-or-configuration',
-    reread: '2026-08-16',
-    witnesses: [
-      'packages/aot/src/admission.test.ts',
-      'packages/aot/src/wasi-executor.test.ts',
-      'packages/node/src/aot-dispatch.node.test.ts',
-      'packages/node/src/aot-tab.e2e.test.ts',
-      'packages/node/src/fabric-node.node.test.ts',
-    ],
-  },
+  // **The entry's own last re-read had already narrowed it to a decision.** On 2026-08-16
+  // it recorded that the stated gap — *"no tab has ever executed a translated artifact"* —
+  // was closed by `packages/node/src/aot-tab.e2e.test.ts`, and that what kept the id here
+  // afterwards was **a condition on the evidence rather than on the mechanism**: both
+  // readings are `describe.skipIf` on a gitignored lifted artifact, and the browser one is
+  // one engine rather than the three the `browser` project runs. It said the promise was
+  // now to *decide*, not to measure, and that the decision belonged to the row.
+  //
+  // **The decision was taken on 2026-08-18, against the row, after re-running both tiers
+  // rather than citing them** — `aot-dispatch.node.test.ts` EXIT=0 3 passed, and
+  // `aot-tab.e2e.test.ts` EXIT=0 2 passed, neither skipping a case. Both conditions are
+  // written into the row permanently, in the past tense, so that ticking cannot be read as
+  // retiring them; a reader who holds that one engine is not "the fabric" is told to clear
+  // the box rather than left to guess the condition was overlooked.
   // `AOT-05` was here until 2026-08-11 and is **REMOVED**, and it is the first id this
   // register itself closed rather than a hand sweep. Flagged at 15 days outstanding; the
   // re-read found its open leg was a call-site fact all along and had merely never been
@@ -1436,6 +1645,39 @@ const MARKER_SPLIT = /(\d+) are \*Built, not wired\*, (\d+) are \*Partial\*/
 
 /** The count of `[x]` before the v1.0 audit, which the header quotes as its baseline. */
 const CHECKED_BEFORE_AUDIT = 68
+
+/**
+ * The v1 rows that were **already `[ ]` before the v1.0 audit** — the header's "never checked".
+ *
+ * ## Why this exists, and it is a defect this file was carrying
+ *
+ * The split below read `moved === CHECKED_BEFORE_AUDIT - V1_CHECKED` until 2026-08-19. That
+ * identity is not a definition; it is a **consequence** that holds only while every box now
+ * `[x]` was also `[x]` before the audit. `AOT-05` broke it — it is one of the four rows that
+ * were never checked before the audit and it has since been ticked — so the subtraction
+ * counts one row that did not move, and the header has been quoting `2 moved` / `4 never`
+ * where the tree says **3 and 3**. Nothing caught it because nothing here read membership.
+ *
+ * Two further consequences, both of which decided the rewrite rather than merely arguing for
+ * it. The subtraction goes **negative** the moment `V1_CHECKED` passes 68 — which the next
+ * three closes do — and a negative cannot be written into a sentence the regex parses as
+ * `(\d+)`. And a count derived from a count can only ever disagree with the prose; a count
+ * derived from *membership* can disagree with the tree, which is the thing worth catching.
+ *
+ * ## How this set was derived, so it can be checked rather than believed
+ *
+ * From this file's own git history, not from a summary. `9d8c1adefcc8b960bf12595ddc4443014bccbd36`
+ * is the last revision of `.planning/REQUIREMENTS.md` whose `## v1 Requirements` section holds
+ * 68 `[x]` — the baseline {@link CHECKED_BEFORE_AUDIT} quotes — and its four `[ ]` rows are
+ * exactly these. Re-derivable in one line:
+ *
+ *   git show 9d8c1ad:.planning/REQUIREMENTS.md | awk '/^## v1 Requirements/{f=1;next} \
+ *     /^## v1.1 Requirements/{f=0} f' | grep '^- \[ \]'
+ *
+ * The two figures are tied to each other below rather than both stated, so a future edit
+ * cannot move one without the other.
+ */
+const NEVER_CHECKED_BEFORE_AUDIT: readonly string[] = ['AOT-03', 'AOT-05', 'BENCH-06', 'NET-03']
 
 function numbers(pattern: RegExp): number[] {
   const match = pattern.exec(LEDGER_SOURCE)
@@ -1722,7 +1964,61 @@ describe('the corpus and the ledger were really read', () => {
         line: `checkable claims parsed out of the rows: ${claims}, floor 5`,
       })
     }
-    ledgerFloor(UNREACHED.length, BUILT_NOT_WIRED.length, 'rows whose verdict says not fully reached') // 32 vs 14
+    // ── Re-sited 2026-08-18 from `> BUILT_NOT_WIRED.length` to `> 5`, and the reason is
+    // that the comparison was never between the populations its own comment named ────────
+    //
+    // It read `ledgerFloor(UNREACHED.length, BUILT_NOT_WIRED.length, …) // 32 vs 14`, which
+    // reads as *"more rows are unreached than are unreached-and-unwired"* — a nesting, and a
+    // safe one. It is not that. {@link BUILT_NOT_WIRED} is `cell.includes('Built, not
+    // wired')`, a **substring test over the whole status cell**, so it counts every row whose
+    // prose so much as mentions the marker — including the rows this ledger's convention
+    // keeps their history in after they close. Measured on 2026-08-18, the two sets are
+    // nearly disjoint: `UNREACHED` is `VER-09, AUTH-02, AUTH-03, NET-03, MR-02, CHURN-04,
+    // BENCH-06, AOT-03`; the mentions are `VER-03, NET-06, SCHED-05, MR-02, MR-03, CHURN-01,
+    // CHURN-03, CHURN-04`, of which **six are `Done`**. The intersection is two rows.
+    //
+    // **So the floor decayed as the project succeeded, which is the one direction a guard
+    // must never fail in.** Closing a row takes it out of the left-hand count and leaves it
+    // in the right-hand one, because closing a row here means *adding* prose that quotes what
+    // the row used to say. It fired for the first time on the commit that closed `NET-06` —
+    // 8 against 8 — and it would have fired on the next close whichever row that was. A
+    // guard that reddens on progress and can only be satisfied by leaving a row open is the
+    // shape this file exists to catch, not to be.
+    //
+    // **What is NOT given up, checked rather than asserted.** This is an anti-vacuity floor —
+    // the case is titled *"rather than matching nothing"* — and the failure it exists for is
+    // `parseRows` losing the verdict while still returning rows. That failure still reddens
+    // here: `verdict` comes off the em-dash split and `builtNotWired` off a substring test,
+    // so a broken split takes `UNREACHED` to 0 while the mentions stay at 8 — under any
+    // floor. The stronger guard over the same event is the set equality in *"leaves every
+    // unreached row either checkable or recorded as not"*, which names rows rather than
+    // counting them, and it is untouched.
+    //
+    // Sited at `> 5`: two below the 2026-08-18 measurement of 8, which is the same rule the
+    // `claims` floor above sites itself by and is written down there.
+    //
+    // ── **RE-SITED 2026-08-19 from `> 5` to `> 0`, and this is the second time in two days
+    // that closing rows has walked into this floor** ──────────────────────────────────────
+    //
+    // `AUTH-03`, `MR-02` and `VER-09` close in this pass, which takes `UNREACHED` from 6 to
+    // **3** — `NET-03`, `BENCH-06`, `AOT-03`, the three rows that were never `[x]` before the
+    // v1.0 audit. The floor fires on the *first* of the three, at 5, so it had to move.
+    //
+    // Sited by the same rule as before — two below the measurement — which at 3 is 1, so the
+    // assertion is `> 0`. That is a weak floor and saying so is better than dressing it up:
+    // with three rows left there is no number above zero that does not redden on the next
+    // close, and *"a guard that reddens on progress and can only be satisfied by leaving a row
+    // open is the shape this file exists to catch, not to be"* is written four paragraphs up.
+    //
+    // **What it still catches is exactly what the case is titled for.** The failure this floor
+    // exists for is `parseRows` losing the verdict while still returning rows: `verdict` comes
+    // off the em-dash split, so a broken split takes `UNREACHED` to **0** and reddens here
+    // under any floor including this one. What it no longer does is bound the population, and
+    // nothing here ever claimed to — the population is bounded by the rows themselves, and the
+    // stronger guard over the same event is the set equality in *"leaves every unreached row
+    // either checkable or recorded as not"*, which names rows rather than counting them and is
+    // untouched.
+    ledgerFloor(UNREACHED.length, 0, 'rows whose verdict says not fully reached') // 3 on 2026-08-19, after AUTH-03, MR-02 and VER-09 closed
     expect(blocking('requirements-ledger/claim-floor', findings, SCOPE)).toEqual([])
   })
 })
@@ -2100,7 +2396,24 @@ describe('the header states counts that the ledger below it bears out', () => {
   it('splits the unchecked boxes into moved and never-checked, and the split closes', () => {
     const [unchecked, moved, never] = numbers(MOVED_AND_NEVER)
     expect(unchecked).toBe(V1_UNCHECKED)
-    expect(moved).toBe(CHECKED_BEFORE_AUDIT - V1_CHECKED)
+
+    // The baseline and the set are tied to each other rather than both asserted, so an edit
+    // cannot move one and leave the other. 72 boxes, 4 of which were `[ ]` before the audit,
+    // is what "down from the 68 that were checked" means as a statement about rows.
+    expect(CHECKED_BEFORE_AUDIT).toBe(V1_BOXES.size - NEVER_CHECKED_BEFORE_AUDIT.length)
+    // And every id in it is a real v1 row — otherwise a typo would silently shrink the
+    // never-checked count and inflate `moved`, which is the direction that flatters.
+    for (const id of NEVER_CHECKED_BEFORE_AUDIT) expect(V1_BOXES.has(id)).toBe(true)
+
+    // **Membership, not subtraction** — see {@link NEVER_CHECKED_BEFORE_AUDIT} for the defect
+    // the subtraction was carrying. "Never checked" is how many of the rows that were already
+    // `[ ]` before the audit are still `[ ]`; "moved" is the rest of the unchecked boxes, all
+    // of which were therefore `[x]` before it.
+    const stillNeverChecked = NEVER_CHECKED_BEFORE_AUDIT.filter(
+      (id) => V1_BOXES.get(id) === false,
+    ).length
+    expect(never).toBe(stillNeverChecked)
+    expect(moved).toBe(V1_UNCHECKED - stillNeverChecked)
     // The arithmetic this replaces did not close: it read 35 checked, down from 68,
     // with 37 moved. 68 − 35 is 33, and the missing 4 are the boxes never checked.
     expect((moved ?? 0) + (never ?? 0)).toBe(V1_UNCHECKED)

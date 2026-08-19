@@ -80,6 +80,7 @@ export { reduceJob } from './reduce-job.ts'
 // else: `bin/bench.ts` prints both receipts and has to be able to write this one's name.
 export type {
   AggregateAttestation,
+  CombinePlacement,
   CombineTrustAnchors,
   ContributorAttribution,
   NoVerifiedAggregation,

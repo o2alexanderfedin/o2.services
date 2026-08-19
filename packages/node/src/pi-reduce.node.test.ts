@@ -246,6 +246,11 @@ async function runPi(
   const perShard = shardPartials(job)
 
   const result = await reduceJob(job, {
+    // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+    // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+    // local-preferring requestor would answer every combine in-process and there would be
+    // no rendezvous assignment and no churn repair left to observe.
+    placement: 'requires-remote-combining',
     rpc: fabric.originRpc,
     executors: fabric.workerIds,
     blockstore: fabric.originStore,

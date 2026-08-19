@@ -369,6 +369,39 @@ export async function reduceSovereignJob(
     // The whole reason `ContributorAttribution` exists: a leaf keyed on the owner whose
     // data produced it, taken from a certificate this requestor verified.
     contributors: attribution,
+    // ── The placement ruling's *"data ownership requires"* clause, answered here. ─────
+    //
+    // Owner ruling 2026-08-18 prefers local execution everywhere it can be had. **This
+    // arm is one of the places it cannot**, and the reason is worth stating precisely
+    // because the obvious one is wrong.
+    //
+    // **It is not that a local combine would move an owner's data.** It would not, and
+    // saying so would be this repository's recurring error of restating a real constraint
+    // about one thing as a constraint about another. What crosses an owner's boundary on
+    // this path is a `{counts, rows}` *partial* their own node computed and signed; the
+    // raw rows never leave, and by the time any combine runs the requestor is **already
+    // holding every partial in its own store** — `reduceJob` projects them there, which
+    // is what `ReduceJobOptions.blockstore`'s first job says. A requestor combining
+    // partials it already holds moves nothing at all. Sovereignty is intact either way.
+    //
+    // **It is that a locally combined aggregate carries none of this arm's claim.** The
+    // sovereign split is *the owner's contribution is trusted; the aggregation over
+    // contributions is verified*, and the aggregation is the **only** half redundancy can
+    // carry — a sovereign map cannot be N-version verified because pinning removes the
+    // second independent executor. {@link MIN_SOVEREIGN_COMBINE_REPLICAS} is that claim
+    // in code. A combine the requestor performed itself contributes one replica that is
+    // not independent of the party reading the answer, and `localDispatch` signs nothing
+    // on purpose because *a signature it made would be the requestor attesting to
+    // itself*. So a local combine here does not weaken the sovereignty guarantee; it
+    // empties the **verification** guarantee, which is the one thing this module exists
+    // to establish.
+    //
+    // Stated as a requirement rather than left to the arithmetic. The `minReplicas` check
+    // below would already refuse such a run — a locally combined node reports one replica
+    // — but a refusal reached by counting is a refusal that a later change to the count
+    // could silently remove, and the reader would have no line to consult. This is that
+    // line.
+    placement: 'requires-remote-combining',
   })
   if (!reduced.ok) return refuse(reduced.reason)
 

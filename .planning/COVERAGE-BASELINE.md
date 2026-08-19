@@ -35,6 +35,61 @@ finding, not a target.** Nothing in this file is a threshold, and
 
 ## Headline
 
+> **Re-measured 2026-08-19, at the point v1.1 closed 15/15 phases and 50/50 requirements —
+> and the first finding is that this command had been failing for two weeks.**
+> `npm run test:coverage` exited **1**, while `--project node` on the identical tree passed
+> **2961 of 2961**. Five cases in `colouring-surface.node.test.ts`'s formatter block cost
+> 11 402, 7 763, 6 588, 13 716 and 7 155 ms under V8 instrumentation and all five failed on
+> vitest's 5 000 ms **default**. The run's own `(user+sys)/real` was **1.375** — squarely
+> healthy — so it was instrument overhead, not host starvation and not a regression: the same
+> nineteen cases cost 7.25 s uninstrumented against a recorded span of 6 296 ms. Fixed at
+> `dce7d80` by sizing the whole block against the measurement rather than the five that
+> happened to fail. **Nobody knew, because the measurement below this one is dated
+> 2026-08-04 and predates 117 of the current 197 spec files.** A guard nothing runs is a
+> guard that has stopped guarding, and this file is where that would have been visible.
+>
+> After the fix: **EXIT=0, 197 files, 2961 passed, 1 skipped**, 570.86 s.
+>
+> | metric | covered / total | % |
+> |---|--:|--:|
+> | statements | 7 571 / 10 152 | **74.57 %** |
+> | branches | 4 348 / 6 235 | 69.73 % |
+> | functions | 1 346 / 1 856 | 72.52 % |
+> | lines | 6 769 / 8 932 | 75.78 % |
+>
+> **This is NOT a fall from the 78.62 % below it, and reading it as one is the mistake this
+> paragraph exists to prevent.** The instrumented denominator went from 4 378 statements to
+> 10 152 as the tree grew from 80 spec files to 197. The two populations are not comparable
+> file-for-file, and no single number spans them.
+>
+> | package | statements | % |
+> |---|--:|--:|
+> | `aot/src` | 358 / 375 | 95.47 % |
+> | `libp2p/src` | 363 / 383 | 94.78 % |
+> | `demo/src` | 206 / 218 | 94.50 % |
+> | `core/src` | 2 628 / 2 809 | 93.56 % |
+> | `net/src` | 1 366 / 1 480 | 92.30 % |
+> | `bench/src` | 317 / 401 | 79.05 % |
+> | `tools/aot` | 627 / 913 | 68.67 % |
+> | `node/src` | 1 394 / 2 634 | 52.92 % |
+> | `browser/src` | 312 / 939 | 33.23 % |
+>
+> **The bottom two are the artefact this file has warned about since 2026-08-04, now
+> quantified rather than asserted.** Coverage instruments the `node` project only, so a module
+> exercised by the `browser` or `e2e` projects reads zero while being genuinely tested. Five
+> files carry it: `bin/bench.ts` **0 / 619**, `bin/agent.ts` **0 / 302**, `bin/seed.ts`
+> **0 / 58** — all three driven by spawned-process e2e specs — plus `browser-node.ts`
+> **2 / 199** and `synthetic-artifact.ts` **0 / 98**, covered by the browser project's 5 169
+> tests. Those five are **1 276 of the 2 581 uncovered statements, 49 % of the entire
+> shortfall, in five files out of the whole tree.** The logic that is in the instrumented
+> project's jurisdiction sits at 92–95 %.
+>
+> Still deliberately **no `thresholds` block**. A floor is a separate act taken against a
+> number that exists, and it would have to be stated per package to mean anything at all —
+> one figure spanning `core/src` at 93.56 % and `browser/src` at 33.23 % would certify a real
+> regression in the first as passing.
+
+
 > **Re-measured 2026-07-30, after the second bug group landed** (B08–B14). The `node`
 > project reads **78.62 %** statements (3442 / 4378) / 76.86 % branches (1910 / 2485) /
 > 78.79 % functions (669 / 849) / 80.53 % lines (3065 / 3806) over **80 test files,

@@ -171,6 +171,23 @@ const EXEMPT_LINES: readonly LineExemption[] = [
     phrase: '"hashrate", "earn", "credits", or "tokens"',
     reason: 'the roadmap stating this rule; the quoted list is the prohibition itself',
   },
+  // The v1.1 archive carries the same two lines, because archiving a milestone COPIES the
+  // roadmap rather than rewording it. Registered as two more line exemptions rather than by
+  // exempting `.planning/milestones/` as a tree: a tree exemption would also cover whatever
+  // prose a future archive brings, and this file's own bias is stated as "exempting as little
+  // as possible". These two are additionally the safest possible line exemptions, because an
+  // archive is frozen by definition — the churn that makes line-level entries expensive
+  // elsewhere cannot happen here.
+  {
+    file: '.planning/milestones/v1.1-ROADMAP.md',
+    phrase: 'no "mining",',
+    reason: 'the archived roadmap stating this rule; the quoted list is the prohibition itself',
+  },
+  {
+    file: '.planning/milestones/v1.1-ROADMAP.md',
+    phrase: '"hashrate", "earn", "credits", or "tokens"',
+    reason: 'the archived roadmap stating this rule; the quoted list is the prohibition itself',
+  },
   {
     file: '.planning/phases/phase-8-benchmark/SUMMARY.md',
     phrase: 'rule earned its place',

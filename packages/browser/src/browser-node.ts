@@ -96,7 +96,7 @@ import {
   serveAgent,
   withholdingFrom,
 } from '@o2/net'
-import type { EnrolOutcome, SovereignCids } from '@o2/net'
+import type { Authorizer, EnrolOutcome, SovereignCids } from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { currentBrowserLabel } from './browser-id.ts'
@@ -1016,6 +1016,21 @@ export class BrowserNode {
    * falsify the bound is {@link executorPeakInFlight}.
    */
   readonly admission: LocalCapacity
+  /**
+   * The one authorizer this tab serves with — AUTH-03.
+   *
+   * **Exposed so there is exactly one of it.** `serveAgent` consults this when a *peer*
+   * asks this tab to do work; `reduceJob`'s `prefers-local-combining` placement consults
+   * the same value when this tab asks *itself*. Building a second `authorizeCapability`
+   * for the local path would be a second place one decision is made, able to disagree
+   * with the first with nothing able to catch the disagreement — the objection
+   * `reduce-job.ts` records against a second issuer set on `submitJob`, one hook over.
+   *
+   * Read-only and never re-derived: the audience and owner key it closes over are
+   * settled at construction, and a caller that could swap it could make this tab admit
+   * to itself what it refuses to everyone else.
+   */
+  readonly authorize: Authorizer
   /** The instrument {@link executorPeakInFlight} reads. */
   readonly #counter: CountingExecutor
   /**
@@ -1079,6 +1094,7 @@ export class BrowserNode {
     capGovernor: DutyCycleGovernor
     worker: WorkerExecutor
     admission: LocalCapacity
+    authorize: Authorizer
     counter: CountingExecutor
     startLedger: StartOutcomeLedger
     verifier: PeerVerifier
@@ -1099,6 +1115,7 @@ export class BrowserNode {
     this.#capGovernor = parts.capGovernor
     this.worker = parts.worker
     this.admission = parts.admission
+    this.authorize = parts.authorize
     this.#counter = parts.counter
     this.#startLedger = parts.startLedger
     this.#verifier = parts.verifier
@@ -1870,6 +1887,20 @@ export class BrowserNode {
       options.startReporting,
     )
 
+    // AUTH-03 — built once, here, and handed to **both** consumers below.
+    //
+    // It was constructed inline in the `serveAgent` call until 2026-08-18. It is hoisted
+    // because a second consumer arrived: the placement ruling lets this tab combine in
+    // its own process, and a tab that admitted its own work by a rule other than the one
+    // it admits a peer's by would be more permissive to itself than to everybody else.
+    // One value, two readers, no way for them to disagree.
+    const authorize = authorizeCapability({
+      ownerId: sovereignty.ownerId,
+      ...(sovereignty.ownerKey === undefined ? {} : { ownerKey: sovereignty.ownerKey }),
+      audience,
+      now: Date.now,
+    })
+
     const node = new BrowserNode({
       libp2p,
       transport,
@@ -1887,6 +1918,7 @@ export class BrowserNode {
       capGovernor,
       worker,
       admission,
+      authorize,
       counter,
       startLedger,
       verifier,
@@ -1945,12 +1977,9 @@ export class BrowserNode {
       // has no such limit, and it needs no relay at all: the tab dials a Node submitter's
       // WebSocket listener directly, and the dispatch comes back along the connection the
       // tab itself opened.
-      authorize: authorizeCapability({
-        ownerId: sovereignty.ownerId,
-        ...(sovereignty.ownerKey === undefined ? {} : { ownerKey: sovereignty.ownerKey }),
-        audience,
-        now: Date.now,
-      }),
+      // Hoisted above the node construction so the local-combine path reads the same
+      // value — see the `const authorize` there, and `BrowserNode.authorize`.
+      authorize,
       // AUTH-01. Both of these were **unconditional sentinels** until this plan, and that
       // is what partitioned the fabric: a peer started with `--trusted-issuer` takes
       // blocks only from peers whose certificate verifies, and a tab that could not hold

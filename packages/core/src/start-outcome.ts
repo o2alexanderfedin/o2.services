@@ -322,6 +322,19 @@ export function startReportFromCounts(
  * Folds to counts and defers to {@link startReportFromCounts}. The fold only ever
  * shrinks its input, so there is no direction in which a number becomes an
  * allocation.
+ *
+ * ## Off `@o2/core`'s barrel since 2026-08-18, and kept anyway — the reason is a test
+ *
+ * Production never holds a `readonly StartOutcome[]`: {@link StartOutcomeLedger.report}
+ * calls {@link startReportFromCounts} directly, and both node getters read that ledger. So
+ * this overload had no consumer and stopped being published. It is **not deleted**, because
+ * `start-outcome.test.ts`'s *"agrees with the outcome-by-outcome path, orderings and
+ * reliability included"* uses it as a **differential oracle** — it builds a population,
+ * feeds it through the ledger, and asserts `ledger.report()` equals `startReport(population)`.
+ * That case is worth having precisely because the two folds are independent: the counts fold
+ * is what runs, and this list fold is the second opinion that would disagree with it if the
+ * ordering, the `MIN_REPORTS_FOR_RATE` flags or the rate arithmetic drifted. Deleting this
+ * function would not remove dead code; it would remove the check.
  */
 export function startReport(
   outcomes: readonly StartOutcome[],

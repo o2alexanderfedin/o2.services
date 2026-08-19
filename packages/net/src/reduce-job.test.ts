@@ -1,5 +1,7 @@
 import {
   EnrollmentAuthority,
+  LOCAL_COMBINE_EXECUTOR,
+  LocalCapacity,
   MAX_PARTIAL_BYTES,
   MemoryBlockstore,
   MemoryNetwork,
@@ -29,6 +31,7 @@ import { describe, expect, it } from 'vitest'
 // the kernel package.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { RpcBlockSource, serveAgent } from './agent.ts'
+import type { AuthorizedWork, Authorizer } from './agent.ts'
 import { FetchingBlockstore } from './block.ts'
 import { encodeResponse, parseRequest } from './protocol.ts'
 import { RemoteExecutor } from './remote-executor.ts'
@@ -310,6 +313,11 @@ describe('MR-04 / MR-05 / MR-07 — eight shards reduce over eight peers that ca
 
       const executorIds = fabric.workers.map((w) => w.id)
       const result = await reduceJob(submitted.job, {
+        // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+        // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+        // local-preferring requestor would answer every combine in-process and there would be
+        // no rendezvous assignment and no churn repair left to observe.
+        placement: 'requires-remote-combining',
         rpc: fabric.originRpc,
         executors: executorIds,
         blockstore: fabric.originStore,
@@ -429,6 +437,12 @@ describe('reduceJob names what it could not do, rather than presenting a partial
     // is attributed to its own partition index. Stated for the same reason as the line
     // above: the option is required so a caller cannot arrive at a leaf key by default.
     contributors: 'attributes-each-shard-to-its-own-partition-index' as const,
+    // Every case in this block refuses *before* a combine is placed anywhere, so the
+    // placement never runs. The remote sentinel is nonetheless the honest statement for
+    // them: a local-preferring fixture would be claiming these refusals hold on a path
+    // that combines in-process, which is a different claim and one this block does not
+    // measure. `describe('the owner's placement ruling …')` below is where that path is.
+    placement: 'requires-remote-combining' as const,
     ...over,
   })
 
@@ -753,6 +767,11 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
       const fabric = await combineFabric(workers)
       try {
         const result = await reduceJob(agreedJob(2), {
+          // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+          // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+          // local-preferring requestor would answer every combine in-process and there would be
+          // no rendezvous assignment and no churn repair left to observe.
+          placement: 'requires-remote-combining',
           rpc: fabric.requestorRpc,
           executors: fabric.ids,
           blockstore: fabric.requestorStore,
@@ -794,6 +813,11 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
     ])
     try {
       const result = await reduceJob(agreedJob(2), {
+        // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+        // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+        // local-preferring requestor would answer every combine in-process and there would be
+        // no rendezvous assignment and no churn repair left to observe.
+        placement: 'requires-remote-combining',
         rpc: fabric.requestorRpc,
         executors: fabric.ids,
         blockstore: fabric.requestorStore,
@@ -837,6 +861,11 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
     ])
     try {
       const result = await reduceJob(agreedJob(5), {
+        // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+        // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+        // local-preferring requestor would answer every combine in-process and there would be
+        // no rendezvous assignment and no churn repair left to observe.
+        placement: 'requires-remote-combining',
         rpc: fabric.requestorRpc,
         executors: fabric.ids,
         blockstore: fabric.requestorStore,
@@ -878,6 +907,11 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
     ])
     try {
       const result = await reduceJob(agreedJob(2), {
+        // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+        // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+        // local-preferring requestor would answer every combine in-process and there would be
+        // no rendezvous assignment and no churn repair left to observe.
+        placement: 'requires-remote-combining',
         rpc: fabric.requestorRpc,
         executors: fabric.ids,
         blockstore: fabric.requestorStore,
@@ -917,6 +951,9 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
         project,
         redundancy: 1,
         contributors: 'attributes-each-shard-to-its-own-partition-index' as const,
+        // This case is about what a requestor can establish from a *peer's* combine
+        // signature, so the combine has to happen on a peer.
+        placement: 'requires-remote-combining' as const,
       }
       const checking = await reduceJob(agreedJob(2), { ...common, trustedIssuers: fabric.trustedIssuers })
       const unchecking = await reduceJob(agreedJob(2), {
@@ -949,6 +986,11 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
     ])
     try {
       const result = await reduceJob(agreedJob(1), {
+        // MR-05/MR-06 — this case measures the *fabric's* combine placement, so it states the
+        // clause of the 2026-08-18 placement ruling that keeps combines on peers. A
+        // local-preferring requestor would answer every combine in-process and there would be
+        // no rendezvous assignment and no churn repair left to observe.
+        placement: 'requires-remote-combining',
         rpc: fabric.requestorRpc,
         executors: fabric.ids,
         blockstore: fabric.requestorStore,
@@ -987,5 +1029,317 @@ describe('the tree derived over these eight leaves — the phase’s one measure
     expect(tree.nodes).toHaveLength(3)
     expect(tree.depth).toBe(2)
     expect(tree.fanout).toBe(4)
+  })
+})
+
+/**
+ * The owner's placement ruling of 2026-08-18, and each of its escapes on its own case.
+ *
+ * > *"Always prefer local execution, unless it must be executed remotely (requested to do
+ * > so, or needs certain permissions that cannot be satisfied or data ownership requires,
+ * > etc.) or the current node is fully loaded."*
+ *
+ * **The escapes are asserted one per case and never in combination**, because a single
+ * broken predicate hides perfectly inside a conjunction: a run whose combine went remote
+ * satisfies "the capacity check works" and "the authorizer check works" identically, and
+ * only a case where *every other* escape admits can say which one refused. So each case
+ * below admits on all the others and refuses on exactly one, and reads the refusal's own
+ * text out of `outcome.localRefusals` rather than inferring it from placement.
+ *
+ * **`localRefusals` is what makes that readable at all.** Without it "the combine went to
+ * a peer" is one bit for four different reasons — which is the failure `Rejection` exists
+ * to prevent one layer over, and the reason this array is not derived from anything.
+ */
+describe("the requestor combines its own job unless a named condition sends it out", () => {
+  /** Room for four, which no case here exhausts by accident. */
+  const roomy = (): LocalCapacity => new LocalCapacity({ nodeId: 'requestor', maxConcurrent: 4 })
+
+  /**
+   * A node with exactly one slot, already spent — so `would` refuses in the real class's
+   * own words rather than in a fixture's.
+   *
+   * Occupied through `offer()` on a shard id that is **not** a combine key, so nothing
+   * here could be mistaken for the reduce having taken its own slot: the point is a node
+   * that is busy with other work, which is what "fully loaded" means to a tab that is
+   * also executing shards.
+   */
+  const full = (): LocalCapacity => {
+    const capacity = new LocalCapacity({ nodeId: 'requestor', maxConcurrent: 1 })
+    const taken = capacity.offer({ shardId: 'some-other-work', nodeId: 'requestor' })
+    expect(taken.accepted).toBe(true)
+    return capacity
+  }
+
+  /** Records every question asked of it, so a case can assert it was never asked. */
+  const counting = (
+    inner: Authorizer | 'serves-unauthenticated',
+  ): { authorize: Authorizer; asked: AuthorizedWork[] } => {
+    const asked: AuthorizedWork[] = []
+    return {
+      asked,
+      authorize: (request) => {
+        asked.push(request)
+        return inner === 'serves-unauthenticated' ? null : inner(request)
+      },
+    }
+  }
+
+  it('combines every node in its own process while a peer sits there answering', async () => {
+    const fabric = await combineFabric([
+      { operatorId: 'alice-op', seedByte: 140, behaviour: 'the production agent' },
+    ])
+    try {
+      const common = {
+        rpc: fabric.requestorRpc,
+        executors: fabric.ids,
+        blockstore: fabric.requestorStore,
+        project,
+        redundancy: 1,
+        trustedIssuers: fabric.trustedIssuers,
+        contributors: 'attributes-each-shard-to-its-own-partition-index' as const,
+      }
+
+      // ── The control arm, and it is the whole reason this case is not vacuous. ───────
+      //
+      // The same fabric, the same job, the only difference the placement. It establishes
+      // that `w0` really does answer combines and really does sign them — so when the
+      // local arm below shows `w0` producing nothing, that is the requestor pre-empting a
+      // reachable peer rather than a peer that was never there.
+      const remote = await reduceJob(agreedJob(5), {
+        ...common,
+        placement: 'requires-remote-combining',
+      })
+      expect(remote.ok).toBe(true)
+      if (!remote.ok) return
+      expect(remote.outcome.ok).toBe(true)
+      expect([...new Set(remote.outcome.executedBy.values())]).toEqual(['w0'])
+      expect(remote.outcome.locallyCombined).toEqual([])
+      // A real receipt, not the named absence: a peer signed each merge and this
+      // requestor verified it against the issuer it pinned.
+      expect('kind' in remote.aggregateAttestation).toBe(false)
+
+      // ── The local arm. ────────────────────────────────────────────────────────────
+      const local = await reduceJob(agreedJob(5), {
+        ...common,
+        placement: { kind: 'prefers-local-combining', capacity: roomy(), authorize: 'serves-unauthenticated' },
+      })
+      expect(local.ok).toBe(true)
+      if (!local.ok) return
+      expect(local.outcome.ok).toBe(true)
+
+      // Every combine, not merely the root. Five leaves at fanout 4 derive a **two-level**
+      // tree — four leaves merge, the fifth is promoted, and the root merges the two — so
+      // the second level read an input that the first level had written into the
+      // requestor's own store. A one-level tree would leave that unmeasured.
+      expect(local.tree.nodes).toHaveLength(2)
+      expect(local.tree.depth).toBe(2)
+      expect([...local.outcome.locallyCombined].sort()).toEqual(
+        [...local.tree.nodes.map((node) => node.id)].sort(),
+      )
+      expect([...new Set(local.outcome.executedBy.values())]).toEqual([LOCAL_COMBINE_EXECUTOR])
+      // Nothing was refused, so nothing fell through — the ranking was not walked at all.
+      expect(local.outcome.localRefusals).toEqual([])
+      expect(local.outcome.recomputes).toBe(0)
+
+      // **The answer is the same answer.** Preferring local changes who computed the
+      // aggregate and not what it is, which is the property that makes the placement a
+      // placement rather than a second implementation.
+      expect(local.outcome.rootCid).toBe(remote.outcome.rootCid)
+
+      // ── The marker, on the ordinary path rather than an exotic one. ───────────────
+      //
+      // This is the load-bearing assertion of the whole ruling. A locally combined
+      // aggregate is self-attested — `localDispatch` signs nothing on purpose — and the
+      // one thing that must never happen is for that to be absorbed into a generic
+      // absence. The same requestor, pinning the same issuers, reads a real receipt on
+      // the remote arm above and this on the local one.
+      const attestation = local.aggregateAttestation
+      expect('kind' in attestation).toBe(true)
+      if (!('kind' in attestation)) return
+      expect(attestation.kind).toBe('holds-no-verified-aggregate-attestation')
+      expect(attestation.verified).toBe(0)
+      expect(attestation.combines).toBe(2)
+      expect(attestation.reason).toContain('this requestor combined it in its own process')
+      expect(attestation.reason).toContain('the party that wanted the answer')
+      // Named for every combine, so a tree with one local step among many could not read
+      // as a tree with none.
+      for (const node of local.tree.nodes) expect(attestation.reason).toContain(node.id)
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('sends every combine out when the caller requires remote, without asking its own ports', async () => {
+    const fabric = await combineFabric([
+      { operatorId: 'alice-op', seedByte: 141, behaviour: 'the production agent' },
+    ])
+    try {
+      const result = await reduceJob(agreedJob(5), {
+        rpc: fabric.requestorRpc,
+        executors: fabric.ids,
+        blockstore: fabric.requestorStore,
+        project,
+        redundancy: 1,
+        trustedIssuers: fabric.trustedIssuers,
+        contributors: 'attributes-each-shard-to-its-own-partition-index',
+        placement: 'requires-remote-combining',
+      })
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.outcome.ok).toBe(true)
+      expect(result.outcome.locallyCombined).toEqual([])
+      expect([...new Set(result.outcome.executedBy.values())]).toEqual(['w0'])
+      // The refusal is recorded per combine rather than left as an empty array, which is
+      // what lets *this* reason be told apart from a full node's below.
+      expect(result.outcome.localRefusals.map((entry) => entry.nodeId).sort()).toEqual(
+        [...result.tree.nodes.map((node) => node.id)].sort(),
+      )
+      for (const entry of result.outcome.localRefusals) {
+        expect(entry.reason).toBe(
+          'this caller requires remote combining, so the requestor did not offer itself this combine',
+        )
+      }
+      // **No "the ports were never asked" assertion here, and its absence is deliberate.**
+      // An earlier draft built a capacity and an authorizer, passed neither — the sentinel
+      // arm carries no ports, by construction — and then asserted they were untouched.
+      // That assertion could not fail, which makes it worse than no assertion: it reads
+      // like evidence of an ordering. The ordering claim on this arm is a *type-level* one
+      // — `'requires-remote-combining'` has nowhere to put a port — and the runtime claim
+      // that capacity is asked before authorisation is carried by the full-node case
+      // below, where both ports are supplied and the authorizer is measurably never
+      // reached.
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('sends the combine out when the local node is full, naming the capacity refusal', async () => {
+    const fabric = await combineFabric([
+      { operatorId: 'alice-op', seedByte: 142, behaviour: 'the production agent' },
+    ])
+    try {
+      const authorizer = counting('serves-unauthenticated')
+      const result = await reduceJob(agreedJob(5), {
+        rpc: fabric.requestorRpc,
+        executors: fabric.ids,
+        blockstore: fabric.requestorStore,
+        project,
+        redundancy: 1,
+        trustedIssuers: fabric.trustedIssuers,
+        contributors: 'attributes-each-shard-to-its-own-partition-index',
+        // Everything else admits. Only headroom refuses.
+        placement: { kind: 'prefers-local-combining', capacity: full(), authorize: authorizer.authorize },
+      })
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      // The ranking is walked exactly as it was before this feature existed, so the
+      // reduce still completes — on the peer.
+      expect(result.outcome.ok).toBe(true)
+      expect(result.outcome.locallyCombined).toEqual([])
+      expect([...new Set(result.outcome.executedBy.values())]).toEqual(['w0'])
+
+      // `LocalCapacity`'s own words, composed in `LocalCapacity.#decide` and not here —
+      // the same string a peer's refusal carries, which is the point of answering an
+      // offer to yourself through the same port.
+      expect(result.outcome.localRefusals).toHaveLength(2)
+      for (const entry of result.outcome.localRefusals) {
+        expect(entry.reason).toContain('over-committed')
+        expect(entry.reason).toContain('1 of 1')
+      }
+
+      // The authorizer was never reached, which is `runCombine`'s ordering: capacity is
+      // asked first because a refusal there costs nothing else.
+      expect(authorizer.asked).toEqual([])
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('sends the combine out when its own authorizer refuses, naming the refusal', async () => {
+    const fabric = await combineFabric([
+      { operatorId: 'alice-op', seedByte: 143, behaviour: 'the production agent' },
+    ])
+    try {
+      // An authorizer that refuses combines and nothing else, so the refusal cannot be a
+      // blanket one that would pass this case for the wrong reason.
+      const authorizer = counting((request) =>
+        request.kind === 'combine' ? 'this fixture admits no combine' : null,
+      )
+      const result = await reduceJob(agreedJob(5), {
+        rpc: fabric.requestorRpc,
+        executors: fabric.ids,
+        blockstore: fabric.requestorStore,
+        project,
+        redundancy: 1,
+        trustedIssuers: fabric.trustedIssuers,
+        contributors: 'attributes-each-shard-to-its-own-partition-index',
+        // Room to spare. Only the permission refuses.
+        placement: { kind: 'prefers-local-combining', capacity: roomy(), authorize: authorizer.authorize },
+      })
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.outcome.ok).toBe(true)
+      expect(result.outcome.locallyCombined).toEqual([])
+      expect([...new Set(result.outcome.executedBy.values())]).toEqual(['w0'])
+
+      expect(result.outcome.localRefusals).toHaveLength(2)
+      for (const entry of result.outcome.localRefusals) {
+        // The `unauthorized: ` prefix is `combineAdmitted`'s, so one authorizer's text
+        // reads identically whether the requestor or a peer consulted it.
+        expect(entry.reason).toBe('unauthorized: this fixture admits no combine')
+      }
+
+      // It was asked about the combine and about nothing else, with the work shape a
+      // peer's authorizer is handed — the tree node's id, the inputs as merged, the
+      // level, and the empty chain this build's combine frame cannot carry.
+      expect(authorizer.asked).toHaveLength(2)
+      for (const [index, asked] of authorizer.asked.entries()) {
+        expect(asked.kind).toBe('combine')
+        if (asked.kind !== 'combine') return
+        expect(asked.capability).toEqual([])
+        expect(asked.combine.combineId).toBe(result.tree.nodes[index]?.id)
+        expect(asked.combine.inputCids.length).toBeGreaterThan(0)
+      }
+    } finally {
+      fabric.close()
+    }
+  })
+
+  it('falls through to the ranking without pre-empting it when nothing local is offered', async () => {
+    // The pre-ruling behaviour, kept as a case rather than as a memory: a requestor that
+    // states the remote sentinel gets exactly what `reduceJob` did before the placement
+    // existed, including the failure when no peer answers. `executors: ['w0']` names a
+    // peer nothing is serving.
+    const result = await reduceJob(agreedJob(5), {
+      rpc: new RpcEndpoint(new MemoryNetwork().connect('requestor'), { timeoutMs: 50 }),
+      executors: ['w0'],
+      blockstore: new MemoryBlockstore(),
+      project,
+      trustedIssuers: 'checks-no-combine-signatures',
+      contributors: 'attributes-each-shard-to-its-own-partition-index',
+      placement: 'requires-remote-combining',
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.outcome.ok).toBe(false)
+    expect(result.outcome.rootCid).toBeNull()
+    expect(result.outcome.locallyCombined).toEqual([])
+    // And the same job, on a requestor that offers itself the work, completes with no
+    // peer involved at all — which is the difference the ruling makes, measured on one
+    // fixture rather than argued.
+    const offered = await reduceJob(agreedJob(5), {
+      rpc: new RpcEndpoint(new MemoryNetwork().connect('requestor'), { timeoutMs: 50 }),
+      executors: ['w0'],
+      blockstore: new MemoryBlockstore(),
+      project,
+      trustedIssuers: 'checks-no-combine-signatures',
+      contributors: 'attributes-each-shard-to-its-own-partition-index',
+      placement: { kind: 'prefers-local-combining', capacity: roomy(), authorize: 'serves-unauthenticated' },
+    })
+    expect(offered.ok).toBe(true)
+    if (!offered.ok) return
+    expect(offered.outcome.ok).toBe(true)
+    expect(offered.outcome.rootCid).not.toBeNull()
+    expect(offered.outcome.locallyCombined).toHaveLength(2)
   })
 })

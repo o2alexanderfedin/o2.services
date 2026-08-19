@@ -31,6 +31,10 @@ export type {
   TabActivity,
   TabAddresses,
   TabApi,
+  // SCHED-01 — exported for the reason `TabNameRecord` below is: the shape crosses
+  // `page.evaluate` into `packages/node`'s e2e harnesses, and a hand-written literal
+  // there would drift from what `lastCandidates()` actually returns.
+  TabCandidateLookup,
   TabConsentState,
   TabDiscoveryRound,
   TabEnrolmentOffer,
@@ -103,9 +107,29 @@ export { classifyStartError, firstGap, probeEnvironment } from './start-probe.ts
 export type { ProbeGlobals, StartEnvironment } from './start-probe.ts'
 
 // Fetching and verifying a translated artifact, in the one shape V8 can cache — AOT-05.
+//
+// ## The two-visit code-cache measurement is NOT on this barrel — retired 2026-08-18
+//
+// `cacheVerdict`, `describeCacheVerdict` and `measureRepeatLoad` stood in the three lines
+// this note replaces, and they are **retired from the barrel rather than deleted**: the
+// declarations, their docblocks and `streaming-load.browser.test.ts`'s cases are all
+// untouched, and the spec imports them module-relative, so nothing measured stops being
+// measured. What stops is publishing them as capabilities of `@o2/browser`.
+//
+// The reason is the one this file already acts on for their five siblings.
+// `CODE_CACHE_EVIDENCE`, `CODE_CACHE_BLIND_SPOTS`, `CODE_CACHE_HARNESSES`,
+// `codeCacheHarnessFor` and `describeCodeCacheEvidence` are declared in the same module and
+// deliberately kept off this list, because they are the *apparatus of a measurement* rather
+// than something a page does to a visitor. These three are the same apparatus: a verdict
+// needs two loads of one URL in one page, and the production path — `fetchModuleForDispatch`
+// behind `#fetch-byo` — loads **once** and reports `cacheEligible` off the byte count.
+// Wiring them would mean manufacturing a second load nobody asked for, which is inventing a
+// measurement rather than wiring a capability.
+//
+// So this is the *"retiring the ones that are genuinely superseded"* half of Phase 22's
+// stated closing condition, taken on an in-file precedent rather than on a count.
 export {
   CACHE_CONFOUNDS,
-  cacheVerdict,
   CID_DEFECTS,
   cidDefect,
   CODE_CACHE_MIN_BYTES,
@@ -117,25 +141,26 @@ export {
   // the list a consumer sees is the whole list.
   CODE_CACHE_TOP_TIER_THRESHOLD_BYTES,
   DAG_CBOR_CODE,
-  describeCacheVerdict,
   describeLoadFailure,
   gatewayUrl,
   loadArtifact,
-  measureRepeatLoad,
   RAW_CODE,
   URL_DEFECTS,
   WASM_CONTENT_TYPE,
 } from './streaming-load.ts'
+// `CacheVerdict`, `CompilePair` and `RepeatMeasurement` left with the three functions
+// above, in the same change and for the same reason: they are the *types of the
+// measurement*, produced by nothing this barrel still publishes, and a type a consumer
+// cannot obtain a value of is a published shape rather than a published capability.
+// Nothing outside `streaming-load.ts` named any of the three — measured over `packages`
+// and `tools` before they were removed, not assumed.
 export type {
-  CacheVerdict,
   CidDefect,
-  CompilePair,
   FetchLike,
   LoadedArtifact,
   LoadFailure,
   LoadOptions,
   LoadResult,
-  RepeatMeasurement,
   UrlDefect,
   UrlResult,
 } from './streaming-load.ts'

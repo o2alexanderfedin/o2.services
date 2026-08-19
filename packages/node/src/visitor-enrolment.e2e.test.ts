@@ -63,13 +63,84 @@ import { FabricNode } from './fabric-node.ts'
  * ## What this does NOT establish
  *
  * One host, one kernel. Three browser engines are three engines and not three machines —
- * the standing ruling at `vitest.config.ts` binds here as it does everywhere else. And this
- * says nothing about whether the tab's *own* verifier excludes an unverified peer off the
- * wire; `tab-pinning.e2e.test.ts` owns that reading.
+ * the standing ruling at `vitest.config.ts` binds here as it does everywhere else.
+ *
+ * **This paragraph ended *"and this says nothing about whether the tab's *own* verifier
+ * excludes an unverified peer off the wire; `tab-pinning.e2e.test.ts` owns that reading"*
+ * until 2026-08-18, and the second case below is what made it false.** The sentence is
+ * quoted rather than deleted because it was true when written and it names precisely what
+ * was missing. `tab-pinning.e2e.test.ts` still owns the reading for a tab pinned by the
+ * driving test; what it structurally cannot own is a tab pinned by a decision **a visitor
+ * made with the mouse**, because it hands the page `enrollment` as harness-named key
+ * material — the same move this file's header objects to two paragraphs above. The second
+ * case joins the two halves: the clicks write the certificate, and a harness on the SAME
+ * ORIGIN reads the issuer back out of IndexedDB with the production helper and pins it.
+ *
+ * ## Why the second case restarts through `window.o2capability` and does not grow `TabApi`
+ *
+ * The reading needs `verifiedPeers()` and `fetchBlock()`, and `TabApi` carries neither.
+ * `capability-harness.ts`'s own docblock has already ruled on that: putting the node
+ * configuration a measurement wants onto `TabApi` *"would put node configuration on the
+ * page's own contract to serve a test"*, and `tab-api.ts` records the same rule. The route
+ * the harness takes instead costs nothing, because `seed-server.ts` roots its Vite server at
+ * the repository root — so `/packages/browser/harness/capability.html` is served by the
+ * **seed process, on the same host and the same port** as the demo page. Same origin, same
+ * IndexedDB. The visitor's certificate is written by the clicks and read by the harness
+ * without either side naming a key.
+ *
+ * **The harness restart passes no `enrollment`, and that is required rather than tolerated.**
+ * A visitor's key is minted in the browser with `extractable: false`, so no driver can
+ * supply it — which is the whole reason `gated-seed.e2e.test.ts` cannot make this reading at
+ * all. `resolveCertificate` opens with `if (enrollment === undefined) return null`, so the
+ * restarted tab holds no certificate of its own; that is correct and not a gap, because the
+ * block source keys on `trustedIssuers`, and `enrolledIssuer` reads those straight out of
+ * the store the clicks wrote.
+ *
+ * ## The fail-open is why the second case has two arms rather than one
+ *
+ * `peer-verifier.ts`'s `verifiedPeers` returns the connected set **unchanged, with no verdict
+ * computed and no `records` request issued**, when the pinned set is empty — a deliberate
+ * fail-open, because a fail-closed empty set would empty the block source of the relay that
+ * is a fresh tab's only peer. So a version of this case that forgot to enrol would fetch both
+ * blocks and pass while proving nothing. The control arm runs FIRST, against a store nothing
+ * has ever enrolled under, and takes the uncertificated peer's block — so the `null` in the
+ * arm below it is a change in one instrument rather than the only value it has ever shown.
  */
 
 const SEED = fileURLToPath(new URL('./bin/seed.ts', import.meta.url))
 const PAGE_PATH = '/packages/browser/demo/index.html'
+
+/**
+ * The test-only harness page, served by the SAME seed process on the SAME port.
+ *
+ * `seed-server.ts` roots its Vite dev server at the repository root, so this path and
+ * {@link PAGE_PATH} share an origin and therefore an IndexedDB. That is the whole mechanism
+ * by which a certificate obtained by clicking can be read back by something that can see
+ * `verifiedPeers` and the block source, and it is why no new page and no new server exist
+ * here.
+ */
+const HARNESS_PATH = '/packages/browser/harness/capability.html'
+
+/**
+ * The store `autoStart` uses, and therefore the one the visitor's clicks write into.
+ *
+ * Spelled out rather than imported because `demo/main.ts` states it as a literal default on
+ * `autoStart` and exports nothing that names it. It is not asserted against itself: the
+ * premise reading below requires `enrolledIssuer(DEMO_STORE)` to be the provider's key, so a
+ * demo that started storing under a different name reddens rather than passing quietly.
+ */
+const DEMO_STORE = 'o2-blocks'
+
+/**
+ * A store nothing has ever enrolled under — the control arm, and the ONE variable.
+ *
+ * Everything else about the two arms is identical: same page, same engine, same relay, same
+ * two peers, same two blocks, same `enrolledIssuer` call deciding the anchor set. What
+ * differs is which origin-storage that call reads, and therefore whether it answers with the
+ * provider or with `null` — which is exactly the difference between a returning visitor and
+ * a first-time one.
+ */
+const FRESH_STORE = 'o2-blocks-a-visit-that-never-enrolled'
 
 /** The build authority every node here pins — DET-03, DATA-08. Nothing is dispatched. */
 const TRUST_ANCHORS: readonly PublicKeyHex[] = [KERNEL_TRUST_ANCHOR]
@@ -89,6 +160,27 @@ const ADMIT_BUDGET_MS = 90_000
 const REFUSAL_WINDOW_MS = 6_000
 /** Whole-case budget for one engine: launch, load, consent, enrol, join, admission. */
 const CASE_TIMEOUT_MS = 420_000
+/** How long a verified set is given to settle. Each verdict is an RPC round trip. */
+const SETTLE_MS = 30_000
+
+/**
+ * The certificated peer's own user key — the **private** half, which signs the owner proof.
+ *
+ * Seed 76. Re-grepped across every `fill(n)` site in `packages/` and `tools/` on 2026-08-18:
+ * 75 and 77 are taken, 76 is free.
+ */
+const MEMBER_USER_PRIVATE_KEY = new Uint8Array(32).fill(76)
+const MEMBER_OPERATOR_ID = 'wharf-road-members'
+
+/**
+ * The two payloads, distinguishable by length alone.
+ *
+ * Different sizes on purpose, for the reason `tab-pinning.e2e.test.ts` gives for the same
+ * pair: `fetchBlock` reports a byte count, so a fetch that somehow returned the OTHER peer's
+ * block shows up as the wrong number rather than passing as a generic success.
+ */
+const STRANGER_BYTES = new Uint8Array(48).fill(11)
+const MEMBER_BYTES = new Uint8Array(96).fill(13)
 
 type SeedProcess = ChildProcessByStdio<Writable, Readable, Readable>
 
@@ -105,8 +197,15 @@ let provider: FabricNode | undefined
 let providerIssuer: PublicKeyHex
 let providerAddr: string
 let strangerNode: FabricNode | undefined
+let strangerAddr: string
+let strangerCid: string
+let memberNode: FabricNode | undefined
+let memberAddr: string
+let memberCid: string
 let seed: Seed | undefined
 let pageUrl: string
+let harnessUrl: string
+let seedRelayAddr: string
 
 /**
  * A port the OS just told us was free.
@@ -327,11 +426,117 @@ async function stays(
   }
 }
 
+/**
+ * Wait until `#join`'s start has actually produced a node — **not** until it stored a key.
+ *
+ * **This exists because a race that was always in the first case below started losing on
+ * 2026-08-18, and the fixture that exposed it did not cause it.** `enrolmentOffer().heldIssuer`
+ * reads the *stored certificate*, which `BrowserNode.start` persists during the enrolment
+ * round trip — well before `api.start` assigns `node`. A read of `window.o2.addresses()`
+ * taken the instant the issuer appears therefore lands inside `api.start` and throws
+ * `node not started`, with `#state` still reading *"starting node and reserving on the
+ * relay…"* — which is what a diagnostic read of that element printed.
+ *
+ * Measured rather than reasoned about, because "it passes at HEAD" is a claim to check: the
+ * file as it stood at `f76c925` won that sample **three times out of three**, and with the
+ * second case's fixture in the tree it lost **two times out of three**, always in firefox and
+ * always on the same line. Nothing about the assertion changed; the interval either side of
+ * it did.
+ *
+ * `activity()` is the probe because it answers `null` while `node` is null and never throws,
+ * so waiting on it is a reading rather than a swallowed exception. A `sleep` would have been
+ * the other repair and is the wrong one — it encodes this machine's load into the file.
+ */
+async function untilNodeRunning(tab: Page): Promise<void> {
+  await expect
+    .poll(async () => tab.evaluate(() => window.o2.activity() !== null), {
+      timeout: ADMIT_BUDGET_MS,
+    })
+    .toBe(true)
+}
+
+/**
+ * What `demo/main.ts#start` would pin if a visitor started a node on this origin right now.
+ *
+ * The production helper itself, called in a real engine against the IndexedDB a real
+ * enrolment wrote — not a reimplementation of it. Deliberately routed through the harness
+ * rather than through a started node: the whole question it answers is what a tab knows
+ * *before* it starts.
+ */
+async function pinnedFor(tab: Page, blockstoreName: string): Promise<string | null> {
+  return tab.evaluate(async (name) => window.o2capability.enrolledIssuer(name), blockstoreName)
+}
+
+/**
+ * Start the harness tab, taking its anchor set the way production takes it.
+ *
+ * The two lines inside are `demo/main.ts#start`'s own: read the issuer THIS ORIGIN enrolled
+ * with, and pass nothing at all when there is none. Nothing here names a key — the argument
+ * list carries a store name, the build authority and the relay address, and no certificate
+ * issuer at all. That is what makes the difference between the two arms a property of the
+ * visitor's own storage rather than of this file.
+ *
+ * `relayAddrs` is the spawned seed, always, so the tab meets the real gated relay inside
+ * `start` exactly as a visitor does. The tab passes no `enrollment` and so holds no
+ * certificate, which means the seed refuses it a reservation and keeps the connection —
+ * `gated-seed.e2e.test.ts` measures that pair directly. A connected peer holding no
+ * certificate is the shape this case is about, so the relay being one is not a wrinkle.
+ */
+async function harnessStart(tab: Page, blockstoreName: string): Promise<string> {
+  return tab.evaluate(
+    async ([name, anchor, relayAt]) =>
+      window.o2capability.start({
+        relayAddrs: [relayAt],
+        blockstoreName: name,
+        trustAnchors: [anchor],
+        trustedIssuers: await window.o2capability
+          .enrolledIssuer(name)
+          .then((issuer) => (issuer === null ? [] : [issuer])),
+        sovereignty: { ownerId: '', canExecuteSovereign: false },
+        whenSeedIsGone: 'mints-a-new-identity',
+      }),
+    [blockstoreName, KERNEL_TRUST_ANCHOR, seedRelayAddr] as const,
+  )
+}
+
+/** Meet a peer after start, as an ordinary peer is met — see the harness's own docblock. */
+async function harnessDial(tab: Page, address: string): Promise<string> {
+  return tab.evaluate(async (at) => window.o2capability.dial(at), address)
+}
+
+async function harnessPeers(tab: Page): Promise<string[]> {
+  return tab.evaluate(() => window.o2capability.peers())
+}
+
+async function harnessVerified(tab: Page): Promise<string[]> {
+  return tab.evaluate(() => window.o2capability.verifiedPeers())
+}
+
+/**
+ * Ask the tab's **fetching** tier for a block and report how many bytes came back.
+ *
+ * This is the off-the-wire reading and the reason the case cannot be satisfied from a page
+ * variable. `BrowserNode.blockstore` is the `FetchingBlockstore` composed over
+ * `RpcBlockSource(rpc, () => verifier.verifiedPeers)`, so a number here is bytes that
+ * crossed a real connection from a peer that really holds them, and a `null` is the absence
+ * of any peer the gate would ask. `verifiedPeers()` says what the verifier *thinks*; only
+ * this says what the composed node *does with it*, and the two fail independently.
+ */
+async function harnessFetch(tab: Page, cid: string): Promise<number | null> {
+  return tab.evaluate(async (c) => window.o2capability.fetchBlock(c), cid)
+}
+
+async function harnessStop(tab: Page): Promise<void> {
+  await tab.evaluate(async () => window.o2capability.stop())
+}
+
 beforeAll(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-visitor-enrol-'))
   await startProvider()
   seed = await startSeed(join(workdir, 'seed'))
   pageUrl = `http://127.0.0.1:${seed.httpPort}${PAGE_PATH}`
+  harnessUrl = `http://127.0.0.1:${seed.httpPort}${HARNESS_PATH}`
+  seedRelayAddr = `/ip4/127.0.0.1/tcp/${seed.wsPort}/ws/p2p/${seed.peerId}`
 
   // The control that makes every positive reading below non-vacuous: same relay, alive
   // throughout, holding no certificate. It pins the same issuer itself, so this fixture
@@ -341,12 +546,41 @@ beforeAll(async () => {
     startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'stranger'),
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
-    relayAddrs: [`/ip4/127.0.0.1/tcp/${seed.wsPort}/ws/p2p/${seed.peerId}`],
+    relayAddrs: [seedRelayAddr],
     trustAnchors: TRUST_ANCHORS,
   })
+  strangerAddr = directWsAddr(strangerNode)
+
+  // **The certificated peer — identical to `strangerNode` in every field but `enrollment`.**
+  //
+  // Same class, same transports, same listen address, same relay, same admission posture, so
+  // an exclusion in the second case below cannot be an artefact of a kind of node. It enrols
+  // with the separated provider, which is the same provider the visitor's clicks reach and
+  // therefore the same issuer the tab ends up pinning — a peer certificated by somebody else
+  // would measure the wrong thing.
+  memberNode = await FabricNode.start({
+    relayAdmission: new Set<PublicKeyHex>([providerIssuer]),
+    startReporting: 'reports-its-own-start',
+    blockstoreDir: join(workdir, 'member'),
+    listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+    relayAddrs: [seedRelayAddr],
+    trustAnchors: TRUST_ANCHORS,
+    enrollment: {
+      userPrivateKey: MEMBER_USER_PRIVATE_KEY,
+      operatorId: MEMBER_OPERATOR_ID,
+      providerAddr,
+    },
+  })
+  memberAddr = directWsAddr(memberNode)
+
+  // One block into each peer's **local** store, which is the tier `serveAgent` answers a
+  // `block` request from. `put` on a `FetchingBlockstore` writes the local tier.
+  strangerCid = (await strangerNode.blockstore.put(STRANGER_BYTES)).toString()
+  memberCid = (await memberNode.blockstore.put(MEMBER_BYTES)).toString()
 }, 300_000)
 
 afterAll(async () => {
+  await memberNode?.stop().catch(() => {})
   await strangerNode?.stop().catch(() => {})
   await stopSeed()
   await provider?.stop().catch(() => {})
@@ -456,6 +690,11 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
           .toBe(providerIssuer)
 
         // ---- B3: the gated seed admits it. Read out of the seed PROCESS over HTTP.
+        //
+        // The join is still in flight when the issuer above appears — see
+        // {@link untilNodeRunning} for the measurement. Waited for rather than sampled.
+        if (page === undefined) throw new Error('no page')
+        await untilNodeRunning(page)
         const { peerId } = await page.evaluate(() => window.o2.addresses())
         expect(peerId, 'the tab must have started a node').not.toBe('')
         await until(
@@ -471,6 +710,167 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
           await advertised(),
           'the uncertificated stranger must still be out while the enrolled tab is in',
         ).not.toContain(strangerNode?.peerId ?? '')
+      } finally {
+        await page?.close().catch(() => {})
+        await browser?.close().catch(() => {})
+      }
+    },
+    CASE_TIMEOUT_MS,
+  )
+
+  /**
+   * **AUTH-02's browser leg, off the wire, on a tab a visitor enrolled with the mouse.**
+   *
+   * The case above establishes that the clicks produce a certificate and get the tab through
+   * a closed door. It says nothing about what the tab then *does* with the issuer it
+   * obtained, and until 2026-08-18 nothing in this repository did: `tab-pinning.e2e.test.ts`
+   * makes the fetching reading but starts its tab through the harness with key material it
+   * generated, and this file clicked but read only `heldIssuer` and `/bootstrap.json`.
+   *
+   * The three clicks below are a **precondition, not the subject** — what they establish is
+   * asserted in the case above and is not restated. They are here because they are the only
+   * way to obtain the one input this case is about, and because nothing else in this
+   * repository can produce it: the visitor's key is minted in the browser as
+   * non-extractable, so no driver can hand a page an enrolment the way `gated-seed` does.
+   *
+   * ## The instrument, and why a page variable would not carry the claim
+   *
+   * Two peers, alive since `beforeAll`, differing in the `enrollment` option and in nothing
+   * else, each holding one block of its own in its **local** store. The tab is asked for both
+   * through `BrowserNode.blockstore`. A byte count is bytes that crossed a real connection; a
+   * `null` is the gate declining to ask anybody. `verifiedPeers()` is asserted beside them
+   * and is the weaker of the two readings — a getter can be right while the block source
+   * reads something else entirely, which is the gap that left the composition line witnessed
+   * by a source-text count for a day.
+   *
+   * ## The contrast is the proof
+   *
+   * Arm A pins nobody, because it names a store nothing has enrolled under, and takes the
+   * uncertificated peer's block. Arm B pins what the clicks stored, and does not. Same page,
+   * same engine, same relay, same two peers, same two blocks, same production `enrolledIssuer`
+   * call choosing the anchor — one variable. Without arm A, arm B's `null` would be satisfied
+   * just as well by a peer that does not serve blocks, a CID that names nothing, or a
+   * `fetchBlock` that is broken.
+   */
+  it(
+    'and the tab it enrolled will not take a block from a connected peer holding no certificate',
+    async () => {
+      let browser: Browser | undefined
+      let page: Page | undefined
+      try {
+        browser = await type.launch()
+        page = await browser.newPage()
+        const tab = page
+        tab.on('pageerror', (error) => {
+          process.stderr.write(`[${name}] page error: ${error.message}\n`)
+        })
+        tab.on('console', (message) => {
+          if (message.type() === 'error') {
+            process.stderr.write(`[${name}] console: ${message.text()}\n`)
+          }
+        })
+
+        // ---- the precondition: the same three clicks, and no argument crosses into the page.
+        await tab.goto(pageUrl)
+        await tab.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+        await tab.locator('#allow').click()
+        await tab.locator('#enrol-offer').waitFor({ state: 'visible', timeout: 60_000 })
+        await tab.locator('#enrol').click()
+        await expect
+          .poll(async () => tab.evaluate(async () => (await window.o2.enrolmentOffer()).accepted), {
+            timeout: 60_000,
+          })
+          .toBe(true)
+        await tab.locator('#join').click()
+        await expect
+          .poll(
+            async () => tab.evaluate(async () => (await window.o2.enrolmentOffer()).heldIssuer),
+            { timeout: ADMIT_BUDGET_MS },
+          )
+          .toBe(providerIssuer)
+
+        // Waited for, then released. The issuer above appears INSIDE `api.start`, so a stop
+        // issued on it would be a stop of a node that does not exist yet — `TabApi.stop` is
+        // a no-op against `node === null` and would leave the start running into a page this
+        // case is about to navigate away from. See {@link untilNodeRunning}.
+        //
+        // Released before a second node starts on the same identity store. A tab's identity
+        // lives in IndexedDB rather than in the tab, so the harness restart below reloads
+        // THIS node rather than minting a second one.
+        await untilNodeRunning(tab)
+        await tab.evaluate(async () => window.o2.stop())
+
+        // ---- same origin, different page: same host, same port, therefore same IndexedDB.
+        await tab.goto(harnessUrl)
+        await tab.waitForFunction(() => typeof window.o2capability !== 'undefined', null, {
+          timeout: 60_000,
+        })
+
+        // **The premise of both arms, read with the production helper in the engine.** What
+        // the clicks wrote is what `demo/main.ts#start` would pin; a store nothing enrolled
+        // under has nothing to pin. If the demo ever stores under another name, this is where
+        // it reddens rather than the arms below quietly measuring two unpinned tabs.
+        expect(await pinnedFor(tab, DEMO_STORE)).toBe(providerIssuer)
+        expect(await pinnedFor(tab, FRESH_STORE)).toBeNull()
+
+        // ---- arm A — THE CONTROL, and it runs first. ------------------------------------
+        await harnessStart(tab, FRESH_STORE)
+        const strangerId = await harnessDial(tab, strangerAddr)
+        const memberId = await harnessDial(tab, memberAddr)
+        expect(strangerId).toBe(strangerNode?.peerId)
+        expect(memberId).toBe(memberNode?.peerId)
+
+        await expect
+          .poll(async () => (await harnessPeers(tab)).length, { timeout: SETTLE_MS })
+          .toBeGreaterThanOrEqual(2)
+
+        // Pinning nobody means verifying nobody, which `PeerVerifier` reads as taking
+        // everybody — the early return in `verifiedPeers`. Stated as a reading rather than
+        // left implied, because it is the premise of the two fetches under it.
+        const unpinned = await harnessVerified(tab)
+        expect(unpinned).toContain(strangerId)
+        expect(unpinned).toContain(memberId)
+
+        expect(await harnessFetch(tab, strangerCid)).toBe(STRANGER_BYTES.length)
+        expect(await harnessFetch(tab, memberCid)).toBe(MEMBER_BYTES.length)
+
+        await harnessStop(tab)
+
+        // ---- arm B — THE MEASUREMENT. One field different: which store the anchor came from.
+        await harnessStart(tab, DEMO_STORE)
+        expect(await harnessDial(tab, strangerAddr)).toBe(strangerId)
+        expect(await harnessDial(tab, memberAddr)).toBe(memberId)
+
+        // Each verdict is an RPC round trip, so the certificated peer's arrival in the
+        // verified set is polled for. A read taken before it settles is "not asked yet",
+        // which is not the claim being made.
+        await expect
+          .poll(async () => harnessVerified(tab), { timeout: SETTLE_MS })
+          .toContain(memberId)
+
+        // The uncertificated peer is connected throughout, and excluded.
+        //
+        // **`soft`, and that is the difference between watching a plant and inferring one.**
+        // These two are the weaker reading — a getter can be right while the block source
+        // reads something else — and a hard failure here would abort the case before the two
+        // fetches under it ran, so the off-the-wire assertions this row actually turns on
+        // would never be watched failing. Measured: forcing `verifiedPeers`' empty-set
+        // fail-open to be taken while an issuer is pinned reddens the getter line AND
+        // *"expected null to be 48"* on the fetch, in one run, in all three engines. Hard
+        // assertions here made the second half invisible.
+        expect.soft(await harnessPeers(tab)).toContain(strangerId)
+        expect.soft(await harnessVerified(tab)).not.toContain(strangerId)
+
+        // **Off the wire, and this pair is the claim.** The two lines above say what the
+        // verifier thinks; these two say what the composed node does with it. A block held
+        // only by the excluded peer does not arrive, and a block held only by the verified
+        // one does — through the same `FetchingBlockstore`, in the same tab, in the same
+        // second. Neither is readable from a page variable: `null` here is the gate declining
+        // to ask anybody, and `96` is bytes that crossed a real connection.
+        expect(await harnessFetch(tab, strangerCid)).toBeNull()
+        expect(await harnessFetch(tab, memberCid)).toBe(MEMBER_BYTES.length)
+
+        await harnessStop(tab)
       } finally {
         await page?.close().catch(() => {})
         await browser?.close().catch(() => {})

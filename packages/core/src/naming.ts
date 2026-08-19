@@ -34,6 +34,33 @@ export interface NameRecord {
   readonly expiresAt: number
   readonly signer: PublicKeyHex
   readonly signature: string
+  /**
+   * AOT-02 — the translation this artifact came out of, named by the CID of its key.
+   *
+   * **What it is for.** {@link cid} vouches for the bytes; this vouches for *why those
+   * bytes should be what they are*. `@o2/aot`'s `translationCid` hashes the input digest,
+   * the target, the toolchain versions and the required WASM feature set into one CID, so
+   * a consumer holding a lift of its own can compare what it produced against what the
+   * publisher signed and report a mismatch naming both — which is the second reason
+   * `describeKey`'s docblock has always given for existing, and the one nothing had.
+   *
+   * **A CID and not the key itself, stated as the limit it is.** `TranslationKey` lives in
+   * `@o2/aot`, which depends on this package, so carrying the four fields here would either
+   * invert that dependency or duplicate the type — and a duplicated identity type is how
+   * two spellings of one thing get signed. Comparing the CIDs *is* comparing the keys,
+   * because `translationCid` is a pure function of the key. What is genuinely lost is that
+   * a mismatch report can render only the side it computed; the publisher's key is named
+   * rather than shown. `tools/aot/lift.ts`'s `translation-key-mismatch` says so in its own
+   * sentence rather than leaving a reader to infer it.
+   *
+   * **Optional, and the optionality is load-bearing rather than lazy.** Every record signed
+   * before 2026-08-18 — the demo's committed kernel records among them — has no translation
+   * behind it at all, and {@link payloadOf} therefore omits the field entirely when it is
+   * absent, so those signatures verify against byte-identical payloads. A record that
+   * *carries* it signs it: the field is inside the signature, so a translation key cannot be
+   * attached to, stripped from, or swapped on a record after the fact.
+   */
+  readonly translationKeyCid?: CID
 }
 
 function payloadOf(record: Omit<NameRecord, 'signature'>): Uint8Array<ArrayBuffer> {
@@ -43,6 +70,11 @@ function payloadOf(record: Omit<NameRecord, 'signature'>): Uint8Array<ArrayBuffe
     version: record.version,
     expiresAt: record.expiresAt,
     signer: record.signer,
+    // Spread rather than written as `translationKeyCid: record.translationKeyCid`, because
+    // an explicit `undefined` is not the same as an absent key to a canonical encoder, and
+    // the whole point of the optionality is that a record without one hashes exactly as it
+    // did before this field existed. `naming.test.ts` holds that as a byte comparison.
+    ...(record.translationKeyCid === undefined ? {} : { translationKeyCid: record.translationKeyCid }),
   }
   const encoded = encodeCanonical(value)
   if (!encoded.ok) throw new NotEncodableError('name record', encoded.error)
@@ -83,6 +115,11 @@ export function encodeNameRecord(record: NameRecord): string {
       cid: record.cid.toString(),
       version: record.version,
       expiresAt: record.expiresAt,
+      // Emitted only when present, matching `payloadOf`. A `"translationKeyCid": null` in
+      // the file would decode to a record that is not the one that was signed.
+      ...(record.translationKeyCid === undefined
+        ? {}
+        : { translationKeyCid: record.translationKeyCid.toString() }),
       signer: record.signer,
       signature: record.signature,
     },
@@ -148,7 +185,32 @@ export function decodeNameRecord(text: string): NameRecord | null {
   } catch {
     return null
   }
-  return { name, cid, version, expiresAt, signer, signature }
+
+  // AOT-02. Absent is a record with no translation behind it and decodes fine; *present and
+  // unparseable* is a malformed record and is refused, on this function's own stated rule
+  // that a half-decoded record is worse than none — dropping an unparseable field would
+  // hand the resolver a record whose payload differs from the one that was signed, and the
+  // signature check would then report `bad-signature` for a decoding bug.
+  const translationText = value['translationKeyCid']
+  let translationKeyCid: CID | undefined
+  if (translationText !== undefined) {
+    if (typeof translationText !== 'string') return null
+    try {
+      translationKeyCid = CID.parse(translationText)
+    } catch {
+      return null
+    }
+  }
+
+  return {
+    name,
+    cid,
+    version,
+    expiresAt,
+    signer,
+    signature,
+    ...(translationKeyCid === undefined ? {} : { translationKeyCid }),
+  }
 }
 
 export type ResolveFailure =

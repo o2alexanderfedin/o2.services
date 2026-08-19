@@ -284,8 +284,11 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // It is kept, and it is now the weaker of two checks over the same population. The block
     // *"WIRE-02 — every unreachable export is named by a register, in both directions"* at the
     // bottom of this file asserts set equality between this walk and
-    // `DISPOSITIONS ∪ OPEN_FINDINGS`, so the count below is pinned exactly at 66 by two named
-    // registers and a bound of 66 can no longer bind. **A ceiling is green about any twenty-four
+    // `DISPOSITIONS ∪ OPEN_FINDINGS`, so the count below is pinned exactly — at **66** as of
+    // 2026-08-18 (it read 68 earlier that day and 66 when this paragraph was first written; the
+    // coincidence of the two 66s is arithmetic, not a copy — the population behind them differs,
+    // and `OPEN_FINDINGS` is empty in the later one) — by two named registers, and a
+    // bound at that same figure can no longer bind. **A ceiling is green about any twenty-four
     // undisposed symbols, not only these twenty-four**, which is the defect the register fixes
     // and the reason this comment says so rather than letting the number look load-bearing.
     //
@@ -443,14 +446,94 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // created them. The evidence that it is that case and not the alarm case is the same as
     // before, and it is not this comment: the derived `global-object-hop` case named all ten by
     // itself, verbatim, before this number was touched.
+    // ## Lowered 78 → 68, measured 2026-08-18 — SEVEN out, by two different routes
+    //
+    // The largest single lowering in this note's history, and the first that mixes wiring with
+    // retirement. Two symbols left because production now calls them: `aot/describeRefusal`,
+    // which `tools/aot/lift.ts` renders instead of printing a refusal's discriminant, and
+    // `core/checkLease`, which `job/submit.ts`'s lease loop now asks instead of hand-inlining
+    // `now >= lease.expiresAt` twice. Five left the **corpus** rather than the finding list, by
+    // being retired from a barrel with their declarations and specs untouched:
+    // `browser/cacheVerdict`, `browser/describeCacheVerdict`, `browser/measureRepeatLoad`,
+    // `core/settleRace` and `core/startReport`.
+    //
+    // **The number this ceiling stood at was not the tree's reading, and subtracting from it
+    // would have been wrong.** 78 was recorded on 2026-08-17; the live reading on the morning
+    // of 2026-08-18 was **75**, because that day's `--coordinate` change wired
+    // `core/remainingWork` and `core/checkpointChain` and moved `core/checkpointsInto` to a
+    // traced route, lowering `DISPOSITION_CEILING` 61 → 60 and leaving this one with three
+    // entries of slack. So the move recorded here is 75 → 68, seven out, and 78 was never a
+    // reading of anything after that commit.
+    //
+    // **Measured, not derived**: this ceiling was set to 0 and the guard reported, verbatim,
+    // *"the guard found 68 unreachable callable barrel exports … expected 68 to be less than or
+    // equal to 0"*. 75 − 7 also being 68 was refused as the proof, per this note's own habit.
+    //
+    // **The names were read separately, and the distinction is worth keeping** — earlier notes
+    // here say "naming all N", and this assertion does not name anything: its message carries a
+    // count, and the set-equality case beside it prints a vitest-truncated diff. So the list was
+    // taken by calling `unreachableExports` over the same corpus and graph outside the runner,
+    // and all seven departing symbols are absent from the 68 it returns. A note that claimed the
+    // failing assertion named them would be describing output nobody saw.
+    //
+    // Three **type** exports left `@o2/browser`'s barrel in the same change — `CacheVerdict`,
+    // `CompilePair`, `RepeatMeasurement`, the types of the retired measurement — and they move
+    // this number by nothing, because a type has no call path by construction and never enters
+    // the callable corpus. Eight names left that file and the count moved by three. Recorded
+    // because the same arithmetic surprised this note twice before, at `x509.ts` and at the
+    // `cert-lifecycle.ts` facades.
+    //
+    // The direction is unambiguous this time and needs no defending paragraph: nothing was
+    // disposed to obtain it, and the undisposed residue moved 15 → 2 in the same change.
+    // ## Lowered 68 → 67, measured 2026-08-18 (second lowering that day) — ONE out, wired
+    //
+    // `core/localDispatch` left, and it left by the only route this note counts as work:
+    // production calls it. `@o2/net`'s `reduceJob` composes it as the `dispatch` half of the
+    // `prefers-local-combining` placement the owner ruled for on 2026-08-18, so a requestor
+    // combines in its own process wherever its own capacity and its own authorizer admit it.
+    // Nothing was disposed and nothing was retired from a barrel to obtain this.
+    //
+    // **Measured, not derived.** The guard's own exported API was called over this tree —
+    // `unreachableExports(barrelExports(), buildCallGraph(), ROOT)` — and returned **67**, with
+    // `core/localDispatch` absent from the list and `core/isComplete` the single undisposed
+    // remainder. 68 − 1 also being 67 was refused as the proof, per this note's standing habit.
+    //
+    // **The residue is 1 and Phase 22's criterion 1 still does not close.** That is stated here
+    // rather than left to the register, because this is the number a reader checks first: the
+    // parked owner decision that held `localDispatch` open has been taken, and `core/isComplete`
+    // has not — its row below re-read the one site that could take it on 2026-08-18 and found
+    // that site already printing the same fact.
+    //
+    // ## Lowered 67 → 66, measured 2026-08-18 (third lowering that day) — ONE out, RETIRED
+    //
+    // The sentence directly above is superseded and kept because it is the claim this lowering
+    // overturns. `core/isComplete` left `@o2/core`'s barrel after the owner asked for its
+    // *purpose* to be reviewed: the review found a whole-job completeness predicate redundant
+    // in this design on three measured grounds, and the retirement note in `OPEN_FINDINGS`
+    // below carries all three with their line numbers. **The residue is now 0 and Phase 22's
+    // criterion 1 closes.**
+    //
+    // **A retirement is not wiring, and this note refuses to let the two read alike.** Lowering
+    // a ceiling by deleting an export is the move that could make this whole instrument
+    // decorative, so the direction is stated plainly: nothing gained a call path here, one
+    // capability stopped being advertised. What makes it legitimate rather than a number-shrink
+    // is that the capability was reviewed and found redundant — not that the guard was noisy —
+    // and that the declaration and every one of its cases survive, so the check count did not
+    // move. `checkpoint.test.ts` imports from `./checkpoint.ts` module-relatively and is green
+    // unchanged.
+    //
+    // **Measured, not derived.** `unreachableExports(barrelExports(), buildCallGraph(), ROOT)`
+    // was called over this tree after the change and returned **66**, with `core/isComplete`
+    // absent from the list and the undisposed remainder empty. 67 − 1 also being 66 was refused
+    // as the proof, per this note's standing habit.
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(
       found.length,
       `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-17 was 78. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
+        'on 2026-08-18 was 66. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(78)
+    ).toBeLessThanOrEqual(66)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
@@ -829,16 +912,48 @@ describe('the disposition register describes the tree, or it reddens', () => {
   it('renders an open finding as a sentence naming the symbol and the barrel', () => {
     // The register does not change the message contract — an open finding reads exactly like any
     // other, so a reader picking one up gets the same sentence whether or not a sibling is disposed.
-    const disposed = disposedKeys()
-    const open = unreachableExports(corpus(), graph(), ROOT).filter(
-      (one) => !disposed.has(`${one.barrel}/${one.symbol}`),
-    )
-    expect(open.length).toBeGreaterThan(0)
-    const [line] = describeUnreachable(open)
-    const first = open[0]
-    if (first === undefined || line === undefined) return
-    expect(line).toContain(first.symbol)
-    expect(line).toContain(`@o2/${first.barrel}`)
+    //
+    // ## Rebuilt on a CONSTRUCTED open finding — 2026-08-18, and this is a repair, not a relaxation
+    //
+    // This case used to take the live undisposed residue and open with
+    // `expect(open.length).toBeGreaterThan(0)`. When `core/isComplete` was retired the residue
+    // went to **0** and this case went red — *"AssertionError: expected 0 to be greater than 0"* —
+    // while nothing it claims had stopped being true. That is the same defect the anti-vacuity
+    // pair further down was corrected for on this same day, in the same direction: a claim about
+    // the **renderer** was being read off a **register**, so it held only while the register
+    // happened to be non-empty, and criterion 1 closing is precisely the event that empties it.
+    //
+    // The claim worth holding is *"`describeUnreachable` names the symbol and its barrel, and
+    // does not consult any register to decide how"*. That is now read two ways, neither of which
+    // can be emptied by wiring or retiring anything:
+    //
+    // 1. Over a **constructed** finding whose key is in neither register — the literal open case,
+    //    available whether or not this tree currently has one.
+    // 2. Over the **whole live population**, disposed rows included, asserting every line names
+    //    its own symbol and barrel. If the renderer ever branched on disposition the two readings
+    //    would disagree, and 66 lines is a wider net than the one line the old form checked.
+    const constructed: UnreachableVerdict = verdict('core', 'plantedOpenFindingForRendering')
+    expect(
+      disposedKeys().has(`${constructed.barrel}/${constructed.symbol}`),
+      'the constructed finding must be in no register, or this case is about a disposed row',
+    ).toBe(false)
+    const [constructedLine] = describeUnreachable([constructed])
+    expect(constructedLine).toContain(constructed.symbol)
+    expect(constructedLine).toContain(`@o2/${constructed.barrel}`)
+    expect(constructedLine).toContain('no production code calls it')
+
+    // And the same contract over every finding the walk actually produces, disposed or not.
+    const found = unreachableExports(corpus(), graph(), ROOT)
+    expect(found.length, 'the walk produced nothing to render').toBeGreaterThan(0)
+    const lines = describeUnreachable(found)
+    expect(lines.length).toBe(found.length)
+    for (const [i, one] of found.entries()) {
+      const line = lines[i] as string
+      expect(line, `${one.barrel}/${one.symbol} is not named by its own rendered line`).toContain(
+        one.symbol,
+      )
+      expect(line).toContain(`@o2/${one.barrel}`)
+    }
   }, GRAPH_TIMEOUT_MS)
 })
 
@@ -1169,229 +1284,105 @@ interface OpenFinding {
  * written down, and symbol #25 arrives red and named instead of arriving under a bound.
  */
 const OPEN_FINDINGS: readonly OpenFinding[] = [
-  {
-    key: 'aot/describeRefusal',
-    declaredIn: 'packages/aot/src/elf.ts',
-    callers: 'none',
-    reason:
-      'The one production consumer of a screening refusal never asks for the sentence. ' +
-      '`tools/aot/lift.ts:997` calls `screenElf` and packages a refusal as ' +
-      '`{ kind: "refused-by-screen", reason }`, and `describeLiftFailure` at `:1182` renders that ' +
-      'as "the pre-screen refused this input (${failure.reason.kind})" — the discriminant alone. ' +
-      'So the whole point of this function, "one sentence naming the property that was found and ' +
-      'the thing to do about it", reaches nobody outside `elf.test.ts`. Nobody has decided whether ' +
-      'the lift driver should print it, and nothing in the source declines to.',
-  },
-  // ## The streaming-load rows, from seven to three — corrected 2026-08-17
-  //
-  // All seven of this module's rows rested on one sentence, and that sentence is now **false**:
-  // *"nothing in production imports `streaming-load.ts`"*. `demo/index.html`'s `#fetch-byo`
-  // calls `window.o2.fetchModule`, which calls `src/gateway-module.ts#fetchModuleForDispatch`,
-  // which calls `loadArtifact`. Four of the seven — `loadArtifact`, `gatewayUrl`, `cidDefect`,
-  // `describeLoadFailure` — moved to `GLOBAL_OBJECT_HOP`, where the derived case put them by
-  // name before this file was touched.
-  //
-  // The three below did **not** move, and the reason is the distinction this register exists to
-  // hold: wiring a *fetch* did not wire a *two-visit code-cache measurement*. They still have no
-  // production caller and the module now having one does not give them one. Their old reasons
-  // pointed at `browser/loadArtifact` for the module-level fact; that pointer is deleted rather
-  // than left dangling at a row which is now a disposition and says the opposite.
-  {
-    key: 'browser/cacheVerdict',
-    declaredIn: 'packages/browser/src/streaming-load.ts',
-    callers: 'unreachable-only',
-    reason:
-      'Called from `measureRepeatLoad` (`streaming-load.ts:486`) and by nothing else, and ' +
-      '`measureRepeatLoad` is itself still in this register. The module has a production caller ' +
-      'as of 2026-08-17 and this symbol is not on that path: `fetchModuleForDispatch` loads once ' +
-      'and reports `cacheEligible` off the byte count, which is a field rather than a verdict.',
-  },
-  {
-    key: 'browser/describeCacheVerdict',
-    declaredIn: 'packages/browser/src/streaming-load.ts',
-    callers: 'none',
-    reason:
-      'The renderer for a verdict nothing in production computes. The bring-your-own surface now ' +
-      'displays a fetch, and deliberately not a cache verdict: a verdict needs two loads of one ' +
-      'URL in one page, which is a measurement `code-cache.e2e.test.ts` makes and not something a ' +
-      'visitor pressing *Fetch this module* has asked for.',
-  },
-  {
-    key: 'browser/measureRepeatLoad',
-    declaredIn: 'packages/browser/src/streaming-load.ts',
-    callers: 'none',
-    reason:
-      'The two-visit cache measurement. Driven by `code-cache.e2e.test.ts` as a measurement and ' +
-      'by nothing in production — and **measured is not wired** stays the whole of the reason ' +
-      'now that the module around it is wired. Fetching a module twice to time it is not ' +
-      'something the page has any reason to do to a visitor.',
-  },
-  {
-    key: 'core/checkLease',
-    declaredIn: 'packages/core/src/lease.ts',
-    callers: 'none',
-    reason:
-      'The worker-side reading of a lease, and no worker in this tree reads its own. Its sibling ' +
-      '`shouldRenew`, sixteen lines below it in the same file, IS wired — `submit.ts:2026` — so ' +
-      "this is a dead half of a live module. `lease.ts`'s own docblock states what the missing " +
-      'half would buy: *"the reason to stop is **cost**, not correctness"* — a worker computing ' +
-      "past its deadline spends a volunteer's battery on an answer the coordinator's `complete` " +
-      'would refuse anyway. Nobody has wired self-termination into an executor and nobody has ' +
-      'decided to.',
-  },
-  {
-    key: 'core/checkpointChain',
-    declaredIn: 'packages/core/src/checkpoint.ts',
-    callers: 'none',
-    reason:
-      "CHURN-03's audit walk — *\"how did the job get here\"*, as distinct from recovery's *\"what " +
-      'is the newest state I can act on"*. `submit.ts:1312` cites it as the thing the serialised ' +
-      "checkpoint write order protects (*\"`checkpointChain`'s audit walk would then follow one " +
-      'branch and report a history that omits half the job"*), so the constraint it imposes on ' +
-      "other code is live while the function is not called. Nothing in the tree reads a job's " +
-      'lineage: no binary, no surface, no tool. Nobody has built the audit view and nobody has ' +
-      'decided to.',
-  },
-  {
-    key: 'core/createNobleSyncVerifier',
-    declaredIn: 'packages/core/src/ed25519-backend.ts',
-    callers: 'unreachable-only',
-    reason:
-      'Called from `initEd25519` (`ed25519-backend.ts:322`), which is itself in this register. ' +
-      'See `core/initEd25519` for the trust-path ruling that has not been taken.',
-  },
-  {
-    key: 'core/Ed25519NotInitializedError',
-    declaredIn: 'packages/core/src/ed25519-backend.ts',
-    callers: 'unreachable-only',
-    reason:
-      'Thrown by `getSyncVerifier` (`ed25519-backend.ts:333`) and `getAsyncVerifier` (`:339`), ' +
-      'both of which are themselves in this register. See `core/initEd25519`.',
-  },
-  {
-    key: 'core/getAsyncVerifier',
-    declaredIn: 'packages/core/src/ed25519-backend.ts',
-    callers: 'none',
-    reason:
-      'The asynchronous half of the unwired dual port, and it has no caller of any kind. See ' +
-      '`core/initEd25519` for the ruling that blocks all five of these rows.',
-  },
-  {
-    key: 'core/getSyncVerifier',
-    declaredIn: 'packages/core/src/ed25519-backend.ts',
-    callers: 'none',
-    reason:
-      'The synchronous half of the unwired dual port, and it has no caller of any kind. See ' +
-      '`core/initEd25519` for the ruling that blocks all five of these rows.',
-  },
-  {
-    key: 'core/initEd25519',
-    declaredIn: 'packages/core/src/ed25519-backend.ts',
-    callers: 'none',
-    reason:
-      'The module says this about itself, in its own words at `ed25519-backend.ts:32`: *"Nothing ' +
-      'in production calls `initEd25519`, `getSyncVerifier`, `getAsyncVerifier` or ' +
-      '`createCryptoBackend`. Production Ed25519 verification calls `@noble/curves` **directly**, ' +
-      'at six sites … and routes through no selection layer at all."* What blocks the wiring is ' +
-      'named there too, and it is a trust-path ruling nobody has taken: *"where each of three ' +
-      'runtime entry points calls `initEd25519()` before first use, and what a verification ' +
-      'arriving before that promise resolves should do — block, fail closed, or fail open."* An ' +
-      'open decision, not a decision against wiring.',
-  },
-  {
-    key: 'core/isComplete',
-    declaredIn: 'packages/core/src/checkpoint.ts',
-    callers: 'none',
-    reason:
-      'The boolean over `remainingWork`, and the dispatch path asks neither. `submit.ts:2873` ' +
-      'states why, in the source: *"`remainingWork` is not called here and does not need to be — ' +
-      'it enumerates the complement of `completed`, and iterating every partition and skipping ' +
-      'the carried ones **is** that complement, computed once instead of built into a list and ' +
-      'then searched."* Nothing else asks whether a whole job is done, because a resume branches ' +
-      'per partition rather than on a total.',
-  },
-  {
-    key: 'core/localDispatch',
-    declaredIn: 'packages/core/src/reduce.ts',
-    callers: 'none',
-    reason:
-      'The local sibling of `net/remoteCombineDispatch`, which IS on the production reduce path — ' +
-      "`reduce-job.ts:510` composes the remote one and wraps it at `:516`. A requestor's own " +
-      'combines go out over RPC like everyone else\'s, so nothing composes the "local blockstore ' +
-      'plus pure combiner" form. `net/combine.ts:4` names the pair and draws the contrast; it ' +
-      'does not decline the wiring. Nobody has built a local-only combine path and nobody has ' +
-      'decided to.',
-  },
-  {
-    key: 'core/remainingWork',
-    declaredIn: 'packages/core/src/checkpoint.ts',
-    callers: 'unreachable-only',
-    reason:
-      'Called from `isComplete` (`checkpoint.ts:219`), which is itself in this register. The ' +
-      'source sentence that declines its use on the dispatch path is quoted under ' +
-      '`core/isComplete`, and it is a deliberate deferral rather than an oversight.',
-  },
-  {
-    key: 'core/settleRace',
-    declaredIn: 'packages/core/src/speculation.ts',
-    callers: 'none',
-    reason:
-      'The one site that looks like its caller declines it **in writing**, on a correctness ' +
-      'ground rather than a preference. `submit.ts:2161`: *"Compared directly rather than through ' +
-      '`settleRace`, and the reason is written down because that function looks like the right ' +
-      'tool. It re-derives the winner from arrival instants and ties break on node id — so on a ' +
-      'clock that reports the same instant for both, it could name the **loser** as the winner, ' +
-      'overturning a decision this module has already taken and already closed a lease against."* ' +
-      'Wiring it there would be a regression; wiring it anywhere else is a path nobody has built.',
-  },
-  {
-    key: 'core/startReport',
-    declaredIn: 'packages/core/src/start-outcome.ts',
-    callers: 'none',
-    reason:
-      'Production folds **counts**, never a list of outcomes. `StartOutcomeLedger#report()` ' +
-      '(`start-outcome.ts:449`) calls `startReportFromCounts` directly, and both node getters — ' +
-      '`fabric-node.ts:1535` and `browser-node.ts:1049` — read that ledger. Nothing in the tree ' +
-      'ever holds a `readonly StartOutcome[]` to hand this overload, which is exactly why its own ' +
-      'callee is wired (disposed under `global-object-hop`) while it is not. Nobody has decided ' +
-      'the ledger should keep outcomes rather than counts.',
-  },
   // ---------------------------------------------------------------------------------------
-  // `demo/buildPrimesInput`, `demo/projectPrimeCount` and `demo/readPrimeCount` left this
-  // register on 2026-08-17. They are in `GLOBAL_OBJECT_HOP` now.
+  // THIRTEEN ROWS LEFT THIS REGISTER ON 2026-08-18, and the three routes are not equivalent.
+  // Each is named here rather than deleted silently, because a register whose history is
+  // invisible cannot be audited and because two of the three routes are ones a future reader
+  // must be able to tell apart from wiring.
   //
-  // Their rows said *"zero production callers"* and named the three blockers — no signed record
-  // for the prime kernel, `runJob` unable to carry the input shape, and re-signing needing a new
-  // trust anchor. **The owner took UI-SPEC section 10's Option A and all three were answered**:
-  // `PRIMES_RECORD` is signed, all three demo records were re-signed under a new anchor, and
-  // `TabApi.runPrimes` builds the input itself rather than asking `runJob` to. `demo/main.ts`
-  // calls them.
+  // **Wired — a real production call site now exists (2).**
   //
-  // **This is a reclassification and not a wiring metric moving.** They are still not *traced*
-  // reachable — the `api` literal sits behind the `window.o2` hop the walk cannot follow — which
-  // is precisely why they moved to a disposition rather than out of the count, the same route
-  // the pi symbols took after G14. The register reddened in both directions on this change and
-  // named all three verbatim, which is the both-directions shape working rather than being
-  // worked around.
+  // - `aot/describeRefusal`. `tools/aot/lift.ts`'s `describeLiftFailure` rendered a screening
+  //   refusal as `(${failure.reason.kind})` — the discriminant alone — so the sentence this
+  //   function exists to produce reached nobody outside `elf.test.ts`. It now renders
+  //   `describeRefusal(failure.reason)`, on the same path `tools/aot/cli.ts` prints. The row
+  //   said *"Nobody has decided whether the lift driver should print it, and nothing in the
+  //   source declines to"*; somebody decided, in the direction the row left open.
+  // - `core/checkLease`. The predicate was hand-inlined at two sites in `job/submit.ts`'s
+  //   lease loop — `at >= lease.expiresAt` and `woke >= lease.expiresAt` — which is
+  //   `checkLease(lease, now).expired` exactly, and `lease.test.ts` pins the boundary case
+  //   that makes the two identical. Both sites call it now, beside `shouldRenew`, which the
+  //   row itself named as the wired sibling sixteen lines below it in the same module.
+  //   **Behaviour-neutral, and the row's own deferral is untouched**: nobody has wired
+  //   self-termination into an executor, and this is not that. What closed is the narrower
+  //   claim the guard makes — the symbol has a traced path.
+  //
+  // **Retired from a barrel — the declaration and its spec are untouched (5).**
+  //
+  // - `browser/cacheVerdict`, `browser/describeCacheVerdict`, `browser/measureRepeatLoad`.
+  //   The two-visit code-cache measurement, off `@o2/browser`'s barrel on the in-file
+  //   precedent that five sibling symbols of the same kind were already deliberately kept off
+  //   it. `streaming-load.browser.test.ts` imports all three module-relative and is unchanged.
+  //   **A FALSE REASON went with them and is corrected here rather than carried out of sight**:
+  //   `measureRepeatLoad`'s row read *"Driven by `code-cache.e2e.test.ts` as a measurement"*,
+  //   and that was never true — `code-cache.e2e.test.ts` imports `loadArtifact` and nothing
+  //   else from that module. The only driver of all three is the browser spec named above.
+  // - `core/settleRace`. Off `@o2/core`'s barrel because the one site that would consume it
+  //   refuses it in writing on a **correctness** ground: `job/submit.ts` compares CIDs
+  //   directly rather than re-deriving a winner from arrival instants that could name the
+  //   loser on a coarse clock. Publishing it invited the mistake that comment prevents.
+  // - `core/startReport`. Superseded by the counts fold on every production path, and kept as
+  //   a declaration because `start-outcome.test.ts` uses it as a **differential oracle**
+  //   against `StartOutcomeLedger#report()`. Deleting it would remove a check, not dead code;
+  //   its docblock now says so at the declaration.
+  //
+  // **Re-caused into `DISPOSITIONS` — no call path was gained (6).**
+  //
+  // - `node/relayAddrForHost` → `HIDDEN_BY_DISPATCH`, `proxy-trap-dispatch`. Its row here had
+  //   already measured the whole mechanism and said it *"would qualify for a disposition"*,
+  //   holding it open because *"re-causing a symbol is a decision to put rather than to take
+  //   in passing"*. The decision was taken. The three legs were re-measured on the day it
+  //   moved, and the guard re-measures them on every run.
+  // - `core/createNobleSyncVerifier`, `core/Ed25519NotInitializedError`,
+  //   `core/getAsyncVerifier`, `core/getSyncVerifier`, `core/initEd25519` →
+  //   `DEFERRED_IN_SOURCE`. Their shared reason ended *"An open decision, not a decision
+  //   against wiring"*, and that was **false when it was written**: CRYPTO-03 had taken the
+  //   decision, with the measurement that routing the nine direct verification sites through
+  //   the port would select nothing and would only add a failure mode. Wiring them is
+  //   affirmatively wrong and would also redden `requirements-ledger.node.test.ts`, which
+  //   holds WIRE-02's own sentence that `getSyncVerifier` has no production caller. Retiring
+  //   them is blocked by `libsodium-absence.e2e.test.ts`, which imports two of the five
+  //   **from the barrel** to build the page CRYPTO-05 gzips.
+  //
+  // `DISPOSITION_CEILING` moved 60 → 66 for the last six, and its note carries why a raise
+  // there sits beside a total moving 75 → 68 and a residue moving 15 → 2.
   // ---------------------------------------------------------------------------------------
-  {
-    key: 'node/relayAddrForHost',
-    declaredIn: 'packages/node/src/seed-server.ts',
-    callers: 'unreachable-only',
-    reason:
-      '**This one runs in production and is listed here anyway.** It is called by ' +
-      '`bootstrapInfoFor` (`seed-server.ts:272`) on every `/bootstrap.json` request, and that ' +
-      'call sits at `:469` inside `configureServer` — a method of the Vite plugin object literal ' +
-      'at `:462` which Vite invokes and which nothing in this tree names. That is the same ' +
-      "mechanism as `HIDDEN_BY_DISPATCH`'s `proxy-trap-dispatch` row. **Measured 2026-08-14 " +
-      'rather than read**: `packages/node/src/seed-server.ts#configureServer` is a graph node ' +
-      'with in-degree 0, and rooting it flips exactly one symbol — this one. So it would qualify ' +
-      'for a disposition. It is left open because re-causing a symbol is a decision to **put** ' +
-      "rather than to take in passing: this file's own precedent, set for " +
-      "`BENCHMARK_DRIVER_ONLY`'s four symbols on 2026-08-13, whose stated cause has been " +
-      'measurably incomplete since then and was flagged rather than rewritten. Moving this row ' +
-      "would lower the residue by one on nobody's ruling.",
-  },
+  // ---------------------------------------------------------------------------------------
+  // THE FOURTEENTH ROW LEFT ON 2026-08-18, AND THE REGISTER IS NOW EMPTY — `core/isComplete`,
+  // RETIRED. Read this before concluding that an empty register means the guard stopped
+  // guarding: the guard's cases are all derived from a live walk of this tree, and an empty
+  // register makes every one of them *stricter*, because the permitted set is now exactly
+  // `DISPOSITIONS` and any new unwired barrel export arrives named and red with nothing to
+  // absorb it.
+  //
+  // **Retired, not wired, and the distinction is the whole entry.** The row deleted here had
+  // been re-read on 2026-08-18 and held open with *"Neither is work. The deferral quoted above
+  // is unchanged."* The owner then asked for the symbol's **purpose** to be reviewed before
+  // either route was taken, and the review found the capability redundant in this design on
+  // three grounds measured against the tree, not argued:
+  //
+  // 1. The resume path already avoids the work an early-out would save — `job/submit.ts:2861`
+  //    reads `if (carried.has(i) || gate.refusal !== null) continue`, so a fully-carried job
+  //    makes zero `planWithOffers` calls and dispatches nothing.
+  // 2. A safe early-out cannot run earlier than that anyway. `jobId` is derived FROM the input
+  //    CIDs (`jobIdOf`, `submit.ts:1288`) and `resumeState` refuses a handle whose checkpoint
+  //    names another job (`checkpoint-names-another-job`, `:1041`). Short-circuiting ahead of
+  //    `jobId` would accept a complete checkpoint belonging to a *different* job.
+  // 3. The one reporting site is covered — `bin/agent.ts:1555` prints
+  //    `remaining: [...remainingWork(...)]`, and an empty array **is** completeness.
+  //
+  // That is the same structural argument this register already made in the deleted row's own
+  // words — *"Nothing else asks whether a whole job is done, because a resume branches per
+  // partition rather than on a total."* The row held it open because retiring *"would move the
+  // gap out of this instrument"*; with the purpose reviewed there is no gap to move. The
+  // declaration and `checkpoint.test.ts` are untouched — that spec imports from
+  // `./checkpoint.ts` module-relatively — so no case was lost; only the advertisement is gone.
+  // `checkpoint.ts`'s declaration now carries the three grounds so nobody re-exports it.
+  //
+  // **Phase 22's criterion 1 closes on this**, and it closes on a measurement rather than on
+  // this comment: the open set was re-read after the change and is empty. Full working in
+  // `.planning/phases/phase-22-reachability-guard/22-VERIFICATION.md`'s 2026-08-18 amendment.
+  // ---------------------------------------------------------------------------------------
 ]
 
 /**
@@ -1504,6 +1495,47 @@ function openFindingKeys(register: readonly OpenFinding[] = OPEN_FINDINGS): Set<
  *
  * That plant is the argument for the `callers` column being in the register at all: set equality
  * alone is green about it, and so is the ceiling.
+ *
+ * ## Four more plants, each watched red — 2026-08-18, `--project node`, exit 1 read directly
+ *
+ * Taken when thirteen rows left this register, because a register that shrinks needs the same
+ * proof as one that grows: the cases have to still fail. Each was restored by the surgical
+ * inverse of its own edit, `cmp`-verified byte-identical against a snapshot taken immediately
+ * before it, and `shasum -a 256`-matched; all four `cmp`s exited 0 and `git status --porcelain`
+ * was empty after each.
+ *
+ * ### Plant D — a NEWLY-WIRED symbol loses its call site. `tools/aot/lift.ts`, one line: the
+ * `describeRefusal(failure.reason)` interpolation replaced by a literal. **3 failed | 32
+ * passed**, and the one that names it:
+ *
+ * ```
+ * AssertionError: these callable barrel exports have no call path from any of the five entry
+ * points and are in neither register. Wire them, or add a row to OPEN_FINDINGS with a reason a
+ * reader can check — a count no longer covers for them: expected
+ * [ 'aot/describeRefusal' ] to deeply equal []
+ * ```
+ *
+ * ### Plant E — the same, for the other wire. `packages/core/src/job/submit.ts`, two lines:
+ * both `checkLease(lease, …).expired` calls put back to the `>=` comparison they replaced.
+ * **3 failed | 32 passed**, naming `[ 'core/checkLease' ]` in the same assertion, with the count
+ * ceiling reading *"the guard found 69 … expected 69 to be less than or equal to 68"* beside it.
+ *
+ * ### Plant F — a NEW unwired barrel export, repeated from Plant A because the population it is
+ * asserted over changed. `packages/demo/src/index.ts`, +4 lines. **3 failed | 32 passed**,
+ * naming `[ 'demo/plantedUnwiredCapability' ]`.
+ *
+ * ### Plant G — the NEW hidden-caller row names the wrong member. `relayAddrForHost`'s `through`
+ * planted from `…seed-server.ts#configureServer` to `…#bootstrapInfoFor`, which the graph *can*
+ * see. **1 failed | 34 passed**, and only the mechanism case moved:
+ *
+ * ```
+ * AssertionError: packages/node/src/seed-server.ts#bootstrapInfoFor has a caller the graph CAN
+ * see, so "proxy-trap-dispatch" is not what hides node/relayAddrForHost — the row names the
+ * wrong mechanism: expected 1 to be +0
+ * ```
+ *
+ * That last one is the one that matters for a disposition arriving: it proves the row is held
+ * against the real graph rather than against its own prose.
  */
 describe('WIRE-02 — every unreachable export is named by a register, in both directions', () => {
   /** `barrel/symbol` for every callable barrel export the walk cannot reach. */
@@ -1607,9 +1639,38 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
     // Anti-vacuity: both values must actually occur, or the field is a constant and the case
     // above is comparing a column against itself. Measured 2026-08-14 — 14 `none`, 10
     // `unreachable-only`.
-    const values = new Set(OPEN_FINDINGS.map((row) => row.callers))
-    expect(values.has('none')).toBe(true)
-    expect(values.has('unreachable-only')).toBe(true)
+    //
+    // ## Read over the WALK rather than over the register — corrected 2026-08-18
+    //
+    // This pair asserted `OPEN_FINDINGS` itself carried both values, and on 2026-08-18 the
+    // residue fell to two rows, **both `'none'`**, so the `unreachable-only` half went red on a
+    // register that had stopped being wrong about anything. That is the failure mode of a proxy:
+    // the claim worth holding is *"the instrument can still tell the two apart"*, and the
+    // register exhibiting both was only ever evidence for it while the register was large.
+    //
+    // So the same claim is now read where it is a fact about the instrument — the whole
+    // unreachable population, disposed rows included. Measured 2026-08-18: **10 `none`, 58
+    // `unreachable-only`** across 68 findings. The per-row re-measurement above is untouched and
+    // is the load-bearing half; it is what Plant C reddened, and it still fails per row on a
+    // register of any size. **This is a check moved to where it holds, not a check relaxed**:
+    // the previous form was satisfiable by two hand-written rows and this one is not satisfiable
+    // by any hand-written row at all.
+    const walked = new Set(
+      unreachableExports(corpus(), graph(), ROOT).map((one) =>
+        one.callers.length === 0 ? 'none' : 'unreachable-only',
+      ),
+    )
+    expect(walked.has('none'), 'the walk stopped producing findings with no caller at all').toBe(
+      true,
+    )
+    expect(
+      walked.has('unreachable-only'),
+      'the walk stopped distinguishing a finding whose callers are themselves stranded — the ' +
+        'caller index is not being computed, and the column above is comparing itself',
+    ).toBe(true)
+    // And the register's own column must still be one of the two the walk can produce, which is
+    // what the per-row comparison above rests on.
+    for (const row of OPEN_FINDINGS) expect(walked.has(row.callers)).toBe(true)
   }, GRAPH_TIMEOUT_MS)
 
   it('gives every open finding a reason and a unique key', () => {
