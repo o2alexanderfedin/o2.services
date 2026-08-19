@@ -1321,6 +1321,7 @@ describe('MR-07 — the late duplicate is unsolicited, and it costs nothing', ()
     // is itself null proves nothing**, so its non-nullity is the instrument check that
     // comes before every comparison below.
     const healthy = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree,
       executors: executorIds,
       dispatch: production,
@@ -1358,6 +1359,7 @@ describe('MR-07 — the late duplicate is unsolicited, and it costs nothing', ()
     const rejections = watchRejections()
 
     const paused = await executeReduce({
+      localCombine: 'combines-nothing-locally',
       tree,
       executors: executorIds,
       dispatch,

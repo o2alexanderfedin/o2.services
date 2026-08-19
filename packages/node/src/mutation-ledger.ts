@@ -830,16 +830,23 @@ export const MUTATIONS: readonly Mutation[] = [
       'not the argument-equality check that also fires: that check is source text, and ' +
       'the same defect planted in both factories would satisfy it.',
     file: 'packages/browser/src/browser-node.ts',
+    // **Re-indented 2026-08-18, not re-aimed.** The authorizer was hoisted out of the
+    // `serveAgent({…})` literal into a `const authorize` above the node construction, so
+    // the local-combine path could read the same value; the four lines this plants into
+    // are byte-identical apart from losing two spaces of indent. The entry is edited
+    // rather than retired because the defect it plants, and the reading that catches it,
+    // are unchanged — and because a ledger entry silently dropped on a refactor is the
+    // failure the drift check above exists to make impossible.
     find:
-      '        ownerId: sovereignty.ownerId,\n' +
-      '        ...(sovereignty.ownerKey === undefined ? {} : { ownerKey: sovereignty.ownerKey }),\n' +
-      '        audience,\n' +
-      '        now: Date.now,',
+      '      ownerId: sovereignty.ownerId,\n' +
+      '      ...(sovereignty.ownerKey === undefined ? {} : { ownerKey: sovereignty.ownerKey }),\n' +
+      '      audience,\n' +
+      '      now: Date.now,',
     replace:
-      "        ownerId: sovereignty.ownerKey ?? '',\n" +
-      '        ...(sovereignty.ownerKey === undefined ? {} : { ownerKey: sovereignty.ownerId }),\n' +
-      "        audience: 'deadbeef',\n" +
-      '        now: () => 0,',
+      "      ownerId: sovereignty.ownerKey ?? '',\n" +
+      '      ...(sovereignty.ownerKey === undefined ? {} : { ownerKey: sovereignty.ownerId }),\n' +
+      "      audience: 'deadbeef',\n" +
+      '      now: () => 0,',
     caughtBy: ['packages/node/src/browser-capability.e2e.test.ts'],
     project: 'e2e',
     signature: "to contain 'no capability chain supplied'",
@@ -1411,10 +1418,21 @@ export const MUTATIONS: readonly Mutation[] = [
   {
     id: 'M57',
     why:
-      'SCHED-02, and the entry that closes defect #31. This is the **only** production call of ' +
-      '`rpcAdmission` in the repository — every other is a spec — so `REQUIREMENTS.md`’s SCHED-02 ' +
-      'row rests entirely on this expression for its claim that `planWithOffers` has a caller from ' +
-      'a runnable entry point. **The measurement that justifies the entry is what stayed green ' +
+      'SCHED-02, and the entry that closes defect #31. **BOTH CLAUSES OF THIS REASON WENT FALSE ' +
+      'ON 2026-08-16 AND ARE CORRECTED HERE, 2026-08-18 — the superseded text is quoted because a ' +
+      'guard whose stated reason contradicts the ledger it guards is worse than one with no ' +
+      'reason.** It read: *"This is the **only** production call of `rpcAdmission` in the ' +
+      'repository — every other is a spec — so `REQUIREMENTS.md`s SCHED-02 row rests entirely on ' +
+      'this expression for its claim that `planWithOffers` has a caller from a runnable entry ' +
+      'point."* There are **three** production calls now — this one, `browser/demo/main.ts:1544` ' +
+      'and `node/src/bin/agent.ts:1640` — and SCHED-02 does not rest on this one at all any ' +
+      'more: under the owner flag ruling of 2026-08-15 a call behind `--discover` carries no ' +
+      'entry-point claim, and the row was re-read on 2026-08-18 and kept its box on the demo ' +
+      'page Run button path instead. **This entry stays, and its job changed rather than ' +
+      'ended**: it no longer guards SCHED-02s entry point, it guards the published benchmark ' +
+      'curve — that the discover rig places with offers and the default rig does not, which is ' +
+      'the variable `bin/bench.ts` exists to pin. **The measurement that justifies the entry is ' +
+      'what stayed green ' +
       'when it was deleted**: `tsc --noEmit` exit 0, because `Fabric.admit` is optional; all six ' +
       'cheap guards exit 0, including the requirements ledger itself; `discover-arm.node.test.ts` ' +
       'exit 0, though it reads this driver’s own stdout. One file noticed. The spread form is part ' +
@@ -1536,8 +1554,16 @@ export const MUTATIONS: readonly Mutation[] = [
       'nothing but the difference sees it. Measured: `asking for 1600 ms more budget bought 0 ms ' +
       'more wall clock (403 ms → 403 ms): expected 0 to be greater than 800`, red in 813 ms.',
     file: 'tools/aot/lift.ts',
-    find: '[\'image\', \'inspect\', image, \'--format\', \'{{join .RepoDigests "\\\\n"}}\'],\n    timeoutMs,',
-    replace: '[\'image\', \'inspect\', image, \'--format\', \'{{join .RepoDigests "\\\\n"}}\'],\n    400,',
+    // RE-SITED 2026-08-18. The anchor above read
+    // `['image', 'inspect', image, '--format', '{{join .RepoDigests "\\n"}}'],\n    timeoutMs,`
+    // until Phase 21's re-tag work replaced the inline format string with `INSPECT_FORMAT`
+    // and collapsed the call onto one line, so the find text stopped matching and the
+    // mutation stopped being plantable — which the guard reported as M63 drift. **The claim
+    // is unchanged and so is the plant's semantics**: the caller's `timeoutMs` is replaced by
+    // a hardcoded budget, and the case that names it goes red. Only the text it is anchored
+    // to moved. Re-planted and watched red after re-siting, then restored by surgical inverse.
+    find: '[\'image\', \'inspect\', image, \'--format\', INSPECT_FORMAT], timeoutMs)',
+    replace: '[\'image\', \'inspect\', image, \'--format\', INSPECT_FORMAT], 400)',
     caughtBy: ['tools/aot/lift.node.test.ts'],
     signature: 'gives up on a wedged inspect in the time it was given, not in a hardcoded minute',
     signatureSource: 'test-title',

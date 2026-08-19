@@ -191,12 +191,48 @@ describe('authorizeCapability — refusal precedence, as a pure function', () =>
     // (`combine-wire.test.ts` holds that shape).
     //
     // So the sovereign arm is **unreachable for a combine on this build** — not
-    // permissive, unreachable. This case exists so that fact is a failing test the day
-    // the frame grows an owner, rather than a sentence in a summary nobody re-reads: if
-    // `CombineWork` ever gains a field that could carry sovereignty, this stops
-    // compiling and the refusal rules above have to be extended to it deliberately.
-    const combineKeys: (keyof AuthorizedWorkCombine['combine'])[] = ['combineId', 'inputCids', 'level']
-    expect(combineKeys).toEqual(['combineId', 'inputCids', 'level'])
+    // permissive, unreachable. This case exists so that fact fails the day the frame
+    // grows an owner, rather than being a sentence in a summary nobody re-reads: if
+    // `CombineWork` ever gains a field that could carry sovereignty, {@link EveryCombineKey}
+    // below stops compiling and the refusal rules above have to be extended to it
+    // deliberately.
+    //
+    // **This guard replaces one that could not fail, on 2026-08-19.** Until then the
+    // line read
+    //
+    // ```ts
+    // const combineKeys: (keyof AuthorizedWorkCombine['combine'])[] = ['combineId', 'inputCids', 'level']
+    // expect(combineKeys).toEqual(['combineId', 'inputCids', 'level'])
+    // ```
+    //
+    // — a three-element array literal compared to itself. `(keyof X)[]` only requires
+    // each element to *be* a key of `X`, and widening `keyof X` by adding a key leaves
+    // all three of them valid, so the annotation carried nothing. Measured, not
+    // reasoned about: `16-VERIFICATION.md`'s mutation M2 added `readonly ownerId?: string`
+    // to `CombineWork` on 2026-08-01 and read `npx tsc --noEmit` at exit 0 with all
+    // eleven cases in this file green, and re-measured it byte-for-byte intact on
+    // 2026-08-06. The optional form is the realistic one and not a contrived one —
+    // `ports.ts` makes `Task.label` and `Task.ownerId` optional by an explicit decision
+    // so existing literals keep compiling, and whoever grows the combine frame reaches
+    // for the same shape.
+    //
+    // **Where this one fires, stated exactly, because the sentence it replaces was
+    // imprecise in the same way twice.** `CombineWork` is a type and types are erased,
+    // so *no* runtime assertion in any spec can fail on a field being added to it. This
+    // guard therefore fires at `npx tsc --noEmit` — `TS2741`, at the declaration below —
+    // and **not** in a vitest run. `Record<keyof X, true>` was measured to do the same
+    // thing; `-?` is written out anyway so the property does not depend on a mapped
+    // type's homomorphism rule staying where it is.
+    type EveryCombineKey = { readonly [K in keyof AuthorizedWorkCombine['combine']]-?: true }
+    const combineKeys: EveryCombineKey = { combineId: true, inputCids: true, level: true }
+    // The runtime half, in the shape `combine-wire.test.ts` uses for the frame — it
+    // fires on **addition**, which is the direction a payload or an owner arrives from.
+    // Its scope is narrower than the type above and saying so is the point: it cannot
+    // see `CombineWork` at all, it can only see this witness, so what it holds is that
+    // the witness was not quietly widened to satisfy `tsc` without this list moving with
+    // it. `tsc` guards the witness against `CombineWork`; this guards the list against
+    // the witness. Neither half is sufficient alone.
+    expect(Object.keys(combineKeys).sort()).toEqual(['combineId', 'inputCids', 'level'])
 
     // And the consequence, measured rather than asserted from the type: a node pinned to
     // an owner, which refuses every sovereign exec, still admits every combine.

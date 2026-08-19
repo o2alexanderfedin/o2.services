@@ -10,7 +10,7 @@ import {
   submitJob,
 } from '@o2/core'
 import type { Blockstore, CanonicalValue, Task } from '@o2/core'
-import { RemoteExecutor, encodeRequest, parseResponse } from '@o2/net'
+import { RemoteExecutor, encodeRequest, parseResponse, pausedRefusal } from '@o2/net'
 import type { AgentResponse } from '@o2/net'
 import type { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -502,6 +502,123 @@ describe('SCHED-06 — the combine branch admits too, on the production factory'
     // The limit was reached rather than never approached — the only claim this counter
     // can make, since `peakInFlight <= slots` is arithmetic in `LocalCapacity`.
     expect(server.admission.peakInFlight).toBe(1)
+    // The combine branch never touches the executor, on either exit.
+    expect(server.executorPeakInFlight).toBe(0)
+  }, 120_000)
+})
+
+/**
+ * SCHED-03 — **the reading that says a deployment can refuse a combine at all.**
+ *
+ * `16-VERIFICATION.md` carried a gap from 2026-08-01, re-measured 2026-08-06 and still
+ * `failed`: *"A deployment can refuse combines by supplying an authorizer that does"* —
+ * 16-05's threat-flag sentence — with the measurement beside it that `FabricNodeOptions`
+ * had 25 fields and no `authorize` among them, so **no node this repository could start
+ * could refuse a combine**.
+ *
+ * The authorizer half of that sentence is not what closed it and must not be read as
+ * having closed. Owner ruling 2026-07-31 (`3b54897`, and the ruling is quoted in
+ * `runCombine`'s own body in `packages/net/src/agent.ts`) rejected the fix by name:
+ * *"not an `authorize` override on the node factories that would reopen the door Phase 15
+ * closed by hardcoding `authorizeCapability`"*, on the ground that a combine's inputs are
+ * the outputs of public map tasks and are already public by construction, so **there is
+ * nothing on that frame to authorize**; what a peer can provoke is CPU and transfer,
+ * which is a capacity question. `authorizeCapability` therefore admits every combine
+ * still, deliberately, and the case above is what reads that.
+ *
+ * What closed the *substance* is two per-node controls that both landed after that gap
+ * was written and neither of which is an authorizer:
+ *
+ * - **capacity** — `maxConcurrentTasks`, measured in the case above at
+ *   `over-committed: 1 of 1 slots in use` and zero blocks fetched;
+ * - **pause** — SCHED-03, `1043772` on 2026-08-11, which put `combine` in
+ *   `DeclinedWhilePaused`. That is what this case reads, through `FabricNodeOptions.paused`
+ *   on the same `FabricNode.start` call `bin/agent.ts` makes.
+ *
+ * **Neither is per-kind, and this file does not pretend otherwise.** A paused node
+ * declines `exec`, `commit`, `combine` and `offer` together, and one slot pool bounds
+ * combines and execs alike. There is no way on this build to refuse combines while
+ * serving execs, and by the ruling above there is not meant to be. The claim these two
+ * cases jointly carry is the narrower, true one: *a deployment can refuse a combine, and
+ * the refusal costs the node nothing it was trying not to spend.*
+ *
+ * `packages/net/src/paused.test.ts` measures the same disposition one layer down over
+ * `MemoryNetwork` with hand-supplied `AgentOptions`. Neither file stands in for the other,
+ * for the reason the SCHED-06 block above states about its own pair: that one can hold the
+ * hook directly, this one can say the **production factory** wires it — which is the exact
+ * half the gap was about, since the gap was never that `serveAgent` lacked a hook.
+ */
+describe('SCHED-03 — a deployment can refuse a combine, on the production factory', () => {
+  it('refuses a combine on a node its deployment paused, fetching nothing, and combines the identical frame once it un-pauses', async () => {
+    // The deployment's own state, read through the thunk on every request — which is
+    // what makes this an operator control rather than a start-time flag, and what lets
+    // one node give both answers to one identical frame inside one run. A second node
+    // started un-paused would prove far less: two nodes differ in their peer ids, their
+    // stores and their ports, and any of those could be the thing that moved.
+    let declining = true
+    const [server, client] = await Promise.all([
+      startNode('paused-combine', { paused: () => declining }),
+      startNode('paused-combine-client'),
+    ])
+    await client.dial(server.multiaddrs[0] as string)
+
+    // Held by the client alone, exactly as in the SCHED-06 case above, so
+    // `server.blockstore.fetched` is a reading of what this frame cost the server.
+    const a: CanonicalValue = { counts: { alpha: 1 }, rows: 1 }
+    const b: CanonicalValue = { counts: { beta: 2 }, rows: 2 }
+    const aCid = await putValue(client.store, a)
+    const bCid = await putValue(client.store, b)
+    expect(server.blockstore.fetched).toBe(0)
+
+    const askCombine = async (): Promise<AgentResponse | null> =>
+      parseResponse(
+        await client.rpc.request(
+          server.peerId,
+          encodeRequest({ kind: 'combine', combineId: 'tree-node-a', inputCids: [aCid, bCid], level: 1 }),
+        ),
+      )
+
+    const refused = await askCombine()
+
+    // The combine reply shape and never an `error` frame — `executeReduce` reads a null
+    // result as "try the next executor in the ranking", which is the right answer from a
+    // node that has stopped taking work.
+    expect(refused?.kind).toBe('combine')
+    if (refused?.kind !== 'combine') throw new Error('expected a combine reply')
+    expect(refused.resultCid).toBeNull()
+    // **By text, against the one place the string is composed**, carried across a real
+    // TCP + noise + yamux connection unchanged. A refusal naming the wrong thing is a
+    // defect here even when the combine correctly fails.
+    expect(refused.reason).toBe(pausedRefusal(server.peerId))
+    // And it is *not* the at-capacity string. This is the discrimination the state exists
+    // for and it is asserted rather than assumed: a paused node is not full, and one that
+    // said it was would send a requestor back to resample it as soon as a slot freed.
+    expect(refused.reason).not.toContain('over-committed')
+    // Zero blocks crossed the wire for it — the pause is checked before the branch is
+    // entered, so a refused combine costs the transfers it exists to decline nothing.
+    expect(server.blockstore.fetched).toBe(0)
+    // And it took no slot on the way to refusing, which is the other half of "not full".
+    expect(server.admission.peakInFlight).toBe(0)
+
+    // **The paired positive control, and the whole reason this is a measurement.**
+    // Without it, `fetched === 0` and a null result are equally satisfied by a node that
+    // cannot combine at all — which is precisely the pre-16-05 defect this repository
+    // shipped for two milestones and did not notice.
+    declining = false
+    const admitted = await askCombine()
+
+    const reference = await canonicalCid(fabricCombiner([a, b]))
+    expect(reference.ok).toBe(true)
+    if (!reference.ok) return
+    expect(admitted?.kind).toBe('combine')
+    if (admitted?.kind !== 'combine') throw new Error('expected a combine reply')
+    expect(admitted.reason).toBe('')
+    // Bit-for-bit against a reference computed in this process from the production
+    // combiner, so "stopped refusing" cannot pass for "computed the right aggregate".
+    expect(admitted.resultCid?.toString()).toBe(reference.cid.toString())
+    // ...and it really did have to fetch both inputs to do it, so the zero above was a
+    // reading of a refusal and not of a node that never fetches.
+    expect(server.blockstore.fetched).toBe(2)
     // The combine branch never touches the executor, on either exit.
     expect(server.executorPeakInFlight).toBe(0)
   }, 120_000)

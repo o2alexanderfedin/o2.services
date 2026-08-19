@@ -9,7 +9,7 @@ import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { describeAttestation } from '@o2/core'
-import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
+import { KERNEL_RECORD, KERNEL_TRUST_ANCHOR, kernelBytes } from '@o2/demo'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -726,4 +726,257 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
       'owner-domain',
     ])
   })
+})
+
+/**
+ * SCHED-01 — the requestor half, on the page a visitor opens and with no flag in front of it.
+ *
+ * ## Why this reading is here and not on a benchmark
+ *
+ * `discoverCandidates` had exactly one production call site in this repository until
+ * 2026-08-18 — `bin/bench.ts:1541`, inside `if (DISCOVER)` — so no path a person can run
+ * without typing `--discover` ever asked *who has this block*. The owner ruling of
+ * 2026-08-15 (`.planning/consults/2026-08-15-owner-ruling-off-by-default-flag.md`) answered
+ * *"It must work with no flag"* and named the demo page's Run button as the method rather
+ * than the escape. `demo/main.ts`'s `discoveredPool` is that default path; this is
+ * the reading of it.
+ *
+ * ## Why this file rather than a new one
+ *
+ * The lookup needs an **enrolled** tab — with no certificate a tab has pinned no issuer,
+ * and checking a peer's records against an empty issuer set is accepting a peer's word for
+ * a peer's identity. Three specs in this repository enrol a tab at all, and this is the
+ * cheapest of them: one tab, `FabricNode` peers, and a `vite build` already paid for by the
+ * four cases above. `quorum-ui.e2e.test.ts` is the only fixture that enrols **two tabs**,
+ * and it costs twice as much for a property that does not need a second browser.
+ *
+ * Its own `describe`, and it deliberately does **not** push to {@link readings}: the
+ * cross-case comparison above asserts the exact ordered list of four labels, and a fifth
+ * entry there would redden a case about something else.
+ *
+ * ## What makes it a reading of the mechanism rather than of a return value
+ *
+ * The peer is seeded with the demo kernel **before** anything runs, so `providers` has a
+ * true answer to give — the same thing `bin/bench.ts`'s `--discover` arm does for its
+ * workers, and for the same reason: a node holds a module only once it has fetched one, so
+ * a cold fabric qualifies nobody and would make an empty answer indistinguishable from a
+ * broken lookup.
+ *
+ * The sharpest assertion is on `owners`. A placeholder descriptor declares the literal
+ * `public` for everybody — `attestedNodes`' fallback still does, for peers this lookup does
+ * not qualify — and there is no way for the page to invent a peer's certified user key. So
+ * an `owners` entry equal to the key the peer really enrolled under can only have come from
+ * that peer's own signed records, fetched over the wire and verified offline against an
+ * issuer this tab pinned before it spoke to anybody.
+ */
+describe('SCHED-01 — the page discovers its candidates by asking who holds the block', () => {
+  it('qualifies a peer that advertises the module and hands over records that verify', async () => {
+    const provider = await startProvider('provider-discovery')
+
+    // Enrolled at the tab's own provider under the tab's own user key, exactly as the
+    // owner-domain case above — so the certificate this lookup verifies is one the tab can
+    // check offline, and the user key it reports is one this file already holds.
+    const peer = await startPeer('peer-discovery', {
+      userPrivateKey: new Uint8Array(TAB_USER_KEY),
+      operatorId: TAB_OPERATOR,
+      providerAddr: provider.addr,
+    })
+
+    // **The one line that makes `providers` a question with an answer.** Without it this
+    // peer holds no block until it has executed a cube, so the first rung's lookup would
+    // qualify nobody and the case would be measuring a race rather than an intersection.
+    // `bin/bench.ts:1539` seeds its workers for the identical reason and says so.
+    await peer.node.store.put(kernelBytes)
+
+    const page = await openPage('discovery')
+    const submitterId = await startEnrolled(page, 'o2-attestation-discovery', provider)
+    const dialedId = await page.evaluate(async (address) => window.o2.dial(address), peer.addr)
+    expect(dialedId).toBe(peer.node.peerId)
+
+    const report = await runTheLadder(page, 600_000)
+    process.stderr.write(`[discovery] peer ${peer.node.peerId}\n${report}\n`)
+
+    // Read AFTER the ladder, so it is the lookup a real dispatch was placed over rather
+    // than one this case asked for. There is no method that runs a lookup on demand,
+    // deliberately — see `TabApi.lastCandidates`.
+    const lookup = await page.evaluate(() => window.o2.lastCandidates())
+    process.stderr.write(`[discovery] lastCandidates = ${JSON.stringify(lookup)}\n`)
+
+    expect(
+      lookup,
+      'the page ran no candidate lookup at all, so every reading below would be about a mechanism that did not run',
+    ).not.toBeNull()
+    const found = lookup as NonNullable<typeof lookup>
+
+    // It ran, and it ran to completion. `declined` carries the two named absences — no
+    // pinned issuer, and no answer inside the deadline — and either would make an empty
+    // `qualified` mean something other than "nobody qualified".
+    expect(found.asked).toBe(true)
+    expect(found.declined).toBeNull()
+    expect(found.inputCid).toBe(KERNEL_RECORD.cid.toString())
+
+    // The `providers` half: somebody answered that they hold this block.
+    expect(
+      found.providers,
+      'no peer answered the providers request for the module CID, so the intersection had nothing to intersect',
+    ).toBeGreaterThanOrEqual(1)
+
+    // The intersection's output, by peer id — the id the transport knows, which is what
+    // makes a descriptor usable at all (`discover-candidates.ts` names the alternative
+    // `missing-node-descriptor`).
+    expect(found.qualified).toContain(peer.node.peerId)
+    expect(found.excluded).toEqual([])
+    expect(found.undialable).toEqual([])
+
+    // **This tab is not in its own answer, and that is the anti-vacuity check.** The lookup
+    // asks `verifiedPeers`; a page that had quietly answered from its own record index
+    // would list itself here, and every assertion above would pass on a reading that never
+    // crossed the wire.
+    expect(found.qualified).not.toContain(submitterId)
+
+    // **The capability-records half, and the sharpest line in this case.** `public` is what
+    // the placeholder declares for everybody; a certified user key is what only a peer's own
+    // signed records can supply.
+    const peerUserKey = peer.node.certificate?.userKey
+    expect(peerUserKey, 'the peer enrolled without a certificate, so the fixture is not the one described').toBeDefined()
+    expect(found.owners).not.toContain('public')
+    expect(found.owners[found.qualified.indexOf(peer.node.peerId)]).toBe(peerUserKey)
+
+    // The descriptors this produced were handed to a real placement rather than collected.
+    // `#peers` is the page's own population count and `#run-report` is what the ladder
+    // settled to, so a lookup that ran beside a job which never placed anything cannot read
+    // as one the job used. Both are read off the screen, as the four cases above are.
+    expect(await page.textContent('#peers')).toContain('2 node(s) computing')
+    // A rung line, which the page writes only for a rung it actually dispatched. Chosen over
+    // the strength label deliberately: the owner-domain case one screen up carries a long
+    // note about how a label assertion reads under CPU pressure, and this case is about
+    // where the candidates came from rather than about how well they agreed.
+    expect(report, 'the ladder produced no rung line, so nothing was dispatched').toMatch(/^n = /m)
+  }, 900_000)
+})
+
+/**
+ * NET-06 — a tab's executor set comes from a routing query, not only from its caller's list.
+ *
+ * ## What this measures that the SCHED-01 case above does not
+ *
+ * That case reads the *lookup*: the page asks who holds the block, somebody answers, and
+ * the answer is verified against a pinned issuer. It says nothing about who the job ran on,
+ * and until 2026-08-18 the honest answer was *"the peers the caller named, and only those"*
+ * — `demo/main.ts` built every `RemoteExecutor` from `options.peerIds`, a caller-supplied
+ * array on the {@link TabApi} contract, and threw away the executors `discoverCandidates`
+ * had already built for the candidates it qualified. `bin/bench.ts --discover` selected
+ * executors from an index answer and no browser-tier path did, which is exactly the
+ * *browser is a lesser peer* asymmetry NET-06 forbids.
+ *
+ * ## `peerIds: []` is the whole case
+ *
+ * The tab is connected to the peer — `window.o2.dial` returned its id — and then submits a
+ * job naming **nobody**. Every executor in that job's pool other than the tab's own can
+ * therefore only have come from the index answer. `agreeing` carries one node id per
+ * replica that agreed on a cube, so a peer id in it is a peer that was dispatched to, ran
+ * the guest and returned a result the requestor matched — not a peer that appeared in a
+ * descriptor.
+ *
+ * The anti-vacuity half is `complete`: a job that ran entirely on the submitter's own worker
+ * reports `complete: true` just as happily (`built-bundle.e2e.test.ts` runs exactly that
+ * shape with `peerIds: []` and gets it), which is why the foreign id — and not completion —
+ * is the reading.
+ *
+ * ## Why the peer is seeded before anything runs
+ *
+ * A node holds a module only once it has fetched one, so on a cold fabric `providers`
+ * truthfully answers nobody and this case would be measuring a race. `bin/bench.ts:1539`
+ * seeds its workers for the identical reason, and the SCHED-01 case above says so too.
+ *
+ * ## What this case CANNOT redden on
+ *
+ * It does not read the DHT. `BrowserNode.recordIndex` — the composed `DhtRecordIndex` that
+ * would reach past the peers this tab is connected to — has no reader on **either** tier,
+ * and `discoverCandidates` builds a bare `RpcRecordIndex` internally. So the reach measured
+ * here is directly-connected peers, which is `RpcRecordIndex`'s stated limit and is the same
+ * reach a backbone node has today. That is a fabric-wide gap and a symmetric one; it is not
+ * a browser being a lesser peer, which is the claim this id carries.
+ */
+describe('NET-06 — the tab dispatches to a peer its index query found and its caller never named', () => {
+  it('runs a cube on a peer absent from peerIds, because the lookup qualified it', async () => {
+    const provider = await startProvider('provider-net06')
+
+    // Enrolled at the same provider the tab pins, so its records verify offline here for the
+    // reason the SCHED-01 case gives: an answer checked against an issuer this tab was handed
+    // by the peer being checked is a peer vouching for itself.
+    const peer = await startPeer('peer-net06', {
+      userPrivateKey: new Uint8Array(TAB_USER_KEY),
+      operatorId: TAB_OPERATOR,
+      providerAddr: provider.addr,
+    })
+
+    // The line that gives `providers` a true answer. See this describe's header.
+    await peer.node.store.put(kernelBytes)
+
+    const page = await openPage('net06')
+    const submitterId = await startEnrolled(page, 'o2-attestation-net06', provider)
+    const dialedId = await page.evaluate(async (address) => window.o2.dial(address), peer.addr)
+    expect(dialedId).toBe(peer.node.peerId)
+
+    // **`peerIds: []`.** Not the page's own peer list, not a filtered one — nothing. Two
+    // cubes because one would leave the per-cube list unable to disagree with itself, and
+    // `redundancy: 2` so every cube is offered to both members of whatever pool gets built.
+    const run = await page.evaluate(async () =>
+      window.o2.runColouring({ n: 24, cubes: 2, redundancy: 2, peerIds: [] }),
+    )
+    process.stderr.write(
+      `[net06] peer=${peer.node.peerId} submitter=${submitterId} agreeing=${JSON.stringify(run.agreeing)}\n` +
+        `[net06] complete=${String(run.complete)} statuses=${JSON.stringify(run.statuses)} ` +
+        `multiplier=${String(run.verificationMultiplier)}\n` +
+        `[net06] attestation=${JSON.stringify(run.attestation)}\n[net06] quorum=${JSON.stringify(run.quorum)}\n`,
+    )
+
+    // The lookup ran and named this peer — so the id asserted below has a stated origin
+    // rather than being a peer that got in some other way.
+    const lookup = await page.evaluate(() => window.o2.lastCandidates())
+    process.stderr.write(`[net06] lastCandidates = ${JSON.stringify(lookup)}\n`)
+    expect(lookup, 'the page ran no candidate lookup, so nothing here is about an index').not.toBeNull()
+    const found = lookup as NonNullable<typeof lookup>
+    expect(found.asked).toBe(true)
+    expect(found.declined).toBeNull()
+    expect(found.qualified).toContain(peer.node.peerId)
+    // Its own answer is not a routing answer — the same anti-vacuity line the SCHED-01 case
+    // makes, and it is what stops a page that quietly answered from its own record index
+    // from satisfying everything below.
+    expect(found.qualified).not.toContain(submitterId)
+
+    // **The reading.** A caller that named nobody got a pool with somebody in it, and that
+    // somebody executed. Asserted per cube rather than "a foreign id somewhere", so a run
+    // in which one cube was distributed and the other silently ran alone cannot pass.
+    expect(run.agreeing.length).toBe(2)
+    for (const agreeing of run.agreeing) {
+      expect(
+        agreeing,
+        'a cube agreed without the discovered peer in it — the executor pool came from peerIds after all',
+      ).toContain(peer.node.peerId)
+    }
+    // Anti-vacuity, and it is placed after the reading deliberately: every line here goes
+    // red on a job that ran alone, and if one of them spoke first the proof for this case
+    // would read as a redundancy reading rather than as the distribution reading it is.
+    //
+    // **`run.complete` is NOT the anti-vacuity check, and the reason is measured rather
+    // than assumed.** It was, until the first run of this case reported `complete: false`
+    // beside `statuses: ["found","found"]`, `verificationMultiplier: 2` and an `agreeing`
+    // list carrying both nodes — a job that plainly ran on two machines. `submitJob` sets
+    // `complete` only where no shard is `degraded` (`submit.ts:3356`), and this fixture
+    // degrades every shard by construction: the tab and the peer enrol under one operator,
+    // so `quorum` comes back `not-composed` with *"quorum of 2 needs 2 distinct operators,
+    // found 1"* and `onQuorumShortfall: 'runs-at-available-redundancy'` — the demo page's
+    // permanent choice — runs it anyway. Asserting `complete` here would have held this
+    // case hostage to a second operator, which is a different requirement (VER-03/VER-04)
+    // and one this fixture deliberately does not meet.
+    expect(run.statuses).toEqual(['found', 'found'])
+    // Each cube ran twice, on two nodes: a job that ran alone reports 1.
+    expect(run.verificationMultiplier).toBeCloseTo(2, 6)
+    // And the receipt counted two replicas of one owner. The first case in this file reads
+    // `owner-attested` with one replica off a tab that ran every cube by itself, so this is
+    // the same instrument reading the other state.
+    expect(run.attestation).toMatchObject({ strength: 'owner-domain', replicas: 2 })
+  }, 900_000)
 })

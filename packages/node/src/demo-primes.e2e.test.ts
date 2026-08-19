@@ -705,7 +705,29 @@ const EXPECTED_CODE: Readonly<Record<string, string>> = {
   'packages/browser/demo/main.ts':
     'TabApi.runPrimes — the production caller, and the closing of G4’s primes half',
   'packages/node/src/reachability-dispositions.ts':
-    'three GLOBAL_OBJECT_HOP register entries naming the symbols — a citation on a code line, not a call',
+    'a GLOBAL_OBJECT_HOP register entry naming buildPrimesInput — a citation on a code line, not' +
+    ' a call. It held three until 2026-08-19, when projectPrimeCount and readPrimeCount stopped' +
+    ' needing a disposition at all: bin/agent.ts calls both from a Node entry point the graph' +
+    ' traces, so nothing hides them',
+  // **Joined 2026-08-19, and this case's own failure message asked for the reason to be written
+  // here: *"A file JOINING it is ordinary and this entry should be added with a reason"*.**
+  //
+  // `bin/agent.ts`'s sovereign coordinator leg (AUTH-03/MR-02/VER-09) dispatches the
+  // prime-counting workload: `primesKernelBytes` is the module, `projectPrimeCount` is the
+  // aggregation's projection, `readPrimeCount` prints each owner's own contribution, and
+  // `PRIME_COUNT_KEY` names the count inside the merged root. `buildPrimesInput` is the one of
+  // the five it does **not** call, deliberately — the leg takes each owner's row as bytes from
+  // a file, which is the whole of `--sovereign-row`'s contract, because a coordinator that
+  // built its owners' data would not be reading anybody's data at all.
+  //
+  // **This is a second surface for the workload, not a second claim about the page.** G4's
+  // primes half is about the Primes surface offering a run control that reaches real code, and
+  // nothing here touches that. What this entry records is that the same five symbols now also
+  // carry a Node-tier entry point — which is why the file-level set is the right instrument and
+  // a count of callers would have been the wrong one.
+  'packages/node/src/bin/agent.ts':
+    'the sovereign coordinator leg — the prime-counting workload dispatched from a binary, with' +
+    ' each owner’s row supplied as bytes rather than built, so buildPrimesInput is absent by design',
 }
 
 /**

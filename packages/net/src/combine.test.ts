@@ -1476,6 +1476,7 @@ describe('MR-05 — a store this node could not write to is not an executor that
 
     try {
       const outcome = await executeReduce({
+        localCombine: 'combines-nothing-locally',
         tree,
         executors,
         dispatch: remoteCombineDispatch({ rpc: clientRpc, blockstore: store }),

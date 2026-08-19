@@ -221,6 +221,41 @@ calling it *"the same code"*, or a wire field nothing sets. Instead:
 - what *is* measured in its place: one authorizer instance refusing a sovereign exec by
   name and admitting a combine.
 
+> **CORRECTED 2026-08-19 — the second bullet was false when it was written, and stayed
+> false for eighteen days.** The original text is left above rather than reworded, because a
+> summary edited until it agrees with the tree is not a record. What it claimed:
+> *"a test asserts the combine arm's key set, so **it fails the day `CombineWork` gains a
+> field that could carry sovereignty**"*. The test asserted nothing of the kind. It read
+>
+> ```ts
+> const combineKeys: (keyof AuthorizedWorkCombine['combine'])[] = ['combineId', 'inputCids', 'level']
+> expect(combineKeys).toEqual(['combineId', 'inputCids', 'level'])
+> ```
+>
+> — a three-element array literal compared to itself. `(keyof X)[]` only requires each
+> element to *be* a key of `X`, so widening `keyof X` leaves all three valid.
+> `16-VERIFICATION.md`'s mutation **M2** falsified it on 2026-08-01 by adding
+> `readonly ownerId?: string` to `CombineWork` and reading `npx tsc --noEmit` at **exit 0**
+> with all eleven cases in the file green; the 2026-08-06 amendment re-measured it and found
+> the tautology byte-for-byte intact.
+>
+> **Replaced 2026-08-19** by an exhaustive mapped type —
+> `type EveryCombineKey = { readonly [K in keyof AuthorizedWorkCombine['combine']]-?: true }`
+> — with a runtime `Object.keys` reading beside it in the shape `combine-wire.test.ts` uses
+> for the frame. The same plant now reads, verbatim:
+>
+> ```
+> packages/net/src/capability-authorizer.test.ts(227,11): error TS2741: Property 'ownerId' is missing in type '{ combineId: true; inputCids: true; level: true; }' but required in type 'EveryCombineKey'.
+> ```
+>
+> exit **1**. **And it fires at `npx tsc --noEmit`, not in a vitest run** — measured, not
+> supposed: with the plant in place `npx vitest run --project node .../capability-authorizer.test.ts`
+> is still `11 passed`, exit 0. The bullet's *"a failing test"* wording was imprecise in a way
+> that mattered, because `CombineWork` is a type and types are erased, so **no** runtime
+> assertion in any spec could ever have caught this. The claim the tree now carries is
+> *"this stops compiling"*, and that one is true. Full working in `16-VERIFICATION.md`'s
+> 2026-08-19 amendment.
+
 This is the honest half of the ruling. The other half — *"a public combine is admitted by
 the existing path"* — is fully met, and is what unblocked everything else.
 
@@ -342,6 +377,52 @@ None.
 | Flag | File | Description |
 |---|---|---|
 | threat_flag: combine-admitted-unauthenticated-in-practice | `packages/net/src/agent.ts` | 16-03 raised the availability side of this and it is now closed. The confidentiality side it flagged is **not** closed and should not be read as such: because no combine can present as sovereign, `authorizeCapability` admits every combine, so a combine remains CPU spend a peer can provoke — beside the unauthenticated `exec` and `block` surfaces 16-02 already recorded. What changed is that it is now a **decision the authorizer makes** rather than a branch keyed on whether the node had one, so a deployment can refuse combines by supplying an authorizer that does. The general answer stays per-request admission (SCHED-06), not a bound invented for this branch. |
+
+> **CORRECTED 2026-08-19 — one clause of that row claimed a control this build did not have,
+> and the control that closes it is not an authorizer.** The row is left verbatim above. The
+> false clause is *"so a deployment can refuse combines by supplying an authorizer that
+> does"*.
+>
+> **Why it was false.** `authorizeCapability` returns `null` for every combine at
+> `capability-authorizer.ts:100`, unconditionally, and it is the only `Authorizer`
+> implementation outside tests. `fabric-node.ts` and `browser-node.ts` both hardcode it at
+> their `serveAgent` call, and neither `FabricNodeOptions` nor `BrowserNodeOptions` exposes an
+> `authorize` field — `16-VERIFICATION.md` enumerated the former field by field on 2026-08-06
+> and read **25 fields, no `authorize` among them**. Only a direct `serveAgent` caller could
+> have supplied one, and no production path is one.
+>
+> **Why it is not fixed by adding the option, which is the obvious repair and is the wrong
+> one.** Owner ruling 2026-07-31, carried by commit `3b54897` and quoted in `runCombine`'s own
+> body in `packages/net/src/agent.ts`, rejects it by name: the answer is *"not a sovereignty
+> label on the wire that nothing would set, and **not an `authorize` override on the node
+> factories that would reopen the door Phase 15 closed by hardcoding `authorizeCapability`**"*.
+> Its ground is substantive rather than stylistic — *"a combine's inputs are the outputs of
+> **public** map tasks — content-addressed, already public by construction — so there is
+> nothing on this frame to authorize. What a peer can provoke is CPU and transfer, which is a
+> **capacity** question"*. An `authorize` option typed as `Authorizer` would also let a
+> deployment hand over `() => null`, which weakens the *sovereign-exec* refusal Phase 15
+> installed; the default being today's expression does not bound what the option is for.
+>
+> **What actually closes the substance, and it is narrower than the original sentence.** Two
+> per-node controls, both reachable on `FabricNodeOptions`/`BrowserNodeOptions`, both measured
+> on a real `FabricNode` started the way `bin/agent.ts` starts one, in
+> `packages/node/src/admission.node.test.ts`:
+>
+> - **capacity** — `maxConcurrentTasks`, SCHED-06, landed 16-06 (`3b54897`): a combine over
+>   the slot limit is refused `over-committed: 1 of 1 slots in use` at **zero** blocks fetched.
+> - **pause** — `paused`, SCHED-03, landed `1043772` on **2026-08-11**, i.e. after both gap
+>   readings were taken; it puts `combine` in `DeclinedWhilePaused`. A node its deployment has
+>   paused refuses the frame with `pausedRefusal(peerId)` at **zero** blocks fetched and zero
+>   slots taken, and combines the identical frame bit-for-bit against the production combiner
+>   once the deployment un-pauses it in the same run.
+>
+> **Stated plainly, because the difference is real:** neither control is per-kind. A paused
+> node declines `exec`, `commit`, `combine` and `offer` together, and one slot pool bounds
+> combines and execs alike. **There is no way on this build to refuse combines while serving
+> execs, and by the ruling above there is not meant to be.** The true claim is the narrower
+> one: *a deployment can refuse a combine, and the refusal costs the node nothing it was
+> trying not to spend.* Full working, including the plant that reddens it, in
+> `16-VERIFICATION.md`'s 2026-08-19 amendment.
 
 ## Self-Check: PASSED
 

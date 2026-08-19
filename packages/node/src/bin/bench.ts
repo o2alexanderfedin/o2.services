@@ -129,6 +129,16 @@ import { armOrphanLeash } from '../orphan-leash.ts'
  * adapter with no callers is the defect this milestone exists to remove, and naming it is
  * not the same as fixing it.* This is that path.
  *
+ * **This paragraph read *"This is that path"* as though it were the only one, and it stopped
+ * being that on 2026-08-18.** `packages/browser/demo/main.ts`'s `discoveredPool` is a
+ * second production caller, on the demo page with no flag in front of it, built under the
+ * owner ruling of 2026-08-15 (*"It must work with no flag"*) — which held that reachability
+ * from a flagged branch is not the same as being shipped. The reachability sentence above is
+ * still true of this call site; what is no longer true is that it carries the requirement
+ * alone. The reason this flag stays off by default is below and is untouched by that ruling,
+ * because it is a statement about the published curve rather than about what counts as
+ * delivered.
+ *
  * ## Why it is off by default
  *
  * 15-CONTEXT.md decision 2 — a published scaling curve must not be reshaped by a change
@@ -1708,6 +1718,15 @@ async function realFabric(
           },
           requestor.store,
           [requestor.egress],
+          // CHURN-03 — stated, not defaulted, and written here on 2026-08-18 because it was
+          // **not**: the reason for this opt-out lived only in `checkpoint-optout-scope.node.
+          // test.ts`'s pin table, so a reader of this file found a bare sentinel. Two grounds,
+          // either of which is sufficient. The store both bench submits use is built under
+          // `mkdtemp(tmpdir(), 'o2-bench-')` and removed by `close()`, so a handle published
+          // from here would name a block that is gone before anything could resume from it.
+          // And this is the `--sovereign` leg's **one-shard** dispatch-path demonstration,
+          // run once per rig outside every timed region — with one shard there is no partial
+          // progress for a resume to pick up.
           { checkpoints: 'checkpoints-nothing' },
         )
         const legMs = performance.now() - legStarted
@@ -2465,6 +2484,19 @@ function runnerOver(acquire: (nodes: number) => Promise<Fabric>, state: RunnerSt
         // three places at once (here, the disposition register, and MR-02's ledger row) and
         // a reader who met one of the other two needs to find the retraction here too.
         contributors: 'attributes-each-shard-to-its-own-partition-index',
+        // The placement ruling's *"requested to do so"* clause, and this driver is the
+        // clearest case for it. Every reduce figure this sweep publishes —
+        // `combineExecutors` off `executedBy`, `recomputes`, `treeDepth` — is a
+        // measurement of **the fabric's** combine placement, which is what MR-05 and
+        // MR-06 are claims about. A local-preferring requestor answers every combine in
+        // its own process, so the published table would read one executor and zero
+        // recomputes on every row, and it would be reporting one process rather than a
+        // fabric. An instrument pins the variable it measures.
+        //
+        // **This is not the demo's answer and must not be copied into it.** The tab is
+        // the path an operator actually runs, and it prefers local — see
+        // `packages/browser/demo/main.ts`.
+        placement: 'requires-remote-combining',
       })
       const reduceMs = performance.now() - reduceStarted
       // **`reduced.ok` alone here, and deliberately not the conjunction below.** The two

@@ -787,10 +787,24 @@ describe('bring your own — the record is required, and the refusal is read rat
       // The forcing function for the literal above. `attestedNodes` is read from disk rather
       // than trusted, so the day this page hands a tab a real owner identity the arm below
       // stops measuring what it claims to and says so here first.
+      //
+      // **HALF OF THAT DAY ARRIVED ON 2026-08-18, and this guard is narrowed rather than
+      // relaxed.** `attestedNodes` no longer declares `ownerId: 'public'` on *every*
+      // descriptor: SCHED-01's lookup (`discoveredPool`, same file) replaces the
+      // placeholder outright for every peer it qualifies, and a discovered descriptor carries
+      // the certified user key. The literal below is now the **fallback** rather than the
+      // rule, so the source check alone would go on passing while quietly ceasing to describe
+      // this fixture — which is the precise failure it was written to prevent.
+      //
+      // What actually makes this arm's owner id the placeable one is that the tabs here hold
+      // no certificate, so the lookup declines before it asks and every descriptor falls back.
+      // That is read off the running page below rather than argued, so the day these tabs are
+      // enrolled this case reddens naming the reason instead of silently dispatching for an
+      // owner nobody declares.
       const mainSource = readFileSync(join(ROOT, 'packages/browser/demo/main.ts'), 'utf8')
       expect(
         mainSource,
-        "attestedNodes no longer declares ownerId: 'public' on every descriptor, so the owner id this arm dispatches for is no longer the one the fabric would place — re-plan this case",
+        "attestedNodes no longer falls back to ownerId: 'public', so the owner id this arm dispatches for is no longer the one the fabric would place — re-plan this case",
       ).toContain(`ownerId: '${OWNER_THE_NODES_DECLARE}'`)
 
       await restoreDefaults(tabA)
@@ -819,6 +833,16 @@ describe('bring your own — the record is required, and the refusal is read rat
           `violations=${hook.egress.violations.length}\n`,
       )
       printRegions('sovereign·placed', regions)
+
+      // The precondition the paragraph above names, off the running page. `asked: false` is
+      // the lookup declining for want of a pinned issuer, which is the only state in which
+      // every descriptor this page builds carries the fallback owner id.
+      const lookup = await tabA.evaluate(() => window.o2.lastCandidates())
+      process.stderr.write(`[sovereign·placed] lastCandidates = ${JSON.stringify(lookup)}\n`)
+      expect(
+        lookup?.asked,
+        'this tab now runs a candidate lookup, so some descriptor may carry a certified owner id and the literal this arm dispatches for is no longer the whole story — re-plan this case',
+      ).toBe(false)
 
       expect(textOf(regions, 'byo/sovereign-label')).toContain('sovereign')
 

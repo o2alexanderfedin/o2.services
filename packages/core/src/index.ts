@@ -169,13 +169,23 @@ export {
 export type { Lease, LeaseCheck, LeaseEvent, LeaseTableOptions, Reaped } from './lease.ts'
 
 // Speculative duplication of stragglers — CHURN-02, CHURN-06.
+//
+// `settleRace` stood between `median` and `speculativeCandidates` until 2026-08-18 and is
+// **retired from the barrel, not deleted**: `speculation.ts` still declares it and
+// `speculation.test.ts` still holds it, module-relative. What is retired is the claim that
+// it is a capability of `@o2/core`, and the one site that would consume it refuses it in
+// writing on a **correctness** ground rather than a preference — `job/submit.ts`, at the
+// comparison it would replace: *"It re-derives the winner from arrival instants and ties
+// break on node id — so on a clock that reports the same instant for both, it could name
+// the loser as the winner, overturning a decision this module has already taken and
+// already closed a lease against."* Publishing it on the barrel invites the next reader to
+// do the thing that comment exists to stop.
 export {
   DEFAULT_SPECULATION_FRACTION,
   DEFAULT_STRAGGLER_FACTOR,
   MIN_SAMPLES,
   SpeculationLedger,
   median,
-  settleRace,
   speculativeCandidates,
   stragglers,
 } from './speculation.ts'
@@ -196,7 +206,9 @@ export {
   // its process is a browser tab's, and `browser/demo/main.ts` is outside this package —
   // a sink it cannot import is a sink no shipped entry point can supply.
   checkpointsInto,
-  isComplete,
+  // `isComplete` is deliberately NOT here — retired from this barrel on 2026-08-18. The
+  // declaration and its cases stay in `checkpoint.ts`, which says at the declaration why
+  // re-exporting it would be a mistake rather than a convenience.
   readCheckpoint,
   recoverCheckpoint,
   remainingWork,
@@ -213,6 +225,13 @@ export type {
 } from './checkpoint.ts'
 
 // Start outcomes and the blocking metric — BROW-02.
+//
+// `startReport` stood between `isStartBrowserLabel` and `startReportFromCounts` until
+// 2026-08-18 and is **retired from the barrel, not deleted** — superseded, on this
+// package's own production path, by the fold beside it. Nothing in the tree ever holds a
+// `readonly StartOutcome[]` to hand it: `StartOutcomeLedger#report()` calls
+// `startReportFromCounts` directly and both node getters read that ledger. The declaration
+// stays, and `start-outcome.test.ts` states why at the case that uses it.
 export {
   BROWSER_FAMILIES,
   MAX_BROWSER_MAJOR,
@@ -222,7 +241,6 @@ export {
   StartOutcomeLedger,
   describeStartReport,
   isStartBrowserLabel,
-  startReport,
   startReportFromCounts,
 } from './start-outcome.ts'
 export type {
@@ -327,6 +345,7 @@ export type { NameRecord, ResolveFailure, ResolveResult } from './naming.ts'
 export {
   DEFAULT_FANOUT,
   MAX_COMBINE_INPUTS,
+  LOCAL_COMBINE_EXECUTOR,
   MAX_PARTIAL_BYTES,
   asFabricPartial,
   deriveReduceTree,
@@ -341,6 +360,8 @@ export type {
   CombineTask,
   Combiner,
   FabricPartial,
+  LocalCombineAdmission,
+  LocalCombinePlacement,
   ReduceContribution,
   ReduceLeaf,
   ReduceOutcome,

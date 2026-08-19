@@ -22,13 +22,17 @@
 
 import {
   DEFAULT_FANOUT,
+  LOCAL_COMBINE_EXECUTOR,
   MAX_PARTIAL_BYTES,
   asFabricPartial,
   attestationRank,
   attestationReceipt,
   canonicalCid,
+  decodeCanonical,
   deriveReduceTree,
   executeReduce,
+  fabricCombiner,
+  localDispatch,
   verifyCombineAttestation,
 } from '@o2/core'
 import type {
@@ -38,6 +42,7 @@ import type {
   CanonicalValue,
   CombineDispatch,
   JobResult,
+  LocalCombinePlacement,
   NodeCertificate,
   OwnerId,
   PublicKeyHex,
@@ -46,8 +51,18 @@ import type {
   ReduceTree,
 } from '@o2/core'
 import { CID } from 'multiformats/cid'
+import type { Authorizer } from './agent.ts'
 import { remoteCombineDispatch } from './combine.ts'
+import type { LocalAdmission } from './discovery.ts'
 import type { RpcEndpoint } from './rpc.ts'
+
+/**
+ * The one id the requestor's own `localDispatch` will answer for.
+ *
+ * A module-level constant rather than a fresh `Set` per call: it never changes, and
+ * building one per `reduceJob` would suggest it could.
+ */
+const LOCAL_EXECUTOR_SET: ReadonlySet<string> = new Set([LOCAL_COMBINE_EXECUTOR])
 
 /**
  * The issuers this requestor accepts combine certificates from, or the named statement
@@ -114,6 +129,74 @@ export type ContributorAttribution =
   | 'attributes-each-shard-to-its-own-partition-index'
   | ReadonlyMap<number, OwnerId>
 
+/**
+ * Who performs this job's combines — the owner's placement ruling, made explicit at
+ * every call site.
+ *
+ * **Owner ruling 2026-08-18**, verbatim: *"Always prefer local execution, unless it must
+ * be executed remotely (requested to do so, or needs certain permissions that cannot be
+ * satisfied or data ownership requires, etc.) or the current node is fully loaded."* This
+ * type is the *"requested to do so"* clause; the other three are checked per combine
+ * against the ports the `prefers-local-combining` arm carries, and every refusal lands in
+ * `ReduceOutcome.localRefusals` by name.
+ *
+ * ## Why the local arm carries ports rather than a boolean
+ *
+ * A node answering a peer's combine passes it through exactly two gates —
+ * `runCombine`'s `capacity.offer` and `combineAdmitted`'s `authorize` (`agent.ts`). A
+ * requestor that combined for itself without those gates would be a node **strictly more
+ * permissive to itself than to everybody else**, which inverts this repository's rule
+ * that the only difference between two nodes is discovery. So the requestor answers the
+ * same two questions with the same two ports, and the answers are the caller's facts
+ * rather than this module's.
+ *
+ * ## Why it is required with a named sentinel and not optional
+ *
+ * `.planning/PROJECT.md`: *an optional hook with a silent default is a hole.* This one
+ * decides **who computed the number the job returns**, which is a larger fact than either
+ * `trustedIssuers` or `contributors` carries, and a default in either direction is wrong
+ * for somebody: defaulted to remote, the owner's ruling is silently absent; defaulted to
+ * local, a caller measuring the fabric silently measures its own process instead.
+ *
+ * - `'requires-remote-combining'` — every combine goes to a peer. `reduceSovereignJob`
+ *   states this and says why at its call site; so does `bin/bench.ts`, whose reduce
+ *   sweep is a measurement of the fabric's own combine placement.
+ * - the `prefers-local-combining` arm — the requestor combines whatever it is admitted
+ *   to combine, and the ranking is walked only for the combines it is not.
+ */
+export type CombinePlacement =
+  | 'requires-remote-combining'
+  | {
+      readonly kind: 'prefers-local-combining'
+      /**
+       * The requestor's own capacity, read **non-reservingly** — `LocalAdmission.would`,
+       * the same call `rpcAdmission` makes for an offer addressed to this node, so a
+       * requestor answers for itself by the rule it answers for everybody.
+       *
+       * **What `would` does not do, stated rather than discovered later:** it takes no
+       * slot. `executeReduce` runs a level's combines concurrently, so the combines of
+       * one level are not bounded against *each other* by this reading — only against
+       * whatever else the node already had in flight when each was asked. That is the
+       * same disposition `rpcAdmission` takes for a placement probe, and widening the
+       * port to reserve would be a second capacity notion beside `LocalCapacity`'s.
+       */
+      readonly capacity: LocalAdmission
+      /**
+       * The requestor's own authorizer, or the named statement that it serves
+       * unauthenticated — the same union `AgentOptions.authorize` takes, consulted with
+       * the same `{kind: 'combine'}` work a peer's is.
+       *
+       * On this build a real authorizer admits every combine: `authorizeCapability`
+       * reaches its refusal rules through `task.label === 'sovereign'` and a combine
+       * carries no label. That is `agent.ts`'s own recorded finding and it is the reason
+       * this field looks like ceremony today — it is the *permission* clause of the
+       * ruling, wired to the one hook that could ever answer it, so that a future
+       * refusal rule reaches the local path without anybody having to remember it does
+       * not.
+       */
+      readonly authorize: Authorizer | 'serves-unauthenticated'
+    }
+
 export interface ReduceJobOptions {
   readonly rpc: RpcEndpoint
   /** Peer ids of the connected agents. The submitter is NOT among them. */
@@ -145,6 +228,8 @@ export interface ReduceJobOptions {
   readonly trustedIssuers: CombineTrustAnchors
   /** See {@link ContributorAttribution}. Required, with a named sentinel for the public case. */
   readonly contributors: ContributorAttribution
+  /** See {@link CombinePlacement}. Required, with a named sentinel for the remote case. */
+  readonly placement: CombinePlacement
 }
 
 /**
@@ -343,7 +428,30 @@ function aggregateAttestationOf(
   const receipts: AttestationReceipt[] = []
   const unaccounted: string[] = []
 
+  const combinedHere = new Set(outcome.locallyCombined)
+
   for (const node of tree.nodes) {
+    // **The requestor's own combines are named first, before any other arm can absorb
+    // them.** This is the whole of constraint 2 of the placement ruling. A locally
+    // combined node reaches every one of the arms below and each would report something
+    // true and useless: `attestations` holds `'signed-by-nobody'` for it, so the first
+    // arm passes; `observed` holds no entry, so the second would say *this requestor
+    // recorded no replica answer* — which reads like a peer that went quiet. The fact
+    // that matters is that **there was no peer**, and it is stated here in those words.
+    //
+    // It is not merely a nicer message. `PROJECT.md` splits this project's claim as *the
+    // owner's contribution is trusted; the aggregation over contributions is verified*,
+    // and under the 2026-08-18 placement ruling the aggregation is by default performed
+    // by the party that wants the answer. That is a real weakening of the second half of
+    // the claim, and the one thing that must never happen to it is quiet absorption into
+    // a generic absence.
+    if (combinedHere.has(node.id)) {
+      unaccounted.push(
+        `${node.id}: this requestor combined it in its own process, so the aggregation over these ` +
+          'partials was performed by the party that wanted the answer and no independent node attested it',
+      )
+      continue
+    }
     // A combine absent from `outcome.attestations` either produced nothing at all or had
     // its replicas disagree. `executeReduce` records no statement for either — putting
     // signatures on a disagreement invites somebody to pick a winner out of them — and
@@ -421,6 +529,101 @@ function aggregateAttestationOf(
   return receipts.reduce((weakest, receipt) =>
     attestationRank(receipt.strength) < attestationRank(weakest.strength) ? receipt : weakest,
   )
+}
+
+/**
+ * The requestor's own combine placement, built from {@link CombinePlacement}.
+ *
+ * Both arms return a {@link LocalCombinePlacement} — the remote arm is a placement whose
+ * `admits` always refuses, **not** `executeReduce`'s `'combines-nothing-locally'`
+ * sentinel — and that choice is the difference between a policy you can read off a run
+ * and one you have to infer. A run that combined nothing locally because the caller
+ * required remote, and a run that combined nothing locally because the node was full,
+ * are the same empty `locallyCombined` array; only `localRefusals` tells them apart, and
+ * it is filled by the reason strings composed here.
+ *
+ * The order of the checks mirrors `runCombine`'s exactly — capacity, then authorisation —
+ * because a requestor that ordered them differently from a peer could admit work its own
+ * agent would have refused, and the ordering is the only thing that decides which of two
+ * simultaneous refusals is the one reported.
+ */
+function localCombinePlacement(options: ReduceJobOptions): LocalCombinePlacement {
+  const placement = options.placement
+  const dispatch = localDispatch({
+    blockstore: options.blockstore,
+    // The fabric's one merge, taken rather than accepted from a caller. `fabricCombiner`'s
+    // own docstring says why there is exactly one and not a per-job choice: two nodes
+    // holding different combiners surface only as a `disagreement` with nothing to name
+    // the cause. A requestor combining with anything else would be that defect with the
+    // requestor on one side of it.
+    combiner: fabricCombiner,
+    decode: decodeCanonical,
+    // `localDispatch` gates on `liveNodes` because its remote sibling learns "that
+    // executor is gone" from an RPC that did not come back. The requestor is reachable
+    // from itself by construction, so the set holds exactly the one pseudo-executor
+    // `executeReduce` dispatches under and nothing else — an id no peer can present, so
+    // a peer id arriving here by accident is refused rather than silently run locally.
+    liveNodes: () => LOCAL_EXECUTOR_SET,
+  })
+
+  return {
+    dispatch,
+    admits: (task) => {
+      // Clause 1 of the ruling — *"requested to do so"*. Checked first because it is the
+      // caller's own instruction and no port reading can overturn it.
+      if (placement === 'requires-remote-combining') {
+        return {
+          ok: false,
+          reason: 'this caller requires remote combining, so the requestor did not offer itself this combine',
+        }
+      }
+
+      // Clause 3 — *"the current node is fully loaded"*. The slot key is composed exactly
+      // as `runCombine` composes it (`combine:` + the input CIDs, joined) so that a
+      // requestor asking itself about a combine reads the same key its own agent would
+      // have taken a slot under for the identical work. Keying on `task.nodeId` was
+      // rejected there for a reason that holds here too: the tree node id is a claim
+      // about where in a tree this sits, not an identity for the work.
+      const admission = placement.capacity.would({
+        shardId: `combine:${task.inputCids.join(',')}`,
+        nodeId: options.rpc.localId,
+      })
+      if (!admission.accepted) return { ok: false, reason: admission.reason }
+
+      // Clause 2 — *"needs certain permissions that cannot be satisfied"*. The same hook,
+      // the same work shape and the same `unauthorized: ` prefix `combineAdmitted` uses,
+      // so one authorizer's text reads identically whether the requestor or a peer
+      // consulted it.
+      if (placement.authorize !== 'serves-unauthenticated') {
+        let inputCids: CID[]
+        try {
+          inputCids = task.inputCids.map((cidString) => CID.parse(cidString))
+        } catch (cause) {
+          // A malformed input CID is not something an authorizer can be asked about, and
+          // inventing a decision on its behalf is worse than declining to make one. The
+          // combine goes to a peer, where `remoteCombineDispatch` turns the same string
+          // into its own `null` — one failure, reported once, by the module that owns it.
+          return {
+            ok: false,
+            reason:
+              'this combine names an input this requestor could not parse as a CID, so its own authorizer ' +
+              `could not be asked about it: ${cause instanceof Error ? cause.message : String(cause)}`,
+          }
+        }
+        const refusal = placement.authorize({
+          kind: 'combine',
+          combine: { combineId: task.nodeId, inputCids, level: task.level },
+          // Empty because the requestor holds no chain for its own work either — the
+          // same statement `combineAdmitted` makes, and for the same reason: this build's
+          // combine frame has nowhere to carry one.
+          capability: [],
+        })
+        if (refusal !== null) return { ok: false, reason: `unauthorized: ${refusal}` }
+      }
+
+      return { ok: true }
+    },
+  }
 }
 
 /** Turn a completed job into a reduce over `options.executors`. */
@@ -529,6 +732,13 @@ export async function reduceJob(job: JobResult, options: ReduceJobOptions): Prom
   }
 
   const outcome = await executeReduce({
+    // The requestor's own placement — asked before the ranking, per the owner's ruling.
+    // It is **not** wrapped in the `observed` closure above, and that is deliberate:
+    // `CombineObservation` exists to hold *peer* statements so they can be verified
+    // against the merge this requestor asked for, and a statement the requestor made
+    // about its own work is not one of those. What records the local combine instead is
+    // `outcome.locallyCombined`, which `aggregateAttestationOf` reads by name.
+    localCombine: localCombinePlacement(options),
     tree,
     executors: options.executors,
     dispatch,

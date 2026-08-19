@@ -244,7 +244,7 @@ import { coverageOf } from '../coverage.ts'
 import type { CoverageReport } from '../coverage.ts'
 import type { NodeCertificate } from '../enrollment.ts'
 import type { Sleep } from '../governor.ts'
-import { DEFAULT_MAX_GENERATIONS, LeaseTable, RENEW_AT, shouldRenew } from '../lease.ts'
+import { DEFAULT_MAX_GENERATIONS, LeaseTable, RENEW_AT, checkLease, shouldRenew } from '../lease.ts'
 import type { Lease, LeaseEvent } from '../lease.ts'
 import type { NameRecord } from '../naming.ts'
 import { planWithOffers } from '../placement.ts'
@@ -483,6 +483,50 @@ export interface JobSpec {
    * over-commits and is refused for real at `exec`.
    */
   readonly admit?: AdmissionControl
+  /**
+   * How long one dispatch of this job's tasks may go silent before the shard is taken
+   * back and placed somewhere else — CHURN-04, in milliseconds.
+   *
+   * Omitted leaves {@link DEFAULT_LEASE_MS} (30 000) in force, which is what every
+   * submitter in this repository ran at before this field existed and what every one of
+   * them still runs at unless it says otherwise.
+   *
+   * ## A parameter of the job, not a switch that turns something on
+   *
+   * The distinction is the 2026-08-18 owner ruling's
+   * (`.planning/consults/2026-08-18-owner-ruling-role-selector-vs-feature-gate.md`), and it
+   * is applied here rather than assumed. **Leasing and expiry-driven re-dispatch run on
+   * every job whether or not this field is present** — `submitJob` has constructed a
+   * `LeaseTable` and granted a lease per dispatch since Plan 20-01, and nothing about that
+   * is conditional on this. What the field selects is the *duration*, exactly as
+   * `redundancy` selects a replica count. A caller that omits it is not opting out of a
+   * capability; it is accepting the module's stated default, which is the
+   * {@link SubmitOptions.speculation} precedent — *"omitting this leaves the module's own
+   * stated policy in force — the exported constants"* — and not the
+   * {@link SubmitOptions.checkpoints} one, where omission was a position held without
+   * being stated.
+   *
+   * ## Why it needs to be reachable at all
+   *
+   * Because the constant alone makes one leg of CHURN-04 unmeasurable on a real fabric,
+   * and that is arithmetic rather than opinion. `RENEW_AT` is two-thirds, so a dispatch has
+   * to be outstanding for 20 s before renewal is even asked about, and 30 s before the
+   * deadline bites; a colouring cube at `--coordinate-n 300` measures ~60 ms on this host.
+   * A fabric whose lease is ~330× its unit of work can never show a lease doing anything,
+   * so *"re-dispatched on lease expiry"* could only ever be read on a virtual clock. Sizing
+   * the lease to the workload is the operator's decision — a job of 10 ms tasks and a job
+   * of 10 minute tasks want different numbers — and until this field existed there was
+   * nowhere to state it.
+   *
+   * ## The bound, and where it is checked
+   *
+   * Validated by `LeaseTable`'s own constructor, which throws `RangeError` on anything not
+   * positive. Not re-checked here: a second validator is a second thing to drift, and the
+   * table is the authority on what a lease is. An entry point that takes this from an
+   * operator should refuse bad input with its own usage message before it gets this far —
+   * `bin/agent.ts --lease-ms` does.
+   */
+  readonly leaseMs?: number
 }
 
 /**
@@ -1930,7 +1974,13 @@ async function dispatchUnderLease(
 
   for (;;) {
     const at = clock.now()
-    if (at >= lease.expiresAt) return { kind: 'lapsed', speculated }
+    // `checkLease` rather than the comparison it wraps, on the same ground as `shouldRenew`
+    // below: `lease.ts` is the authority on what a lease permits, and this loop had the
+    // predicate hand-inlined at two sites. `checkLease(lease, at).expired` is
+    // `at >= lease.expiresAt` exactly — the function returns the `expired: false` arm only
+    // when `expiresAt > now` — so this is behaviour-neutral, and `lease.test.ts` holds the
+    // equivalence rather than this comment asserting it.
+    if (checkLease(lease, at).expired) return { kind: 'lapsed', speculated }
 
     // The renewal point, measured **back from the deadline** rather than forward from
     // the grant — `expiresAt - leaseMs × (1 - RENEW_AT)`, which is the instant at which
@@ -1989,7 +2039,7 @@ async function dispatchUnderLease(
     }
 
     const woke = clock.now()
-    if (woke >= lease.expiresAt) return { kind: 'lapsed', speculated }
+    if (checkLease(lease, woke).expired) return { kind: 'lapsed', speculated }
 
     // ── Straggler duplication — CHURN-02, CHURN-06 ────────────────────────────────
     //
@@ -2414,15 +2464,31 @@ export interface SubmitOptions {
    *
    * ## What this does NOT do — do not read it as more than it is
    *
-   * **Requiring the field does not make the write half reachable.** Every production
-   * submitter now says `'checkpoints-nothing'` explicitly instead of saying nothing; not
-   * one supplies a real sink, so no checkpoint block is written by anything an operator
-   * runs, and ROADMAP criterion 7 stays **PARTIAL**. What changed is that a *future*
-   * submitter must decide, and that a new opt-out is visible rather than silent —
+   * **Requiring the field does not make the write half reachable**, and what follows is
+   * what that meant when this field was introduced. It is quoted rather than deleted
+   * because it is the argument the field was built on, and because a reader who finds only
+   * the correction cannot tell a claim that was withdrawn from one that was satisfied:
+   *
+   * > Every production submitter now says `'checkpoints-nothing'` explicitly instead of
+   * > saying nothing; not one supplies a real sink, so no checkpoint block is written by
+   * > anything an operator runs, and ROADMAP criterion 7 stays **PARTIAL**. […] Closing the
+   * > criterion needs a runnable entry point holding a store that outlives its process;
+   * > that is a separate ruling and is not this field's doing.
+   *
+   * **Every clause of that is false as of 2026-08-18 and the last one was false from
+   * 2026-08-16**, which is two days this docblock went on asserting the opposite of the
+   * tree. Four production submit sites supply a real sink: `browser/demo/main.ts`'s
+   * `runColouring`, `runPi` and `runPrimes` — into `node.store`, an `IdbBlockstore`, which
+   * is precisely the *"runnable entry point holding a store that outlives its process"* the
+   * quotation says would be needed — and `node/src/bin/agent.ts`'s `--coordinate` leg, into
+   * the store `--job-store` names. Five sites still say the sentinel, and each states why
+   * at the site rather than only in the guard.
+   *
+   * What is unchanged is the *reason* the field is required: a **future** submitter must
+   * decide, and a new opt-out is visible rather than silent —
    * `checkpoint-optout-scope.node.test.ts` pins the set of production files allowed to say
-   * the sentinel, on `sovereign-block-refusal.node.test.ts`'s model. Closing the criterion
-   * needs a runnable entry point holding a store that outlives its process; that is a
-   * separate ruling and is not this field's doing.
+   * the sentinel and how often, on `sovereign-block-refusal.node.test.ts`'s model, and pins
+   * the demo page's three sink sites by an exact count in both directions.
    */
   readonly checkpoints: CheckpointSink | 'checkpoints-nothing'
   /**
@@ -2562,7 +2628,15 @@ export async function submitJob(
   // bound, for the reason `DEFAULT_MAX_GENERATIONS`' docblock gives. (Past tense since
   // Plan 20-12: that module is deleted, and this is the contrast that explains the
   // choice rather than a live alternative.)
-  const leases = new LeaseTable({ maxGenerations: DEFAULT_MAX_GENERATIONS })
+  // `spec.leaseMs` spread rather than passed as `leaseMs: spec.leaseMs`: an explicit
+  // `undefined` and an absent key are different things to `LeaseTableOptions`' `??`, and
+  // the same distinction `requestFor`'s `moduleRecord` spread is written for. See
+  // {@link JobSpec.leaseMs} — omitted here means `DEFAULT_LEASE_MS`, which is the shipped
+  // duration and stays the shipped duration.
+  const leases = new LeaseTable({
+    maxGenerations: DEFAULT_MAX_GENERATIONS,
+    ...(spec.leaseMs === undefined ? {} : { leaseMs: spec.leaseMs }),
+  })
 
   // Persist every shard input as a block first, so a task is addressed entirely
   // by CID and could be re-dispatched to any node without resending the payload.

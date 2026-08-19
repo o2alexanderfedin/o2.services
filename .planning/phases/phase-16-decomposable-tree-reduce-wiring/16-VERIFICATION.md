@@ -1,13 +1,82 @@
 ---
 phase: phase-16-decomposable-tree-reduce-wiring
 verified: 2026-08-01T06:30:00Z
-status: gaps_found
-score: 3/4 criteria met (1 partial)
+amended: 2026-08-19T04:10:00Z # SECOND amendment. Code for it is `3f11901` on branch feature/phase-20-checkpoint-agent. Both remaining `gaps:` entries CLOSE — one by BUILDING the guard that
+                             # was missing, one by WITHDRAWING a claim an owner ruling had already rejected the repair for.
+                             # See the last AMENDMENT in this file. The FIRST amendment (2026-08-06) moved criterion 3
+                             # PARTIAL -> MET in the body and left this frontmatter untouched, which is why `score` below
+                             # is corrected here to what that amendment already declared. No criterion verdict moves today.
+status: passed # was `gaps_found`; every `gaps:` entry below is now closed and the score is unchanged at 4/4 criteria
+score: >-
+  4/4 criteria MET (0 PARTIAL, 0 FAILED). Criteria 1, 2 and 4 MET 2026-08-01; criterion 3 PARTIAL -> MET
+  2026-08-06 after Phase 20 criterion 6 landed. **The count is over criteria and it did not move today** —
+  the three `gaps:` entries are not criteria and never were. Closed 2026-08-06 (the arriving-late one) and
+  2026-08-19 (the other two).
+original_status: gaps_found
+original_score: 3/4 criteria met (1 partial)
 overrides_applied: 0
 verifier_host_load: "3.84–10.16 on 8 cores across the session; every reading below is pass/fail, never a timing bound"
+amendment_runs: # 2026-08-19. `EXIT=$?` on the line IMMEDIATELY after each command — no pipes, no trailing tail/echo
+  - command: "npx tsc --noEmit"
+    exit: 0
+    result: "no output"
+  - command: "npx tsc --noEmit  # PLANT A: `readonly ownerId?: string` added to CombineWork"
+    exit: 1
+    result: >-
+      one error, at the new guard: capability-authorizer.test.ts(227,11) TS2741 Property 'ownerId' is missing
+      in type '{ combineId: true; inputCids: true; level: true; }' but required in type 'EveryCombineKey'.
+      Restored by surgical inverse; cmp exit 0
+  - command: "npx vitest run --project node packages/net/src/capability-authorizer.test.ts  # PLANT A still in place"
+    exit: 0
+    result: "11 passed (11) — DISCLOSURE: the guard is a typecheck guard, not a vitest guard. A type is erased at runtime"
+  - command: "npx vitest run --project node packages/net/src/capability-authorizer.test.ts"
+    exit: 0
+    result: "1 file, 11 passed (11)"
+  - command: "/usr/bin/time -p npx vitest run --project node packages/node/src/admission.node.test.ts"
+    exit: 0
+    result: "1 file, 8 passed (8) — the new SCHED-03 case at 533 ms. real 9.96 user 3.61 sys 0.66, (user+sys)/real 0.43"
+  - command: "npx vitest run --project node .../admission.node.test.ts -t 'refuses a combine on a node its deployment paused'  # PLANT B: fabric-node.ts drops options.paused"
+    exit: 1
+    result: >-
+      1 failed | 7 skipped (8). AssertionError: expected CID(bafyreiavz2vd27fwoehe5ho2bvd7tmoar4iuni2bt5yimeozajvamunqia)
+      to be null — the paused node combined anyway, which is the gap's own original state reproduced as a red test.
+      Restored by surgical inverse; cmp exit 0
+  - command: "npx vitest run --project node .../admission.node.test.ts -t 'refuses a combine on a node its deployment paused'"
+    exit: 0
+    result: "1 passed | 7 skipped (8) — after the restore"
+  - command: "/usr/bin/time -p npx vitest run --project node <the eight-gate guard set>"
+    exit: 0
+    result: "8 files, 364 passed (364). real 6.40 user 7.01 sys 1.57, (user+sys)/real 1.34"
+  - command: "/usr/bin/time -p npx vitest run --project node  # first attempt"
+    exit: 1
+    result: >-
+      1 failed | 196 passed (197); 1 failed | 2961 passed | 1 skipped (2963). The one failure is
+      admission-agents.node.test.ts clause 1 — a spawn-heavy relay-circuit arrival, no overlap with
+      anything this pass touched. real 639.50 user 721.24 sys 115.36, ratio 1.31. ATTRIBUTED BY THE
+      PAIR OF RUNS, not by "passes in isolation" — see the amendment's own section
+  - command: "/usr/bin/time -p npx vitest run --project node packages/node/src/admission-agents.node.test.ts"
+    exit: 0
+    result: "1 file, 6 passed (6); the failing clause at 12336 ms against 15588 ms. real 57.22 user 49.92 sys 8.76, ratio 1.02"
+  - command: "/usr/bin/time -p npx vitest run --project node  # repeat, nothing edited between the two"
+    exit: 0
+    result: >-
+      197 files, 197 passed; 2962 passed | 1 skipped (2963) against a baseline of 197 files,
+      2961 passed, 1 skipped — file count identical, tests +1, which is the one case added to an
+      existing file. real 545.04 user 687.43 sys 109.85, ratio 1.46
+  - command: "/usr/bin/time -p npx vitest run --project e2e"
+    exit: 0
+    result: "36 files, 232 passed (232) — matches the baseline exactly. real 854.59 user 446.46 sys 85.58, ratio 0.62"
 gaps:
   - truth: "A test fails the day `CombineWork` gains a field that could carry sovereignty"
-    status: failed
+    status: met # CLOSED 2026-08-19 by BUILDING the guard, route 1 of this entry's own `missing:`.
+                # The tautology is gone; an exhaustive mapped type is in its place; the same M2 plant
+                # that falsified the old claim was re-planted and watched go RED at exit 1.
+                # ONE THING IS NARROWED AND SAID OUT LOUD RATHER THAN SMOOTHED: the guard fires at
+                # `npx tsc --noEmit`, NOT in a vitest run — with the plant in place the file is still
+                # 11 passed. `CombineWork` is a type, types are erased, so no runtime assertion in any
+                # spec could ever have caught this. The tree's claim is now "this stops compiling",
+                # which is exactly what was measured. See the 2026-08-19 AMENDMENT.
+    original_status: failed
     reason: >-
       16-05-SUMMARY.md and `capability-authorizer.test.ts:194-197` both claim the
       combine key-set case "stops compiling" if `CombineWork` grows a sovereignty
@@ -28,7 +97,10 @@ gaps:
       - "A guard that actually fails on an added optional field — e.g. an exhaustive mapped-type check, or a runtime `Object.keys` assertion over a constructed `CombineWork` literal, in the shape `combine-wire.test.ts` already uses for the frame"
       - "Or: withdraw the claim from both the test comment and the summary, leaving the unmeetable clause standing on its own without a mitigation it does not have"
   - truth: "A duplicate combine result ARRIVING LATE from a recovered node is discarded harmlessly"
-    status: partial
+    status: met # CLOSED 2026-08-06 by the FIRST amendment, after Phase 20 criterion 6 landed MET. This line is
+                # bookkeeping only: that amendment already recorded the closure in the body and in criterion 3's
+                # verdict, and left this entry unedited. Nothing about it is re-decided today.
+    original_status: partial
     reason: >-
       The dedupe property is fully measured on real processes (same inputs → same
       bytes → same CID → probe store grows by 0), and the job completes without
@@ -44,7 +116,20 @@ gaps:
     missing:
       - "Either a late-arrival channel in `executeReduce` (new machinery no criterion asks for), or a ROADMAP amendment narrowing criterion 3 to the dedupe property that is measurable"
   - truth: "A deployment can refuse combines by supplying an authorizer that does"
-    status: failed
+    status: corrected # CLOSED 2026-08-19 by route 2 of this entry's own `missing:` — the claim is WITHDRAWN from
+                      # 16-05-SUMMARY.md's threat-flag row, not made true. Route 1 (an `authorize` option on the node
+                      # factories) was NOT taken, and not for cost: OWNER RULING 2026-07-31, commit `3b54897`, quoted
+                      # verbatim inside `runCombine` in packages/net/src/agent.ts, rejects it BY NAME — "not an
+                      # `authorize` override on the node factories that would reopen the door Phase 15 closed by
+                      # hardcoding `authorizeCapability`". Building it would have overruled an owner, not delivered one.
+                      # WHAT DID CHANGE, and it changed AFTER both readings of this gap were taken: `1043772`
+                      # (2026-08-11) put `combine` in `DeclinedWhilePaused`, so the sentence "no node this repository
+                      # can start can refuse a combine" stopped being true on 2026-08-11. Measured end-to-end today on
+                      # a real `FabricNode.start`, with the factory's `paused: options.paused` line planted away and
+                      # watched go RED. STILL FALSE AND NOT CLOSED BY THIS: there is no per-KIND combine refusal — a
+                      # paused node declines exec, commit, combine and offer together — and by the ruling above there
+                      # is not meant to be. See the 2026-08-19 AMENDMENT.
+    original_status: failed
     reason: >-
       16-05's threat-flag states this as the mitigation that makes unconditional
       admission acceptable. There is no injection point. `FabricNodeOptions` has no
@@ -898,3 +983,381 @@ own row text and would turn `acceptance-traceability.node.test.ts` red.
 *Amended: 2026-08-07T01:22:14Z (2026-08-06 18:22 local)*
 *Verifier: Claude (gsd-verifier), independent goal-backward re-verification after Phase 20 criterion 6*
 *Working tree: `HEAD` `8d6ae20` at entry and exit; `rpc.ts` and `late-combine.node.test.ts` restored and `cmp`-verified; nothing staged, committed, stashed, reverted or branch-switched; the one entry in `git status --short` is a concurrent agent's `.planning/STATE.md` edit, untouched here*
+
+---
+
+## Amendment — 2026-08-19: both remaining `gaps:` entries close, and the score does not move
+
+**Score: 4/4 criteria, unchanged.** Nothing above is retracted and no criterion verdict is
+re-decided. What closes here is the two `gaps:` entries the 2026-08-06 amendment left open under
+*"What this amendment does NOT close"* — the entries that are **not criteria** and that kept
+`status:` at `gaps_found` while the criteria count stood at 4/4. One closes by **building** the
+guard that was missing. The other closes by **withdrawing** a claim, because the repair its own
+`missing:` line named first had already been rejected by an owner ruling that this pass found in
+the tree and did not overrule.
+
+The frontmatter's `score` is also corrected from `3/4 criteria met (1 partial)` to 4/4. That is
+bookkeeping and not a movement: the 2026-08-06 amendment declared 4/4 in its body and left the
+frontmatter unedited, saying so in its own words — *"The frontmatter above still reads `score: 3/4
+criteria met (1 partial)`… and **only the first of those changes here**"*. It never did change.
+`original_score` preserves the 2026-08-01 reading.
+
+---
+
+### GAP 1 — CLOSED by building the guard. Route 1 of its own `missing:`
+
+**The superseded entry, quoted verbatim from the frontmatter above:**
+
+> - truth: "A test fails the day `CombineWork` gains a field that could carry sovereignty"
+>   status: failed
+>   reason: >-
+>     16-05-SUMMARY.md and `capability-authorizer.test.ts:194-197` both claim the
+>     combine key-set case "stops compiling" if `CombineWork` grows a sovereignty
+>     field, and that claim is the stated mitigation for the ruling clause 16-05
+>     reported unmeetable. Mutation M2 falsifies it: adding `readonly ownerId?: string`
+>     to `CombineWork` leaves `npx tsc --noEmit` at exit 0 and all 11 tests in that
+>     file green. The assertion is a tautology — a three-element array literal
+>     compared to itself — and `(keyof X)[]` stays satisfied when `X` gains a key.
+>     Optional is the form this repository actually uses for sovereignty on a work
+>     shape (`ports.ts:50-51`, `Task.label`/`Task.ownerId`, optional by a stated
+>     decision), so the mutation is the realistic one, not a contrived one.
+>   missing:
+>     - "A guard that actually fails on an added optional field — e.g. an exhaustive mapped-type
+>       check, or a runtime `Object.keys` assertion over a constructed `CombineWork` literal, in
+>       the shape `combine-wire.test.ts` already uses for the frame"
+>     - "Or: withdraw the claim from both the test comment and the summary, leaving the
+>       unmeetable clause standing on its own without a mitigation it does not have"
+
+#### What replaced it
+
+`packages/net/src/capability-authorizer.test.ts`, inside *"has no reachable sovereign-combine
+refusal on this build, and the wire is why"*. The two lines that were the tautology are gone. In
+their place, both halves the `missing:` line offers, because neither is sufficient alone:
+
+```ts
+type EveryCombineKey = { readonly [K in keyof AuthorizedWorkCombine['combine']]-?: true }
+const combineKeys: EveryCombineKey = { combineId: true, inputCids: true, level: true }
+expect(Object.keys(combineKeys).sort()).toEqual(['combineId', 'inputCids', 'level'])
+```
+
+`-?` is written out rather than left to `Record<keyof X, true>` so the property does not depend on
+a mapped type's homomorphism rule staying where it is. **Both forms were measured** in an isolated
+file before either was written into the tree, under the repository's own flags (`--strict
+--exactOptionalPropertyTypes --target es2023 --module esnext --moduleResolution bundler`): with
+`readonly ownerId?: string` present, `{ [K in keyof T]-?: true }` and `Record<keyof T, true>` both
+produce `TS2741`, and **the old `(keyof T)[]` form produces nothing at all**. With the field absent,
+all three compile at exit 0. That last pair is the control that says the reddening below is the
+field and not the rewrite.
+
+#### PLANT A — the exact mutation that falsified the old claim, re-planted and watched go red
+
+`packages/net/src/agent.ts`, `CombineWork` (`:94-98`) gains `readonly ownerId?: string`. Snapshot
+taken **immediately before** the plant; `md5` `c3a131bda4243b52eefce2f91100bcfe`; `git diff -U0`
+one hunk, one insertion.
+
+```
+$ npx tsc --noEmit
+packages/net/src/capability-authorizer.test.ts(227,11): error TS2741: Property 'ownerId' is missing in type '{ combineId: true; inputCids: true; level: true; }' but required in type 'EveryCombineKey'.
+EXIT=1
+```
+
+Verbatim, and it is the **only** error in the whole tree — which is itself the reading that says
+the guard fired rather than the plant breaking something incidental. `EXIT=$?` was on the line
+immediately after the command.
+
+**The disclosure that comes with it, stated rather than left to be discovered.** With the same
+plant still in place:
+
+```
+$ npx vitest run --project node packages/net/src/capability-authorizer.test.ts
+Test Files  1 passed (1)      Tests  11 passed (11)
+EXIT=0
+```
+
+**So this is a typecheck guard, not a vitest guard, and the gap's `truth:` wording — "A test
+fails" — cannot be satisfied literally by anything.** `CombineWork` is a type; types are erased
+before a runtime exists; no `expect` in any spec in this repository can observe a field being added
+to one. The `missing:` line is the operative specification here and it names *"an exhaustive
+mapped-type check"* first, which is what was built. The claim the tree now carries — in the test's
+own comment and, corrected, in `16-05-SUMMARY.md` — is *"this stops compiling"*, and that claim is
+now true and was watched being true. The old comment said the same words while the code under it
+said nothing; that is the mismatch this closes.
+
+The runtime `Object.keys` half is kept and its scope is written down beside it: it cannot see
+`CombineWork` at all, only the witness, so what it holds is that nobody widens the witness to
+satisfy `tsc` without moving the expected list with it. `tsc` guards the witness against
+`CombineWork`; the assertion guards the list against the witness.
+
+#### Restoration
+
+Restored by the **surgical inverse** of the plant — the one added line deleted, not a `cp` of the
+file — then:
+
+```
+$ cmp packages/net/src/agent.ts /tmp/o2-gap-plant/agent.ts.pre
+EXIT=0
+$ npx tsc --noEmit
+EXIT=0
+```
+
+---
+
+### GAP 2 — CLOSED by withdrawing the claim. Route 2 of its own `missing:`, and the verdict is that it is **not** a build
+
+**The superseded entry, quoted verbatim from the frontmatter above:**
+
+> - truth: "A deployment can refuse combines by supplying an authorizer that does"
+>   status: failed
+>   reason: >-
+>     16-05's threat-flag states this as the mitigation that makes unconditional
+>     admission acceptable. There is no injection point. `FabricNodeOptions` has no
+>     `authorize` field and neither does the browser equivalent; `fabric-node.ts:764`
+>     and `browser-node.ts:616` both hardcode `authorizeCapability(...)`, which
+>     returns `null` for every combine at `capability-authorizer.ts:100`. No node this
+>     repository can start — via `bin/agent.ts`, `FabricNode.start` or `BrowserNode` —
+>     can refuse a combine. Only a direct `serveAgent` caller could, and no production
+>     path is one. OWNER DECISION REQUESTED, see "Judgement on the two deviations".
+>   missing:
+>     - "Either an `authorize` option on `FabricNodeOptions`/`BrowserNodeOptions` so the claim
+>       becomes true, or a correction to the threat-flag text so it stops claiming a control this
+>       build does not offer"
+
+#### The finding that decides it: the owner has already ruled, and ruled against the build
+
+This pass was directed to treat GAP 2 as a build — an optional `authorize` on `FabricNodeOptions`
+defaulting to today's `authorizeCapability({…})` expression — and to disagree if the reasoning was
+wrong. **It is wrong, and the thing that makes it wrong is in the tree with a commit behind it.**
+
+`packages/net/src/agent.ts`, inside `runCombine`, under the heading *"Why this hook and not a
+second authorizer rule. Owner ruling 2026-07-31"*:
+
+> The answer is not a sovereignty label on the wire that nothing would set, and **not an
+> `authorize` override on the node factories that would reopen the door Phase 15 closed by
+> hardcoding `authorizeCapability`**. A combine's inputs are the outputs of **public** map tasks —
+> content-addressed, already public by construction — so there is nothing on this frame to
+> authorize. What a peer can provoke is CPU and transfer, which is a **capacity** question…
+
+`git log -L` puts that text in `3b54897`, 2026-07-31, *"feat(16-06): a combine takes a slot before
+it fetches, and gives it back"*, whose message opens `Owner ruling 2026-07-31` and states the same
+diagnosis this gap states — *"neither node factory exposes an `authorize` field. Nothing this
+repository can start could refuse a combine, so the residue widened from unauthenticated nodes to
+every node"* — and then names the answer it chose. **The gap and the ruling are about the same
+sentence.** The ruling is one day older than the 2026-08-01 verification that wrote the gap, which
+is why the gap could honestly say "OWNER DECISION REQUESTED": the decision existed and was not
+found. It has been found now.
+
+Three reasons it is a ruling about the *shape* of the option and not only about 16-06's problem, so
+that it cannot be read narrowly and built around:
+
+1. Its stated ground is general — a combine frame carries addresses and a tree position, so *there
+   is nothing on it to authorize*. That is a statement about combines, not about amplification.
+2. Its stated objection is to the option itself — *"would reopen the door Phase 15 closed"*. Any
+   `authorize` override on a node factory reopens exactly that door, whatever it was added for.
+3. The "nothing moves, it defaults to today's expression" argument is true of the **default** and
+   false of the **option**. An `authorize` field typed as `Authorizer` admits `() => null`, which
+   is strictly weaker than `authorizeCapability` on the *sovereign-exec* path — that authorizer's
+   whole job is to refuse a sovereign exec with no chain. The option's reachable range is what a
+   security control is judged on, not its default, and the range is the door.
+
+**Verdict: GAP 2 is not a build.** Building it would have delivered a verifier's preference over a
+recorded owner ruling. Route 2 of the gap's own `missing:` — *"a correction to the threat-flag text
+so it stops claiming a control this build does not offer"* — is the honest close, and it is the
+route the gap itself sanctions.
+
+#### And the world moved after both readings were taken, which is why the *substance* also closes
+
+The gap's own sentence — *"No node this repository can start … can refuse a combine"* — was true
+on 2026-08-01 and true on 2026-08-06. **It stopped being true on 2026-08-11.** `1043772`
+(*"feat(net): a node can say PAUSED — declining all work, not full and not gone"*) added SCHED-03
+and put `combine` in `DeclinedWhilePaused` (`packages/net/src/agent.ts:194`), and
+`FabricNodeOptions.paused` / `BrowserNodeOptions.paused` is a per-request thunk both factories pass
+through at their `serveAgent` call. So a deployment **can** refuse a combine today. It simply does
+not do it with an authorizer, which is precisely the clause being withdrawn.
+
+That was not accepted from the source. It was measured, on a real node, and then planted against.
+
+#### What was built: one case, in an existing file
+
+`packages/node/src/admission.node.test.ts` gains
+*"SCHED-03 — a deployment can refuse a combine, on the production factory"*. It sits directly
+beneath that file's existing SCHED-06 combine case and borrows its rig deliberately, so the two
+refusals are read by one instrument: `startNode` is the same `FabricNode.start` call `bin/agent.ts`
+makes, the inputs are held by the client alone so `server.blockstore.fetched` reads what the frame
+cost, and the reference root is computed in-process from the production `fabricCombiner`.
+
+**No new `.node.test.ts` file, deliberately** — `slow-specs` does not drift and
+`NODE_MEASUREMENT.files` needs no re-measurement.
+
+One node gives both answers to one identical frame inside one run, through a thunk the test flips —
+a second, un-paused node would have differed in peer id, store and port, any of which could have
+been the thing that moved. Green reading:
+
+```
+✓ |node| packages/node/src/admission.node.test.ts > SCHED-03 — a deployment can refuse a combine,
+  on the production factory > refuses a combine on a node its deployment paused, fetching nothing,
+  and combines the identical frame once it un-pauses  533ms
+
+Test Files  1 passed (1)      Tests  8 passed (8)
+EXIT=0        real 9.96  user 3.61  sys 0.66   → (user+sys)/real 0.43
+```
+
+`0.43` is the spawn-and-socket profile this file legitimately has — it starts real `FabricNode`s
+over tcp + noise + yamux and spends most of `real` waiting — and no verdict here rests on a
+duration.
+
+What the case reads, in order: the refusal arrives in the **combine reply shape** and not an
+`error` frame; `resultCid` is null; the reason is `pausedRefusal(server.peerId)` **by text**,
+against the one place that string is composed; it is *not* the at-capacity string, which is the
+discrimination the state exists for; `server.blockstore.fetched` is **0**, so the refusal cost the
+node nothing it was declining to spend; `server.admission.peakInFlight` is **0**, so it took no
+slot on the way to refusing. Then the paired positive control in the same run: un-paused, the same
+frame returns a CID that matches `canonicalCid(fabricCombiner([a, b]))` **bit-for-bit**, with
+`fetched` at **2** — so the zero above is a reading of a refusal and not of a node that cannot
+combine at all, which is the pre-16-05 defect this repository shipped for two milestones and did
+not notice.
+
+#### PLANT B — the injection point removed, and the gap's original state reproduced as a red test
+
+The gap is about whether a **deployment** can reach the control, so the plant is on the factory and
+not on the mechanism. `packages/node/src/fabric-node.ts:2715`:
+
+```
+      paused: options.paused ?? 'never-pauses',      →      paused: 'never-pauses',
+```
+
+i.e. the factory keeps the hook and stops honouring what its caller asked for — the precise shape
+of *"there is no injection point"*. Snapshot taken immediately before the plant; `md5`
+`3c5ca6c09d24eae2f6ffbc3911d720fb`; `git diff -U0` one hunk. Observed, verbatim:
+
+```
+× |node| packages/node/src/admission.node.test.ts > SCHED-03 — a deployment can refuse a combine,
+  on the production factory > refuses a combine on a node its deployment paused, fetching nothing,
+  and combines the identical frame once it un-pauses  637ms
+  → expected CID(bafyreiavz2vd27fwoehe5ho2bvd7tmoar4iuni2bt5yimeozajvamunqia) to be null
+
+AssertionError: expected CID(bafyreiavz2vd27fwoehe5ho2bvd7tmoar4iuni2bt5yimeozajvamunqia) to be null
+
+Test Files  1 failed (1)      Tests  1 failed | 7 skipped (8)
+EXIT=1
+```
+
+**That failure text *is* the gap.** With the deployment's control dropped, the node it asked to
+stop combined anyway and answered with a real root CID — which is exactly what
+*"no node this repository can start can refuse a combine"* looks like when it is written as an
+assertion instead of as a sentence.
+
+Restored by the **surgical inverse** of the plant, then:
+
+```
+$ cmp packages/node/src/fabric-node.ts /tmp/o2-gap-plant/fabric-node.ts.pre
+EXIT=0
+$ npx vitest run --project node .../admission.node.test.ts -t 'refuses a combine on a node its deployment paused'
+Test Files  1 passed (1)      Tests  1 passed | 7 skipped (8)
+EXIT=0
+```
+
+#### The text corrections, applied to `16-05-SUMMARY.md`
+
+Both original sentences are **left verbatim** and marked with a dated correction beneath them,
+rather than reworded — a summary edited until it agrees with the tree is not a record.
+
+1. The threat-flag row's clause *"so a deployment can refuse combines by supplying an authorizer
+   that does"* is withdrawn, with the owner ruling quoted, and replaced by what the build actually
+   offers: capacity (`maxConcurrentTasks`, SCHED-06) and pause (`paused`, SCHED-03), both named with
+   the case that measures them.
+2. The Task-1 bullet *"a test asserts the combine arm's key set, so **it fails the day `CombineWork`
+   gains a field that could carry sovereignty** — a failing test rather than a sentence in a summary
+   nobody re-reads"* is corrected with M2's falsification, the replacement guard, and the verbatim
+   `TS2741`, including the fact that it fires at `tsc` and not in vitest.
+
+#### What this does **not** close, stated plainly
+
+- **The literal clause is withdrawn, not made true.** No `authorize` option exists on either node
+  factory and, by owner ruling `3b54897`, none is meant to.
+- **There is no per-kind combine refusal on this build.** A paused node declines `exec`, `commit`,
+  `combine` and `offer` together, and one `LocalCapacity` slot pool bounds combines and execs
+  alike. A deployment cannot refuse combines while serving execs. The ruling's position is that
+  this is correct — a combine's inputs are public by construction, so the question is capacity and
+  not authorisation — but it is a narrowing of the original sentence and is recorded as one.
+- **The fetch-amplification residue is unchanged.** `runCombine`'s own header still states that
+  admission bounds *concurrency* and never *arrival rate*, and that an admitted combine still
+  transfers. Nothing here widens or narrows that, and the 2026-08-01 pass's reading of it stands.
+- **The one precise checkable thing, for an owner who disagrees with this verdict:** whether
+  `3b54897`'s *"not an `authorize` override on the node factories"* was meant as a ruling on the
+  option's shape or only as 16-06's choice of mechanism for fetch-amplification. This pass reads it
+  as the former, for the three reasons listed above, and an owner who reads it as the latter should
+  say so — GAP 2 would then reopen as a build, and the build is a one-line default plus the
+  question of whether `Authorizer | 'serves-unauthenticated'` or bare `Authorizer` is the type.
+
+---
+
+### Regression check, and the runs that back it
+
+Everything below was run on this branch, `feature/phase-20-checkpoint-agent`, with both plants
+already restored and `cmp`-verified. **`EXIT=$?` on the line immediately after each command; no
+pipes, no trailing `tail`, no `echo` on the same line.** `git add` was used between runs and never
+during one, so `discover-arm.node.test.ts` and `bench-attestation.node.test.ts` saw a still index.
+
+| # | Command | Result | `real`/`user`/`sys` → ratio | Exit |
+|---|---|---|---|---|
+| 1 | `npx tsc --noEmit` | no output | — | **0** |
+| 2 | eight-gate guard set — `requirements-ledger`, `acceptance-traceability`, `reachability-guard`, `vocabulary`, `mutation-guard`, `slow-specs`, `purity`, `disclosure-gate` | 8 files, 364 passed (364) | 6.40 / 7.01 / 1.57 → **1.34** | **0** |
+| 3 | `/usr/bin/time -p npx vitest run --project node` — **first attempt** | 1 failed \| 196 passed (197); 1 failed \| 2961 passed \| 1 skipped (2963) | 639.50 / 721.24 / 115.36 → **1.31** | **1** |
+| 4 | `/usr/bin/time -p npx vitest run --project node packages/node/src/admission-agents.node.test.ts` | 1 file, 6 passed (6) | 57.22 / 49.92 / 8.76 → **1.02** | **0** |
+| 5 | `/usr/bin/time -p npx vitest run --project node` — **repeat, nothing changed between 3 and 5** | **197 files, 197 passed; 2962 passed \| 1 skipped (2963)** | 545.04 / 687.43 / 109.85 → **1.46** | **0** |
+| 6 | `/usr/bin/time -p npx vitest run --project e2e` | **36 files, 232 passed (232)** | 854.59 / 446.46 / 85.58 → **0.62** | **0** |
+
+**Against the baselines this pass was given** (all taken within the hour before it started):
+`--project node` **197 files, 2961 passed, 1 skipped**; `--project e2e` **36 files, 232 passed**.
+Run 5 reads **197 files, 2962 passed, 1 skipped** — file count identical, tests **+1**, which is the
+one case added to the existing `admission.node.test.ts`. No new `.node.test.ts` file, so
+`NODE_MEASUREMENT.files` in `vitest.config.ts` is untouched and `slow-specs` does not drift; the
+guard's own reading of the file population is in run 2 and is green. Run 6 matches its baseline
+exactly.
+
+#### Run 3's single failure, attributed by measurement rather than by plausibility
+
+```
+FAIL |node| packages/node/src/admission-agents.node.test.ts > criterion 8 … >
+     clause 1 — a spawned agent with no certificate holds no circuit through a gated relay,
+     while an enrolled one does                                                     15588ms
+AssertionError: member: … expected [] to have a length of 1 but got +0
+ ❯ packages/node/src/admission-agents.node.test.ts:534:93
+```
+
+Four readings, and the diagnosis rests on the third and fourth rather than on the first two:
+
+1. **No overlap.** This pass changed `packages/net/src/capability-authorizer.test.ts` and
+   `packages/node/src/admission.node.test.ts`. The failing file is neither, imports neither, and
+   the failing assertion is about a relay circuit arriving — nothing on the combine or authorizer
+   path at all.
+2. **It is the arrival half of a spawn-heavy case**, five child processes and a gated relay, and it
+   was **slower** in the failing run than when it passed: 15 588 ms against 12 336 ms.
+3. **"Passes in isolation" was run rather than asserted** (run 4) — and this repository's own rule
+   is that this is a claim to check and not a diagnosis, so it is listed as corroboration only.
+4. **The decisive one: the identical tree failed and then passed.** Runs 3 and 5 are the same
+   commit, the same working tree and the same command, with nothing edited between them — run 5 is
+   green at 197/197. A deterministic change present in both runs cannot be what distinguishes them.
+
+**Host conditions, recorded because they are the alternative hypothesis and they check out.**
+`uptime` on 8 cores: 16.14 entering run 3, 34.86 leaving it; 17.81 entering run 5, 59.68 leaving
+it. `ps -Ao pcpu,comm -r` taken between the runs showed three
+`transpilers/cpp-to-rust/…/test_c_corpus_parity` processes at **86.8 %, 84.4 % and 45.3 %** of a
+core, plus `syspolicyd` 45.5 %, OneDrive 32.8 % and `XprotectService` 31.6 % — none of them this
+repository's, and the same foreign process family the 2026-08-06 amendment above recorded as
+ambient load on this host. **Nothing was signalled or killed.** `(user+sys)/real` was 1.31 on the
+failing run and 1.46 on the green one, both inside this host's healthy band and neither near the
+~0.9 starvation reading, which is why the *machine* load is offered as context and the *pair of
+runs* is offered as the evidence.
+
+**Recorded, not swept:** the case is timing-sensitive under contention. That is a pre-existing
+property of `admission-agents.node.test.ts` and this amendment neither introduced it nor fixed it,
+and it is written here so the next person who meets it has run 3 to compare against.
+
+_Amended: 2026-08-19_
+_Verifier: Claude, gap-closing pass on `feature/phase-20-checkpoint-agent`_
+_Working tree: `HEAD` `e141620` at entry, clean. The guard and the case are `3f11901`, committed with
+explicit paths and `git show --stat` read afterwards to confirm only those two files are in it. Both
+plants were restored by the surgical inverse of the edit and `cmp`-verified at exit 0 before anything
+was staged; `git add` was used between test runs and never during one. No `git stash`, `git checkout --`,
+`git restore`, `git reset`, `git clean` or branch switch was run at any point._
