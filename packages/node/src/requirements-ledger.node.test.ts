@@ -854,8 +854,18 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * building it, a 30 s wall clock and a disturbed `slow-specs` table, were removed rather than
  * accepted: `--lease-ms` makes the arm cost a second, and an `.e2e.test.ts` is outside the
  * `node` project the table describes.
+ *
+ * **Lowered 6 → 5 on 2026-08-18, in the same commit that removed `AUTH-02`.** The ordinary
+ * exit again, and the cleanest instance of it this list has recorded: the entry had already
+ * written down what was missing — a spec observing a tab that enrolled THROUGH THE UI
+ * excluding a connected-but-unverified peer off the wire — and had priced it at *"~60-90
+ * lines, no production change needed"*. The spec was written, at that size, with no
+ * production file touched, and the row is `Done`. Nothing was descoped and no definition of
+ * passing was widened; see the removal note at the entry's old position for what the close
+ * does **not** establish, which is stated there rather than here because a ceiling is a count
+ * and the argument is not.
  */
-const REREAD_REGISTER_CEILING = 6
+const REREAD_REGISTER_CEILING = 5
 
 /**
  * ## The rule this list encodes
@@ -1135,78 +1145,40 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // CHURN-04's, which names expiry, and the four paragraphs above are kept precisely because
   // they are the record of this row being held open on the wrong one for a whole phase.
   // ── The pre-existing entries ───────────────────────────────────────────────────────
-  // **Re-read 2026-08-14, and the promise this entry carries was partly discharged rather
-  // than renewed.** `because: 'tier-or-configuration'` named a real thing: `PeerVerifier`
-  // sat in `@o2/node`, `@o2/browser` does not depend on that package, so the browser tier
-  // reached no verdict about any peer and the asymmetry was a package boundary. The module
-  // moved to `@o2/libp2p` on 2026-08-14 and a tab now verifies on identical terms.
+  // ── `AUTH-02` was here until 2026-08-18 and is **REMOVED**, by the ordinary exit ────
   //
-  // **The entry stays, and the reason it stays is not the one it was written for.** What
-  // remains open is a *configuration* fact and no longer a tier one: a tab that passes no
-  // `trustedIssuers` still takes blocks from every connected peer — stated, not defaulted,
-  // because a fail-closed default would empty the block source of the relay a fresh tab's
-  // only peer is. So the row keeps a legitimately unreached leg, and `because` still reads
-  // true on its second word only. Rewriting it to `configuration` alone is the ledger
-  // owner's call, not this file's, because the row's verdict lives in `REQUIREMENTS.md`.
+  // Its row is `Done`, so it is out of the *unreached* population and the set equality below
+  // makes the removal compulsory. {@link REREAD_REGISTER_CEILING} follows it down in the same
+  // commit.
   //
-  // Two witnesses arrived with the move, and the second is the weaker of the two on purpose
-  // — see its own docblock. `peer-verifier.browser.test.ts` measures the verifier in three
-  // real engines; `browser-node-contract.node.test.ts` counts the composition literal.
+  // **It left by the exit this list exists to encourage: the entry's own promise names the
+  // thing that was built.** The last re-read, on 2026-08-18, recorded *"what is left is a
+  // configuration fact and a missing behavioural reading — no spec observes a tab that enrolled
+  // THROUGH THE UI excluding a connected-but-unverified peer off the wire"*, and priced it at
+  // *"~60-90 lines to join them, no production change needed"*. Both halves held.
+  // `visitor-enrolment.e2e.test.ts` gained a second case per engine that clicks `#allow`,
+  // `#enrol` and `#join`, restarts on the SAME ORIGIN through
+  // `/packages/browser/harness/capability.html` — which the seed's own Vite server serves on
+  // the same port as the demo page — and reads `fetchBlock` through the composed
+  // `FetchingBlockstore`. No production file changed.
   //
-  // **That sentence used to end "…which is the only instrument that sees which thunk the
-  // block source was handed", and it stopped being true on 2026-08-14.**
-  // `tab-pinning.e2e.test.ts` sees it *behaviourally*: a live tab pinning an issuer is
-  // asked for a block held only by a connected-but-unverified peer, and does not get it.
-  // The source-text count is still worth keeping — it fails faster and names the literal —
-  // but it is no longer the only thing standing between that line and a silent revert.
-  // Measured, not asserted: reverting the thunk to `() => transport.peers` reddens the e2e
-  // with *"expected 48 to be null"*.
+  // **`because: 'tier-or-configuration'` is worth a sentence on its way out, because both of
+  // its words were true at different times and neither is now.** It named a package boundary
+  // first — `PeerVerifier` sat in `@o2/node`, which `@o2/browser` does not depend on — and
+  // that ended when the module moved to `@o2/libp2p` on 2026-08-14. It then named a
+  // configuration fact: no production call site passed `trustedIssuers`, so a tab pinned
+  // nobody and `verifiedPeers`' empty-set fail-open handed it every connected peer. That
+  // ended on 2026-08-17, when the demo grew the enrolment control a visitor clicks. What
+  // outlived both was neither a tier nor a configuration but a **missing instrument**, and
+  // this register has no `because` for that — which is itself the observation, and the reason
+  // the entry sat here for two moves after the thing it named had been fixed.
   //
-  // **What re-reading the row against the new spec established, recorded because it is a
-  // gap and not a tick.** AUTH-02's own text asks that a node a person can run verify a
-  // certificate. A Node agent does, given `--trusted-issuer`. A browser tab now does too —
-  // `demo/main.ts` passes `trustedIssuers` from `enrolledIssuer` — **but only from the
-  // start after it has enrolled**, and the demo page carries no enrolment UI at all
-  // (`index.html` names `enrollment` zero times). So on the visitor path the argument is
-  // always empty and the tab still pins nobody. The call site is real and measured; the
-  // visitor's *route to it* is not built.
-  //
-  // **RE-READ 2026-08-18. The leg is unchanged and TWO SENTENCES IN THE ROW were false in
-  // the present tense** — *"`browser-node.ts` constructs no `PeerVerifier`"* and Phase 24's
-  // residual *"the browser tier still pins nobody and reaches no verdict"*. `#compose`
-  // constructs one at `browser-node.ts:1452-1457` and hands the block source
-  // `() => verifier.verifiedPeers` at `:1470`. The row's *behaviour* claim survives on a
-  // better-stated cause: `peer-verifier.ts:469-474` returns the connected set **unchanged,
-  // with no verdict computed and no `records` request issued**, when the pinned set is
-  // empty — a deliberate fail-open. Both corrected in the row.
-  //
-  // `because` still reads true on its second word: what is left is a configuration fact and
-  // a missing behavioural reading — no spec observes a tab that enrolled THROUGH THE UI
-  // excluding a connected-but-unverified peer off the wire. `visitor-enrolment.e2e.test.ts`
-  // clicks and asserts only `heldIssuer` and `/bootstrap.json`; `tab-pinning.e2e.test.ts`
-  // makes the off-the-wire reading through the test-only `o2capability` harness with
-  // harness-supplied key material. ~60-90 lines to join them, no production change needed.
-  {
-    id: 'AUTH-02',
-    because: 'tier-or-configuration',
-    reread: '2026-08-18',
-    witnesses: [
-      'packages/browser/src/browser-node-contract.node.test.ts',
-      'packages/browser/src/peer-verifier.browser.test.ts',
-      'packages/core/src/enrollment.test.ts',
-      'packages/node/src/bench-admission.node.test.ts',
-      'packages/node/src/browser-enrollment.e2e.test.ts',
-      'packages/node/src/certificate-verification.node.test.ts',
-      'packages/node/src/enrol-through-a-closed-door.node.test.ts',
-      'packages/node/src/gated-admission.e2e.test.ts',
-      'packages/node/src/gated-seed.e2e.test.ts',
-      'packages/node/src/peer-dial.node.test.ts',
-      'packages/node/src/peer-gate.node.test.ts',
-      'packages/node/src/peer-verifier.node.test.ts',
-      'packages/node/src/relay-admission.node.test.ts',
-      'packages/node/src/tab-pinning.e2e.test.ts',
-    ],
-  },
+  // The fourteen witnesses go with it. Two are worth naming because they are the pair the
+  // close turns on and a later reader tracing this will want them:
+  // `packages/node/src/tab-pinning.e2e.test.ts`, which makes the same off-the-wire reading
+  // with key material a driver generated, and `packages/node/src/visitor-enrolment.e2e.test.ts`,
+  // which makes it on a tab a visitor enrolled with the mouse. The difference between those
+  // two sentences is the whole of what this row was waiting for.
   //
   // **RE-READ 2026-08-18, and the promise stops being a promise to wait.** The row said
   // *"exactly one thing keeps this row open"* — whether a capability travelling only behind
@@ -1974,7 +1946,7 @@ describe('the corpus and the ledger were really read', () => {
     //
     // Sited at `> 5`: two below the 2026-08-18 measurement of 8, which is the same rule the
     // `claims` floor above sites itself by and is written down there.
-    ledgerFloor(UNREACHED.length, 5, 'rows whose verdict says not fully reached') // 8 on 2026-08-18; 9 before NET-06 closed
+    ledgerFloor(UNREACHED.length, 5, 'rows whose verdict says not fully reached') // 6 on 2026-08-18, after AUTH-02 closed
     expect(blocking('requirements-ledger/claim-floor', findings, SCOPE)).toEqual([])
   })
 })
