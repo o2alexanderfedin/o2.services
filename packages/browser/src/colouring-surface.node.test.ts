@@ -151,6 +151,28 @@ const SETTLED: ColouringState = {
   ],
 }
 
+/**
+ * How long a case in the formatter block may take.
+ *
+ * **Measured 2026-08-19, and the number is sited against V8 COVERAGE, not against a bare
+ * run.** Uninstrumented these cases cost well under a second each — the whole file's
+ * recorded span in `MEASURED_NODE_SPANS` is 6 296 ms for nineteen of them. Under
+ * `--coverage` the same five cost 11 402, 7 763, 6 588, 13 716 and 7 155 ms and all five
+ * failed on vitest's 5 000 ms default, taking `npm run test:coverage` to exit 1 while a
+ * bare `--project node` on the identical tree passed 2961 of 2961. The run's own
+ * `(user+sys)/real` was **1.375**, squarely healthy, so this is instrument overhead and
+ * not host starvation and not a regression in the formatter.
+ *
+ * **It is a gap in the guard rather than a nuisance**: coverage was effectively unrunnable
+ * and nobody knew, because the last measurement predates 117 of the current 197 spec files.
+ *
+ * 30 s is the sibling below's existing figure and gives ~2.2x over the worst observed. It is
+ * applied to EVERY case in the block on purpose — `reachability-guard.node.test.ts` was
+ * repaired today for the mirror-image defect, one case left on the default while its four
+ * siblings carried the constant, and a per-case decision is what lets that reopen.
+ */
+const FORMATTER_TIMEOUT_MS = 30_000
+
 describe('the colouring formatter, with no DOM', () => {
   it('names every one of its nineteen regions in every arm, so nothing keeps a stale value', () => {
     const arms: Record<string, ColouringState> = {
@@ -165,7 +187,7 @@ describe('the colouring formatter, with no DOM', () => {
         [...FIGURE_IDS].sort(),
       )
     }
-  })
+  }, FORMATTER_TIMEOUT_MS)
 
   it('says a rung was not attempted rather than that it has not been run', () => {
     const short = format({ peers: 2, rungs: [{ n: 300, run: run() }] })
@@ -175,13 +197,13 @@ describe('the colouring formatter, with no DOM', () => {
       // The sentence that would be a lie after a run: the ladder HAS been run.
       expect(text).not.toContain('has not been run')
     }
-  })
+  }, FORMATTER_TIMEOUT_MS)
 
   it("carries a thrown rung's message verbatim, behind section 11's prefix", () => {
     const threw = format({ peers: 0, rungs: [{ n: 300, error: 'no executor answered' }] })
     expect(threw.regions['colouring/rung-300']).toBe('The run stopped: no executor answered')
     expect(threw.text.join('\n')).toContain('n = 300: no executor answered')
-  })
+  }, FORMATTER_TIMEOUT_MS)
 
   it('renders the ladder into the text view line for line, unchanged', () => {
     const text = format(SETTLED).text
@@ -196,7 +218,7 @@ describe('the colouring formatter, with no DOM', () => {
     expect(text).toContain('  cube 0: peer-a + peer-b')
     expect(text).toContain('  cube 2: no agreement')
     expect(text).toContain('This answer has not been checked. The button below checks it.')
-  })
+  }, FORMATTER_TIMEOUT_MS)
 
   it('formats one value once: every P6 field also occurs in the text view', () => {
     const rendered = format(SETTLED)
@@ -211,7 +233,7 @@ describe('the colouring formatter, with no DOM', () => {
     }
     // C11's counts are the same substring the rung line carries, from one function.
     expect(view).toContain(rendered.regions['colouring/status-counts'] ?? 'x')
-  })
+  }, FORMATTER_TIMEOUT_MS)
 
   it('keeps the withheld count and its sentence in one region', () => {
     const clean = format(SETTLED).regions['colouring/egress'] ?? ''
@@ -224,7 +246,7 @@ describe('the colouring formatter, with no DOM', () => {
     }).regions['colouring/egress']
     expect(withheld).toContain('WITHHELD')
     expect(withheld).toContain('They were not sent anywhere.')
-  })
+  }, FORMATTER_TIMEOUT_MS)
 
   it("renders the kernel's own attestation words and composes none of its own", () => {
     const receipt = format(SETTLED).regions['colouring/attestation']
@@ -237,7 +259,7 @@ describe('the colouring formatter, with no DOM', () => {
     expect(absent).toContain('12D3KooWfake: this requestor holds no certificate for it')
     // No strength claimed where none was established.
     expect(absent).not.toContain('owner-attested')
-  })
+  }, FORMATTER_TIMEOUT_MS)
 
   it('says whether the run resumed or started from nothing, and counts off the shards — C23', () => {
     // CHURN-03's read half, on screen. **Four arms and not a boolean**, because two of them
@@ -281,7 +303,7 @@ describe('the colouring formatter, with no DOM', () => {
     // the two handles are distinguishable from each other.
     expect(resumed).not.toContain(HANDLE)
     expect(resumeOf({ offered: JOB_ID, carried: 1 })).toContain(JOB_ID.slice(0, 12))
-  })
+  }, FORMATTER_TIMEOUT_MS)
 
   it('carries the resume line into the text view, so both views come from one formatter', () => {
     // P6's rule: nothing re-formats anything. The region and the text view are the same two
@@ -292,7 +314,7 @@ describe('the colouring formatter, with no DOM', () => {
     })
     const region = rendered.regions['colouring/resume'] as string
     for (const line of region.split('\n')) expect(rendered.text).toContain(line)
-  })
+  }, FORMATTER_TIMEOUT_MS)
 
   it("renders the composer's own quorum words, kind included, and composes none of its own", () => {
     const refused = format(SETTLED).regions['colouring/quorum']
@@ -314,7 +336,7 @@ describe('the colouring formatter, with no DOM', () => {
     // The two verdicts are DISTINGUISHABLE on screen. Without this the region could be a
     // constant and every assertion above would still pass.
     expect(composed).not.toBe(refused)
-  })
+  }, FORMATTER_TIMEOUT_MS)
 
   it('does not derive the quorum verdict from the attestation — VER-03’s whole trap', () => {
     // The reason this case exists: `AttestationReceipt` carries its own `sharedRelay`, and a
@@ -363,7 +385,7 @@ describe('the colouring formatter, with no DOM', () => {
     //
     // Nothing about what is asserted changes. A slower machine does not make a region
     // derive from the wrong value.
-  }, 30_000)
+  }, FORMATTER_TIMEOUT_MS)
 
   it('says the fabric settled nothing rather than that nothing was run', () => {
     const nothing = format({ peers: 0, rungs: [{ n: 300, run: run({ found: false }) }] })
@@ -379,7 +401,7 @@ describe('the colouring formatter, with no DOM', () => {
         `${id} reads "${text}", which is its pre-run or stopped sentence after a real run`,
       ).toBe(false)
     }
-  })
+  }, FORMATTER_TIMEOUT_MS)
 
   it('tells the verification card there is no answer, never that the node is stopped', () => {
     const idle = formatVerification({
@@ -394,7 +416,7 @@ describe('the colouring formatter, with no DOM', () => {
       expect(text).not.toContain('stopped')
     }
     expect(idle.text).toEqual(['nothing to check yet'])
-  })
+  }, FORMATTER_TIMEOUT_MS)
 
   it('puts the verdict, the n, the triples and the refutation on the card', () => {
     const checked = formatVerification({
@@ -422,7 +444,7 @@ describe('the colouring formatter, with no DOM', () => {
     })
     expect(refuted.regions['colouring/verify-verdict']).toBe('REFUTED')
     expect(refuted.regions['colouring/verify-violation']).toBe('(3, 4, 5)')
-  })
+  }, FORMATTER_TIMEOUT_MS)
 
   it('derives the arguments and the constants from the shipped code, not from a literal', () => {
     expect(formatArgs(0)).toEqual({
@@ -442,13 +464,13 @@ describe('the colouring formatter, with no DOM', () => {
       'colouring/input-bytes',
       'colouring/max-n',
     ])
-  })
+  }, FORMATTER_TIMEOUT_MS)
 
   it('leaves the verification regions out of the stop repaint — the check needs no node', () => {
     expect(COLOURING_STOP_ABSENCE_IDS).toContain('colouring/best-n')
     expect(COLOURING_STOP_ABSENCE_IDS).not.toContain('colouring/verify-verdict')
     expect(COLOURING_STOP_ABSENCE_IDS).not.toContain('colouring/verify-violation')
-  })
+  }, FORMATTER_TIMEOUT_MS)
 })
 
 /**
