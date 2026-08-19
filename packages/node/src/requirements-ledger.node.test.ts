@@ -823,8 +823,16 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * being satisfied rather than by being re-recorded, which is the departure the paragraph
  * above says the ceiling must follow. It is written here within the hour, as that paragraph
  * requires.
+ *
+ * **Lowered 10 → 9 on 2026-08-18, in the same commit that removed `AUTH-04`.** That row left
+ * by the rarest of the departures this list records: nothing in the repository moved, and the
+ * **owner's ruling** moved instead — an aggregate cap was ruled to be the cost AUTH-04 asks
+ * for. The entry's own last sentence had said the row *"cannot become a measurement: the thing
+ * to measure is not implemented"*, which is exactly the state a decision resolves and a commit
+ * cannot. The rule is indifferent to which of the two moved: an id that is no longer
+ * *unreached* leaves, and the ceiling follows it down in the same commit.
  */
-const REREAD_REGISTER_CEILING = 10
+const REREAD_REGISTER_CEILING = 9
 
 /**
  * ## The rule this list encodes
@@ -1203,38 +1211,31 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     ],
   },
   //
-  // **RE-READ 2026-08-18, and `because` is now the weakest word in this entry — kept only
-  // because rewriting a row's cause is the ledger owner's call and not this file's.** What
-  // holds AUTH-04 open is neither a tier nor a configuration: *no graduated per-identity
-  // cost exists anywhere in this repository*. A repo-wide search of non-test
-  // `packages/*/src` for proof-of-work, hashcash, stake, payment, puzzle or escalating
-  // delay returns no mechanism, and `core/enrollment.ts:114-116` says so in production
-  // source against its own interest. The N-th identity costs one keygen and two signature
-  // verifications until the aggregate window is spent, then infinity for everyone — a step
-  // function, not a gradient.
+  // ── `AUTH-04` was here until 2026-08-18 and is **REMOVED**, by the exit this register
+  // has the fewest instances of: the decision it was waiting on was taken ────────────────
   //
-  // So this is an OWNER DECISION and cannot become a measurement: the thing to measure is
-  // not implemented. Two of the row's own statements were re-checked and corrected in it —
-  // the 5 -> 32 limiter default is real but dated a day early against `git log -S`, and
-  // `serveAgent`'s `enrol` branch, while still taking no authorization step, is no longer
-  // bare: an `enrol-challenge` two-leg exchange at `net/agent.ts:1317` bounds replay,
-  // though not minting.
-  {
-    id: 'AUTH-04',
-    because: 'tier-or-configuration',
-    reread: '2026-08-18',
-    witnesses: [
-      'packages/browser/src/idb-issuance.browser.test.ts',
-      'packages/core/src/enrollment.test.ts',
-      'packages/net/src/enrol-agent.test.ts',
-      'packages/node/src/enrol-through-a-closed-door.node.test.ts',
-      'packages/node/src/enrollment-cost.node.test.ts',
-      'packages/node/src/enrollment-dos.node.test.ts',
-      'packages/node/src/enrollment.node.test.ts',
-      'packages/node/src/enrolment-residual.node.test.ts',
-      'packages/node/src/fs-issuance.node.test.ts',
-    ],
-  },
+  // Its entry read that `because` was the weakest word in it, that what held the row open
+  // was neither a tier nor a configuration but *no graduated per-identity cost exists
+  // anywhere in this repository*, and — the sentence that matters — that **this is an
+  // OWNER DECISION and cannot become a measurement: the thing to measure is not
+  // implemented.** Every clause of that is still true of the tree. Nothing was built, no
+  // search result changed, and `core/enrollment.ts` still says against its own interest
+  // that no mitigation machinery exists.
+  //
+  // **What changed is the ruling, not the repository**, and that is the departure shape
+  // worth naming, because it is the one an agent is most likely to mistake for a descope.
+  // The owner ruled on 2026-08-18 that an aggregate cap **is** the cost AUTH-04 asks for.
+  // The row was then rewritten to state the property that is measured — issuance bounded
+  // per provider per window, on a quantity no request field can rotate around, surviving a
+  // restart — and it is measured, by `core/enrollment.test.ts`'s twenty-fresh-keys case
+  // and window slide and by `node/enrollment-cost.node.test.ts` across real spawned
+  // `bin/agent.ts` processes. The superseded sentence is quoted in the row rather than
+  // deleted, and the row states in its own words what it does *not* claim.
+  //
+  // So the id leaves by the same rule every other departure obeys — its row is `Done`, so
+  // it is out of the *unreached* population and the set equality below makes the removal
+  // compulsory — and {@link REREAD_REGISTER_CEILING} follows it down within the hour.
+  //
   // **Flagged by the first run of this register at 16 days outstanding, re-read
   // 2026-08-11, and it STANDS.** The row says the relay is browser-dialable and that
   // AutoTLS needs a public host. Its one witness carries the first half by name —
