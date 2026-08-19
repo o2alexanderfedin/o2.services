@@ -1349,8 +1349,12 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     // `MR-02` — each owner computes a local partial over its own data with no map-side
     // movement. `reduceSovereignJob` has exactly one production call site, `bin/bench.ts:1799`,
     // which that driver calls *"the only production call to `reduceSovereignJob` in the
-    // repository"* at `:1767`, and it is **two** flags deep: `SOVEREIGN` forces `DISCOVER` on
-    // at `bin/bench.ts:229`. The ruling names the remedy in its own words — *"a sovereign
+    // repository"* at `:1767`, and it is **two** flags deep — and deeper than "implied":
+    // `bin/bench.ts:228-236` REFUSES with exit 2 if `--sovereign` is given without
+    // `--discover`, saying *"--sovereign requires --discover and does not imply it"*, so both
+    // must be typed. (This comment said `SOVEREIGN` *forces* `DISCOVER` on when it was first
+    // written, which was wrong in the direction that flatters the row; corrected against the
+    // source the same hour.) The ruling names the remedy in its own words — *"a sovereign
     // aggregation reachable without two flags"*.
     //
     // **The blocker is not a missing caller, it is a missing owner identity**, which is why

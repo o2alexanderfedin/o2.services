@@ -1361,7 +1361,7 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
   // either route was taken, and the review found the capability redundant in this design on
   // three grounds measured against the tree, not argued:
   //
-  // 1. The resume path already avoids the work an early-out would save — `job/submit.ts:2864`
+  // 1. The resume path already avoids the work an early-out would save — `job/submit.ts:2861`
   //    reads `if (carried.has(i) || gate.refusal !== null) continue`, so a fully-carried job
   //    makes zero `planWithOffers` calls and dispatches nothing.
   // 2. A safe early-out cannot run earlier than that anyway. `jobId` is derived FROM the input

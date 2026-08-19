@@ -1418,10 +1418,21 @@ export const MUTATIONS: readonly Mutation[] = [
   {
     id: 'M57',
     why:
-      'SCHED-02, and the entry that closes defect #31. This is the **only** production call of ' +
-      '`rpcAdmission` in the repository — every other is a spec — so `REQUIREMENTS.md`’s SCHED-02 ' +
-      'row rests entirely on this expression for its claim that `planWithOffers` has a caller from ' +
-      'a runnable entry point. **The measurement that justifies the entry is what stayed green ' +
+      'SCHED-02, and the entry that closes defect #31. **BOTH CLAUSES OF THIS REASON WENT FALSE ' +
+      'ON 2026-08-16 AND ARE CORRECTED HERE, 2026-08-18 — the superseded text is quoted because a ' +
+      'guard whose stated reason contradicts the ledger it guards is worse than one with no ' +
+      'reason.** It read: *"This is the **only** production call of `rpcAdmission` in the ' +
+      'repository — every other is a spec — so `REQUIREMENTS.md`s SCHED-02 row rests entirely on ' +
+      'this expression for its claim that `planWithOffers` has a caller from a runnable entry ' +
+      'point."* There are **three** production calls now — this one, `browser/demo/main.ts:1544` ' +
+      'and `node/src/bin/agent.ts:1640` — and SCHED-02 does not rest on this one at all any ' +
+      'more: under the owner flag ruling of 2026-08-15 a call behind `--discover` carries no ' +
+      'entry-point claim, and the row was re-read on 2026-08-18 and kept its box on the demo ' +
+      'page Run button path instead. **This entry stays, and its job changed rather than ' +
+      'ended**: it no longer guards SCHED-02s entry point, it guards the published benchmark ' +
+      'curve — that the discover rig places with offers and the default rig does not, which is ' +
+      'the variable `bin/bench.ts` exists to pin. **The measurement that justifies the entry is ' +
+      'what stayed green ' +
       'when it was deleted**: `tsc --noEmit` exit 0, because `Fabric.admit` is optional; all six ' +
       'cheap guards exit 0, including the requirements ledger itself; `discover-arm.node.test.ts` ' +
       'exit 0, though it reads this driver’s own stdout. One file noticed. The spread form is part ' +

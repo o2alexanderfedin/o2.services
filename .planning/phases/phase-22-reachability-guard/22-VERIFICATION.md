@@ -670,7 +670,7 @@ leaning on a register entry that no longer exists.
 Each was read off this tree with a coordinate, not argued from the shape of the idea. A whole-job
 completeness predicate is sound in the abstract; it is redundant *in this design*.
 
-1. **The resume path already avoids the work an early-out would save.** `job/submit.ts:2864` reads
+1. **The resume path already avoids the work an early-out would save.** `job/submit.ts:2861` reads
    `if (carried.has(i) || gate.refusal !== null) continue`, so a carried shard makes no offer and a
    fully-carried job makes **zero** `planWithOffers` calls and dispatches nothing. There is no
    waste left for a completeness check to prevent.
@@ -798,6 +798,27 @@ or not this tree has one), and over the **whole live population** of 66, asserti
 line names its own symbol and barrel. If the renderer ever branched on disposition the two
 readings would disagree. 66 lines is a wider net than the single line the old form checked, which
 is why this is recorded as a repair.
+
+## Two coordinates in this amendment were wrong when first written, and are corrected here
+
+Recorded rather than silently fixed, because this file's whole method is that a citation a
+reader can follow is the difference between a measurement and a story.
+
+- **`job/submit.ts:2864` was `:2861`.** The carried-shard skip
+  `if (carried.has(i) || gate.refusal !== null) continue` is at **2861**. The figure was taken
+  from the brief that commissioned this pass rather than re-derived, and it was off by three.
+  The claim it supports is unaffected — the line exists and says what is quoted — but the habit
+  that let a number through unread is the one this file exists to catch, so it is written down.
+  Corrected in all five places it had been copied to.
+- **`bin/bench.ts:229` does not *force* `--discover` on when `--sovereign` is given.** It
+  **refuses**: exit 2, with *"--sovereign requires --discover and does not imply it — a
+  sovereign shard is placed only against a discovered descriptor."* The first wording of the
+  `MR-02` and `VER-09` clauses said "forces", which is wrong in the direction that flatters the
+  rows, since an implied flag is one flag and a refused invocation is two. Corrected against
+  `bench.ts:228-236`.
+
+Both were found by re-reading the citations against the source **after** the rows were written,
+which is the check that should have run before. Neither changes a verdict.
 
 ## What is NOT claimed
 

@@ -229,7 +229,7 @@ export function remainingWork(checkpoint: JobCheckpoint): readonly number[] {
  * argued, and the verdict was retire. Recorded here because the next reader's instinct will be
  * that an unexported helper is an oversight:
  *
- * 1. **The resume path already avoids the work an early-out would save.** `job/submit.ts:2864`
+ * 1. **The resume path already avoids the work an early-out would save.** `job/submit.ts:2861`
  *    reads `if (carried.has(i) || gate.refusal !== null) continue`, so a carried shard makes no
  *    offer and a fully-carried job makes zero `planWithOffers` calls and dispatches nothing.
  *    There is no waste left for a completeness check to prevent.
