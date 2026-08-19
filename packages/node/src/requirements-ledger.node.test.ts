@@ -846,8 +846,16 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * job dispatches over. See the removal note above the entries for what did **not** move with
  * it, which is stated there rather than here because a ceiling is a count and the argument is
  * not.
+ *
+ * **Lowered 7 → 6 on 2026-08-18, in the same commit that removed `CHURN-04`.** The ordinary
+ * exit, and the only one of the recent departures where the entry's own promise is what was
+ * kept: it named the arm that was missing — an expiry driven across real processes rather than
+ * on a virtual clock — and the arm was built. Both of the reasons that entry gave for not
+ * building it, a 30 s wall clock and a disturbed `slow-specs` table, were removed rather than
+ * accepted: `--lease-ms` makes the arm cost a second, and an `.e2e.test.ts` is outside the
+ * `node` project the table describes.
  */
-const REREAD_REGISTER_CEILING = 7
+const REREAD_REGISTER_CEILING = 6
 
 /**
  * ## The rule this list encodes
@@ -1103,22 +1111,29 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // reaches either leg — but the promise this id now carries is to drive an **expiry**, not
   // a renewal, and that is MEASURING rather than a workload decision. Not taken in this pass
   // because the arm costs 30 s of wall clock by construction and moves `slow-specs`' table.
-  {
-    id: 'CHURN-04',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-18',
-    witnesses: [
-      'packages/core/src/lease.test.ts',
-      'packages/browser/src/colouring-surface.node.test.ts',
-      // Arrived 2026-08-16 and the drift case caught it the same hour it was written,
-      // which is the half of the guard that fires without waiting for the countdown
-      // doing exactly what its docblock claims. It witnesses the *precondition* rather
-      // than the renewal: `admit` was supplied on the default demo path by c1f95a2 and
-      // could not admit the submitting node, so the probe this row's renewal depends on
-      // refused the one node guaranteed to be present.
-      'packages/net/src/discovery.test.ts',
-    ],
-  },
+  //
+  // **REMOVED 2026-08-18, later the same day, because the promise above was kept.** This is
+  // the ordinary exit and the one this list exists to encourage: the entry named the arm that
+  // was missing, and the arm was built. `packages/node/src/lease-expiry.e2e.test.ts` drives an
+  // `expired` lease across six spawned `bin/agent.ts` processes and reads the re-dispatch that
+  // follows it, and `bin/agent.ts --lease-ms` — with `JobSpec.leaseMs` behind it — is what made
+  // that affordable: at `DEFAULT_LEASE_MS` the arm costs 30 s by construction, at
+  // `--lease-ms 2000` it costs two, and the *comparison between two lease values* is a stronger
+  // reading than either arm alone. **Neither of the two objections in the paragraph above
+  // survived contact.** The whole file runs in 24 s rather than the 30 s per arm the constant
+  // would have forced, and `slow-specs`' table did not move at all — the file is an
+  // `.e2e.test.ts` and the `node` project excludes that suffix, which a full sweep confirmed
+  // at 197 files unchanged. The row is `Done` in `REQUIREMENTS.md` and has
+  // therefore left the *unreached* population, which is what makes this removal compulsory
+  // rather than optional. {@link REREAD_REGISTER_CEILING} follows it down in the same commit.
+  //
+  // **What did NOT move with it**, stated here because a removal note that only lists wins is
+  // how the next substitution gets made: nothing drives a lease **renewal** on a live fabric,
+  // and nothing can with this instrument — a holder silenced hard enough for its lease to
+  // expire cannot answer the renewal probe. Renewal stays proven by `lease.test.ts` and
+  // `submit.test.ts`'s renewal pair on a virtual clock. That is a different sentence from
+  // CHURN-04's, which names expiry, and the four paragraphs above are kept precisely because
+  // they are the record of this row being held open on the wrong one for a whole phase.
   // ── The pre-existing entries ───────────────────────────────────────────────────────
   // **Re-read 2026-08-14, and the promise this entry carries was partly discharged rather
   // than renewed.** `because: 'tier-or-configuration'` named a real thing: `PeerVerifier`

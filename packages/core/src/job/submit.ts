@@ -483,6 +483,50 @@ export interface JobSpec {
    * over-commits and is refused for real at `exec`.
    */
   readonly admit?: AdmissionControl
+  /**
+   * How long one dispatch of this job's tasks may go silent before the shard is taken
+   * back and placed somewhere else — CHURN-04, in milliseconds.
+   *
+   * Omitted leaves {@link DEFAULT_LEASE_MS} (30 000) in force, which is what every
+   * submitter in this repository ran at before this field existed and what every one of
+   * them still runs at unless it says otherwise.
+   *
+   * ## A parameter of the job, not a switch that turns something on
+   *
+   * The distinction is the 2026-08-18 owner ruling's
+   * (`.planning/consults/2026-08-18-owner-ruling-role-selector-vs-feature-gate.md`), and it
+   * is applied here rather than assumed. **Leasing and expiry-driven re-dispatch run on
+   * every job whether or not this field is present** — `submitJob` has constructed a
+   * `LeaseTable` and granted a lease per dispatch since Plan 20-01, and nothing about that
+   * is conditional on this. What the field selects is the *duration*, exactly as
+   * `redundancy` selects a replica count. A caller that omits it is not opting out of a
+   * capability; it is accepting the module's stated default, which is the
+   * {@link SubmitOptions.speculation} precedent — *"omitting this leaves the module's own
+   * stated policy in force — the exported constants"* — and not the
+   * {@link SubmitOptions.checkpoints} one, where omission was a position held without
+   * being stated.
+   *
+   * ## Why it needs to be reachable at all
+   *
+   * Because the constant alone makes one leg of CHURN-04 unmeasurable on a real fabric,
+   * and that is arithmetic rather than opinion. `RENEW_AT` is two-thirds, so a dispatch has
+   * to be outstanding for 20 s before renewal is even asked about, and 30 s before the
+   * deadline bites; a colouring cube at `--coordinate-n 300` measures ~60 ms on this host.
+   * A fabric whose lease is ~330× its unit of work can never show a lease doing anything,
+   * so *"re-dispatched on lease expiry"* could only ever be read on a virtual clock. Sizing
+   * the lease to the workload is the operator's decision — a job of 10 ms tasks and a job
+   * of 10 minute tasks want different numbers — and until this field existed there was
+   * nowhere to state it.
+   *
+   * ## The bound, and where it is checked
+   *
+   * Validated by `LeaseTable`'s own constructor, which throws `RangeError` on anything not
+   * positive. Not re-checked here: a second validator is a second thing to drift, and the
+   * table is the authority on what a lease is. An entry point that takes this from an
+   * operator should refuse bad input with its own usage message before it gets this far —
+   * `bin/agent.ts --lease-ms` does.
+   */
+  readonly leaseMs?: number
 }
 
 /**
@@ -2584,7 +2628,15 @@ export async function submitJob(
   // bound, for the reason `DEFAULT_MAX_GENERATIONS`' docblock gives. (Past tense since
   // Plan 20-12: that module is deleted, and this is the contrast that explains the
   // choice rather than a live alternative.)
-  const leases = new LeaseTable({ maxGenerations: DEFAULT_MAX_GENERATIONS })
+  // `spec.leaseMs` spread rather than passed as `leaseMs: spec.leaseMs`: an explicit
+  // `undefined` and an absent key are different things to `LeaseTableOptions`' `??`, and
+  // the same distinction `requestFor`'s `moduleRecord` spread is written for. See
+  // {@link JobSpec.leaseMs} — omitted here means `DEFAULT_LEASE_MS`, which is the shipped
+  // duration and stays the shipped duration.
+  const leases = new LeaseTable({
+    maxGenerations: DEFAULT_MAX_GENERATIONS,
+    ...(spec.leaseMs === undefined ? {} : { leaseMs: spec.leaseMs }),
+  })
 
   // Persist every shard input as a block first, so a task is addressed entirely
   // by CID and could be re-dispatched to any node without resending the payload.

@@ -112,7 +112,7 @@ import {
   recoverCheckpoint,
   remainingWork,
 } from '@o2/core'
-import type { Executor, SubmitOptions } from '@o2/core'
+import type { Executor, LeaseEvent, SubmitOptions } from '@o2/core'
 import { DEFAULT_BUDGET, KERNEL_RECORD, KERNEL_TRUST_ANCHOR, buildInput, kernelBytes } from '@o2/demo'
 import { SEED_BYTES, identityFromSeed, parseKeyHex } from '@o2/libp2p'
 import { RemoteExecutor, rpcAdmission, submitJobWithEgress } from '@o2/net'
@@ -601,6 +601,32 @@ const { values } = parseArgs({
     // one cube is what decides whether a departure lands mid-job or after it, and that is a
     // property of the host rather than of this source.
     'coordinate-n': { type: 'string' },
+    // CHURN-04 — how long the coordinated job's tasks may go silent before a shard is taken
+    // back and placed somewhere else, in milliseconds. Absent means `DEFAULT_LEASE_MS`
+    // (30 000), which is what this leg ran at before this flag existed and what it still
+    // runs at unless an operator says otherwise.
+    //
+    // ## It is a parameter, not a gate, and the ruling requires that distinction to be made
+    //
+    // `.planning/consults/2026-08-18-owner-ruling-role-selector-vs-feature-gate.md` puts the
+    // burden on a flag to say which it is, in its own docblock, where a reader meets it. This
+    // one is neither of the ruling's two cases and the third is the honest answer: **the
+    // capability is not behind it at all.** `submitJob` grants a lease per dispatch, expires
+    // it on silence and re-places the shard on an untried node with this flag absent exactly
+    // as with it present — the flag moves a *duration*, the way `--coordinate-n` moves a
+    // problem size. There IS a correct default, it is 30 000, and it is what ships.
+    //
+    // ## Why an operator needs it, stated as the number rather than as a preference
+    //
+    // A lease bounds how long a requestor waits on a holder that has gone quiet, so the only
+    // sane size for it is a property of the workload. `RENEW_AT` is two-thirds, so a dispatch
+    // must be outstanding 20 s before renewal is even asked about and 30 s before the
+    // deadline bites, while a cube at the default `--coordinate-n 300` measures ~60 ms on
+    // this host — a factor of ~330. At that ratio the lease is not a bound on anything this
+    // job does; it is a constant that can never be reached. An operator running minute-long
+    // tasks wants it larger, and one running a fabric of tabs that vanish wants it smaller,
+    // and neither can say so by editing a source file.
+    'lease-ms': { type: 'string' },
     // Where the coordinated job's **content-addressed state** lives: the shard inputs, the
     // shard results, and the checkpoint blocks. Defaults to `--dir`, which is the case the
     // criterion is about — a store an operator named, that outlives the process that wrote
@@ -635,7 +661,7 @@ const { values } = parseArgs({
 })
 
 const USAGE =
-  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--admit-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--inbound-threshold <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...] [--coordinate <shards> [--coordinate-n <n>] [--job-store <dir>] [--resume-from <cid> ...]]\n'
+  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--admit-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--inbound-threshold <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...] [--coordinate <shards> [--coordinate-n <n>] [--lease-ms <ms>] [--job-store <dir>] [--resume-from <cid> ...]]\n'
 
 /**
  * The one exit-2 path, extended rather than duplicated.
@@ -790,6 +816,19 @@ if (values['coordinate-n'] !== undefined) {
   const n = Number(values['coordinate-n'])
   if (!Number.isInteger(n) || n < 1) {
     refuse(`--coordinate-n ${values['coordinate-n']} is not an integer of at least 1`)
+  }
+}
+if (values['lease-ms'] !== undefined) {
+  if (values.coordinate === undefined) {
+    refuse(`--lease-ms ${values['lease-ms']} was given to a process that coordinates no job; add --coordinate <shards> or drop it`)
+  }
+  // Refused here rather than clamped, and refused *before* `LeaseTable` sees it. The table
+  // throws `RangeError` on a non-positive lease, which on this path would be an unhandled
+  // rejection out of a node that is already started and serving other peers' work. An
+  // operator's typo belongs with the usage line — `--max-concurrent-tasks`' recorded reason.
+  const leaseMs = Number(values['lease-ms'])
+  if (!Number.isInteger(leaseMs) || leaseMs < 1) {
+    refuse(`--lease-ms ${values['lease-ms']} is not an integer of at least 1`)
   }
 }
 if (values['job-store'] !== undefined && values.coordinate === undefined) {
@@ -1632,6 +1671,40 @@ if (values.coordinate !== undefined) {
    * transport in is the one that records what actually left, so a manifest sliced off it
    * describes this job's frames rather than an empty list.
    */
+  /**
+   * The expiries in a job's lease history, each with **how long its lease actually ran** —
+   * CHURN-04.
+   *
+   * Paired with its own `granted` event by `taskId` **and** `generation`, because a
+   * re-dispatched task has several grants and only one of them is this expiry's. `heldMs`
+   * is `null` where that grant is not in the history — an absence written as one rather
+   * than as a zero, which a reader could not tell from a lease that bit instantly.
+   *
+   * This is the figure that says the lease is what did the bounding: it is `--lease-ms`
+   * when the flag is given and `DEFAULT_LEASE_MS` when it is not, plus whatever the last
+   * renewal probe spent going unanswered. So it is never *below* the lease, and a reading
+   * below the lease would mean a shard was taken off a node that still held it.
+   */
+  function expiries(
+    history: readonly LeaseEvent[],
+  ): readonly { taskId: string; nodeId: string; generation: number; heldMs: number | null }[] {
+    const grantedAt = new Map<string, number>()
+    for (const event of history) {
+      if (event.kind === 'granted') grantedAt.set(`${event.taskId}#${String(event.generation)}`, event.at)
+    }
+    return history
+      .filter((event) => event.kind === 'expired')
+      .map((event) => {
+        const at = grantedAt.get(`${event.taskId}#${String(event.generation)}`)
+        return {
+          taskId: event.taskId,
+          nodeId: event.nodeId,
+          generation: event.generation,
+          heldMs: at === undefined ? null : event.at - at,
+        }
+      })
+  }
+
   const result = await submitJobWithEgress(
     {
       moduleCid,
@@ -1650,6 +1723,10 @@ if (values.coordinate !== undefined) {
       // evidence from. This node's own id is absent from `nodes` above, so the self-offer
       // branch `rpcAdmission` carries for the demo's sake is never reached from here.
       admit: rpcAdmission(node.rpc),
+      // CHURN-04 — the lease this job's dispatches are held under. Spread rather than
+      // written as `leaseMs: …`: absent is `DEFAULT_LEASE_MS`, and an explicit `undefined`
+      // is a different thing to `LeaseTableOptions`' `??`. See `--lease-ms`.
+      ...(values['lease-ms'] === undefined ? {} : { leaseMs: Number(values['lease-ms']) }),
     },
     jobStore,
     [node.egress],
@@ -1689,6 +1766,34 @@ if (values.coordinate !== undefined) {
             jobId,
             complete: result.job.complete,
             redispatches: result.job.redispatches,
+            /**
+             * **Which kind of trouble this job had, not merely how much** — CHURN-01,
+             * CHURN-04.
+             *
+             * `redispatches` above is a count, and a count cannot tell an expiry from a
+             * surrender. `JobResult.leaseHistory`'s own docblock says why that distinction
+             * is the one worth carrying: *"`expired` is a holder that went silent,
+             * `surrendered` is one that answered with a failure, `renewed` is one that
+             * proved it was still working"*. Until this line existed the history reached
+             * `JobResult` and stopped there, so the one production coordinator in this
+             * repository could re-dispatch a shard off an expired lease and print nothing
+             * that said so — the requirement's own words are *"re-dispatched on lease
+             * expiry"*, and an operator could not tell whether that had happened.
+             *
+             * A tally and the expired task ids, rather than the whole array: a 16-shard job
+             * produces tens of events and stdout here is read by an operator and by
+             * `lease-expiry.e2e.test.ts`, both of which want *which shards lost a lease to
+             * silence*. The tally is over every kind the table can emit, built from the
+             * events themselves rather than from a fixed key list, so a new `LeaseEvent`
+             * kind appears here without this line being edited.
+             */
+            leases: {
+              kinds: result.job.leaseHistory.reduce<Record<string, number>>((tally, event) => {
+                tally[event.kind] = (tally[event.kind] ?? 0) + 1
+                return tally
+              }, {}),
+              expired: expiries(result.job.leaseHistory),
+            },
             speculationMultiplier: result.job.speculationMultiplier,
             shards: result.job.shards.map((shard) => ({
               partitionIndex: shard.partitionIndex,
