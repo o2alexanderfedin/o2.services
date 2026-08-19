@@ -218,7 +218,34 @@ export function remainingWork(checkpoint: JobCheckpoint): readonly number[] {
   return remaining
 }
 
-/** True when every shard is answered and the job needs no further dispatch. */
+/**
+ * True when every shard is answered and the job needs no further dispatch.
+ *
+ * ## Off `@o2/core`'s barrel since 2026-08-18 — do not re-export it
+ *
+ * A whole-job completeness predicate is a sound idea in the abstract and a **redundant** one
+ * in this design. The owner asked for the purpose to be reviewed before the symbol was either
+ * wired or retired; it was, on three grounds that were measured against this tree rather than
+ * argued, and the verdict was retire. Recorded here because the next reader's instinct will be
+ * that an unexported helper is an oversight:
+ *
+ * 1. **The resume path already avoids the work an early-out would save.** `job/submit.ts:2864`
+ *    reads `if (carried.has(i) || gate.refusal !== null) continue`, so a carried shard makes no
+ *    offer and a fully-carried job makes zero `planWithOffers` calls and dispatches nothing.
+ *    There is no waste left for a completeness check to prevent.
+ * 2. **A safe early-out cannot run any earlier than that.** The only place completeness could
+ *    pay is *before* the inputs are canonicalised — but `jobId` is derived **from** those input
+ *    CIDs via `jobIdOf`, and `resumeState` refuses a handle whose checkpoint names another job.
+ *    Short-circuiting ahead of `jobId` would accept a complete checkpoint belonging to a
+ *    *different* job, defeating the `checkpoint-names-another-job` refusal. Once `jobId` exists,
+ *    everything downstream is skipped already.
+ * 3. **The one reporting site is covered.** `bin/agent.ts`'s `--coordinate` leg prints
+ *    `remaining: [...remainingWork(recovered.checkpoint)]` (`:1555`). An empty array **is**
+ *    completeness, so a `complete` field beside it would be the same fact twice.
+ *
+ * The declaration and `checkpoint.test.ts` are untouched — that spec imports from `./checkpoint.ts`
+ * directly, so retiring the advertisement removed no case. Only the advertisement is gone.
+ */
 export function isComplete(checkpoint: JobCheckpoint): boolean {
   return remainingWork(checkpoint).length === 0
 }

@@ -206,7 +206,9 @@ export {
   // its process is a browser tab's, and `browser/demo/main.ts` is outside this package —
   // a sink it cannot import is a sink no shipped entry point can supply.
   checkpointsInto,
-  isComplete,
+  // `isComplete` is deliberately NOT here — retired from this barrel on 2026-08-18. The
+  // declaration and its cases stay in `checkpoint.ts`, which says at the declaration why
+  // re-exporting it would be a mistake rather than a convenience.
   readCheckpoint,
   recoverCheckpoint,
   remainingWork,

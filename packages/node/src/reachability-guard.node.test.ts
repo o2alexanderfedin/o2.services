@@ -284,8 +284,10 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // It is kept, and it is now the weaker of two checks over the same population. The block
     // *"WIRE-02 — every unreachable export is named by a register, in both directions"* at the
     // bottom of this file asserts set equality between this walk and
-    // `DISPOSITIONS ∪ OPEN_FINDINGS`, so the count below is pinned exactly — at **68** as of
-    // 2026-08-18, and it read 66 when this paragraph was written — by two named registers, and a
+    // `DISPOSITIONS ∪ OPEN_FINDINGS`, so the count below is pinned exactly — at **66** as of
+    // 2026-08-18 (it read 68 earlier that day and 66 when this paragraph was first written; the
+    // coincidence of the two 66s is arithmetic, not a copy — the population behind them differs,
+    // and `OPEN_FINDINGS` is empty in the later one) — by two named registers, and a
     // bound at that same figure can no longer bind. **A ceiling is green about any twenty-four
     // undisposed symbols, not only these twenty-four**, which is the defect the register fixes
     // and the reason this comment says so rather than letting the number look load-bearing.
@@ -501,14 +503,37 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     // parked owner decision that held `localDispatch` open has been taken, and `core/isComplete`
     // has not — its row below re-read the one site that could take it on 2026-08-18 and found
     // that site already printing the same fact.
+    //
+    // ## Lowered 67 → 66, measured 2026-08-18 (third lowering that day) — ONE out, RETIRED
+    //
+    // The sentence directly above is superseded and kept because it is the claim this lowering
+    // overturns. `core/isComplete` left `@o2/core`'s barrel after the owner asked for its
+    // *purpose* to be reviewed: the review found a whole-job completeness predicate redundant
+    // in this design on three measured grounds, and the retirement note in `OPEN_FINDINGS`
+    // below carries all three with their line numbers. **The residue is now 0 and Phase 22's
+    // criterion 1 closes.**
+    //
+    // **A retirement is not wiring, and this note refuses to let the two read alike.** Lowering
+    // a ceiling by deleting an export is the move that could make this whole instrument
+    // decorative, so the direction is stated plainly: nothing gained a call path here, one
+    // capability stopped being advertised. What makes it legitimate rather than a number-shrink
+    // is that the capability was reviewed and found redundant — not that the guard was noisy —
+    // and that the declaration and every one of its cases survive, so the check count did not
+    // move. `checkpoint.test.ts` imports from `./checkpoint.ts` module-relatively and is green
+    // unchanged.
+    //
+    // **Measured, not derived.** `unreachableExports(barrelExports(), buildCallGraph(), ROOT)`
+    // was called over this tree after the change and returned **66**, with `core/isComplete`
+    // absent from the list and the undisposed remainder empty. 67 − 1 also being 66 was refused
+    // as the proof, per this note's standing habit.
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(
       found.length,
       `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-18 was 67. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
+        'on 2026-08-18 was 66. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(67)
+    ).toBeLessThanOrEqual(66)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
@@ -887,16 +912,48 @@ describe('the disposition register describes the tree, or it reddens', () => {
   it('renders an open finding as a sentence naming the symbol and the barrel', () => {
     // The register does not change the message contract — an open finding reads exactly like any
     // other, so a reader picking one up gets the same sentence whether or not a sibling is disposed.
-    const disposed = disposedKeys()
-    const open = unreachableExports(corpus(), graph(), ROOT).filter(
-      (one) => !disposed.has(`${one.barrel}/${one.symbol}`),
-    )
-    expect(open.length).toBeGreaterThan(0)
-    const [line] = describeUnreachable(open)
-    const first = open[0]
-    if (first === undefined || line === undefined) return
-    expect(line).toContain(first.symbol)
-    expect(line).toContain(`@o2/${first.barrel}`)
+    //
+    // ## Rebuilt on a CONSTRUCTED open finding — 2026-08-18, and this is a repair, not a relaxation
+    //
+    // This case used to take the live undisposed residue and open with
+    // `expect(open.length).toBeGreaterThan(0)`. When `core/isComplete` was retired the residue
+    // went to **0** and this case went red — *"AssertionError: expected 0 to be greater than 0"* —
+    // while nothing it claims had stopped being true. That is the same defect the anti-vacuity
+    // pair further down was corrected for on this same day, in the same direction: a claim about
+    // the **renderer** was being read off a **register**, so it held only while the register
+    // happened to be non-empty, and criterion 1 closing is precisely the event that empties it.
+    //
+    // The claim worth holding is *"`describeUnreachable` names the symbol and its barrel, and
+    // does not consult any register to decide how"*. That is now read two ways, neither of which
+    // can be emptied by wiring or retiring anything:
+    //
+    // 1. Over a **constructed** finding whose key is in neither register — the literal open case,
+    //    available whether or not this tree currently has one.
+    // 2. Over the **whole live population**, disposed rows included, asserting every line names
+    //    its own symbol and barrel. If the renderer ever branched on disposition the two readings
+    //    would disagree, and 66 lines is a wider net than the one line the old form checked.
+    const constructed: UnreachableVerdict = verdict('core', 'plantedOpenFindingForRendering')
+    expect(
+      disposedKeys().has(`${constructed.barrel}/${constructed.symbol}`),
+      'the constructed finding must be in no register, or this case is about a disposed row',
+    ).toBe(false)
+    const [constructedLine] = describeUnreachable([constructed])
+    expect(constructedLine).toContain(constructed.symbol)
+    expect(constructedLine).toContain(`@o2/${constructed.barrel}`)
+    expect(constructedLine).toContain('no production code calls it')
+
+    // And the same contract over every finding the walk actually produces, disposed or not.
+    const found = unreachableExports(corpus(), graph(), ROOT)
+    expect(found.length, 'the walk produced nothing to render').toBeGreaterThan(0)
+    const lines = describeUnreachable(found)
+    expect(lines.length).toBe(found.length)
+    for (const [i, one] of found.entries()) {
+      const line = lines[i] as string
+      expect(line, `${one.barrel}/${one.symbol} is not named by its own rendered line`).toContain(
+        one.symbol,
+      )
+      expect(line).toContain(`@o2/${one.barrel}`)
+    }
   }, GRAPH_TIMEOUT_MS)
 })
 
@@ -1290,28 +1347,42 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
   // `DISPOSITION_CEILING` moved 60 → 66 for the last six, and its note carries why a raise
   // there sits beside a total moving 75 → 68 and a residue moving 15 → 2.
   // ---------------------------------------------------------------------------------------
-  {
-    key: 'core/isComplete',
-    declaredIn: 'packages/core/src/checkpoint.ts',
-    callers: 'none',
-    reason:
-      'The boolean over `remainingWork`, and the dispatch path asks neither. `submit.ts:2901` ' +
-      'states why, in the source: *"`remainingWork` is not called here and does not need to be — ' +
-      'it enumerates the complement of `completed`, and iterating every partition and skipping ' +
-      'the carried ones **is** that complement, computed once instead of built into a list and ' +
-      'then searched."* Nothing else asks whether a whole job is done, because a resume branches ' +
-      'per partition rather than on a total. **`core/remainingWork` and `core/checkpointChain` ' +
-      "left this register on 2026-08-18 and this one did not, which is the distinction worth " +
-      "keeping**: `bin/agent.ts`'s `--coordinate` leg calls both — `remainingWork` to report " +
-      'what a handle leaves to do before the job runs, `checkpointChain` to report how deep the ' +
-      'lineage is after it — and neither call needs a boolean over the whole job. **Re-read ' +
-      '2026-08-18 against that leg specifically, and it stays open rather than being wired or ' +
-      'retired.** The one site that could take it prints `remaining` in the same JSON object, so ' +
-      'a `complete` field beside it would be the same fact twice, added to make this list ' +
-      'shorter; and retiring the export would move the gap out of this instrument while ' +
-      "CHURN-03's row still holds `isComplete has no production caller` as the stated reason its " +
-      'own box does not tick. Neither is work. The deferral quoted above is unchanged.',
-  },
+  // ---------------------------------------------------------------------------------------
+  // THE FOURTEENTH ROW LEFT ON 2026-08-18, AND THE REGISTER IS NOW EMPTY — `core/isComplete`,
+  // RETIRED. Read this before concluding that an empty register means the guard stopped
+  // guarding: the guard's cases are all derived from a live walk of this tree, and an empty
+  // register makes every one of them *stricter*, because the permitted set is now exactly
+  // `DISPOSITIONS` and any new unwired barrel export arrives named and red with nothing to
+  // absorb it.
+  //
+  // **Retired, not wired, and the distinction is the whole entry.** The row deleted here had
+  // been re-read on 2026-08-18 and held open with *"Neither is work. The deferral quoted above
+  // is unchanged."* The owner then asked for the symbol's **purpose** to be reviewed before
+  // either route was taken, and the review found the capability redundant in this design on
+  // three grounds measured against the tree, not argued:
+  //
+  // 1. The resume path already avoids the work an early-out would save — `job/submit.ts:2864`
+  //    reads `if (carried.has(i) || gate.refusal !== null) continue`, so a fully-carried job
+  //    makes zero `planWithOffers` calls and dispatches nothing.
+  // 2. A safe early-out cannot run earlier than that anyway. `jobId` is derived FROM the input
+  //    CIDs (`jobIdOf`, `submit.ts:1288`) and `resumeState` refuses a handle whose checkpoint
+  //    names another job (`checkpoint-names-another-job`, `:1041`). Short-circuiting ahead of
+  //    `jobId` would accept a complete checkpoint belonging to a *different* job.
+  // 3. The one reporting site is covered — `bin/agent.ts:1555` prints
+  //    `remaining: [...remainingWork(...)]`, and an empty array **is** completeness.
+  //
+  // That is the same structural argument this register already made in the deleted row's own
+  // words — *"Nothing else asks whether a whole job is done, because a resume branches per
+  // partition rather than on a total."* The row held it open because retiring *"would move the
+  // gap out of this instrument"*; with the purpose reviewed there is no gap to move. The
+  // declaration and `checkpoint.test.ts` are untouched — that spec imports from
+  // `./checkpoint.ts` module-relatively — so no case was lost; only the advertisement is gone.
+  // `checkpoint.ts`'s declaration now carries the three grounds so nobody re-exports it.
+  //
+  // **Phase 22's criterion 1 closes on this**, and it closes on a measurement rather than on
+  // this comment: the open set was re-read after the change and is empty. Full working in
+  // `.planning/phases/phase-22-reachability-guard/22-VERIFICATION.md`'s 2026-08-18 amendment.
+  // ---------------------------------------------------------------------------------------
 ]
 
 /**
