@@ -170,3 +170,25 @@ One observation, recorded against **Phase 19 criterion 5** rather than this phas
   evidence for that decision, not the decision.
 - **One host, one browser (Chromium), one seed.** Nothing here says anything about
   Firefox, WebKit, or a second machine.
+
+---
+
+# AMENDMENT 2026-08-20 — test 13's note was shallower than the fact
+
+Test 13 recorded that `owner-domain` "is not displayed", which reads as *the label is
+missing*. **It is not missing.** `attestation-ui.e2e.test.ts` renders it (VER-10), on a
+fabric of two machines of one owner enrolled at one provider — a fabric this live session
+never built, because it held no certificates at all (`lastCandidates().asked === false`).
+
+The accurate statement is narrower and structural: the label has never been shown **for a
+sovereign shard**, because the surface that renders attestation cannot be pinned to an
+owner (`TabApi.start` carries no `sovereignty` option, by standing rule) and the harness
+that can be pinned renders nothing. The two halves are proven separately and live in
+different files.
+
+Full working, including the three ways to close it and why each is an owner decision:
+`.planning/consults/2026-08-20-criterion-5-is-a-design-decision-not-a-defect.md`.
+
+The test result stands at **observation, not defect** — and the Gaps entry's `bearing`
+clause, which already said criterion 5 and the refused sovereign dispatch are one item, is
+strengthened rather than corrected: they share one blocker, and it is a design decision.
