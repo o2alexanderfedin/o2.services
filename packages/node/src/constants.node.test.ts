@@ -9,6 +9,8 @@ import {
   MAX_CONCURRENT_STREAMS_PER_PEER,
   RELAY_DATA_LIMIT_BYTES,
   RELAY_DURATION_LIMIT_MS,
+  LIBP2P_MAX_CONNECTIONS,
+  O2_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATION_TTL_MS,
   WEBRTC_MAX_BUFFERED_BYTES,
@@ -98,6 +100,25 @@ describe('NET-07 — connection-manager limits that cap browser-peer capacity', 
     // reservations alone leaves the extra capacity unreachable.
     expect(LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS).toBeLessThan(RELAY_MAX_RESERVATIONS)
     expect(LIBP2P_INBOUND_CONNECTION_THRESHOLD).toBeLessThan(RELAY_MAX_RESERVATIONS)
+  })
+
+  it('pins the total-connection ceiling, the limit the other three never reach', async () => {
+    // NOTE the module: this one lives in `constants.js` while both limits above live in
+    // `constants.defaults.js`. Reading only the defaults file — the obvious thing to do
+    // once two of the three were found there — is how this ceiling stayed unnoticed
+    // until a relay tuned to 1024 reservations served 305.
+    const c = await importInternal('libp2p', 'connection-manager/constants.js')
+
+    // 300. Measured as the real stop: a relay with maxReservations at 1024 granted
+    // 305 to both 512 and 1024 peers, with sockets and memory nowhere near bound.
+    expect(c['MAX_CONNECTIONS']).toBe(LIBP2P_MAX_CONNECTIONS)
+
+    // This project's default sits *under* the stock budget on purpose, so the
+    // conservative case needs no other knob moved.
+    expect(O2_MAX_RESERVATIONS * 2).toBeLessThanOrEqual(LIBP2P_MAX_CONNECTIONS)
+
+    // And above libp2p's reservation default, which is the departure being made.
+    expect(O2_MAX_RESERVATIONS).toBeGreaterThan(RELAY_MAX_RESERVATIONS)
   })
 })
 
