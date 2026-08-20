@@ -8,7 +8,9 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { describeAttestation } from '@o2/core'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { describeAttestation, toHex } from '@o2/core'
+import type { NodeSovereignty } from '@o2/core'
 import { KERNEL_RECORD, KERNEL_TRUST_ANCHOR, kernelBytes } from '@o2/demo'
 import { FabricNode } from './fabric-node.ts'
 
@@ -173,6 +175,28 @@ const MIME: Record<string, string> = {
 const TAB_USER_KEY = [...new Uint8Array(32).fill(68)]
 const STRANGER_USER_KEY = new Uint8Array(32).fill(69)
 
+/**
+ * The owner whose two machines run criterion 5's sovereign shard.
+ *
+ * Distinct from {@link TAB_USER_KEY} (68) and the stranger (69) for this file's stated
+ * reason: a mixed-up key must produce a clear untrusted-signer refusal rather than an
+ * accidental pass. The tab is the **submitter** here and deliberately not this owner —
+ * placement excludes the submitter anyway, so making it the owner too would hide which
+ * of the two facts the label came from.
+ */
+const OWNER_PRIVATE_KEY = new Uint8Array(32).fill(70)
+/**
+ * The same owner as a hex public key, which is the form placement compares.
+ *
+ * **`sovereignty.ownerId` is set to this hex key rather than to a label**, and that is
+ * the repository's own documented dodge: `fabric-node.ts:1278-1289` publishes
+ * `sovereignFor: [certificate.userKey]` and never `sovereignty.ownerId`, so an opaque
+ * operator label here would bake a value into a signed statement that Phase 18's
+ * sovereign branch could never match.
+ */
+const OWNER_KEY_HEX = toHex(ed25519.getPublicKey(OWNER_PRIVATE_KEY))
+const OWNER_OPERATOR = 'one-owner-two-machines'
+
 const TAB_OPERATOR = 'harbour-road-volunteers'
 const STRANGER_OPERATOR = 'somebody-elses-fleet'
 
@@ -280,6 +304,7 @@ async function startProvider(name: string): Promise<{ node: FabricNode; addr: st
 async function startPeer(
   name: string,
   enrollment?: { userPrivateKey: Uint8Array; operatorId: string; providerAddr: string },
+  sovereignty?: NodeSovereignty,
 ): Promise<{ node: FabricNode; addr: string }> {
   const node = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
@@ -288,6 +313,9 @@ async function startPeer(
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [KERNEL_TRUST_ANCHOR],
     ...(enrollment === undefined ? {} : { enrollment }),
+    // Omitted rather than defaulted, so a peer this file starts without it is pinned to
+    // nobody exactly as before — the three cases above are untouched by this parameter.
+    ...(sovereignty === undefined ? {} : { sovereignty }),
   })
   started.push(node)
   return { node, addr: dialable(node, name) }
@@ -348,6 +376,54 @@ async function startEnrolled(
   )
   await provider.node.stop()
   return peerId
+}
+
+/**
+ * Select the BYO surface the way a visitor does — the tab, which writes the hash.
+ *
+ * Named for `demo-byo.e2e.test.ts`'s helper of the same shape, because it is the same
+ * click; duplicated rather than imported so neither file's fixture can quietly move the
+ * other's.
+ */
+async function showByo(page: Page): Promise<void> {
+  await page.click('#nav-byo')
+  await page.waitForSelector('#s-byo', { state: 'visible', timeout: 30_000 })
+}
+
+/**
+ * Press `Dispatch this module` and wait for the surface's own text view to be rewritten.
+ *
+ * The control is deliberately not the signal — this page's reconciler re-enables it on a
+ * one-second tick, so waiting on it would return before the render. The text view and the
+ * regions are written by one `applyRender`, so the view changing IS the dispatch having
+ * produced a reading. Same reasoning, same wait, as `demo-byo.e2e.test.ts`.
+ */
+async function dispatchByo(page: Page, budgetMs: number): Promise<void> {
+  await page.waitForFunction(
+    () => document.getElementById('run-byo')?.hasAttribute('disabled') === false,
+    null,
+    { timeout: 120_000 },
+  )
+  const before = (await page.textContent('#byo-report')) ?? ''
+  await page.click('#run-byo')
+  await page.waitForFunction(
+    (was) => (document.getElementById('byo-report')?.textContent ?? '') !== was,
+    before,
+    { timeout: budgetMs },
+  )
+}
+
+/** One `[data-region]` inside `#s-byo`, by name. */
+async function byoRegion(page: Page, id: string): Promise<string> {
+  const text = await page.evaluate(
+    (wanted) =>
+      Array.from(document.querySelectorAll('#s-byo [data-region]')).find(
+        (element) => element.getAttribute('data-region') === wanted,
+      )?.textContent ?? null,
+    id,
+  )
+  expect(text, `${id} is not on the byo surface at all`).not.toBeNull()
+  return (text ?? '').trim()
 }
 
 /** Press the page's own Run button and wait for the ladder to stop climbing. */
@@ -595,6 +671,178 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
     expect(report).not.toContain(`${sibling.node.peerId}: this requestor holds no certificate for it`)
     expect(report).not.toContain(`${submitterId}: this requestor holds no certificate for it`)
     expect(report).not.toContain(THE_OLD_CLAIM)
+  }, 900_000)
+
+  /**
+   * **Phase 19 criterion 5 — `owner-domain` for a SOVEREIGN shard.**
+   *
+   * ## What was open, and why the case above did not close it
+   *
+   * The case above renders the middle label on a run whose shards are `label: 'public'` —
+   * `attestation-ui.e2e.test.ts` asserts `registered no sovereign data` on its own first
+   * case, which is what that fixture submits throughout. So the label had been shown, and
+   * never for the data the label exists to describe. `19-VERIFICATION.md` says exactly
+   * that: *"no display site has shown the label for a sovereign shard"*.
+   *
+   * The other half was proven separately and elsewhere: `browser-capability.e2e.test.ts`
+   * has a tab pinned `canExecuteSovereign: true` execute `label: 'sovereign'` work, and it
+   * touches no page, no region and no report. **Execution without rendering there,
+   * rendering without sovereignty here.** This case is the intersection.
+   *
+   * ## Why this needs no new option on the page's contract
+   *
+   * It reads as though it should: a sovereign shard runs only on its owner's nodes, so
+   * something has to be pinned to that owner, and `TabApi.start` carries no `sovereignty`
+   * — deliberately, by a rule stated in `tab-api.ts:816` and again in
+   * `capability-harness.ts:22`.
+   *
+   * **The thing that must be pinned is the executor, and the tab is the submitter.**
+   * `planPlacement` filters candidates to the owner's own nodes and the submitter is
+   * excluded from its own executor set anyway, so the tab never needed to be this owner.
+   * The two peers are pinned through `FabricNode.start`'s `sovereignty`, which has always
+   * existed, and the page learns their owner the ordinary way: `discover-candidates.ts:233`
+   * builds each descriptor with `ownerId: executor.certificate.userKey` and
+   * `canExecuteSovereign: capabilities.sovereignFor.includes(...)`. Nothing here reaches
+   * around the contract; the contract was never the obstacle.
+   *
+   * ## Three ordering constraints, each of which silently produces a different reading
+   *
+   * 1. **The peers enrol before `startEnrolled` stops the provider** — the constraint the
+   *    case above already names.
+   * 2. **The tab must hold a certificate**, or `candidatePool` answers `asked: false` and
+   *    every descriptor falls back to `ownerId: 'public'` — the state
+   *    `demo-byo.e2e.test.ts` measures, in which a sovereign dispatch is unplaceable.
+   * 3. **A warm-up dispatch first.** `main.ts:636-640`: a peer holds the module only once
+   *    it has executed, so the first dispatch of a cold fabric qualifies nobody. Without
+   *    it this case would read the absence off a run that never placed anything, and would
+   *    be a true statement about a run it did not want.
+   *
+   * ## What this case measured, and why its name changed before it was ever committed
+   *
+   * It was written to assert `owner-domain` and it does not, because the run says
+   * something more useful. **Placement succeeds** — `lookup.asked: true`, one qualified
+   * provider, `owners: [<this owner>]` — and the owner's own machine then refuses at its
+   * authorizer: `unauthorized: no capability chain supplied`, six times, once per offer.
+   *
+   * So criterion 5's residue is **not** a placement problem, not a contract problem, and
+   * not a rendering problem. Every one of those was ruled out by this fixture. It is
+   * AUTH-03's unwired half: no surface in this demo builds a capability chain, so an
+   * owner-pinned shard arrives at its owner's machine unaccompanied and is correctly
+   * turned away. `main.ts`'s sovereign arm predicted exactly this and said to wire the
+   * chain first; this case is the measurement that the warning was right.
+   *
+   * **The day a chain is wired here, the `failures` assertion below reddens** and this
+   * case is re-planned to assert `owner-domain` — which is the same discipline
+   * `demo-byo.e2e.test.ts` applies to its own `ownerId: 'public'` guard.
+   *
+   * ## One reading from the mutation, recorded because it was not expected
+   *
+   * The guard was proved by planting `canExecuteSovereign: false` on both peers, which
+   * makes them ineligible and should leave the shard unplaceable. It reddened — correctly,
+   * and on the load-bearing line — but the text it reddened against was **`No refusals:
+   * every shard reached agreement`**, not a named absence. So with no eligible owner node
+   * present, something still ran these owner-pinned shards and reported agreement.
+   *
+   * **That is written down and NOT diagnosed here.** It was observed in a planted tree,
+   * which is not a measurement of the real one, and this case's subject is the refusal
+   * above rather than what a fabric with no eligible owner does. Worth a look on its own
+   * terms: either the submitter legitimately runs its own owner-attested map and the owner
+   * id simply is not the tab's, or a shard nobody may run found somewhere to run.
+   */
+  it('criterion 5 — places a sovereign shard on its owner’s machine, and is refused for want of a chain', async () => {
+    const provider = await startProvider('provider-sovereign-domain')
+
+    // Two machines of ONE owner, each cleared to execute that owner's sovereign work.
+    // `ownerId` is the hex user key and not a label — see OWNER_KEY_HEX for why.
+    const owned: NodeSovereignty = {
+      ownerId: OWNER_KEY_HEX,
+      ownerKey: OWNER_KEY_HEX,
+      canExecuteSovereign: true,
+    }
+    const enrolment = {
+      userPrivateKey: OWNER_PRIVATE_KEY,
+      operatorId: OWNER_OPERATOR,
+      providerAddr: provider.addr,
+    }
+    const first = await startPeer('peer-owned-first', enrolment, owned)
+    const second = await startPeer('peer-owned-second', enrolment, owned)
+
+    const page = await openPage('sovereign-domain')
+    const submitterId = await startEnrolled(page, 'o2-attestation-sovereign-domain', provider)
+    for (const peer of [first, second]) {
+      const dialedId = await page.evaluate(async (address) => window.o2.dial(address), peer.addr)
+      expect(dialedId).toBe(peer.node.peerId)
+    }
+
+    await showByo(page)
+
+    // Constraint 3. Public, so it places on anybody and leaves the module advertised.
+    await dispatchByo(page, 600_000)
+
+    // The run this case is about.
+    await page.check('#byo-sovereign')
+    await page.fill('#byo-owner-id', OWNER_KEY_HEX)
+    await dispatchByo(page, 600_000)
+
+    const attestation = await byoRegion(page, 'byo/attestation')
+    const label = await byoRegion(page, 'byo/sovereign-label')
+    const egress = await byoRegion(page, 'byo/egress')
+    const replicas = await byoRegion(page, 'byo/replicas')
+    const failures = await byoRegion(page, 'byo/failures')
+    // The instrument that separates "the lookup declined" from "it asked and nobody
+    // qualified" — `demo-byo.e2e.test.ts` reads the same field for the same reason.
+    const lookup = await page.evaluate(() => window.o2.lastCandidates())
+    process.stderr.write(
+      `[sovereign·owner-domain] submitter ${submitterId}\n` +
+        `  peers ${first.node.peerId} ${second.node.peerId}\n` +
+        `  lookup ${JSON.stringify(lookup)}\n` +
+        `  attestation: ${attestation}\n  label: ${label}\n  replicas: ${replicas}\n` +
+        `  failures: ${failures}\n  egress: ${egress}\n`,
+    )
+
+    // **Fact one: the shards really were sovereign, and pinned to this owner.** Asserted
+    // first, so a run that quietly fell back to public cannot pass by rendering correct
+    // words about the wrong data — the failure mode EGR-01 closed once already here.
+    expect(label).toContain('sovereign')
+    expect(label).toContain(OWNER_KEY_HEX)
+    expect(
+      egress,
+      'the page said this run registered no sovereign data, on the dispatch this case exists to make sovereign — the two facts are conflated again',
+    ).not.toContain('registered no sovereign data')
+
+    // **Fact two, and the reason this case exists: PLACEMENT SUCCEEDED.** The lookup ran,
+    // one peer advertised the block, and the owner it declares is this shard's owner. This
+    // is the half `demo-byo.e2e.test.ts` cannot reach — there the lookup answers
+    // `asked: false`, every descriptor falls back to `ownerId: 'public'`, and the shard is
+    // unplaceable. Here it is placeable, and the difference is a tab that holds a
+    // certificate. Asserted so that a future regression in qualification cannot hide
+    // behind the same red as the refusal below.
+    expect(lookup?.asked, 'the tab holds a certificate, so the lookup must run').toBe(true)
+    expect(lookup?.owners).toContain(OWNER_KEY_HEX)
+    expect(lookup?.qualified.length, 'the warm-up dispatch must leave the module advertised').toBeGreaterThan(0)
+
+    // **Fact three: it is refused at the executor's authorizer, by name.** `main.ts`'s
+    // sovereign arm says *"Wire a chain here BEFORE that day, not after it"* — this case
+    // IS that day, arrived at deliberately, and what it measures is that the day has not
+    // been prepared for. The demo builds every `RemoteExecutor` as
+    // `'dispatches-unauthenticated'`, so no chain accompanies an owner-pinned shard and
+    // the owner's own machine refuses it at `authorizeCapability`'s first step.
+    //
+    // **This is the correct refusal and must not be "fixed" by relaxing the authorizer.**
+    // The tab here is a different user from the owner, so it could not root a chain at
+    // this owner's key even if the surface built one. A chain forged by the submitter is
+    // precisely the hole the sequencing rule exists to prevent.
+    expect(
+      failures,
+      'the sovereign dispatch was no longer refused for want of a capability chain. If AUTH-03 wired one on this surface, this case should now assert owner-domain instead — see the docblock.',
+    ).toContain('no capability chain supplied')
+
+    // **And therefore the label is the named absence, not a strength.** Criterion 5 asks
+    // for `owner-domain` on a sovereign shard; nothing agreed, so the page reports that
+    // rather than rounding a refusal up into a weak agreement.
+    expect(replicas).toContain('no agreement')
+    expect(attestation).not.toContain(OWNER_DOMAIN)
+    expect(attestation).not.toContain(INDEPENDENT)
   }, 900_000)
 
   it('states the absence, naming the peer, when nobody enrolled that peer', async () => {
