@@ -189,3 +189,98 @@ cuts both ways).
 
 **`perf` was never run.** It is gated behind `PERF_GATE` and matched no project.
 Nothing in this document says anything about it.
+
+---
+
+# SECOND AMENDMENT, same day, evening — the headline of this file is RETRACTED
+
+## The retraction, stated first
+
+This document's central claim — **"It is deterministic, not the known flake"** —
+is **false**, and it was falsified by the cheapest control available, which the
+morning pass never ran: *re-run the failing spec later*.
+
+    two-tabs.e2e.test.ts   09:20–09:40   3 failed | 3 passed   x3   EXIT=1
+    two-tabs.e2e.test.ts   21:30         6 passed (6)               EXIT=0
+
+Three reproductions inside one 40-minute window justified "reproducible in that
+window". They did **not** justify "deterministic", and the word should not have
+been used for a suite whose sibling file this same document quotes STATE.md
+calling *green, red, green on identical code*.
+
+## The whole-suite reading, taken this evening on the same tree
+
+    --project e2e   36 files: 1 failed | 35 passed
+                    232 tests: 1 failed | 231 passed
+                    real 1049.97  user 445.27  sys 95.40
+
+Beside the other two readings of the identical tree:
+
+| | 16-VERIFICATION (recorded) | 2026-08-19 08:42 | 2026-08-19 21:15 |
+|---|---|---|---|
+| exit | 0 | 1 | 1 |
+| tests failed | 0 | **34** | **1** |
+| real | 854.59 | **2177.70** | 1049.97 |
+| user | 446.46 | 408.65 | **445.27** |
+
+**User time is 446 / 409 / 445 across all three.** The suite always does the same
+work. What moved is `real` — and the morning's extra ~1100 s was time spent
+waiting on timeouts that never resolved. The evening run lands back beside the
+recorded baseline on both axes. **The morning run was the outlier, not the norm,
+and this file previously had it the other way round.**
+
+## Browser-to-browser WebRTC is not broken, and that was measurable all along
+
+A throwaway probe reproduced `two-tabs`' harness exactly — same relay
+(`admits-any-peer`, `maxReservations: 16`, `/ip4/127.0.0.1/tcp/0/ws`), same vite
+root, same `openTab` sequence — and called `window.o2.dial()` on the peer's
+`/p2p-circuit/webrtc` address. **It connected every time**: six dials across
+three configurations (with `trustAnchors`, without, and with libp2p's in-page
+`debug` logging on and off, the last pair run specifically to rule out the
+logging itself perturbing timing).
+
+    >>> DIAL: {"ok":true,"id":"12D3KooWGstbd8WvfNMhZH9RPvq7gC5mXoGskxqdu16winS4wubR"}
+
+The libp2p trace shows the full expected path: reservation created on the relay,
+`/webrtc` listener up, outbound WebRTC connection, muxer open, `/ipfs/id/1.0.0`
+negotiated. So the morning's `TimeoutError: signal timed out` was a dial that did
+not complete **in that window**, not a dial path that cannot complete.
+
+## The one failure that remains, and it is a different file
+
+`many-tabs.e2e.test.ts` — green this morning, red this evening — fails at suite
+level with:
+
+    ConnectionFailedError: Could not connect to ws://127.0.0.1:64595
+
+16 tabs opening WebSockets to the relay at once, one of which does not connect.
+**In isolation it passes 2 of 2, in 9.20 s and 7.92 s, against 39.61 s inside the
+suite** — and it did that at load **141**, so this is not raw CPU starvation but
+resource pressure accumulated across 35 preceding e2e files (sockets, contexts,
+browser processes). Recorded as a suite-internal contention symptom.
+
+## What is now established, and what is not
+
+**Established:** there is **no code regression**. 231 of 232 e2e tests pass on the
+identical tree, `node` (2962) and `browser` (5169) are green, and the merge was
+already excluded by tree hash (`8a12b1b4…`, unchanged).
+
+**Withdrawn:** the suggestion that `WIRE-03` and `NET-02` might need re-opening.
+Their specs — `static-rendezvous`, `two-tabs` — **pass**. Nothing about those rows
+should have been put in question on a single suite reading, and putting it there
+was the error this amendment exists to undo.
+
+**Still not attributed:** *why* the 08:42 window failed. Load does not explain it
+on its own — `two-tabs` failed 3/3 at loads 5.60/10.54/13.63 and passed 6/6 later
+at 11.81. Excluded by measurement: the merge (tree hash), the network, STUN, mDNS,
+the firewall, a stale bundle, disk truncation, concurrent vitest runs. The honest
+label is **an unattributed window**, and it is the same shape as task #42
+(`--project browser` deadlocked 33 minutes, did not reproduce).
+
+## The method lesson, which is the durable part
+
+The morning pass excluded six environmental causes by measurement and then
+skipped the **seventh and cheapest**: run it again later. Three reproductions in
+one window read as determinism only because nothing outside that window was
+sampled. **For an intermittent suite, a repeat separated in time is not one more
+data point — it is the control.**
