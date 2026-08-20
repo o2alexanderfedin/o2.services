@@ -157,12 +157,14 @@ import {
   LIBP2P_INBOUND_CONNECTION_THRESHOLD,
   DHT_QUERY_TIMEOUT_MS,
   DhtRecordIndex,
+  LIBP2P_MAX_CONNECTIONS,
   LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS,
   Libp2pTransport,
   O2_KAD_PROTOCOL,
   O2_RECORD_NAMESPACE,
   RELAY_DATA_LIMIT_BYTES,
   RELAY_DURATION_LIMIT_MS,
+  O2_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATION_TTL_MS,
   PeerVerifier,
@@ -768,6 +770,14 @@ export interface FabricNodeOptions {
    * `LIBP2P_INBOUND_CONNECTION_THRESHOLD`.
    */
   readonly inboundConnectionThreshold?: number
+  /**
+   * Total connections to keep before the connection manager prunes.
+   *
+   * Defaults to `max(libp2p's 300, maxReservations * 2)`. Raising `maxReservations`
+   * past ~300 without this silently caps the relay: excess peers start cleanly and
+   * hold no reservation. See `LIBP2P_MAX_CONNECTIONS` for the measurement.
+   */
+  readonly maxConnections?: number
 }
 
 /**
@@ -1535,6 +1545,7 @@ export class FabricNode {
   readonly #limit: number
   readonly #pending: number
   readonly #inboundPerSecond: number
+  readonly #maxConnections: number
   /**
    * This node's identity — AUTH-01.
    *
@@ -1604,6 +1615,7 @@ export class FabricNode {
     limit: number
     pending: number
     inboundPerSecond: number
+    maxConnections: number
     identity: NodeIdentity
     authority: EnrollmentAuthority | null
     certificate: NodeCertificate | null
@@ -1628,6 +1640,7 @@ export class FabricNode {
     this.#limit = parts.limit
     this.#pending = parts.pending
     this.#inboundPerSecond = parts.inboundPerSecond
+    this.#maxConnections = parts.maxConnections
     this.#identity = parts.identity
     this.#authority = parts.authority
     this.certificate = parts.certificate
@@ -1852,7 +1865,7 @@ export class FabricNode {
     // Zero when this node cannot relay, so every number downstream — the inbound
     // limits, `capacity` — falls out of the same fact rather than being decided
     // twice.
-    const limit = canRelay ? (options.maxReservations ?? RELAY_MAX_RESERVATIONS) : 0
+    const limit = canRelay ? (options.maxReservations ?? O2_MAX_RESERVATIONS) : 0
     // Coupled deliberately — see the options' documentation.
     const pending =
       options.maxIncomingPendingConnections ??
@@ -1860,6 +1873,13 @@ export class FabricNode {
     const inboundPerSecond =
       options.inboundConnectionThreshold ??
       Math.max(LIBP2P_INBOUND_CONNECTION_THRESHOLD, limit)
+    // The ceiling the other three never reach. Reservations and everything this node
+    // dials for itself — DHT queries, job traffic — come out of ONE budget, so sizing
+    // it at the reservation count alone would leave a full relay unable to dial at all.
+    // Doubling is the simplest split that keeps a reserved-to-capacity relay working,
+    // and it is a choice rather than a derivation.
+    const maxConnections =
+      options.maxConnections ?? Math.max(LIBP2P_MAX_CONNECTIONS, limit * 2)
 
     // AUTH-02 / AUTH-04 — **the whole of arming the door, and it is one key below.**
     //
@@ -1929,6 +1949,7 @@ export class FabricNode {
       // and never read, is in `@o2/libp2p`'s constants doc.
       streamMuxers: [yamux()],
       connectionManager: {
+        maxConnections,
         maxIncomingPendingConnections: pending,
         // Per *host*, so a burst of tabs from one machine — or of volunteers behind
         // one NAT — would otherwise be rejected mid-handshake.
@@ -2600,6 +2621,7 @@ export class FabricNode {
       limit,
       pending,
       inboundPerSecond,
+      maxConnections,
       identity,
       authority,
       certificate,
@@ -2865,6 +2887,16 @@ export class FabricNode {
   /** Inbound connections per second this node accepts from one host. */
   get inboundConnectionThreshold(): number {
     return this.#inboundPerSecond
+  }
+
+  /**
+   * Total connections this node keeps before the connection manager prunes.
+   *
+   * Read it when a relay's reservations stop being granted for no stated reason: past
+   * this figure the excess peers start cleanly and hold nothing.
+   */
+  get maxConnections(): number {
+    return this.#maxConnections
   }
 
   /**
