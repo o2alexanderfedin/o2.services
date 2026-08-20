@@ -80,3 +80,64 @@ surface that draws it, for a stated reason. That file is amended rather than bac
 sovereign dispatch from the demo page is still refused" are **one item with one blocker**,
 and the blocker is a design decision about the page contract — not missing wiring, not a
 bug, and not something a verifier can close by re-reading the code.
+
+---
+
+# AMENDMENT 2026-08-20 (later) — the criterion number in this file's title is WRONG
+
+Found while writing the session handoff, by reading Phase 19's criteria list instead of
+trusting the label three of this session's own artifacts had already agreed on.
+
+**Phase 19 criterion 5 is not this.** `ROADMAP.md:816` and `.planning/milestones/v1.1-ROADMAP.md:816`
+carry the same text, word for word:
+
+> 5. **Enrolling a node costs an attacker something they cannot mint for free**, and the cost
+>    is measured: creating the N-th fake identity is demonstrably more expensive than creating
+>    the first.
+
+That is the sybil-cost clause, scored PARTIAL and **deferred to Phase 24 by owner ruling**
+(`19-VERIFICATION.md:131`). It has nothing to do with attestation labels.
+
+**Where the property is actually written down.** `19-VERIFICATION.md:647`, as VER-09's open
+clause, in the requirements table:
+
+> | VER-09 | `[ ]` Partial | Correct, and the open clause is named: no display site has shown
+> | the label for a **sovereign** shard. |
+
+**And that row has since closed on words that do not include it.** `REQUIREMENTS.md:1230`
+marks VER-09 **Done, 2026-08-19**, on its own quoted test — *"a default path that reaches an
+owner-pinned execution at fewer than two live owner nodes and renders `owner-attested` off
+it"* — which `bin/agent.ts`'s sovereign coordinator leg satisfies. `owner-attested` at
+redundancy 1, on the CLI. Not `owner-domain`, and not on a display site.
+
+**So what is the standing of this item, stated precisely rather than assumed:**
+
+| | |
+|---|---|
+| Phase 19 criterion 2 (owner-domain for a sovereignty-pinned task, via `bin/agent.ts`) | **MET** |
+| Phase 19 criterion 3 (the strength label wherever displayed) | **MET** |
+| Phase 19 criterion 5 (sybil cost) | PARTIAL, deferred to Phase 24 — **a different item entirely** |
+| VER-09 | **Done** 2026-08-19, on the CLI route |
+| VER-10 | **Done** 2026-08-14 |
+
+**No open numbered criterion and no open requirement row currently carries "owner-domain, for
+a sovereign shard, on a display site."** It survives in exactly two places: the open-item list
+(*"a sovereign dispatch from the demo page is still refused"*) and this file.
+
+**What this changes and what it does not.** The analysis above is untouched — the two halves
+really are in different files, `TabApi.start` really does carry no `sovereignty` option by
+standing rule, and the three routes really are owner decisions. **What changes is the item's
+weight**: it is a self-imposed residue, not an unmet criterion, so nothing is blocked on it
+and no score moves when it closes. That strengthens this file's conclusion rather than
+weakening it — there is now no scoring pressure to break a standing rule.
+
+**The title is left as it is, and the file is not renamed.** Two commits and a test docblock
+cite it by name. A dated correction that a reader meets is worth more than a tidy title that
+silently rewrites what three artifacts said.
+
+**The same mis-citation is in two other places**, listed here rather than back-edited:
+`27-UAT.md` test 13 and its Gaps entry (`phase: 19, criterion: 5`), and
+`packages/node/src/attestation-ui.e2e.test.ts:677` (*"Phase 19 criterion 5 — `owner-domain`
+for a SOVEREIGN shard"*) with the test name at `:752`. The test's **assertions** are unaffected —
+it measures `unauthorized: no capability chain supplied` and that reading stands whatever the
+clause is numbered.
