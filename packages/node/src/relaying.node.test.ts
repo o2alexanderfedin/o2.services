@@ -17,6 +17,8 @@ import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import {
   RELAY_DATA_LIMIT_BYTES,
   RELAY_DURATION_LIMIT_MS,
+  LIBP2P_MAX_CONNECTIONS,
+  O2_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATIONS,
 } from '@o2/libp2p'
 import { FabricNode } from './fabric-node.ts'
@@ -136,10 +138,13 @@ describe('NET-03 — a listening node presents a browser-dialable address', () =
     expect(source).not.toMatch(/['"`][^'"`]*\/certhash\/[^'"`]*['"`]/)
   }, 30_000)
 
-  it('defaults to libp2p’s own documented limits', async () => {
+  it('defaults to this project’s reservation figure, above libp2p’s', async () => {
     const relay = await relayingNode()
     started.push(relay)
-    expect(relay.capacity.limit).toBe(RELAY_MAX_RESERVATIONS)
+    // The reservation default is O2's, deliberately: libp2p's 15 is recorded beside it
+    // as the figure being departed from, and the gap is the point of the departure.
+    expect(relay.capacity.limit).toBe(O2_MAX_RESERVATIONS)
+    expect(O2_MAX_RESERVATIONS).toBeGreaterThan(RELAY_MAX_RESERVATIONS)
     // Sanity: the constants module and the node agree on what is being tuned.
     expect(RELAY_DURATION_LIMIT_MS).toBe(120_000)
     expect(RELAY_DATA_LIMIT_BYTES).toBe(131_072n)
@@ -277,6 +282,44 @@ describe('NET-05 — exhaustion is reported by name', () => {
     started.push(relay)
     expect(relay.maxIncomingPendingConnections).toBe(40)
     expect(relay.inboundConnectionThreshold).toBe(40)
+  }, 30_000)
+
+  it('raises the total-connection budget too, the ceiling the other three never reach', async () => {
+    // The failure this guards is silent: past libp2p's stock 300 connections the
+    // excess peers start cleanly and hold no reservation, so a relay tuned to 400
+    // quietly serves ~300. Measured 2026-08-19 — 512 and 1024 peers both granted 305.
+    const relay = await relayingNode({ maxReservations: 400 })
+    started.push(relay)
+
+    // Read off the LIVE connection manager, not off this class's own field. Asserting
+    // `relay.maxConnections` alone is vacuous: deleting the `connectionManager` entry
+    // that hands the figure to libp2p leaves the getter reporting 800 while libp2p
+    // quietly runs on its stock 300. That plant was made, and it stayed green — which
+    // is why the reading below is the one that carries the claim.
+    const live = (
+      relay.libp2p as unknown as {
+        components: { connectionManager: { maxConnections: number } }
+      }
+    ).components.connectionManager
+    expect(live.maxConnections).toBe(800)
+    expect(live.maxConnections).toBeGreaterThan(LIBP2P_MAX_CONNECTIONS)
+    // The getter is the reader-facing surface and must agree with what libp2p got.
+    expect(relay.maxConnections).toBe(live.maxConnections)
+    // Reservations must not be able to consume the whole budget: this node still has
+    // to dial for itself — DHT queries, job traffic — out of the same allowance.
+    expect(relay.maxConnections).toBeGreaterThan(relay.capacity.limit)
+  }, 30_000)
+
+  it('never lowers the connection budget below libp2p’s own default', async () => {
+    const relay = await relayingNode({ maxReservations: 2 })
+    started.push(relay)
+    const live = (
+      relay.libp2p as unknown as {
+        components: { connectionManager: { maxConnections: number } }
+      }
+    ).components.connectionManager
+    expect(live.maxConnections).toBe(LIBP2P_MAX_CONNECTIONS)
+    expect(relay.maxConnections).toBe(LIBP2P_MAX_CONNECTIONS)
   }, 30_000)
 
   it('never lowers an inbound limit below libp2p’s own default', async () => {

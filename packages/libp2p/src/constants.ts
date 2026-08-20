@@ -28,6 +28,42 @@ export const RELAY_DATA_LIMIT_BYTES = 131_072n
 export const RELAY_MAX_RESERVATIONS = 15
 
 /**
+ * Connections one libp2p node keeps before its connection manager prunes. **300.**
+ *
+ * The fourth limit in this file's story and the one that actually stops a relay from
+ * growing. It is stated last because nothing had ever reached it: the three above bind
+ * at 5, 10 and 15, so a relay tuned past them hits *this* one with no warning.
+ *
+ * **Measured 2026-08-19**, one host, node peers rather than tabs: a relay with
+ * `maxReservations` at 1024, dialled first by 512 peers and then by 1024, granted
+ * **305** reservations both times. Neither sockets nor memory bound it — `ulimit -n`
+ * was 1048576 against 632 descriptors in use, and resident memory was *lower* at 1024
+ * peers than at 256. 305 is this constant plus the relay's own handful.
+ *
+ * It fails **silently**, which is what makes it expensive to find: every excess peer
+ * reports a successful start and simply holds no reservation. Nothing throws.
+ *
+ * `FabricNode` derives it from `maxReservations` exactly as it derives the two above,
+ * so raising a relay's capacity stays one number instead of four.
+ */
+export const LIBP2P_MAX_CONNECTIONS = 300
+
+/**
+ * Concurrent reservations **this project's** relays accept, against libp2p's 15.
+ *
+ * A configuration choice, not arithmetic, and sited against the same 2026-08-19 sweep:
+ * 64, 128 and 256 peers were each granted in full — 64/64, 128/128, 256/256, no
+ * refusals — so 256 is demonstrably reachable on commodity hardware.
+ *
+ * **64 is nonetheless the default**, because a default is inherited by every node that
+ * relays, including a volunteer's laptop. 64 reservations cost roughly 128 file
+ * descriptors and sit inside libp2p's stock 300-connection budget without raising
+ * anything, which keeps the conservative case free of side effects. A backbone relay
+ * that wants 256 passes `maxReservations`, and the connection budget follows it.
+ */
+export const O2_MAX_RESERVATIONS = 64
+
+/**
  * Simultaneous *inbound handshakes* libp2p permits by default.
  *
  * The limit that actually caps a relay's browser-peer capacity, and it binds well
