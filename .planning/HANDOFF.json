@@ -9,7 +9,7 @@
   "total_tasks": null,
   "status": "paused",
   "context": "post-milestone verification and hygiene, spanning phases 19/24/27 — not the execution of a phase plan",
-  "head": "e63402c",
+  "head": "e63402c at pause; the handoff itself landed on top of it (86bb0d6, merged 1c87dbe) — read `git log` from e63402c rather than trusting a hash written here",
   "completed_tasks": [
     {
       "id": 1,
@@ -57,8 +57,8 @@
       "id": 7,
       "name": "Correct the criterion mis-citation before it propagated into the handoff",
       "status": "done",
-      "commit": null,
-      "evidence": "UNCOMMITTED AT PAUSE — see uncommitted_files. Phase 19 criterion 5 is the SYBIL-COST clause (ROADMAP.md:816), deferred to Phase 24. Three of this session's artifacts used that number for the attestation-label property. Amendment appended to the consult rather than back-edited."
+      "commit": "86bb0d6",
+      "evidence": "Committed 86bb0d6, merged to main 1c87dbe. Phase 19 criterion 5 is the SYBIL-COST clause (ROADMAP.md:816), deferred to Phase 24. Three of this session's artifacts used that number for the attestation-label property. Amendment appended to the consult rather than back-edited."
     }
   ],
   "remaining_tasks": [],
@@ -118,11 +118,19 @@
       "phase": "cross-phase"
     }
   ],
-  "uncommitted_files": [
-    ".planning/consults/2026-08-20-criterion-5-is-a-design-decision-not-a-defect.md",
-    ".planning/HANDOFF.json",
-    ".planning/.continue-here.md"
-  ],
+  "uncommitted_files": [],
   "next_action": "Nothing is in flight and nothing is broken. Do NOT start the sovereign-label item without the owner — it is a design decision, not work. If work resumes, the item directly in line is the one deliberately left undiagnosed in attestation-ui.e2e.test.ts's docblock: with `canExecuteSovereign: false` planted, the run still reported 'every shard reached agreement'. It was observed in a PLANTED tree, which is not a measurement of the real one, so confirm with the owner before spending on it.",
-  "context_notes": "This session was verification and hygiene, not construction. The one durable methodological lesson, paid for: for an intermittent suite, a repeat separated in time is not one more data point — it is the CONTROL. Three reds inside one 40-minute window were called 'deterministic'; the cheapest control (re-run later) was never run, and the same file later passed 6/6. That claim was retracted in writing on main. The morning window remains UNATTRIBUTED — load does not explain it (failed 3/3 at loads 5.60–13.63, passed 6/6 at 11.81), and it is better left unattributed than attributed to the nearest plausible cause."
+  "context_notes": "This session was verification and hygiene, not construction. The one durable methodological lesson, paid for: for an intermittent suite, a repeat separated in time is not one more data point — it is the CONTROL. Three reds inside one 40-minute window were called 'deterministic'; the cheapest control (re-run later) was never run, and the same file later passed 6/6. That claim was retracted in writing on main. The morning window remains UNATTRIBUTED — load does not explain it (failed 3/3 at loads 5.60–13.63, passed 6/6 at 11.81), and it is better left unattributed than attributed to the nearest plausible cause.",
+  "uncommitted_files_note": "Empty, and verified AFTER the handoff commit rather than before it. The three handoff files landed as 86bb0d6 and merged through develop f616b62 to main 1c87dbe. A first draft of this file listed them as uncommitted because it was written before its own commit — in this repository a stale 'uncommitted at pause' against a clean tree reads as a concurrent agent having reverted work, which is a documented false-finding trap. State is measured after the write, not before.",
+  "infrastructure_state": [
+    {
+      "item": "orphan process",
+      "detail": "node PID 62939 holding *:8443 (LISTEN), elapsed 10d 00:20 — /private/tmp/claude-501/…/d504c704-…/scratchpad/tls/server.mjs. A TLS scratch server from a DIFFERENT session ten days ago, not this one's. Left running deliberately: it is not mine to kill and port 8443 may matter to the owner. Kill it if 8443 is wanted.",
+      "action": "owner's call"
+    },
+    {
+      "item": "background services",
+      "detail": "none started by this session are still running; every bin/seed.ts and bin/agent.ts spawned for the UAT and the e2e gate exited with its run."
+    }
+  ]
 }
