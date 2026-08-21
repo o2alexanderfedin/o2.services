@@ -64,21 +64,30 @@ which correctly failed all three times. That control is what makes the result me
 it, "the connection worked" would be equally consistent with the browser simply not checking
 certificates at all.
 
-**What is unmeasured, and the correction that shrank it.** Safari was untested, and this was
-previously recorded as needing an iPhone or a 10 GB Xcode installation. **That was wrong.** macOS
-ships a tool that drives real Safari, it needs no installation, and it is already switched on
-here. Safari has one further switch, and macOS deliberately prevents any program from flipping it:
+**What is unmeasured, and two corrections in a row.** Safari was untested. This was first
+recorded as needing an iPhone or a 10 GB Xcode installation — **wrong**: macOS ships a tool that
+drives real Safari, needs no installation, and was already switched on here. It was then recorded
+as needing one settings switch — also **wrong**, or at least not sufficient.
 
-> Safari → Settings → Advanced → "Show features for web developers"
-> then Develop → "Allow Remote Automation"
+**Safari will not let an automated browser click through a certificate warning.** The switch was
+turned on and the automation works perfectly right up to the warning page: the page loads, its
+buttons are ordinary web page content, there is no hidden system dialog, and the "visit this
+website" link's internal command is present and callable. Call it and nothing happens — no error,
+no movement. Ten attempts, twenty seconds of waiting, and a full page reload: still on the
+warning. This looks deliberate, and it is a reasonable thing for a browser to do.
 
-**Then run:**
+**So the click has to be a person's, and the job was to make that cheap.** Run:
 
-    node .planning/consults/2026-08-21-safari-cert-exception-probe.mjs
+    node .planning/consults/2026-08-21-safari-cert-manual-check.mjs
 
-The script is committed and self-contained — it creates its own certificates and servers. It has
-already been run up to that switch, so it is known to work right up to the point where it stops.
-The whole thing takes about a minute.
+It prints one address. Open it in Safari, click through the warning once ("Show Details", then
+"visit this website"), and the page tests both connections itself and shows the answer in large
+type — and sends it back to the terminal, so nothing has to be copied by hand. About thirty
+seconds. Nothing is installed and no certificate is added to any system trust store.
+
+The page will **refuse to report a success if both connections work**, because that would mean
+the browser is not checking certificates at all and the test measured nothing. The harness was
+checked end to end against Chrome before being written down, so it is known to work.
 
 **What is still the owner's call afterwards.** Which option to actually build. Opening a router
 port affects the owner's home network, so nobody else can make that choice.
