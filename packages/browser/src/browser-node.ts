@@ -1362,17 +1362,29 @@ export class BrowserNode {
     // A minted seed is persisted **before** anything is derived from it, so a tab that
     // crashes between generating and using one comes back as the node it just became
     // rather than as a third.
-    const stored = await identityStore.loadSeed()
+    //
+    // **Read and write in ONE transaction — task #49, and it was measured.** This was
+    // `loadSeed()` then, on `null`, `generateSeed()` and `saveSeed()`, with nothing spanning
+    // the two. Four tabs of one profile opening one cold origin together minted four
+    // identities and the last write won, so three of them ran as nodes whose seed was not
+    // the stored one and came back on their next start as somebody else — the silent arrival
+    // at exactly the state `whenSeedIsGone` exists to make loud.
+    // `IdbIdentityStore.loadOrMintSeed` carries the reasoning and the constraint it puts on
+    // `mint`; `idb-identity-store.browser.test.ts` carries the reading and its plant.
+    //
+    // The refusing branch still reads and never mints, which is the whole of the difference
+    // between the two: nothing about the fix widens what a refusing node will accept.
     let seed: Uint8Array<ArrayBuffer>
-    if (stored !== null) {
-      seed = stored
-    } else if (options.whenSeedIsGone === 'mints-a-new-identity') {
-      seed = generateSeed()
-      await identityStore.saveSeed(seed)
+    if (options.whenSeedIsGone === 'mints-a-new-identity') {
+      seed = await identityStore.loadOrMintSeed(generateSeed)
     } else {
-      throw new Error(
-        `no seed in ${identityStore.name}: this node was started with 'refuses-to-start-without-its-seed', and starting anyway would give it a different peer id and invalidate any certificate naming the old one`,
-      )
+      const stored = await identityStore.loadSeed()
+      if (stored === null) {
+        throw new Error(
+          `no seed in ${identityStore.name}: this node was started with 'refuses-to-start-without-its-seed', and starting anyway would give it a different peer id and invalidate any certificate naming the old one`,
+        )
+      }
+      seed = stored
     }
     const identity = await identityFromSeed(seed)
 
@@ -1604,14 +1616,12 @@ export class BrowserNode {
     // silently would invalidate every certificate it had ever signed.
     let authority: EnrollmentAuthority | null = null
     if (options.issuesCertificates !== undefined) {
-      const existing = await identityStore.loadProviderSeed()
-      let providerPrivateKey: Uint8Array<ArrayBuffer>
-      if (existing !== null) {
-        providerPrivateKey = existing
-      } else {
-        providerPrivateKey = generateSeed()
-        await identityStore.saveProviderSeed(providerPrivateKey)
-      }
+      // One transaction, for the reason the node seed above gives at length: this is the
+      // same read-then-write pair on the same store, and a trust root that changed silently
+      // because two tabs raced would invalidate every certificate it had signed. Fixed in
+      // the same pass rather than left, because *"the other one has the same shape"* is how
+      // a closed defect comes back.
+      const providerPrivateKey = await identityStore.loadOrMintProviderSeed(generateSeed)
       // AUTH-04, and this is the line that turns the mechanism on for a tab. Both required
       // issuance options carried a named sentinel for one wave; both now carry the real
       // thing, and they are the **same** two things `fabric-node.ts` passes.

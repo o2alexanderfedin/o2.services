@@ -17,6 +17,7 @@ import {
 import type { Region } from '../../browser/src/demo-regions.ts'
 import { ATTESTATION_HOOK, absenceSentences, methodOf, p6, p7, p8 } from './demo-region-properties.ts'
 import type { DomRegion } from './demo-region-properties.ts'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 
 /**
  * The anti-placeholder guard — UI-SPEC section 9's P1, P2, P3, P4, P6, P7 and P8.
@@ -344,7 +345,7 @@ describe('the page, with the fabric stopped', () => {
     if (url === undefined) throw new Error('vite dev server produced no URL')
     baseUrl = url.endsWith('/') ? url : `${url}/`
 
-    browser = await chromium.launch()
+    browser = await launchFixtureBrowser(chromium)
     context = await browser.newContext()
     page = await context.newPage()
     page.on('pageerror', (error) => {

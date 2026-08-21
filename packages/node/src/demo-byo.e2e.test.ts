@@ -11,6 +11,7 @@ import type { Browser, BrowserContext, Page } from 'playwright'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -63,7 +64,8 @@ const PAGE = 'packages/browser/demo/index.html'
 /** UI-SPEC's Y6 unavailable sentence, quoted so a reworded page reddens rather than passes. */
 const NO_PLACEMENT = 'No placement: no shard reached agreement.'
 /** UI-SPEC's Y10 unavailable sentence. */
-const NO_REFUSALS = 'No refusals: every shard reached agreement.'
+const NO_REFUSALS =
+  'No refusals: no node declined a shard — the placement reading above says whether every shard was agreed.'
 
 /**
  * A key nobody pins. Seed 53, distinct from every other fixture key in this repository
@@ -276,7 +278,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   baseUrl = url.endsWith('/') ? url : `${url}/`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
 }, 420_000)
 
 afterAll(async () => {

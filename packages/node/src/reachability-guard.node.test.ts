@@ -1732,6 +1732,18 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
  * is named. What would be illegitimate is raising it without saying which module moved the
  * number, which is why the sentence above names the file and the requirement.
  *
+ * **Raised to 29 on 2026-08-21, same terms.** `packages/node/src/e2e-browser-launch.ts`
+ * arrived: the single place every e2e fixture launches a browser, carrying the one Chromium
+ * switch that stops the suite depending on whether this host's mDNS resolves Chromium's
+ * ephemeral `.local` ICE candidate names (task #58, measured in
+ * `.planning/consults/2026-08-21-chromium-mdns-ice-blocks-tab-to-tab.md`). Nothing in
+ * production imports it and nothing should — it is a test instrument in exactly the category
+ * this ceiling already counts, and it is **not** barrel-exported for
+ * `capability-fixture.ts`'s stated reason: a barrel-exported fixture hands the reachability
+ * guard a finding the fixture itself invented. Trading one counted orphan for 33 copies of a
+ * launch flag is the cheaper side, and the copies would have had no single place to record
+ * what the flag costs.
+ *
  * **A ceiling, on the same terms as `OPEN_FINDING_CEILING`: lowering it is the work, raising
  * it needs a reason written beside it.** The population is deliberately not disposed
  * entry-by-entry. `reachability-dispositions.ts`'s rule is that a disposition is granted on a
@@ -1744,7 +1756,7 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
  * reading is the failure mode this file's `global-object-hop` case exists to refuse. The count
  * is held still instead, which is what stops a 28th arriving unnoticed.
  */
-const ORPHAN_MODULE_CEILING = 28
+const ORPHAN_MODULE_CEILING = 29
 
 /**
  * The certificate-lifecycle module, by path — CRYPTO-03's whole subject.

@@ -284,3 +284,26 @@ skipped the **seventh and cheapest**: run it again later. Three reproductions in
 one window read as determinism only because nothing outside that window was
 sampled. **For an intermittent suite, a repeat separated in time is not one more
 data point — it is the control.**
+
+---
+
+# ATTRIBUTED 2026-08-21 — the varying quantity has a name
+
+This file's closing residue — *"Still not attributed: why the 08:42 window failed"* — is
+answered, in [`2026-08-21-chromium-mdns-ice-blocks-tab-to-tab.md`](./2026-08-21-chromium-mdns-ice-blocks-tab-to-tab.md).
+
+Chromium's ephemeral `<uuid>.local` ICE candidate names do not always resolve on this
+host. Measured with a bare `RTCPeerConnection` outside this repository: obfuscation on →
+`failed` after 30 s; off → **connected in 225 ms**. On the real gate, `demo-byo` goes from
+12 failed / 235 s to 17 passed / 6.48 s.
+
+**One correction to this file.** Its exclusion list says *"Not mDNS … `mDNSResponder` up
+25 days, `Alexanders-MacBook-Pro.local` resolves."* That measured the daemon's health and
+the host's own name, and neither answers whether Chromium's *per-session ephemeral* names
+resolve. The exclusion did not hold.
+
+**What is still not established** is that this is what varied in the 08:42 window
+specifically — that window cannot be re-instrumented. It is the leading candidate because
+the mechanism produces this file's exact signature (a dial that waits rather than fails,
+unchanged user time, wall clock inflated by expiring timeouts), and this file's own lesson
+holds against over-reading it.

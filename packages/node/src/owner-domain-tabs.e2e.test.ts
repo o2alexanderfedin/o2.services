@@ -11,6 +11,7 @@ import { describeAttestation } from '@o2/core'
 import type { PublicKeyHex } from '@o2/core'
 import { KERNEL_RECORD, KERNEL_TRUST_ANCHOR, kernelBytes } from '@o2/demo'
 import type { TabNameRecord } from '@o2/browser'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -114,11 +115,14 @@ import { FabricNode } from './fabric-node.ts'
  * `no capability chain supplied`. The chain is minted either way — the plant removes the
  * *eligibility*, not the authority — so this case is failing on the thing it names.
  *
- * The same run also caught a **false sentence on the demo surface**, filed rather than fixed
- * here: eight unplaced shards were printed under `failures: No refusals: every shard reached
- * agreement.` A shard that was never placed reaches neither the `disagreed` nor the
- * `insufficient` arm, so the failure list is legitimately empty and the renderer reads empty
- * as universal success. The attestation line beside it gets it right in the same render.
+ * The same run also caught a **false sentence on the demo surface**: eight unplaced shards
+ * were printed under `failures: No refusals: every shard reached agreement.` A shard that was
+ * never placed reaches neither the `disagreed` nor the `insufficient` arm, so the failure list
+ * is legitimately empty and the renderer read empty as universal success. The attestation line
+ * beside it got it right in the same render.
+ *
+ * **Since fixed** — UI-SPEC section 4's Y10 amendment and `byo-surface.node.test.ts`. The
+ * sentence now describes only what Y10 reads, which is whether any node declined a shard.
  *
  * ## What this file does not claim
  *
@@ -520,7 +524,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   pageUrl = `${url.endsWith('/') ? url : `${url}/`}${PAGE}`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
   // ONE context. Three pages of it share an origin, and therefore share one visitor key.
   context = await browser.newContext()
 }, 420_000)

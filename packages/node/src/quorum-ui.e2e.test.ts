@@ -9,6 +9,7 @@ import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -222,7 +223,7 @@ beforeAll(async () => {
   if (address === null || typeof address === 'string') throw new Error('no server port')
   baseUrl = `http://127.0.0.1:${address.port}`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
 }, 420_000)
 
 afterAll(async () => {
