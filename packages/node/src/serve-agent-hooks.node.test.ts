@@ -624,7 +624,7 @@ describe('production RemoteExecutor call sites state the chain explicitly', () =
   // four other sites keep the original reason unchanged and a shared sentence would have
   // made them look conditional too.
 
-  it('demo/main.ts: four peer dispatches and one candidate lookup, all of them public work', () => {
+  it('demo/main.ts: five dispatch sites and one lookup — four public, and one that mints a chain', () => {
     // **Two until 2026-08-08, three until 2026-08-17, and the number moves because the page
     // gains a job.** `runColouring`, `runPi`, `runJob` and now `runPrimes` — four
     // constructions, one per job the demo can run, and all four write the unauthenticated
@@ -659,12 +659,53 @@ describe('production RemoteExecutor call sites state the chain explicitly', () =
     // The consequence is stated rather than hidden: a sovereign shard from this page reaches
     // its executor unauthenticated and is refused there, measured 2026-08-18 off
     // `demo-byo.e2e.test.ts` as *"unauthorized: no pinned owner key"*.
-    expect(occurrences(DEMO_MAIN, "'dispatches-unauthenticated'")).toBe(5)
-    // The other half of the same fact, because a count of five is equally what moving a
-    // sentinel onto a *sixth*, newly-added site would produce. Held at four deliberately: the
-    // lookup adds no construction, so this number is what separates "a fifth dispatch site
-    // arrived" from "a lookup arrived".
-    expect(occurrences(DEMO_MAIN, 'new RemoteExecutor(')).toBe(4)
+    //
+    // ## 2026-08-20 — the case's own title stopped being true, and the numbers moved for it
+    //
+    // **`all of them public work` is false as of AUTH-03's browser half.** `runJob` now mints
+    // a capability chain per node for an owner-pinned shard, so this file no longer describes
+    // a page that dispatches everything unauthenticated. The title is rewritten rather than
+    // the count nudged, on this docblock's own standing instruction: *bumping the number is
+    // the smaller half of the fix.*
+    //
+    // **Sentinel 5 -> 6 and construction 4 -> 5, and the two moved for DIFFERENT reasons,
+    // which is the whole reading.**
+    //
+    // The construction is new: `runJob` **rebuilds** the executors `discoveredPool` returned,
+    // because `discoverCandidates` was handed the sentinel and the ones it produced carry it.
+    // Same id, same rpc, same descriptor correlation — only the capability differs, and it has
+    // to, or a sovereign shard would be authorised on a listed peer and refused on a
+    // discovered one for no reason a reader could find.
+    //
+    // The sentinel count moved by ONE while TWO sites became conditional, and that arithmetic
+    // is the thing to check rather than to accept. Both of `runJob`'s executor lines are now
+    // `chainFor?.(id) ?? 'dispatches-unauthenticated'` — a `??` keeps the literal in the file
+    // exactly as `bin/bench.ts`'s ternary does below, so two conditional sites still count as
+    // two. The net +1 is the rebuild adding a line that did not exist. **A reader who expected
+    // the count to FALL because a chain was wired would be wrong for the same reason the bench
+    // row records: a fallback keeps the literal.**
+    //
+    // **The four that are unconditional are still unconditional and still correct.**
+    // `runColouring`, `runPi`, `runPrimes` submit `label: 'public'` shards — a public task has
+    // no owner, so no key exists for a chain to be rooted at — and `discoveredPool`'s lookup
+    // dispatches nothing at all, so a supplier there would mint a chain per candidate for work
+    // not yet described.
+    //
+    // **And the consequence stated in place is now conditional rather than flat.** A sovereign
+    // shard from this page reaches its executor **with** a chain when the owner is this tab's
+    // own key, and without one otherwise — because a tab can only root a chain at a key it can
+    // sign for, and its own is minted `extractable: false`. The second case still reaches the
+    // 2026-08-18 refusal, and that is a true sentence about that run.
+    expect(occurrences(DEMO_MAIN, "'dispatches-unauthenticated'")).toBe(6)
+    // The other half of the same fact, and it separates the two ways this file changes: a
+    // sentinel arriving without a construction is a lookup, and a construction arriving without
+    // a net sentinel is a rebuild. Five as of the rebuild above.
+    expect(occurrences(DEMO_MAIN, 'new RemoteExecutor(')).toBe(5)
+    // Anti-reflex, and it is what makes the two counts above more than bookkeeping: the page
+    // MINTS now, so at least one site must be conditional. A future edit that quietly returned
+    // this file to an unconditional sentinel everywhere would leave both counts reachable and
+    // this assertion is what would not survive it.
+    expect(occurrences(DEMO_MAIN, "chainFor?.(")).toBeGreaterThanOrEqual(2)
   })
 
   it('bin/bench.ts: the default arm dispatches public shards, and the sovereign leg is one branch beside it', () => {

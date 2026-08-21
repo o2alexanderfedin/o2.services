@@ -324,8 +324,8 @@ export type {
 } from './discovery.ts'
 
 // Capability chains — AUTH-03, DET-03.
-export { delegate, describeFailure, fromHex, toHex, verifyChain } from './capability.ts'
-export type { Ability, ChainFailure, ChainResult, Delegation, PublicKeyHex, VerifyOptions } from './capability.ts'
+export { delegate, DelegationSignerMismatchError, delegateWith, describeFailure, fromHex, toHex, verifyChain } from './capability.ts'
+export type { Ability, ChainFailure, ChainResult, Delegation, DelegationSigner, PublicKeyHex, VerifyOptions } from './capability.ts'
 
 // X.509 v3 certificate profile — X509-01…07, additive alongside NodeCertificate.
 export { decodeX509Certificate, describeX509Failure, MAX_CERTIFICATE_BYTES, MAX_EXTENSION_BYTES, MAX_EXTENSION_COUNT } from './x509.ts'

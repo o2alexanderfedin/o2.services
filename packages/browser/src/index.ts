@@ -96,6 +96,10 @@ export {
 } from './visitor-key.ts'
 
 // Stopping for real, and bounding an untrusted guest — BROW-04, SCHED-06.
+// AUTH-03's browser half — chains minted in a tab, for a key the tab cannot read.
+export { chainsForOwner, TAB_CHAIN_TTL_MS } from './dispatch-chain.ts'
+export type { TabChainOptions } from './dispatch-chain.ts'
+
 export { browserWorkerExecutor, WorkerExecutor } from './worker-executor.ts'
 export type { BrowserWorkerExecutorOptions, WorkerFactory } from './worker-executor.ts'
 export { domThread } from './dom-thread.ts'

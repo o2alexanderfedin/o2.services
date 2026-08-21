@@ -157,6 +157,15 @@ export interface Disposition {
  * wrong.
  */
 const GLOBAL_OBJECT_HOP: readonly string[] = [
+  // AUTH-03's browser half, added 2026-08-20 when `TabApi.runJob` began minting a capability
+  // chain for an owner-pinned shard. All three reach production through `runJob` ->
+  // `sovereignChainsFor` -> `chainsForOwner` -> `delegateWith`, and the guard's own hop-tracing
+  // arm reports all three flipping to reachable — which is why they are here rather than in
+  // OPEN_FINDINGS. `DelegationSignerMismatchError` is on the same chain: `delegateWith` throws
+  // it, so a `throw new` is its call site.
+  'browser/chainsForOwner',
+  'core/DelegationSignerMismatchError',
+  'core/delegateWith',
   'browser/BrowserNode',
   'browser/GrantedConsent',
   'browser/IdbBlockstore',
@@ -764,7 +773,15 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * ceiling above the register's size is a permission for a silent addition. Not read off the
  * source — the derived case went red first and named both verbatim.
  */
-export const DISPOSITION_CEILING = 64
+/**
+ * **Raised 64 -> 67 on 2026-08-20**, on the no-slack rule stated above: AUTH-03's browser half
+ * added exactly three `global-object-hop` entries — `browser/chainsForOwner`,
+ * `core/delegateWith`, `core/DelegationSignerMismatchError` — and the guard's own hop-tracing
+ * arm reports all three flipping to reachable, which is the basis for the disposition rather
+ * than an `OPEN_FINDINGS` row. Not read off the source: the derived case went red naming both
+ * numbers verbatim, and this is the one it printed.
+ */
+export const DISPOSITION_CEILING = 67
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {
