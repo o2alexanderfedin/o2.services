@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
-status: milestone_complete # was `executing`. v1.1 closed 15/15 phases, 50/50 requirements at `af8828f`
+status: milestone_complete
 stopped_at: >-
   RECONCILED 2026-08-20, AND THE HEADLINE BELOW IS THE ONE THING THAT WAS WRONG. **THE COUNT IS 15
   OF 15, NOT 12.** All three carried phases closed on 2026-08-18, each by a dated amendment to its
@@ -19,7 +19,12 @@ stopped_at: >-
   compared it against 141, which is the repository-wide count of SUMMARY files — a different
   population, and the reason to say which population a count is over. NOTHING IS IN FLIGHT. Work
   since the milestone close is verification and hygiene, all merged. The open items are owner
-  decisions, listed under Pending Todos, and none of them blocks anything.
+  decisions, listed under Pending Todos, and none of them blocks anything. FIELD CHANGES MADE BY
+  THIS RECONCILIATION, RECORDED HERE RATHER THAN AS TRAILING COMMENTS ON THE FIELDS THEMSELVES —
+  a plain YAML scalar cannot carry " #" without the rest of the line becoming a comment, and
+  `state-frontmatter.node.test.ts` caught exactly that on `status` after the first draft did it:
+  `status` executing -> milestone_complete; `completed_phases` 12 -> 15; `percent` 80 -> 100;
+  `total_plans` UNCHANGED at 103 and correct.
   ----- EVERYTHING BELOW THIS LINE IS THE ACCUMULATED HISTORY OF THE MILESTONE AS IT RAN. It is
   kept verbatim rather than rewritten, because it records how each phase actually closed. Read its
   first sentence as superseded by the paragraph above and the rest as still accurate. -----
@@ -214,10 +219,10 @@ last_updated: "2026-08-20T09:20:00.000Z"
 last_activity: 2026-08-20
 progress:
   total_phases: 15
-  completed_phases: 15 # was 12. Phases 20, 21 and 22 closed 2026-08-18 at 7/7, 3/3 and 3/3
-  total_plans: 103 # UNCHANGED and correct — milestone-scoped, recounted 2026-08-20
+  completed_phases: 15
+  total_plans: 103
   completed_plans: 103
-  percent: 100 # was 80
+  percent: 100
 ---
 
 <!--
