@@ -47,6 +47,7 @@ import {
   decodeCanonical,
   jobIdOf,
   readCheckpoint,
+  subtleUserSigner,
   verifyCertificate,
 } from '@o2/core'
 import type {
@@ -70,6 +71,7 @@ import {
   rpcAdmission,
   submitJobWithEgress,
 } from '@o2/net'
+import type { CapabilitySupplier } from '@o2/net'
 import {
   DEFAULT_BUDGET,
   KERNEL_RECORD,
@@ -99,6 +101,7 @@ import {
   DISCLOSURE_VERSION,
   acceptEnrolment,
   canHoldVisitorKey,
+  chainsForOwner,
   classifyStartError,
   currentBrowserLabel,
   enrolledIssuer,
@@ -279,6 +282,48 @@ async function visitorEnrolmentOption(providerAddr: string): Promise<{
     operatorId: await visitorOperatorId(keyPair),
     providerAddr,
   }
+}
+
+/**
+ * The chains a sovereign dispatch travels under — AUTH-03's browser half, wired here.
+ *
+ * **This is the "that day" `runJob`'s standing note said to wire a chain before.** That note
+ * bounded the surface by placement: every descriptor this page built declared
+ * `ownerId: 'public'`, so a sovereign shard was unplaceable and no executor was ever handed
+ * one. Placement stopped being the bound on 2026-08-18, when `discoveredDescriptors` started
+ * carrying `certificate.userKey`, and `attestation-ui.e2e.test.ts` then measured what was
+ * actually left: the shard reaches the right machine and is refused there,
+ * `unauthorized: no capability chain supplied`, six times. This is that refusal answered.
+ *
+ * ## Minted before the executors, because a supplier cannot sign
+ *
+ * `CapabilitySupplier` is synchronous and `crypto.subtle.sign` is not, so the node set has to
+ * be settled first. That is why this runs after `discoveredPool` and before the executor list
+ * — and why the discovered executors are **rebuilt** rather than reused: the ones
+ * `discoverCandidates` returned carry the unauthenticated sentinel it was given.
+ *
+ * ## `null` in four situations, and only one of them is a refusal
+ *
+ * No sovereign arm (nothing to authorise), no certificate (this tab enrolled nowhere, so it
+ * has no owner identity at all), no holdable key (a non-secure origin), and finally an
+ * `ownerId` that is not this tab's own — the last being the real one, and `chainsForOwner`
+ * makes that call rather than this function, because it is the only place that can compare
+ * against what the signer can actually produce a signature for.
+ *
+ * Every `null` lands on the same behaviour: dispatch unauthenticated, exactly as before.
+ * A sovereign shard then gets the fabric's own refusal at the far end, which is a true
+ * sentence about the run, and the page keeps saying it.
+ */
+async function sovereignChainsFor(
+  n: BrowserNode,
+  sovereign: { readonly ownerId: string } | undefined,
+  nodeIds: readonly string[],
+): Promise<((nodeId: string) => CapabilitySupplier) | null> {
+  if (sovereign === undefined) return null
+  if (n.certificate === null) return null
+  if (!canHoldVisitorKey()) return null
+  const signer = await subtleUserSigner(await visitorKeyPair())
+  return chainsForOwner(signer, { ownerId: sovereign.ownerId, nodeIds, now: () => Date.now() })
 }
 
 /**
@@ -2168,6 +2213,14 @@ const api: TabApi = {
     // NET-06 — as `runPi`. This surface is the bring-your-own form, so the module a
     // visitor names is what `providers` is asked about.
     const pool = await discoveredPool(n, options.peerIds, moduleCid)
+    // AUTH-03 — minted here rather than inside a supplier, because signing is asynchronous
+    // and `CapabilitySupplier` is not. Over BOTH populations: a discovered candidate is
+    // dispatched to on the same terms as a listed one, and giving one a chain and the other
+    // none would make the sovereign arm's outcome depend on where the executor came from.
+    const chainFor = await sovereignChainsFor(n, options.sovereign, [
+      ...options.peerIds,
+      ...pool.unnamed.map((executor) => executor.nodeId),
+    ])
     const executors = [
       // This tab contributes its own compute when asked. With two tabs that is
       // what makes R=2 possible: one tab submits *and* executes, the other
@@ -2199,11 +2252,22 @@ const api: TabApi = {
       // literal `OWNER_THE_NODES_DECLARE` and asserts it is still there precisely so this
       // arm reddens the day a tab is handed a real owner identity. Wire a chain here
       // *before* that day, not after it.
-      ...options.peerIds.map((id) => new RemoteExecutor(id, n.rpc, 'dispatches-unauthenticated')),
-      // NET-06. See `runPi` above. The bound stated just above applies to these too: a
-      // discovered candidate is dispatched to unauthenticated exactly as a listed one is,
-      // so the sovereign arm's refusal is unchanged by where the executor came from.
-      ...pool.unnamed,
+      ...options.peerIds.map(
+        (id) => new RemoteExecutor(id, n.rpc, chainFor?.(id) ?? 'dispatches-unauthenticated'),
+      ),
+      // NET-06. See `runPi` above. **Rebuilt rather than passed through, as of the day the
+      // chain was wired**: `discoverCandidates` was handed the unauthenticated sentinel, so
+      // the executors it returned carry it. Same id, same rpc, same descriptor correlation —
+      // only the capability differs, and it has to, or a sovereign shard would be authorised
+      // on a listed peer and refused on a discovered one for no reason a reader could find.
+      ...pool.unnamed.map(
+        (executor) =>
+          new RemoteExecutor(
+            executor.nodeId,
+            n.rpc,
+            chainFor?.(executor.nodeId) ?? 'dispatches-unauthenticated',
+          ),
+      ),
     ]
     // DET-03/DATA-08. Rebuilt field by field rather than spread, and that is not style:
     // this object arrived through structured cloning from whatever called

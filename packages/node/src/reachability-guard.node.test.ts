@@ -533,7 +533,19 @@ describe('the guard cannot report clean because it looked at nothing', () => {
         'on 2026-08-18 was 66. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
         `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
         'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
-    ).toBeLessThanOrEqual(66)
+      // **RAISED 66 -> 67 on 2026-08-20, and the raise is one symbol with a named cause.**
+      // AUTH-03's browser half landed: `browser/chainsForOwner` is called only from
+      // `demo/main.ts`'s `sovereignChainsFor`, which this graph reaches solely through the
+      // `window.o2` object literal it cannot trace. It is dispositioned `global-object-hop`
+      // and the hop-tracing arm below reports it flipping, so it has a real production caller.
+      //
+      // **Its two siblings did NOT move this number, and that is the check on this raise
+      // rather than a curiosity.** `core/delegateWith` is called from
+      // `browser/dispatch-chain.ts` and `core/DelegationSignerMismatchError` is thrown inside
+      // `capability.ts` itself, so both already have call sites this metric counts. Three
+      // exports arrived and the number moved by one — if it had moved by three, something
+      // other than the hop would be hiding them.
+    ).toBeLessThanOrEqual(67)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {

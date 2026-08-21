@@ -735,6 +735,33 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
    * case is re-planned to assert `owner-domain` — which is the same discipline
    * `demo-byo.e2e.test.ts` applies to its own `ownerId: 'public'` guard.
    *
+   * ## AMENDED 2026-08-20 — the chain IS wired, and this case did not redden
+   *
+   * `chainsForOwner` landed and `runJob` now mints a chain per node for an owner-pinned
+   * shard. **The sentence above predicted this case would go red. It did not, and the
+   * prediction was right about the mechanism and wrong about which fixture would show it.**
+   *
+   * **Why**: this fixture's two peers are pinned to `OWNER_KEY_HEX`, a key held by the
+   * TEST. A tab can only root a chain at a key it can sign for, and its own key is minted
+   * `extractable: false` in the browser — so `chainsForOwner` compares, finds this owner is
+   * not the tab's, and answers `null` rather than minting a chain that would be refused as
+   * `wrong-root`. The dispatch is unchanged and the refusal below is still the true reading
+   * of this run.
+   *
+   * **And that is not a gap in the wiring — it is a property of the key.** A visitor's owner
+   * key cannot leave the browser, so **no Node process can ever enrol as that owner**, and
+   * the two-Node-peers shape every sovereign fixture in this repository uses is unavailable
+   * for a tab's owner. Measured, with its control:
+   * `.planning/consults/2026-08-20-a-tab-owner-can-only-have-tab-nodes.md` — two tabs of one
+   * profile share the key (`visitor:6976e894…` twice) and two profiles do not
+   * (`visitor:27b260b7…`).
+   *
+   * **So this case keeps its assertions and keeps its subject**, which was always the
+   * refusal rather than the label. The case that will read `owner-domain` off a page is a
+   * DIFFERENT one with a determined shape: two pages in ONE `browser.newContext()`, both
+   * enrolled through the visitor path, which makes them two nodes of one owner because
+   * `sovereignFor: [certificate.userKey]` falls out of enrolment. It is not written yet.
+   *
    * ## One reading from the mutation, recorded because it was not expected
    *
    * The guard was proved by planting `canExecuteSovereign: false` on both peers, which
