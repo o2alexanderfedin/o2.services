@@ -3,7 +3,7 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { MemoryBlockstore, SignedNameResolver, toHex } from '@o2/core'
 import { describe, expect, it } from 'vitest'
 import { compileKernel } from '../scripts/compile-kernel.mjs'
-import { KERNEL_TRUST_ANCHOR, PI_NAME, PI_RECORD } from './kernel-record.ts'
+import { KERNEL_DELEGATION, KERNEL_TRUST_ANCHOR, PI_NAME, PI_RECORD } from './kernel-record.ts'
 import { PI_WASM_BASE64 } from './pi-bytes.ts'
 import { PI_SCALE, piKernelBytes } from './pi.ts'
 
@@ -142,6 +142,13 @@ describe('the pi record names the committed bytes, under the one anchor', () => 
   })
 
   it('shares its anchor with the colouring record, which is what makes one --trust-anchor enough', () => {
-    expect(PI_RECORD.signer).toBe(KERNEL_TRUST_ANCHOR)
+    // Task #4 half 2: the shared thing is now the DELEGATION, not the signer-as-anchor. One
+    // `--trust-anchor` is still enough for all three, and for a slightly stronger reason than
+    // before — they chain to one root through one delegation, so a second signing key could be
+    // introduced without re-pinning anything, and these records would still be the only ones
+    // that verify.
+    expect(PI_RECORD.delegation).toEqual(KERNEL_DELEGATION)
+    expect(PI_RECORD.signer).toBe(KERNEL_DELEGATION.delegate)
+    expect(KERNEL_DELEGATION.root).toBe(KERNEL_TRUST_ANCHOR)
   })
 })

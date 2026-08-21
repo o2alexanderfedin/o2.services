@@ -3,7 +3,7 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { MemoryBlockstore, SignedNameResolver, toHex } from '@o2/core'
 import { describe, expect, it } from 'vitest'
 import { compileKernel } from '../scripts/compile-kernel.mjs'
-import { KERNEL_TRUST_ANCHOR, PRIMES_NAME, PRIMES_RECORD } from './kernel-record.ts'
+import { KERNEL_DELEGATION, KERNEL_TRUST_ANCHOR, PRIMES_NAME, PRIMES_RECORD } from './kernel-record.ts'
 import { PRIMES_WASM_BASE64 } from './primes-bytes.ts'
 import { primesKernelBytes } from './primes.ts'
 
@@ -120,6 +120,13 @@ describe('the primes record names the committed bytes, under the one anchor', ()
   })
 
   it('shares its anchor with the other two records, which is what makes one --trust-anchor enough', () => {
-    expect(PRIMES_RECORD.signer).toBe(KERNEL_TRUST_ANCHOR)
+    // Task #4 half 2: the shared thing is now the DELEGATION, not the signer-as-anchor. One
+    // `--trust-anchor` is still enough for all three, and for a slightly stronger reason than
+    // before — they chain to one root through one delegation, so a second signing key could be
+    // introduced without re-pinning anything, and these records would still be the only ones
+    // that verify.
+    expect(PRIMES_RECORD.delegation).toEqual(KERNEL_DELEGATION)
+    expect(PRIMES_RECORD.signer).toBe(KERNEL_DELEGATION.delegate)
+    expect(KERNEL_DELEGATION.root).toBe(KERNEL_TRUST_ANCHOR)
   })
 })

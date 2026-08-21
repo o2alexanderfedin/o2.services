@@ -556,7 +556,13 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // **The check on this raise is the same one the raise above used.** `enrolledUserKey` is
       // the only new barrel export in that change; `main.ts`'s wiring of it is a call, not an
       // export. One export arrived and the number moved by one.
-    ).toBeLessThanOrEqual(68)
+      // 68 -> 69 on 2026-08-21. ONE export arrived — `core/signNameDelegation`, the mint half
+      // of task #4's offline-root chain — and the number moved by one, which is the only shape
+      // of raise this ceiling accepts. It is named in `OPEN_FINDINGS` above with the reason it
+      // has no runtime caller and the concrete change that would give it one, so the register
+      // and not this number is what holds it: a different unreachable export cannot take its
+      // place under the same bound.
+    ).toBeLessThanOrEqual(69)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
@@ -1307,6 +1313,29 @@ interface OpenFinding {
  * written down, and symbol #25 arrives red and named instead of arriving under a bound.
  */
 const OPEN_FINDINGS: readonly OpenFinding[] = [
+  {
+    key: 'core/signNameDelegation',
+    declaredIn: 'packages/core/src/naming.ts',
+    // `none`, not `unreachable-only`, and the walk had to say so — this row claimed the latter
+    // first because `sign-kernel.ts` calls it in the source, and the graph corrected it: build
+    // scripts under `packages/demo/scripts/` are outside the walked corpus entirely, so there is
+    // no stranded caller to find. The distinction matters because the two need different work —
+    // `unreachable-only` is wiring a caller that already exists, `none` is writing one.
+    callers: 'none',
+    reason:
+      'The MINT side of the offline-root chain, added 2026-08-21 for task #4 half 2. The graph ' +
+      'sees NO caller: `packages/demo/scripts/sign-kernel.ts` calls it, but build scripts are ' +
+      'outside the walked corpus, and that script is deliberately not an entry point — which ' +
+      'is the shape the feature is FOR: a root ' +
+      'whose private half never touches a publishing machine is signed somewhere this ' +
+      'repository does not run. The VERIFY side is fully reached: `SignedNameResolver.accept` ' +
+      'walks the delegation on every record the demo dispatches, and six refusals are ' +
+      'plant-proofed in `naming.test.ts`. So this is not a capability nobody wired — it is the ' +
+      'half that by construction has no runtime caller. The nameable wiring that would close ' +
+      'it: `tools/aot/cli.ts` gaining a mint mode, which today it cannot have without relaxing ' +
+      "`parseAotArgs`'s positional requirement (it refuses `no-input` before any flag is read), " +
+      'and nobody has decided to do that.',
+  },
   // ---------------------------------------------------------------------------------------
   // THIRTEEN ROWS LEFT THIS REGISTER ON 2026-08-18, and the three routes are not equivalent.
   // Each is named here rather than deleted silently, because a register whose history is

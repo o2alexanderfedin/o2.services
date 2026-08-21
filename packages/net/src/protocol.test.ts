@@ -6,6 +6,7 @@ import {
   delegate,
   requestEnrollment,
   signName,
+  signNameDelegation,
   signResult,
   toHex,
 } from '@o2/core'
@@ -116,6 +117,57 @@ describe('DET-03 — a signed module record crosses the wire and still verifies'
     // cannot, because the signature is over the canonical encoding of five of these
     // six fields.
     expect(new SignedNameResolver([publisher.pub]).accept(carried, NOW).ok).toBe(true)
+  })
+
+  it('carries a DELEGATED record across the wire so it still verifies against the root', () => {
+    // Task #4 half 2, and this test exists because the codec was wrong. `nameRecordToValue`
+    // listed six fields by hand and `payloadOf` hashes eight, so a record signed by a delegate
+    // arrived with its warrant gone. The receiver then recomputed a payload the publisher never
+    // signed and reported `bad-signature` — a TRANSPORT bug wearing a forgery's name, which is
+    // the worst possible place for one: unfalsifiable from the receiving end, and it looks like
+    // the thing the whole provenance path exists to detect.
+    //
+    // The demo's three kernel records are all delegated now, so this is the live path.
+    const root = { priv: new Uint8Array(32).fill(31) }
+    const rootPub = toHex(ed25519.getPublicKey(root.priv))
+    const delegateKey = { priv: new Uint8Array(32).fill(32) }
+    const warrant = signNameDelegation(root.priv, {
+      delegate: toHex(ed25519.getPublicKey(delegateKey.priv)),
+      expiresAt: record.expiresAt,
+    })
+    const delegated = signName(delegateKey.priv, {
+      name: 'delegated-module',
+      cid: record.cid,
+      version: 1,
+      expiresAt: record.expiresAt,
+      delegation: warrant,
+    })
+
+    const parsed = parseRequest(
+      encodeRequest({
+        kind: 'exec',
+        task: {
+          moduleCid,
+          inputCid: moduleCid,
+          partitionIndex: 0,
+          partitionCount: 1,
+          label: 'public',
+          moduleRecord: delegated,
+        },
+      }),
+    )
+
+    expect(parsed).not.toBeNull()
+    if (parsed === null || parsed.kind !== 'exec') return
+    const carried = parsed.task.moduleRecord
+    expect(carried).toBeDefined()
+    if (carried === undefined) return
+
+    expect(carried.delegation).toEqual(warrant)
+    // Re-verification against the ROOT, which the resolver has never seen sign anything. Field
+    // equality above would pass on a delegation whose `expiresAt` had been widened by a JSON
+    // round trip; only accepting it proves the bytes the root signed survived intact.
+    expect(new SignedNameResolver([rootPub]).accept(carried, NOW).ok).toBe(true)
   })
 
   it('encodes no moduleRecord key at all for a task that has none', () => {

@@ -68,24 +68,48 @@
  *
  * The flag is Chromium's, and several fixtures launch from a `BrowserType` table that also
  * holds firefox and webkit. Passing a Chromium switch to Firefox's command line is not a
- * no-op, so it is applied by name. Firefox's equivalent lever is the
- * `media.peerconnection.ice.obfuscate_host_addresses` pref via `firefoxUserPrefs`, and
- * **it is deliberately not set here — because it was measured and refused.** The same
- * bare-`RTCPeerConnection` probe, run cross-engine at 02:35 on 2026-08-21 with
- * obfuscation left on:
+ * no-op, so it is applied by name. Firefox's lever is a pref rather than a switch.
  *
- *     webkit <-> firefox   opened=true   1134 ms
+ * ## Firefox: refused at 02:35, applied at 04:45, on the SAME DAY — and that is the point
  *
- * Both sides offered `.local` host candidates, both resolved them, and the channel
- * opened. Setting the pref would have applied a fix to a mechanism that was never
- * broken. The fault is specific to **Chromium's** ephemeral names on this host, not to
- * the host's mDNS in general.
+ * This section read *"deliberately not set here — because it was measured and refused"*,
+ * citing a cross-engine probe at 02:35 on 2026-08-21 in which `webkit <-> firefox` opened in
+ * 1134 ms with obfuscation left on. **That measurement was correct and it is now false.**
+ * Two hours later the same bare-`RTCPeerConnection` probe, firefox to firefox, no repo code:
+ *
+ * | `media.peerconnection.ice.obfuscate_host_addresses` | candidates offered | result |
+ * |---|---|---|
+ * | `true` (Firefox default) | `<uuid>.local` host + srflx `99.142.76.66` | `failed` after 30 s |
+ * | `false` (set here) | host `10.144.82.249` + srflx | **connected in 87 ms** |
+ *
+ * Nothing in this repository changed between those two readings. The host did — which is
+ * exactly what the top of this file already claims about Chromium (*"resolves those names in
+ * some windows and not others"*) and what `2026-08-19-e2e-webrtc-dial-red.md` spent a day
+ * failing to attribute. Firefox was never immune; it was measured during a good window.
+ *
+ * **So the earlier refusal is not being overturned as a mistake — it is being overturned by a
+ * later measurement of a variable the first reading could not see.** It is left described
+ * above rather than deleted, because a reader who finds only the current answer cannot tell
+ * that this host's mDNS is intermittent, and that is the single most useful fact here.
+ *
+ * The cost stated for Chromium applies identically to Firefox: same-LAN production dials
+ * still depend on mDNS candidate resolution, and after this change nothing in the gate
+ * exercises it on either engine.
+ *
+ * **Webkit is left alone.** It was not measured failing, Playwright's webkit exposes no
+ * equivalent pref through `launch`, and applying a fix to an engine with no demonstrated
+ * fault is what this file just got caught doing in the other direction.
  */
 
 import type { Browser, BrowserType, LaunchOptions } from 'playwright'
 
 /** Chromium's switch for offering the real host ICE candidate instead of a `.local` name. */
 export const SHOW_LOCAL_ICE_CANDIDATES = '--disable-features=WebRtcHideLocalIpsWithMdns'
+
+/** Firefox's equivalent, as a pref rather than a command-line switch. */
+export const FIREFOX_SHOW_LOCAL_ICE_CANDIDATES: Readonly<Record<string, boolean>> = {
+  'media.peerconnection.ice.obfuscate_host_addresses': false,
+}
 
 /**
  * Launch a browser for an e2e fixture, with the flag applied to chromium and to nothing else.
@@ -97,8 +121,18 @@ export async function launchFixtureBrowser(
   type: BrowserType,
   options: LaunchOptions = {},
 ): Promise<Browser> {
-  if (type.name() !== 'chromium') return type.launch(options)
-  return type.launch({ ...options, args: [SHOW_LOCAL_ICE_CANDIDATES, ...(options.args ?? [])] })
+  if (type.name() === 'chromium') {
+    return type.launch({ ...options, args: [SHOW_LOCAL_ICE_CANDIDATES, ...(options.args ?? [])] })
+  }
+  if (type.name() === 'firefox') {
+    // Merged under the caller's prefs rather than over them, so a fixture that deliberately
+    // sets this pref for its own reasons still wins — the same courtesy `args` gets above.
+    return type.launch({
+      ...options,
+      firefoxUserPrefs: { ...FIREFOX_SHOW_LOCAL_ICE_CANDIDATES, ...(options.firefoxUserPrefs ?? {}) },
+    })
+  }
+  return type.launch(options)
 }
 
 /**
