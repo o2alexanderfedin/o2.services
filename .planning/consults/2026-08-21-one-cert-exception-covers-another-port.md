@@ -77,3 +77,60 @@ connects.
 Nothing in the tree. This is a reading, not a build. The AutoTLS arm still requires opening a
 router port (`@libp2p/upnp-nat`) plus NAT hairpinning for a same-LAN phone, and that remains
 an outward-facing change for the owner to authorise rather than an agent to make.
+
+---
+
+## CORRECTION 2026-08-21 — "nothing available here can answer for iOS" was too strong
+
+The section above closes with *"Playwright cannot drive real Safari at all, on the desktop or
+on a device. Nothing available here can answer for iOS."* The first sentence is true. **The
+second does not follow from it, and it was written as though it did** — a limit of one tool
+restated as a limit of the host. That is the same shape as the stale claims of absence
+corrected in task #41, and it survived here for the same reason: nobody asked what a
+*different* tool could do.
+
+**`safaridriver` ships inside Safari and speaks W3C WebDriver over plain HTTP.** It needs no
+Playwright, no npm dependency and no install — Node's `fetch` is a sufficient client. Measured
+on this host:
+
+    /System/Cryptexes/App/usr/bin/safaridriver -p 4499
+    curl -s http://127.0.0.1:4499/status
+    {"value":{"message":"","ready":true}}
+
+**The driver is already enabled here — `ready: true`, no `sudo` needed.** So real Safari, which
+is real WebKit with Safari's real certificate-exception UI, is one step from being drivable on
+this machine, and the earlier claim that nothing here could speak to WebKit was wrong.
+
+### The actual wall, which is one checkbox and not a device
+
+A session request against real Safari returns:
+
+    session not created: You must enable 'Allow remote automation' in the
+    Developer section of Safari Settings to control Safari via WebDriver.
+
+That toggle cannot be set from a shell. Safari's preference container is TCC-protected:
+
+    ls ~/Library/Containers/com.apple.Safari/Data/Library/Preferences/
+    ls: ... : Operation not permitted
+
+So `defaults write` cannot reach it, and the setting is a security-relevant permission on the
+owner's own browser — not something to flip unattended even if it were writable. The probe is
+written and waiting at `certprobe/safari-probe.mjs`; it reuses the same two certificates and the
+same three-port design, and deliberately sets `acceptInsecureCerts: false`, which is Safari's
+equivalent of `ignoreHTTPSErrors` and would destroy the measurement exactly as that flag would.
+
+**Owner action, roughly ten seconds:** Safari → Settings → Advanced → "Show features for web
+developers", then Develop → "Allow Remote Automation". Then re-run the probe.
+
+### What it would and would not settle — stated before the reading, not after
+
+macOS Safari is **not** iOS Safari, and this correction does not claim otherwise. What it would
+answer is the *engine* half of the deciding question — whether WebKit's click-through exception
+is keyed per host or per host **and port**, and whether it carries from an `https://` navigation
+to a `wss://` connection. Chrome answered yes to both. WebKit is the family the phone in this
+task's scenario belongs to, and its answer is currently **unknown rather than unobtainable**.
+
+What would still be untested afterwards: iOS's own trust UI, which differs from macOS's in how
+exceptions are stored and scoped. That half still needs a phone or a Simulator. But it is a
+smaller remainder than "nothing here can answer", and it is worth having the desktop reading
+before spending an owner's ~10 GB Xcode install on the mobile one.

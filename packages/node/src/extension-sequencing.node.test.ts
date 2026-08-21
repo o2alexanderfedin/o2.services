@@ -46,9 +46,35 @@ import { stripComments } from './strip-comments.ts'
  * one. Three checks below keep the instrument honest: the registry declaration must be
  * *found* (a rename would otherwise make the scan return an empty set forever), the
  * producer scan's corpus must be non-empty, and every detector is exercised against
- * synthetic source that does the thing it looks for. That last one is the answer to *"a
- * proof that cannot fail is not a proof"* for a guard whose live population is empty by
- * design.
+ * synthetic source that does the thing it looks for.
+ *
+ * ## Watched failing end-to-end, 2026-08-21 — and the synthetic self-tests did not cover this
+ *
+ * The detector self-tests run against **strings**. They establish that the detectors fire on
+ * source that produces an extension; they do not establish that the *walk* reaches a real
+ * file, that `isProductionPath` admits it, or that the assertion at the end actually
+ * reddens. Those are three separate links, and a guard can pass all its unit checks with
+ * any one of them broken — which is the exact shape of a proof that cannot fail.
+ *
+ * So it was planted. `packages/browser/src/browser-node.ts:827` was changed from
+ * `extensions: []` to `extensions: [{ id: 'plant-probe-o2-seq-guard' }]` — a real producer,
+ * in a real production file, in the corpus this file walks. Observed:
+ *
+ *     GUARD_EXIT_UNDER_PLANT=1
+ *     × requires a production caller for `understands` once anything produces an extension
+ *     - the reader is wired, or nothing yet needs it
+ *     + an extension producer exists and `understands` has no production caller.
+ *     +   UNDERSTOOD_EXTENSIONS: (empty)
+ *     +   producers: packages/browser/src/browser-node.ts
+ *
+ * It named the producing file by path and printed the remedy. The plant was then reversed by
+ * the surgical inverse of that one line, `cmp` against a snapshot taken immediately before
+ * planting returned 0, and the guard ran green again at `GUARD_EXIT_RESTORED=0`, 4 passed.
+ *
+ * **This is what licenses the owner's deferral of `understands` to stay open rather than be
+ * treated as a risk.** The hazard the deferral creates is fleet-wide and silent at the
+ * producing node; the only thing standing between it and a commit is this file, and this
+ * file has now been seen to fail on the case it exists for.
  */
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
