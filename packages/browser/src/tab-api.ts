@@ -33,6 +33,25 @@ export interface TabNameRecord {
   readonly expiresAt: number
   readonly signer: string
   readonly signature: string
+  /**
+   * The warrant, when {@link signer} is a delegate rather than a pinned anchor — task #4.
+   *
+   * **Optional here and load-bearing when present.** `payloadOf` in `@o2/core`'s `naming.ts`
+   * hashes this field, so a record that carries one and crosses this boundary without it is
+   * not the record that was signed — and the far side reports `untrusted-signer`, naming a
+   * key nobody pinned, which reads exactly like an attack. The demo's three kernel records
+   * are all delegated, so this is the live path and not a provision for later.
+   *
+   * Plain fields rather than `NameDelegation` because this interface is what survives
+   * structured cloning across `page.evaluate`, and every value in it must be a clonable
+   * primitive for the same reason {@link cid} crosses as a string.
+   */
+  readonly delegation?: {
+    readonly root: string
+    readonly delegate: string
+    readonly expiresAt: number
+    readonly signature: string
+  }
 }
 
 /** What a completed job looks like from outside the tab. */
