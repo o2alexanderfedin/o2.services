@@ -521,9 +521,17 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
    * why? Both are on `bin/agent.ts`'s own handshake and stderr, neither is derived from the
    * relay's advertisement, and the relay's store is not consulted here at all.
    *
-   * Of the two, **the circuit address is load-bearing** and the stderr line is the
-   * operator-facing consequence. A process can be told anything; whether it holds a relayed
-   * address is a fact about the fabric.
+   * Of the two, **the stderr grant/refusal line is load-bearing on the admitted arm** and
+   * the circuit address carries the absences. That is the reverse of what this docblock said
+   * until task #53, and the reversal is forced rather than stylistic: the circuit address on
+   * the admitted arm comes from a handshake snapshot frozen before the grant necessarily
+   * exists, so it could report absence for a member the relay had admitted. The absences
+   * below are still read off `relays`, where a *stale* snapshot can only under-report — and
+   * they are now paired with a live line that can contradict them.
+   *
+   * **The ordering lesson recorded below survives this change.** With the gate planted open
+   * the member is still granted promptly, so its wait returns fast and the stranger's
+   * assertions still fail in seconds rather than at a timeout.
    */
   it('clause 1 — a spawned agent with no certificate holds no circuit through a gated relay, while an enrolled one does', async () => {
     const { relay, stranger, member } = await standUp()
@@ -531,7 +539,25 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
     // The admitted arm, asserted FIRST. Every absence below is then read against a relay this
     // run has already watched grant a circuit, which is what makes the absence attributable to
     // the certificate rather than to a relay that grants nothing to anybody.
-    expect(circuitsThrough(member, relay.peerId), `member: ${member.stderr().slice(-400)}`).toHaveLength(1)
+    //
+    // **Read from the live grant line, NOT from `member.relays` — task #53.** The handshake
+    // carries a snapshot taken at spawn and never updated (see `spawnAgent`), and the agent
+    // prints it after a settle loop bounded by `RELAY_SETTLE_BUDGET_MS`. libp2p's circuit
+    // relay makes exactly one reservation attempt ever, so a grant that lands after that
+    // budget is absent from the snapshot **permanently**. `circuitsThrough(member, …)` was
+    // therefore measuring when the grant arrived relative to a 30 s budget, not whether the
+    // relay admitted the member — and it failed once, on a hot host, for exactly that reason.
+    //
+    // The grant line is not the weaker reading of the two. It is the relay's own decision,
+    // reported by the process that received it, at the moment it arrived. A snapshot cannot
+    // be waited for; this can.
+    await until(
+      () => member.stderr().includes(`relay reservation granted: ${relay.peerId}`),
+      RESERVATION_BUDGET_MS,
+      'the enrolled agent to name its grant on stderr',
+      () => ({ stderr: member.stderr(), snapshot: member.relays }),
+    )
+    expect(member.stderr()).toContain(`agent.ts: relay reservation granted: ${relay.peerId}`)
 
     // **The load-bearing reading, and it is deliberately FIRST.**
     //
@@ -578,6 +604,17 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
       'the refused agent staying alive and saying nothing further about relays',
       () => ({ exitCode: stranger.child.exitCode, stderr: stranger.stderr().slice(refusalsAt) }),
     )
+
+    // **Task #53, and the placement is the point.** `stranger.relays === []` above reads the
+    // handshake snapshot, and a snapshot's silence is not evidence: a grant that landed after
+    // it was taken is invisible there, so that clause would pass *because* the contradicting
+    // evidence arrived late. This line reads the live channel instead.
+    //
+    // Asserted HERE rather than beside the snapshot, because there it would be close to
+    // vacuous — a late grant has not arrived yet at refusal time. After the window above, it
+    // has had `ABSENCE_WINDOW_MS` to show up. The window itself already reddens on any new
+    // stderr byte, so this is the assertion that *names* what a failure would mean.
+    expect(stranger.stderr()).not.toContain('relay reservation granted')
     expect(directAddrOf(stranger)).toContain('/tcp/')
     expect(stranger.child.exitCode).toBeNull()
   }, PROCESS_TEST_TIMEOUT)
@@ -871,5 +908,11 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
     expect(atGate).not.toContain(stranger.peerId)
     expect(atOpenProvider).not.toContain(stranger.peerId)
     expect(stranger.relays).toStrictEqual([])
+
+    // Task #53's silent instance. The two `advertisedBy` readings above are live and are what
+    // carry this clause; `stranger.relays === []` is a frozen snapshot and, alone, could be
+    // satisfied by a grant that simply arrived after it was taken. The stranger's own process
+    // is asked the same question on the channel that cannot go stale.
+    expect(stranger.stderr()).not.toContain('relay reservation granted')
   }, PROCESS_TEST_TIMEOUT)
 })

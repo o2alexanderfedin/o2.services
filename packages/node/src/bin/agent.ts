@@ -1238,6 +1238,31 @@ watcher?.onFailure((failure) => {
 })
 
 /**
+ * The same subscription for the **granted** case, and it is here rather than after the
+ * settle loop for the reason the docblock above spent three weeks learning.
+ *
+ * **What this exists to fix.** Assertions about which relays a node holds have been
+ * reading `agent.relays` — a snapshot taken once, at handshake time. libp2p's circuit
+ * relay makes *exactly one attempt, ever*, and the settle loop below exits on the first
+ * of four conditions, so a reservation granted after that snapshot is invisible to it
+ * permanently. On the admitted arm that reads as a node holding no relay when it holds
+ * one; on the stranger arm the same staleness has the opposite sign, and a clause
+ * asserting `relays === []` passes *because* the evidence arrived late. One defect, one
+ * loud instance and two silent ones.
+ *
+ * A line per grant, written **as each arrives** rather than once, is the live reading a
+ * snapshot cannot be: a reader can wait for the relay it cares about instead of hoping
+ * it had already landed.
+ *
+ * **stdout is untouched.** The handshake line stays byte-identical, because the bench
+ * drivers parse BENCH-06/07 off it — so nothing that reads this process needs revisiting.
+ * Grants go to stderr, beside the refusals, which is where a reader already looks.
+ */
+watcher?.onGrant((grant) => {
+  process.stderr.write(`agent.ts: relay reservation granted: ${grant.relay}\n`)
+})
+
+/**
  * The addresses this process asks libp2p to bind, stated as one expression because the
  * three cases have to be readable together.
  *
@@ -1599,11 +1624,20 @@ process.stdout.write(
 /**
  * NET-05's whole point, on stderr rather than on the handshake line.
  *
- * **Three outcomes, three different words, and the distinction is the deliverable.** A
+ * **Four outcomes, four different words, and the distinction is the deliverable.** A
  * relay that granted, a relay that was reached and refused for want of capacity, and a
  * relay that was never reached at all demand different responses — carry on, try another
  * relay or wait, and fix the address. Collapsing any two of them into "no circuit address
  * appeared" is the silence this requirement exists to replace.
+ *
+ * **The fourth arrived with task #53, and it exists because the third could state a
+ * falsehood.** "No relay granted a reservation yet" was derived from `circuitAddrs` being
+ * empty — but a grant and the circuit address it produces are two events, and the settle
+ * loop above is bounded. A node whose grant landed just after that bound printed *no relay
+ * granted* about a relay that had, in fact, granted. That is an absence claim made from a
+ * reading that cannot see the thing it denies, which is the shape this repository has
+ * already had to correct on the demo's refusals line. The watcher observes grants directly,
+ * so the two cases are now separated by name rather than merged into the weaker one.
  *
  * stderr, because stdout's first line is a machine-read handshake and every parent in this
  * repository parses only up to its first newline. A second stdout line would be tolerated
@@ -1618,7 +1652,12 @@ if (watcher !== undefined) {
     process.stderr.write(`agent.ts: relay ${failure.address} unreachable: ${failure.reason}\n`)
   }
   if (node.circuitAddrs.length === 0 && node.relayFailures.length === 0) {
-    process.stderr.write(`agent.ts: no relay granted a reservation yet; still serving directly\n`)
+    process.stderr.write(
+      watcher.grants.length === 0
+        ? `agent.ts: no relay granted a reservation yet; still serving directly\n`
+        : `agent.ts: a relay granted a reservation but no circuit address had appeared yet; ` +
+          `still serving directly\n`,
+    )
   }
 }
 
