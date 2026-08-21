@@ -25,7 +25,7 @@ export { BrowserNode } from './browser-node.ts'
 // already holds. Exported because the *caller* has to apply it: the set is fixed before
 // `resolveCertificate` runs, so `BrowserNode.start` cannot read it for itself. See the
 // function's own docblock for the ordering argument.
-export { enrolledIssuer } from './browser-node.ts'
+export { enrolledIssuer, enrolledUserKey } from './browser-node.ts'
 export type { BrowserNodeOptions } from './browser-node.ts'
 export type {
   TabActivity,

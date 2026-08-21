@@ -748,6 +748,50 @@ export async function enrolledIssuer(blockstoreName?: string): Promise<PublicKey
 }
 
 /**
+ * The **user** this origin's node enrolled as, or `null` — AUTH-03's browser tier.
+ *
+ * {@link enrolledIssuer}'s sibling, reading the other field of the same stored certificate,
+ * and every word of that function's ordering argument applies here unchanged: the
+ * certificate is resolved *inside* `BrowserNode.start`, so a caller composing
+ * `BrowserNodeOptions` cannot derive anything from the one this start is about to obtain.
+ * It reads the certificate an **earlier** start stored.
+ *
+ * ## What it is for, and why it is not a configuration parameter
+ *
+ * A tab enrolled with its own key **is a node of that user's owner domain** — it is the
+ * person's own device, holding the person's own key. `BrowserNodeOptions.sovereignty`
+ * exists to say so, and `TabApi.start` deliberately carries no parameter for it
+ * (`tab-api.ts:816`): an origin that was found rather than configured must not get to
+ * declare whose sovereign work this device will run. Reading it back out of *this origin's
+ * own* stored certificate is the same move `enrolledIssuer` makes and is not configuration
+ * arriving from anywhere.
+ *
+ * ## Clearing a tab for its own owner opens nothing, and that is worth stating
+ *
+ * `canExecuteSovereign` decides whether the executor's sovereignty guard will *consider* a
+ * task; it does not decide who may send one. `authorizeCapability` still requires a
+ * delegation chain rooted at this key and addressed to this node, and the private half of a
+ * visitor's key is minted `extractable: false` and never leaves the browser profile that
+ * made it. So the only parties who can use the clearance are the owner's own tabs — which
+ * is precisely the set `owner-domain` is a claim about.
+ *
+ * **The one-start delay is inherited and is the same delay.** A first visit enrols and is
+ * cleared for nobody; from the next start onwards the tab is an owner node of its own
+ * owner. `enrolledIssuer` has carried that shape since Phase 22 and states why it is right
+ * rather than merely tolerable.
+ */
+export async function enrolledUserKey(blockstoreName?: string): Promise<PublicKeyHex | null> {
+  const store = await IdbIdentityStore.open(
+    identityStoreName(blockstoreName ?? DEFAULT_BLOCKSTORE_NAME),
+  )
+  try {
+    return (await store.loadCertificate())?.userKey ?? null
+  } finally {
+    store.close()
+  }
+}
+
+/**
  * What this node answers a peer's `records` and `providers` requests with — AUTH-01,
  * SCHED-01.
  *

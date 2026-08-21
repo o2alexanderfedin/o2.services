@@ -164,12 +164,29 @@ and geometry obligation this document sets. **Nine steps, all explicit `px`, two
 **Two weights, and that part of the original table was right**: `400` on `body` and
 `var(--font-heading-weight)` = `600` everywhere else. `demo.css` declares no third weight anywhere.
 
-> **One thing here is an accident rather than a decision, and it is NOT ratified by this
-> amendment.** `.table th` renders at weight **700**, measured. That is the user agent's own
-> `th { font-weight: bold }`, never overridden — the stylesheet does not ask for it. So the page
-> shows three weights while its stylesheet declares two. **This is a one-line fix (`.table th`
-> gets an explicit weight) rather than something to write into a contract**, and it is left open
-> deliberately rather than documented into correctness. §12 records it.
+> **CLOSED 2026-08-20 — fixed, and the fix was two lines rather than one.** This block read:
+>
+> > *One thing here is an accident rather than a decision, and it is NOT ratified by this
+> > amendment. `.table th` renders at weight **700**, measured. That is the user agent's own
+> > `th { font-weight: bold }`, never overridden — the stylesheet does not ask for it. So the
+> > page shows three weights while its stylesheet declares two. **This is a one-line fix
+> > (`.table th` gets an explicit weight) rather than something to write into a contract**, and
+> > it is left open deliberately rather than documented into correctness. §12 records it.*
+>
+> `.table th` now declares `font-weight: var(--font-heading-weight)` and renders **600**,
+> measured across all six surfaces in chromium.
+>
+> **The one-line estimate was wrong, and only a measurement could have caught it.** With the
+> header rule in place the page still rendered one element at 700 — a `<strong>` inside
+> `#explain`, under the identical cause: `strong { font-weight: bold }` in the user agent
+> stylesheet, never overridden. So `strong, b` now declares the same custom property. Reading after both
+> rules, counting every visible element carrying text: **400 × 461, 600 × 52, and nothing
+> else.** The page and the contract agree, and neither says 700.
+>
+> Recorded because the shape recurs: a rule expressed as *"the stylesheet declares two"* is a
+> claim about the **stylesheet** and says nothing about what a **user agent** adds to it. The
+> only instrument that can tell the two apart is a computed-style reading of the rendered page,
+> which is what found both.
 
 **Figure values** render at Subhead size in `--font-heading` weight 600, and **machine values**
 (peer ids, CIDs, multiaddrs, counts inside tables, both text views) in `--font-mono` at Secondary
@@ -1184,10 +1201,17 @@ and closed by owner ruling — *amend the contract to the page* — because the 
 deliberate, internally consistent, and meets every contrast and geometry obligation this document
 sets, while the tabled scale was written before the page existed.
 
-**One defect is carried out of this sign-off rather than into it**: `.table th` at weight `700`, a
-user-agent default the stylesheet never overrides. It is the only thing the pass found that the
-page gets wrong rather than merely differently, it is one line, and it is left open on purpose so
-that signing this section does not quietly absorb it.
+**One defect was carried out of this sign-off rather than into it, and it is now CLOSED — 2026-08-20.**
+It read: *"`.table th` at weight `700`, a user-agent default the stylesheet never overrides. It is
+the only thing the pass found that the page gets wrong rather than merely differently, it is one
+line, and it is left open on purpose so that signing this section does not quietly absorb it."*
+
+Carrying it out was the right call and closing it later cost nothing — but **the estimate in it was
+wrong, and the sign-off could not have known.** `.table th` was one line; the page still rendered
+700 afterwards, on a `<strong>` in `#explain` under the identical user-agent cause. Both are now
+declared at `var(--font-heading-weight)`, and the reading across all six surfaces is **400 × 461
+and 600 × 52, with no third weight** — the number this section asked for, taken rather than
+asserted. §4.2 carries the working.
 
 **And two of this pass's own findings were retracted before the sign-off.** Both dimensions were
 first written up as an `em`-relative scale derived from a 15px `body`. That was wrong — the sizes
