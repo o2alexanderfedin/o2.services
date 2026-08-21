@@ -1068,13 +1068,46 @@ second device*, never *failed*; say *ran out of steps*, never *no solution exist
 
 ## 12. Checker sign-off
 
-- [ ] Dimension 1 Copywriting — §11, plus every `data-absence` in §4
-- [ ] Dimension 2 Visuals — §1, §6.4
-- [ ] Dimension 3 Colour — §1.5, §7.2 (measured ratios)
-- [ ] Dimension 4 Typography — §1.3
-- [ ] Dimension 5 Spacing — §1.4
-- [ ] Dimension 6 Registry safety — not applicable: no component registry, no third-party
-      component source, no CDN. §1.1 constraint 3 is the equivalent obligation and §9's P10 is
-      its check.
+**Pass run 2026-08-20** on the live page — real dev server, Chromium, consent pressed, computed
+styles and composited contrast read off the DOM, widths on fresh loads. Full readings and their
+attribution: [`27-CHECKER-2026-08-20.md`](./27-CHECKER-2026-08-20.md).
 
-**Approval:** pending
+- [x] Dimension 1 Copywriting — §11, plus every `data-absence` in §4
+      — **PASS.** Every fixed string verbatim; `Stop` unsoftened; Fabric state offers no primary
+      control; **74 absences rendered, 0 containing a digit**.
+- [x] Dimension 2 Visuals — §1, §6.4
+      — **PASS.** 1240px column on all five `.wrap` holders; `.cards` auto-fit at gap 24px; nav
+      `sticky`/`top: 0`, not fixed; table wrapped; `scrollWidth == clientWidth` at 360/390/768 and
+      **321 vs 320 at 320px with zero uncontained elements** — inside B1's stated 1px tolerance,
+      and `demo-viewport.e2e.test.ts` was re-run for this pass at EXIT 0 / 7 tests. **0 external
+      network requests.**
+- [x] Dimension 3 Colour — §1.5, §7.2 (measured ratios)
+      — **PASS.** Every §1.2 property exact; `color-scheme: light`; **73 text runs measured, 0
+      contrast failures**; `--color-accent` used as a text colour on **0** runs; §7.2's accent-700
+      row corroborated at **5.78:1** against its stated 5.79.
+- [ ] Dimension 4 Typography — §1.3
+      — **DOES NOT PASS as written, and the divergence is specific rather than wholesale.** The
+      Display and Heading sizes both exist and are correct (`h2` is the clamp, `h3` is 20px). What
+      diverges: **`.card-title` overrides `h3` to 17px for the exact role Heading names**; `h1`
+      (`clamp(22px, 3.2vw, 28px)`) and `h4`/`#gate dt` (17px) are two roles this table does not
+      carry; and table headers render `11px/700`, a third weight. Mechanism: `body` is 15px and
+      components size in `em` off it. **Owner decides: move the page to the four sizes, or amend
+      this section to the em-relative scale that shipped and say why.**
+- [ ] Dimension 5 Spacing — §1.4
+      — **PARTIAL. The ramp is exactly right** — `4 / 8 / 12 / 16 / 24 / 32px` on the live page, so
+      §1.2's re-base is in. **Nine values in use do not come from it**, five of them fractional
+      (`14.4` · `9` · `4.55` · `4.2` · `1.3` · `1.2` · `6` · `10` · `2px`), because `.btn`,
+      `.seg-opt`, `<code>` and the nav size padding in `em` and never consult the ramp. **`10px` is
+      a borrowed exception** — §1.4 grants it to the bar by name, and the nav buttons take it
+      anyway. **Owner decides: adopt the ramp in those components, or name them here as further
+      exceptions the way the bar and the Stop control already are.**
+- [x] Dimension 6 Registry safety — not applicable: no component registry, no third-party
+      component source, no CDN. §1.1 constraint 3 is the equivalent obligation and §9's P10 is
+      its check. **Corroborated by measurement rather than left as an assertion: 0 external
+      network requests over a full load.**
+
+**Approval:** pending — **and now pending on two named things rather than on nobody having looked.**
+Four dimensions are signed off. Dimensions 4 and 5 are the same question asked twice: this contract
+specifies a fixed-px scale and the page ships an em-relative one derived from a 15px body. Neither
+is a rendering defect — every run passes contrast and no geometry assertion breaks — so this is a
+contract-versus-implementation decision, and a checker does not get to take it.
