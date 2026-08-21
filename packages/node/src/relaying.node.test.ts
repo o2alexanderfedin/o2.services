@@ -24,6 +24,7 @@ import {
 import { FabricNode } from './fabric-node.ts'
 import {
   RESERVATION_FAILURE_PREFIX,
+  RESERVATION_GRANT_PREFIX,
   ReservationWatcher,
   STATUS_RESERVATION_REFUSED,
   classifyReservationFailure,
@@ -162,6 +163,14 @@ describe('NET-05 — exhaustion is reported by name', () => {
     // The template is built on the transport side, interpolating `response.status`.
     const transport = readFileSync(join(pkg, 'transport', 'reservation-store.js'), 'utf8')
     expect(transport).toContain(RESERVATION_FAILURE_PREFIX)
+
+    // The GRANT template, pinned in the same file and for the same reason. A reworded
+    // grant line does not look like a broken watcher — it looks like a relay that never
+    // answered, which is the ambiguity this whole section exists to remove. Task #53
+    // reads grants live precisely because a handshake-time snapshot of `agent.relays`
+    // cannot see one that lands late, so this string is now load-bearing for an
+    // assertion rather than for a log message.
+    expect(transport).toContain(RESERVATION_GRANT_PREFIX)
 
     // The status *name* that gets interpolated comes from the protobuf Status enum,
     // so that is where it has to be pinned — not in the transport module.

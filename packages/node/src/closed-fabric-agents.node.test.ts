@@ -1072,12 +1072,41 @@ describe('criterion 8 — over a fabric whose every relay-capable peer was told 
 
     // And the stranger holds no circuit through any closed door, read from its own side rather
     // than from anybody's advertisement — the instrument-independent half.
+    //
+    // **W7, now named at the assertion and no longer resting on the dependency alone.**
+    // `circuitsThrough` filters `stranger.relays`, a handshake-time snapshot: an absence there
+    // is an absence *at announce time*, not an absence now. `24-VERIFICATION.md` recorded this
+    // as sound only because `@libp2p/circuit-relay-v2@4.2.9` makes exactly one reservation
+    // attempt ever on this configuration, so a single lost attempt is permanent — a measured
+    // property of somebody else's library, holding up one of this file's assertions.
+    //
+    // The loop below still reads the snapshot, because per-door attribution needs it. The line
+    // after reads the channel that cannot go stale, so the pair no longer depends on that
+    // library property being true: if a grant reaches the stranger at any point, from any
+    // door, its own process says so.
     for (const peer of closedSet) {
       expect(
         circuitsThrough(stranger, peer.peerId),
         `the stranger holds a circuit through ${peer.name}`,
       ).toStrictEqual([])
+      // The live half, PER DOOR. A blanket "no grant" would be false here and was: this
+      // stranger is *supposed* to hold one, on the open control, which is what makes its
+      // absence at every closed door a refusal rather than inaction. Naming the door is what
+      // keeps the two apart.
+      expect(
+        stranger.stderr(),
+        `the stranger was granted a reservation by ${peer.name}, a closed door`,
+      ).not.toContain(`relay reservation granted: ${peer.peerId}`)
     }
+
+    // And the positive half of the same reading, from the stranger's own process rather than
+    // from the control's advertisement: the one door nobody closed did grant it. This is what
+    // makes the absences above attributable to the closures — a stranger that was granted
+    // nothing by anybody would satisfy every line above for the wrong reason.
+    expect(
+      stranger.stderr(),
+      'the stranger was granted nothing at all, so the absences above are not attributable',
+    ).toContain(`relay reservation granted: ${openControl.peerId}`)
   }, PROCESS_TEST_TIMEOUT)
 
   /**
