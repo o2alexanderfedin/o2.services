@@ -116,6 +116,104 @@ export function delegate(
   return { ...unsigned, signature }
 }
 
+/**
+ * The signing capability {@link delegateWith} needs, as a port rather than as bytes.
+ *
+ * **Structurally identical to `enrollment.ts`'s `UserSigner`, and deliberately not an
+ * import of it.** `enrollment.ts` imports *this* module (`fromHex`, `toHex`,
+ * `PublicKeyHex`), so importing back would close a cycle. Declaring the shape here — in the
+ * lower layer, where the signing actually happens — means a `UserSigner` satisfies it
+ * structurally at every call site with no adapter and no cast, and it means this module
+ * still has exactly three imports. If the two ever need to diverge, that is a signal the
+ * port was wrong rather than a reason to add the import.
+ */
+export interface DelegationSigner {
+  /** The public half, hex. Becomes the delegation's `issuer`, and is checked against it. */
+  readonly userKey: PublicKeyHex
+  /** Sign one payload. Async because `crypto.subtle.sign` is, and nothing awaits it synchronously. */
+  sign(message: Uint8Array): Promise<Uint8Array>
+}
+
+/**
+ * Thrown when a {@link DelegationSigner} names a `userKey` it cannot actually sign for.
+ *
+ * The same guard `UserKeyMismatchError` performs for enrolment, for the same reason and at
+ * the same seam. When the issuer is *derived* from bytes, naming somebody else's key is not
+ * something the function can be asked to do; once the caller supplies its own public half,
+ * that impossibility becomes a **check** — and the check is what catches a `CryptoKeyPair`
+ * mix-up, which derivation never could.
+ *
+ * **This is not a formality here.** A delegation whose `issuer` does not match the key that
+ * signed it fails verification as `bad-signature` at the serving node — a refusal that names
+ * the wrong cause and sends a reader hunting for a corrupted chain rather than a mispaired
+ * signer. Failing at mint time names it correctly and costs one verify.
+ */
+export class DelegationSignerMismatchError extends Error {
+  readonly code = 'delegation-signer-mismatch' as const
+  readonly userKey: PublicKeyHex
+  constructor(userKey: PublicKeyHex) {
+    super(
+      `the signer for ${userKey} produced a signature that key does not verify, so any chain ` +
+        'rooted at it would be refused as bad-signature by the node it was sent to',
+    )
+    this.name = 'DelegationSignerMismatchError'
+    this.userKey = userKey
+  }
+}
+
+/**
+ * Issue and sign one delegation **through a signer**, for an issuer whose key material the
+ * caller does not hold.
+ *
+ * ## Why this exists at all, and why it is not a refactor of {@link delegate}
+ *
+ * A browser tab's owner key is minted `extractable: false`, so `exportKey` on the private
+ * half is refused in chromium, firefox and webkit — measured, and that refusal *is* the
+ * property being bought: the origin that served the page cannot read the key. There are
+ * therefore no bytes to hand {@link delegate}, and there never will be. This is the identical
+ * shape `requestEnrollment` took when it grew a `UserSigner`, and for the identical reason.
+ *
+ * {@link delegate} is untouched and is **not** a legacy path: a backbone node's owner key
+ * comes from a file, must survive a restart, and must be movable between machines by the
+ * person who owns it. Two arms because there are genuinely two situations.
+ *
+ * ## Asynchronous, which the consumer has to arrange around rather than await
+ *
+ * `CapabilitySupplier` is `(task) => readonly Delegation[]` — synchronous, because it is
+ * called on the dispatch path. So a browser caller **cannot** sign on demand inside a
+ * supplier and must mint ahead of dispatch and serve from what it minted. That is a
+ * constraint on the caller, stated here because it is the first thing that bites and it is
+ * not visible from this signature.
+ *
+ * ## The verify is on the success path on purpose
+ *
+ * `enrollment.ts` records why its *seed* arm skips verification — derivation and verification
+ * are alternatives, not a stack, and paying for both halved a measured DoS ratio for no
+ * security gain. That reasoning does not transfer: here the public half is **supplied**, so
+ * the check can fail for a caller reason rather than only if `sign` and `verify` disagree
+ * with each other. One verify per delegation, minted once per node per job, is not on a hot
+ * path.
+ */
+export async function delegateWith(
+  signer: DelegationSigner,
+  fields: Omit<Delegation, 'signature' | 'issuer'>,
+): Promise<Delegation> {
+  const unsigned = { ...fields, issuer: signer.userKey }
+  const payload = payloadOf(unsigned)
+  const signature = await signer.sign(payload)
+  // A mispaired signer is the one failure this cannot detect later in any useful form —
+  // see `DelegationSignerMismatchError`. Anything `fromHex`/`verify` throws on is the same
+  // finding and is reported as that finding rather than as an exception from a crypto call.
+  let ok = false
+  try {
+    ok = ed25519.verify(signature, payload, fromHex(signer.userKey))
+  } catch {
+    ok = false
+  }
+  if (!ok) throw new DelegationSignerMismatchError(signer.userKey)
+  return { ...unsigned, signature: toHex(signature) }
+}
+
 export type ChainFailure =
   | { readonly kind: 'empty-chain' }
   | { readonly kind: 'wrong-root'; readonly index: number; readonly expected: PublicKeyHex; readonly found: PublicKeyHex }

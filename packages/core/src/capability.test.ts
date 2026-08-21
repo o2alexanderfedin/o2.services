@@ -1,6 +1,14 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { describe, expect, it } from 'vitest'
-import { MAX_CHAIN_DEPTH, delegate, toHex, verifyChain } from './capability.ts'
+import {
+  DelegationSignerMismatchError,
+  MAX_CHAIN_DEPTH,
+  delegate,
+  delegateWith,
+  toHex,
+  verifyChain,
+} from './capability.ts'
+import type { DelegationSigner } from './capability.ts'
 import type { Delegation } from './capability.ts'
 
 /**
@@ -314,5 +322,85 @@ describe('chain depth is bounded (X509-05 — max chain depth, delivered here, n
     // reached the right answer for a reason that does not generalise, since a chain forged
     // to be internally consistent walks the whole way.
     expect(result.failure.kind).toBe('too-deep')
+  })
+})
+
+describe('delegateWith — signing through a port, for a key the caller cannot read', () => {
+  /**
+   * A signer that never yields bytes, which is the whole situation this arm exists for.
+   *
+   * Backed by a seed here because a test needs a key it can also verify against; what it
+   * models is a non-extractable `CryptoKey`, where `sign` is the only operation available
+   * and it is asynchronous. `seedUserSigner` is not imported: this file is `capability.ts`'s
+   * test and importing `enrollment.ts` here would assert the very coupling `DelegationSigner`
+   * exists to avoid.
+   */
+  function signerOver(seed: Uint8Array): DelegationSigner {
+    return {
+      userKey: toHex(ed25519.getPublicKey(seed)),
+      // `async` and not merely Promise-returning, so the await in `delegateWith` is a real
+      // suspension rather than a resolved value the microtask queue flattens away.
+      async sign(message: Uint8Array): Promise<Uint8Array> {
+        await Promise.resolve()
+        return ed25519.sign(message, seed)
+      },
+    }
+  }
+
+  const OWNER = new Uint8Array(32).fill(7)
+  const AUDIENCE = toHex(ed25519.getPublicKey(new Uint8Array(32).fill(9)))
+
+  const fields = {
+    ownerId: toHex(ed25519.getPublicKey(OWNER)),
+    audience: AUDIENCE,
+    abilities: ['execute'] as const,
+    expiresAt: 4_000_000_000_000,
+  }
+
+  it('produces a delegation byte-identical to the seed arm, so the two cannot drift', async () => {
+    const throughPort = await delegateWith(signerOver(OWNER), fields)
+    const throughSeed = delegate(OWNER, fields)
+    // Not merely "both verify" — IDENTICAL. Ed25519 is deterministic, both sign the same
+    // canonical payload, so any difference is a difference in what was signed, and a chain
+    // minted by one arm has to be indistinguishable from one minted by the other.
+    expect(throughPort).toEqual(throughSeed)
+  })
+
+  it('is accepted by verifyChain as a real chain and not merely as a well-formed record', async () => {
+    const one = await delegateWith(signerOver(OWNER), fields)
+    const result = verifyChain([one], {
+      ownerKey: fields.ownerId,
+      ownerId: fields.ownerId,
+      audience: AUDIENCE,
+      ability: 'execute',
+      now: 1_000,
+    })
+    expect(result.ok).toBe(true)
+  })
+
+  it('refuses a signer whose public half does not match what it can sign for', async () => {
+    // The CryptoKeyPair mix-up, in the only form a port leaves available: a signer naming
+    // one key and signing with another. Derivation could never be asked to do this, which
+    // is exactly why the check has to exist once the caller supplies the public half.
+    const mispaired: DelegationSigner = {
+      userKey: toHex(ed25519.getPublicKey(new Uint8Array(32).fill(3))),
+      async sign(message: Uint8Array): Promise<Uint8Array> {
+        return ed25519.sign(message, OWNER)
+      },
+    }
+    await expect(delegateWith(mispaired, fields)).rejects.toThrow(DelegationSignerMismatchError)
+  })
+
+  it('reports a signer returning nonsense as the same finding rather than as a crypto throw', async () => {
+    // `ed25519.verify` on a malformed signature throws rather than returning false. A caller
+    // of `delegateWith` must not have to distinguish that from a mispairing: both mean this
+    // signer does not hold what it says it holds.
+    const broken: DelegationSigner = {
+      userKey: toHex(ed25519.getPublicKey(OWNER)),
+      async sign(): Promise<Uint8Array> {
+        return new Uint8Array(7)
+      },
+    }
+    await expect(delegateWith(broken, fields)).rejects.toThrow(DelegationSignerMismatchError)
   })
 })
