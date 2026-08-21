@@ -2,8 +2,27 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Wire What Was Built
-status: executing
+status: milestone_complete # was `executing`. v1.1 closed 15/15 phases, 50/50 requirements at `af8828f`
 stopped_at: >-
+  RECONCILED 2026-08-20, AND THE HEADLINE BELOW IS THE ONE THING THAT WAS WRONG. **THE COUNT IS 15
+  OF 15, NOT 12.** All three carried phases closed on 2026-08-18, each by a dated amendment to its
+  own verification file rather than by a rewrite: 20 at 7/7 (criterion 7 closed at `ce97bc8`), 21
+  at 3/3 (criterion 2's re-tag clause measured), 22 at 3/3 (criterion 1's residue measured to zero
+  rather than subtracted). v1.1 "Wire What Was Built" is CLOSED at 15/15 phases and 50/50
+  requirements — merged `2c720b9`, milestone merge `af8828f`, corroborated independently at
+  `.planning/COVERAGE-BASELINE.md:38` on 2026-08-19. **`.planning/milestones/v1.1-SHIPPED.md` IS
+  STALE ON THE SAME POINT and is amended today**: it was archived 2026-08-18 while those three
+  closures were still landing, so it records "12 of 15", "40 of 50" and the sentence "15 of 15 was
+  never reachable" — which the tree falsified within hours of it being written. **`total_plans: 103`
+  BELOW IS CORRECT AND WAS WRONGLY CALLED STALE**: it is scoped to the milestone's own phases (11,
+  12, 13, 13.1, 14-24) and those hold exactly 103 plans, counted 2026-08-20. A prior handoff
+  compared it against 141, which is the repository-wide count of SUMMARY files — a different
+  population, and the reason to say which population a count is over. NOTHING IS IN FLIGHT. Work
+  since the milestone close is verification and hygiene, all merged. The open items are owner
+  decisions, listed under Pending Todos, and none of them blocks anything.
+  ----- EVERYTHING BELOW THIS LINE IS THE ACCUMULATED HISTORY OF THE MILESTONE AS IT RAN. It is
+  kept verbatim rather than rewritten, because it records how each phase actually closed. Read its
+  first sentence as superseded by the paragraph above and the rest as still accurate. -----
   THE COUNT IS 12 OF 15. PHASE 17 CLOSED 2026-08-07 AT 3/3 by a fourth dated amendment, and it
   closed the way RULING A intends: not by a rewrite, and not by transcribing another phase's
   verdict, but by re-running the exact plant that had declined it and watching it redden. The
@@ -191,14 +210,14 @@ stopped_at: >-
   demo-pi.e2e.test.ts IS A KNOWN FLAKE - green, red, green on identical code, cause not found.
   AOTW-06's 27/27 NOTE IS UNREPRODUCED: two prose sentences from one commit, no patch, no log, and
   third_party/elfconv pristine at its pinned commit.
-last_updated: "2026-08-17T18:00:00.000Z"
-last_activity: 2026-08-17
+last_updated: "2026-08-20T09:20:00.000Z"
+last_activity: 2026-08-20
 progress:
   total_phases: 15
-  completed_phases: 12
-  total_plans: 103
+  completed_phases: 15 # was 12. Phases 20, 21 and 22 closed 2026-08-18 at 7/7, 3/3 and 3/3
+  total_plans: 103 # UNCHANGED and correct — milestone-scoped, recounted 2026-08-20
   completed_plans: 103
-  percent: 80
+  percent: 100 # was 80
 ---
 
 <!--
@@ -1828,6 +1847,29 @@ Items acknowledged and carried forward from previous milestone close:
 | *(none)* | | | |
 
 ## Session Continuity
+
+Last session: 2026-08-20T09:20:00.000Z — **resumed via `/gsd-resume-work`, nothing was in flight.**
+Resume file: `.planning/.continue-here.md`. `.planning/HANDOFF.json` was consumed and deleted on
+this resume; it is a one-shot artifact and leaving it on disk makes the *next* resume read a stale
+handoff as if it were live.
+
+Verified on resume rather than quoted: `main` `93b9c23` = `origin/main`, `develop` `5e641e5` =
+`origin/develop`, working tree clean including untracked, 0 stashes, one worktree. The handoff's
+`uncommitted_files: []` matched, so there was no divergence to chase.
+
+Stopped at (2026-08-20): three pieces of bookkeeping this file's own staleness had hidden, all
+found by the sweep rather than looked for — **`27-VERIFICATION.md` was the repository's only
+remaining `gaps_found` and both gaps it named had been closed for days** (re-measured before the
+score moved, `--project e2e` exit 0 / 32 tests and `--project node` exit 0 / 10 tests);
+**`v1.1-SHIPPED.md` still recorded 12 of 15 and the sentence "15 of 15 was never reachable"**,
+falsified within hours of being archived; and this file's own headline count. Each was amended
+rather than back-edited. **One lesson generalises past the three: an artifact written at the moment
+work is declared finished is written while the last of it is still landing, and nothing re-reads
+it.** A verification file, a milestone archive and a state file all failed the same way here.
+
+**The 2026-08-17 note below is kept because its warning is still live**, not as history: the design
+track at `docs/superpowers/specs/2026-08-17-wasm-guest-capabilities-design.md` remains unread by the
+owner and unratified. Do not build from it without asking.
 
 Last session: 2026-08-17T18:00:00.000Z (resumed 2026-08-18)
 Resume file: `.planning/.continue-here.md` — **that file is the live continuity, not the block

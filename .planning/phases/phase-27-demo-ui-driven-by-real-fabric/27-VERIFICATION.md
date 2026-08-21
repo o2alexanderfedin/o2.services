@@ -1,8 +1,19 @@
 ---
 phase: 27-demo-ui-driven-by-real-fabric
 verified: 2026-08-10T20:20:00Z
-status: gaps_found
-score: 10/12 must-haves verified
+amended: 2026-08-20T09:20:00Z # BOTH `gaps:` entries below CLOSE, and NEITHER closed today. The Primes gap closed
+                              # 2026-08-17 when the owner took Option A; `EGR-01` closed with its requirement row.
+                              # This file simply never heard about either, and it has been the only `gaps_found`
+                              # in the repository for ten days on the strength of that. Re-measured against the
+                              # tree BEFORE the score moved — exit codes read directly, no pipes. See the
+                              # AMENDMENT at the end of this file.
+status: passed # was `gaps_found`; both gaps are closed and the goal clause that was NOT met now is
+score: >-
+  12/12 must-haves verified. Was 10/12. The two that were open are the two `gaps:` entries below;
+  they closed on 2026-08-17 and were re-measured on 2026-08-20 before this score was written.
+  **No verdict was taken on a reading — each closure was run.**
+original_status: gaps_found
+original_score: 10/12 must-haves verified
 overrides_applied: 0
 gaps:
   - truth: "The demo page shows every workload the fabric can already run — Primes included"
@@ -489,3 +500,90 @@ regions"* docblock, and `STATE.md`'s claim that this phase closed MR-03…MR-07 
 
 _Verified: 2026-08-10T20:20:00Z_
 _Verifier: Claude (gsd-verifier) — goal-backward, FORCE stance_
+
+---
+
+# AMENDMENT 2026-08-20 — both gaps close, and the delay is the finding
+
+**Found on a `/gsd-resume-work` sweep**, not by looking for it. Phase 27 was the only phase in the
+repository still reading `gaps_found`, which is what drew the eye. Both gaps this file names had
+already been closed in the tree — one for **three days**, one longer — and nothing had told this
+file. That is the part worth recording: *a verification file does not close itself when the work
+lands, and a stale `gaps_found` is indistinguishable from a real one to every reader and every
+sweep.*
+
+**Nothing was scored on a reading.** Each closure was run first, and each exit code was read on the
+line immediately after its command, no pipes and no trailing `tail`.
+
+| command | exit | reading |
+|---|:--:|---|
+| `npx vitest run --project e2e packages/node/src/demo-primes.e2e.test.ts packages/node/src/demo-fabric.e2e.test.ts` | **0** | 2 files / 32 tests. `real 24.98` · `user 34.24` |
+| `npx vitest run --project node packages/net/src/submit-with-egress.test.ts` | **0** | 1 file / 10 tests. `real 1.21` · `user 1.04` |
+| `npm run build:demo` | **0** | the page this amendment's structural readings were taken against |
+
+## Gap 1 — *"Primes ships as a SURFACE and not as a WORKLOAD"* → **CLOSED**
+
+**Closed 2026-08-17 by the owner taking Option A**, which is the option this file priced and routed
+to them. `27-OPEN-ITEMS.md` §1 carries the full record. What this amendment adds is that the closure
+was **re-measured today rather than inherited**, because the gap's own text is a list of structural
+facts and every one of them is now false:
+
+| what this file measured on 2026-08-10 | measured again 2026-08-20 |
+|---|---|
+| `#s-primes` (index.html:425) has **0** `<button>` elements | **1** — the `Count the primes` control UI-SPEC §11 specified |
+| `buildPrimesInput`, `primesKernelBytes`, `projectPrimeCount`, `readPrimeCount`, `PRIME_COUNT_KEY` — **0 production callers** | `TabApi.runPrimes` at `tab-api.ts:721`, called from `demo/main.ts:1508`; `PRIMES_RECORD` signed at `kernel-record.ts:103` |
+| eight of twelve figure regions carry `permanentlyUnavailable` | **`permanentlyUnavailable` has no members anywhere**, and a guard asserts the set is empty |
+
+**And the surface produces an answer, which is the thing a button does not prove.** Read off the
+live page by `demo-primes.e2e.test.ts` in the run above: `N 100000`, `shards 8`,
+`primes/total: 9592`, against `the published value is 9592` — an **equality** against a figure
+tabulated in the mathematical literature, not a tolerance. The eight per-shard rows
+(`1492, 1270, 1207, 1164, 1143, 1117, 1099, 1100`) sum to `9592`, so the reduce is checked against
+its own parts and not only against the oracle.
+
+**So the goal clause this file declared not met — *"every workload the fabric can already run"* — is
+met.** It was the only clause holding the honest read at PARTIAL.
+
+## Gap 2 — `EGR-01`, the egress sentence → **CLOSED**
+
+`REQUIREMENTS.md:1124` is ticked and its row at `:1322` reads **Done**, carrying the three-arm fix,
+three watched-red plants, and both test tiers. This file specified the fix to the file and the fix
+is in — including the correction that the count belongs in `submitJobWithEgress` rather than on the
+guard, because a figure read off `EgressGuard` after a job has already been given back by the
+`finally` and is zero.
+
+**Read live in today's run**, on the Primes report rather than on a byo arm — a surface this file
+never looked at, which makes it an independent sighting rather than a re-reading of the fixture that
+drove the fix:
+
+> `0 withheld — and this run registered no sovereign data, so that is the guard reporting it had
+> nothing to hold back, not a proof of sovereignty.`
+
+That is the **first** arm, correctly selected for a run that registered nothing, and it says which
+fact it is stating. The contradiction this file watched — *registered no sovereign data* rendered
+beside *every shard was submitted owner-pinned* — cannot be composed from a three-arm formatter.
+
+## What did NOT change, and what is still open
+
+**No criterion verdict was re-litigated.** The 10 must-haves this file verified on 2026-08-10 are
+untouched; the score moves because the 2 it declined now pass, and for no other reason.
+
+**`human_verification` has four entries and two of them are decided** — recorded here rather than
+back-edited into the list:
+
+| entry | standing 2026-08-20 |
+|---|---|
+| Decide Option A for the Primes workload | **DECIDED** — Option A taken, 2026-08-17 |
+| Decide `EGR-01` | **DECIDED** — the five-file change landed; row reads Done |
+| Decide `MR-03`'s checkbox | **DECIDED** — `REQUIREMENTS.md:1260` reads **Done**, closed 2026-08-14 on the commutative half across eight real `bin/agent.ts` processes |
+| UI-SPEC §12 checker sign-off | **STILL OPEN** at the time of this amendment |
+
+**Three wordings this file asked to be corrected before the milestone audit read them** — the
+*"five surfaces carry live readings"* line, the stale *"two colouring regions"* docblock, and
+`STATE.md`'s claim about MR-03…MR-07 and G4 — are **not** swept up here. They are separate from the
+gap list, this amendment did not verify them, and closing a thing you did not check is what the
+gap list exists to refuse.
+
+---
+
+_Amended: 2026-08-20T09:20:00Z · re-measured, not re-read_
