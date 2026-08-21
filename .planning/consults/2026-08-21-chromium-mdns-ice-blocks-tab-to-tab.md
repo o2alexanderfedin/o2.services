@@ -125,3 +125,104 @@ not measuring the tree.
 browser on this machine, cannot dial each other right now. The flag shields the gate and
 nothing else. The standard first reset is `sudo killall -HUP mDNSResponder`, or a reboot;
 both are the owner's call, not this document's.
+
+---
+
+# THE GATE, after the change — and one hypothesis this file had to drop
+
+## Green, and it is the first fully green e2e reading on record
+
+    --project e2e   38 files passed (38)
+                    235 tests passed (235)
+                    E2E_EXIT=0
+                    real 725.92  user 414.25  sys 77.63
+
+Beside every other whole-suite reading of this project:
+
+| | 16-VERIFICATION (recorded) | 08-19 morning | 08-19 evening | 08-21 first | 08-21 control |
+|---|---|---|---|---|---|
+| exit | 0 | 1 | 1 | 1 | **0** |
+| files failed | 0 | 11 | 1 | 2 | **0** |
+| tests failed | 0 | 34 | 1 | 2 | **0** |
+| real | 854.59 | 2177.70 | 1049.97 | 830.23 | **725.92** |
+| user | 446.46 | 408.65 | 445.27 | 422.26 | **414.25** |
+
+**User time is 446 / 409 / 445 / 422 / 414 across all five.** The suite always did the
+same work; what moved was time spent waiting. This reading is the only one where nothing
+waited.
+
+## The two reds in the first post-fix sweep, and why they are not re-attributed
+
+The 02:16 sweep left `static-rendezvous.e2e.test.ts` (2 tests) and
+`peer-ledger.e2e.test.ts` (as a suite, on a 60 s `waitForFunction`). Both were run alone:
+
+    static-rendezvous   5 passed (5)   real 8.11   exit 0
+    peer-ledger         7 passed (7)   real 8.69   exit 0
+
+and both then passed inside the control sweep above.
+
+**"Passes in isolation" is a claim, not a diagnosis** — this repo has one recorded
+instance of it being simply false, so it is not the evidence here. The evidence is the
+control sweep, in which they passed *in place*, under the same accumulated load. The
+honest label is the one already recorded for `many-tabs` on 2026-08-19 evening:
+suite-internal contention across the preceding files, non-reproducing. **Nothing further
+is claimed about them**, and in particular the tempting story — that chromium's 225 ms
+connect reorders peer introductions and makes a peer re-dial one it already knew — is
+NOT asserted. It fits the arithmetic, and this file's predecessor died twice on
+explanations that fit the arithmetic.
+
+What must *not* happen if they return: `static-rendezvous`'s
+`attempted === undiscovered` is the specification ("the fabric introduces every pair
+exactly once"), and `publish`'s wait is a condition rather than a sleep. Loosening either
+would close the gap by redefining passing.
+
+## peer-ledger converts, and that retires a reader hazard
+
+`peer-ledger.e2e.test.ts` has a history of failing **as a suite** while printing
+`7 skipped` — the exact hazard task #48 records, which caught a reader inside the very
+document warning about it. It burned 556 153 ms doing so.
+
+It now runs in **8.69 s and passes all 7**. So that long-standing skip was this same root
+wearing #48's costume: a `waitForFunction` waiting on a render that could not arrive
+because the dial underneath it never completed.
+
+## The hypothesis this file had to drop: firefox and webkit were never the problem
+
+The two survivors were both webkit-side assertions, which made the obvious next step
+Firefox's `media.peerconnection.ice.obfuscate_host_addresses` pref. **It was measured
+first, and the measurement refused it.**
+
+Same bare-`RTCPeerConnection` probe, cross-engine, obfuscation left at Chromium-style
+defaults:
+
+    webkit <-> firefox   opened=true   1134 ms
+    webkit host candidate:  56b7b263-....local
+    firefox host candidate: 013fb4cd-....local
+
+Both sides offered `.local` names, **both resolved them, and the channel opened.** So the
+pref would have changed nothing, and it was not set. Setting it would have been a fix
+applied to a mechanism that was never broken.
+
+**This narrows the fault.** It is not "this host cannot resolve mDNS ICE candidates" — it
+is specific to **Chromium's** ephemeral names on this host. Firefox and WebKit register
+and resolve each other's fine.
+
+**Dated to its own window, because that discipline is the whole lesson of the file this
+one amends:** the cross-engine probe ran at **02:35**, *after* the 02:16–02:30 sweep. It
+is a reading of that window and is not evidence about any other. On a host already shown
+to vary between windows, applying it further would repeat the 08-19 error exactly.
+
+## One thing the green run establishes that nothing else could
+
+`cold-start-seed-race.e2e.test.ts` had never completed a run before this one. Its three
+trials printed:
+
+    [cold-start trial 0] release-spread=2ms distinct=1 of 4 changed-across-restart=0
+    [cold-start trial 1] release-spread=1ms distinct=1 of 4 changed-across-restart=0
+    [cold-start trial 2] release-spread=2ms distinct=1 of 4 changed-across-restart=0
+
+Its own docblock warns that a green here cannot distinguish *"the race is rare"* from
+*"the tabs never overlapped"*. **A 1–2 ms release spread is the answer to that**: four
+tabs released within two milliseconds of each other is genuine overlap, and they produced
+**one** identity, unchanged across restart. That is task #49's fix confirmed in production
+shape, by the reading its author said would be needed to tell the two cases apart.

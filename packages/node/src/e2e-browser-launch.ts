@@ -70,9 +70,16 @@
  * holds firefox and webkit. Passing a Chromium switch to Firefox's command line is not a
  * no-op, so it is applied by name. Firefox's equivalent lever is the
  * `media.peerconnection.ice.obfuscate_host_addresses` pref via `firefoxUserPrefs`, and
- * **it is deliberately not set here**: `[firefox] ICE failed` console lines appear in
- * green-era logs too, so those arms may well pass unchanged. Measure before reaching for
- * it.
+ * **it is deliberately not set here — because it was measured and refused.** The same
+ * bare-`RTCPeerConnection` probe, run cross-engine at 02:35 on 2026-08-21 with
+ * obfuscation left on:
+ *
+ *     webkit <-> firefox   opened=true   1134 ms
+ *
+ * Both sides offered `.local` host candidates, both resolved them, and the channel
+ * opened. Setting the pref would have applied a fix to a mechanism that was never
+ * broken. The fault is specific to **Chromium's** ephemeral names on this host, not to
+ * the host's mDNS in general.
  */
 
 import type { Browser, BrowserType, LaunchOptions } from 'playwright'
