@@ -143,6 +143,39 @@ tables, both text views) render in `--font-mono` at Body or Small size.
 The mockup's condensed display face does not ship. Headings are distinguished by size, weight
 and `-0.015em` tracking instead.
 
+**AMENDED 2026-08-20 by owner ruling, after the §12 checker pass measured the built page.** The
+table above is kept **to the character** — it is what this contract asked for, and the roles it
+names are still the roles. What follows is what `demo.css` actually declares, adopted as the
+contract because the shipped scale is deliberate, internally consistent and passes every contrast
+and geometry obligation this document sets. **Nine steps, all explicit `px`, two of them clamps.**
+
+| Step | Declared | Selectors | Role |
+|---|---|---|---|
+| Display | `clamp(24px, 4vw, 32px)` | `h2` | The surface headline — one per surface. **This is the original table's Display, unchanged.** |
+| Masthead | `clamp(22px, 3.2vw, 28px)` | `h1` | The page's own title. Deliberately *below* Display: the surface a visitor came for outranks the site's name. |
+| Section | `20px` | `h3` | Panel headings. **The original table's Heading, unchanged.** |
+| Subhead | `17px` | `h4`, `.card-title`, `#gate dt` | Card titles and the consent gate's terms. |
+| Body | `15px` | `body`, `.lede` | Prose. **Unchanged.** |
+| Control | `14px` | `button`, `.btn`, `.input`, `.card-body`, `.check`, `.table` | Anything a visitor operates, plus card prose and table cells. |
+| Secondary | `13px` | `.muted`, `.note`, `.seg-opt`, `nav#surfaces [role="tab"]`, the text views | Muted prose, the view toggle, navigation, machine values in `--font-mono`. |
+| Small | `12px` | `.kicker`, `.field > label`, `.card-note` | **Unchanged.** Uppercase kickers, field labels, captions. |
+| Micro | `11px` | `.card-kicker`, `.tag`, `.table th` | In-card kickers, tags, table headers. |
+
+**Two weights, and that part of the original table was right**: `400` on `body` and
+`var(--font-heading-weight)` = `600` everywhere else. `demo.css` declares no third weight anywhere.
+
+> **One thing here is an accident rather than a decision, and it is NOT ratified by this
+> amendment.** `.table th` renders at weight **700**, measured. That is the user agent's own
+> `th { font-weight: bold }`, never overridden — the stylesheet does not ask for it. So the page
+> shows three weights while its stylesheet declares two. **This is a one-line fix (`.table th`
+> gets an explicit weight) rather than something to write into a contract**, and it is left open
+> deliberately rather than documented into correctness. §12 records it.
+
+**Figure values** render at Subhead size in `--font-heading` weight 600, and **machine values**
+(peer ids, CIDs, multiaddrs, counts inside tables, both text views) in `--font-mono` at Secondary
+or Micro. **Named absences render in `--font-mono` where they occupy a figure slot** — the slot
+keeps its identity when it has no reading, which the original table did not speak to either way.
+
 ### 1.4 Spacing
 
 | Property | Value | Usage |
@@ -158,6 +191,41 @@ Exceptions, each named: the fixed bar's vertical padding is `10px` top and
 `max(10px, env(safe-area-inset-bottom))` bottom (§6); the Stop control has a `44px` minimum box
 that overrides the padding ramp (§6, §7.3); `body`'s bottom padding is set from the bar's
 measured height rather than from the ramp (§6).
+
+**AMENDED 2026-08-20 by owner ruling, after the §12 checker pass.** The ramp above is kept
+unchanged and it is **exactly right** — `4 / 8 / 12 / 16 / 24 / 32px`, read off the live page, so
+§1.2's re-base off the mockup's fractional `3.4px` base is in and holding. What this section did
+not say is that **the ramp governs layout, and controls are sized by a different obligation.**
+
+**Controls are sized to their target, not to the ramp — and that is the correct dependency.** §7.3
+requires a `40px` minimum box on every control that is not `#stop` (which gets `44px`). A control's
+padding is therefore whatever puts its box on that floor at its own type size, and forcing it onto
+the ramp would break the accessibility obligation to satisfy a spacing one. The values, all
+explicit and each tied to a control:
+
+| Value | Where | Why not the ramp |
+|---|---|---|
+| `6px` | `button`/`.btn` and `.seg-opt` icon-to-label gap | Between `--space-1` and `--space-2`; the ramp has no step here and the label would sit wrong at either |
+| `9px 12px` | `.seg-opt` | Lands the view toggle on the `40px` floor. `12px` **is** `--space-3` |
+| `10px 12px` | `nav#surfaces [role="tab"]` | Lands the nav tabs on the `44px` measured box. `12px` **is** `--space-3` |
+| `6px 10px` | `.input` | Lands inputs on `40px` beside their `14px` type |
+| `3px 10px` | `.tag` | A tag is not a control and carries no floor; sized to its `11px` type |
+| `5px` | `.field > label` bottom margin | Label-to-input, tighter than `--space-1` would leave it |
+| `2px` | `.seg` and the nav strip gap | A hairline separation, not a spacing step |
+
+**Two further values are derived rather than chosen, and neither is off-ramp in spirit:**
+
+- **`calc(var(--space-3) * 1.2)` = `14.4px`** — `.btn`'s inline padding. It **is** the ramp, scaled,
+  and it is the only fractional value in the layout. Recorded here rather than left to be
+  rediscovered as a violation of §1.2's own anti-fractional argument: §1.2's argument is about the
+  *scale*, and the scale is integral. A single derived control padding is not accumulation.
+- **`.1em .35em`** — inline `<code>`. The one genuinely relative value on the page, and correctly
+  so: a code chip's padding should track the type it wraps, which is `13px` in a note and less
+  inside a caption, so it composites to `1.3 / 4.55px` and `1.2 / 4.2px` respectively.
+
+**`10px` is no longer the bar's alone.** The exception list above grants it to the fixed bar by
+name; the nav tabs use the same value for the same reason — a measured `44px` box — and this
+amendment grants it to them explicitly rather than leaving them borrowing it.
 
 ### 1.5 Colour — the 60/30/10 split and what accent is reserved for
 
@@ -1085,29 +1153,44 @@ attribution: [`27-CHECKER-2026-08-20.md`](./27-CHECKER-2026-08-20.md).
       — **PASS.** Every §1.2 property exact; `color-scheme: light`; **73 text runs measured, 0
       contrast failures**; `--color-accent` used as a text colour on **0** runs; §7.2's accent-700
       row corroborated at **5.78:1** against its stated 5.79.
-- [ ] Dimension 4 Typography — §1.3
-      — **DOES NOT PASS as written, and the divergence is specific rather than wholesale.** The
-      Display and Heading sizes both exist and are correct (`h2` is the clamp, `h3` is 20px). What
-      diverges: **`.card-title` overrides `h3` to 17px for the exact role Heading names**; `h1`
-      (`clamp(22px, 3.2vw, 28px)`) and `h4`/`#gate dt` (17px) are two roles this table does not
-      carry; and table headers render `11px/700`, a third weight. Mechanism: `body` is 15px and
-      components size in `em` off it. **Owner decides: move the page to the four sizes, or amend
-      this section to the em-relative scale that shipped and say why.**
-- [ ] Dimension 5 Spacing — §1.4
-      — **PARTIAL. The ramp is exactly right** — `4 / 8 / 12 / 16 / 24 / 32px` on the live page, so
-      §1.2's re-base is in. **Nine values in use do not come from it**, five of them fractional
-      (`14.4` · `9` · `4.55` · `4.2` · `1.3` · `1.2` · `6` · `10` · `2px`), because `.btn`,
-      `.seg-opt`, `<code>` and the nav size padding in `em` and never consult the ramp. **`10px` is
-      a borrowed exception** — §1.4 grants it to the bar by name, and the nav buttons take it
-      anyway. **Owner decides: adopt the ramp in those components, or name them here as further
-      exceptions the way the bar and the Stop control already are.**
+- [x] Dimension 4 Typography — §1.3
+      — **PASS as of the 2026-08-20 amendment to §1.3**, which the owner ruled: document the scale
+      that shipped rather than move the page to the four the table asked for. §1.3 now carries the
+      nine declared steps, with the original table kept to the character. **The `em` mechanism this
+      line first claimed was WRONG and is retracted** — `demo.css` declares every size in explicit
+      `px` (two of them clamps) and nothing derives from `body`'s 15px. **Weights: the stylesheet
+      declares exactly two**, `400` and `var(--font-heading-weight)`, which is what the original
+      table asked for.
+      **One thing stays open and it is not a contract question:** `.table th` renders at **700**,
+      which is the user agent's `th { font-weight: bold }` never overridden. The stylesheet does not
+      ask for it. That is a one-line fix rather than something to document, and it is deliberately
+      NOT ratified by the amendment.
+- [x] Dimension 5 Spacing — §1.4
+      — **PASS as of the 2026-08-20 amendment to §1.4.** The ramp reads `4 / 8 / 12 / 16 / 24 / 32px`
+      on the live page and is unchanged. **The `em` attribution here was also wrong and is
+      retracted**: the off-ramp values are explicit control paddings sized to §7.3's `40px`/`44px`
+      floors — the correct dependency, since forcing them onto the ramp would break an accessibility
+      obligation to satisfy a spacing one. `14.4px` is `calc(var(--space-3) * 1.2)`, the ramp scaled,
+      not an `em` accident; the only genuinely relative value on the page is inline `<code>`'s
+      `.1em .35em`, which should track the type it wraps. §1.4 now names each value and grants the
+      nav tabs the `10px` they had been borrowing from the bar's exception.
 - [x] Dimension 6 Registry safety — not applicable: no component registry, no third-party
       component source, no CDN. §1.1 constraint 3 is the equivalent obligation and §9's P10 is
       its check. **Corroborated by measurement rather than left as an assertion: 0 external
       network requests over a full load.**
 
-**Approval:** pending — **and now pending on two named things rather than on nobody having looked.**
-Four dimensions are signed off. Dimensions 4 and 5 are the same question asked twice: this contract
-specifies a fixed-px scale and the page ships an em-relative one derived from a 15px body. Neither
-is a rendering defect — every run passes contrast and no geometry assertion breaks — so this is a
-contract-versus-implementation decision, and a checker does not get to take it.
+**Approval: SIGNED OFF 2026-08-20.** All six dimensions. Dimensions 4 and 5 were open for one day
+and closed by owner ruling — *amend the contract to the page* — because the shipped scale is
+deliberate, internally consistent, and meets every contrast and geometry obligation this document
+sets, while the tabled scale was written before the page existed.
+
+**One defect is carried out of this sign-off rather than into it**: `.table th` at weight `700`, a
+user-agent default the stylesheet never overrides. It is the only thing the pass found that the
+page gets wrong rather than merely differently, it is one line, and it is left open on purpose so
+that signing this section does not quietly absorb it.
+
+**And two of this pass's own findings were retracted before the sign-off.** Both dimensions were
+first written up as an `em`-relative scale derived from a 15px `body`. That was wrong — the sizes
+are explicit `px` and the fractional padding is a `calc()` on the ramp — and it was caught by
+reading `demo.css` rather than by re-measuring, because the measurement was right and the
+*explanation* was invented. A reading that fits a theory is not the theory's proof.
