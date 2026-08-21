@@ -1,3 +1,24 @@
+// SUPERSEDED 2026-08-21 — kept because its NEGATIVE RESULT is the finding.
+//
+// **Safari's automation mode refuses to click through a certificate warning, and this
+// script is the evidence.** It drives real Safari correctly: the session opens, the warning
+// page loads as ordinary DOM (37 KB, title "This Connection Is Not Private"), there is no
+// native sheet (`/alert/text` returns "no such alert"), the bypass link is present and on
+// screen at 597x36 px, and `window.webkit.messageHandlers.warningPageCommand` exists. Post
+// `visitInsecureWebsite` to it and the call returns without throwing — and nothing happens.
+// Measured: ten attempts, 20 s of polling in 2 s steps, plus a full re-navigation. Still on
+// the warning page every time. A WebDriver click on the link does nothing either, because
+// synthesised clicks do not run inline `onclick`.
+//
+// One run early on DID reach the page, which is why this script briefly looked like it
+// worked. It did not reproduce — the control that had passed failed on re-run — so it is
+// recorded as an anomaly and nothing is built on it. A single unreproduced success is not a
+// measurement.
+//
+// **Use `2026-08-21-safari-cert-manual-check.mjs` instead.** The click has to be a person's.
+//
+// ---
+//
 // Task #24's deciding question, asked of REAL Safari.
 //
 //   After the visitor clicks through the interstitial for https://HOST:A, does that
@@ -125,20 +146,55 @@ try {
   if (html.includes('<h1>ok</h1>')) {
     out.interstitial = 'none-shown'
   } else {
-    // Safari's warning page: "Show Details" reveals a "visit this website" link. Both are
-    // page content, so WebDriver can reach them; a native confirmation sheet, if one
-    // appears, is NOT page content and will show up here as 'click-failed'.
-    const click = async (selector) => {
-      const f = await wd('POST', `/session/${sid}/element`, { using: 'css selector', value: selector })
-      const id = f?.value ? Object.values(f.value)[0] : null
-      if (!id) return false
-      await wd('POST', `/session/${sid}/element/${id}/click`, {})
-      return true
+    // Safari's warning page is ordinary DOM — 37 KB of it, mostly CSS — so WebDriver can
+    // reach the controls. There is no native confirmation sheet; `/alert/text` returns
+    // "no such alert" on this page, which was checked rather than assumed.
+    //
+    // THE SELECTORS MUST BE EXACT, and blind ones are actively dangerous here. An earlier
+    // version clicked the first `button` on the page. That is `#goBackButton`, labelled
+    // "Close Page" — so the probe closed its own tab and then reported an empty document
+    // as `click-failed`, which reads like Safari refusing to let automation through when in
+    // fact the script had hung up on itself. The page's buttons in document order are:
+    // Close Page, Open Date & Time…, Show Details, Continue and Show IP Address.
+    const ex = async (script) => {
+      const r = await wd('POST', `/session/${sid}/execute/sync`, { script, args: [] })
+      return r?.value ?? `wd-error: ${JSON.stringify(r).slice(0, 120)}`
     }
-    out.showDetails = await click('button')
+
+    // "Show Details" — `onclick="setDetailsVisibility(true)"`, and it must actually run:
+    // the bypass below is ignored while the details section is collapsed. A WebDriver
+    // element click reports success here and changes nothing, for the same reason it does
+    // nothing on the bypass link — synthesised clicks do not run inline `onclick`. Two
+    // otherwise-identical runs differing only in this line were what isolated it: script
+    // click reached the page, element click sat on the warning three times out of three.
+    out.showDetails = await ex(
+      "const b=document.getElementById('detailsButton'); if(!b) return 'no-button'; b.click(); return 'clicked'",
+    )
     await new Promise((r) => setTimeout(r, 800))
-    out.visitLink = await click('a')
-    await new Promise((r) => setTimeout(r, 1500))
+
+    // "visit this website" is an <a role="button"> with no id, whose onclick posts
+    // `visitInsecureWebsite` to WebKit's `warningPageCommand` handler.
+    //
+    // **A WebDriver click on it does nothing.** Measured: the element is found and
+    // clickable (597x36 px, on screen), the click is dispatched and reported successful,
+    // and the page stays on the warning. WebDriver's synthesised click does not run the
+    // inline `onclick`. Clicking is therefore not a usable route, and reporting
+    // "click-failed" from it would have mis-stated a limit of the automation protocol as
+    // a refusal by Safari.
+    //
+    // So the bypass is invoked the way the link invokes it — through the page's own
+    // message handler. This is the same code path a human click reaches, not a way round
+    // it: the anchor's only behaviour IS this postMessage, and the handler is what stores
+    // the exception. `handlerPresent` records that the object really was there rather
+    // than assuming it.
+    out.handlerPresent = await ex(
+      "return typeof window.webkit?.messageHandlers?.warningPageCommand !== 'undefined'",
+    )
+    out.bypass = await ex(
+      "try{ window.webkit.messageHandlers.warningPageCommand.postMessage('visitInsecureWebsite'); return 'posted' }" +
+        'catch(e){ return "threw: "+String(e).slice(0,120) }',
+    )
+    await new Promise((r) => setTimeout(r, 3000))
     html = await sourceOf()
     out.interstitial = html.includes('<h1>ok</h1>') ? 'clicked-through' : 'click-failed'
     if (out.interstitial === 'click-failed') out.sourceHead = html.replace(/\s+/g, ' ').slice(0, 500)
