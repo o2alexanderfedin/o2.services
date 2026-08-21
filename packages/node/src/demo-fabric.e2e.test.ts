@@ -18,6 +18,7 @@ import { REGIONS } from '../../browser/src/demo-regions.ts'
 import type { Region } from '../../browser/src/demo-regions.ts'
 import { ATTESTATION_HOOK, absenceSentences, p6, p7, p8 } from './demo-region-properties.ts'
 import type { DomRegion } from './demo-region-properties.ts'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -468,7 +469,7 @@ describe('the fabric-state surface, on a real page', () => {
     if (url === undefined) throw new Error('vite dev server produced no URL')
     baseUrl = url.endsWith('/') ? url : `${url}/`
 
-    browser = await chromium.launch()
+    browser = await launchFixtureBrowser(chromium)
     stopped = await openTab('stopped', false)
     await openTab('a', true)
     await openTab('b', true)

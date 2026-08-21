@@ -4,6 +4,7 @@ import type { Browser, BrowserType, Page } from 'playwright'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -106,7 +107,7 @@ let relayAddr: string
 const peers: Peer[] = []
 
 async function openPeer(engine: string, type: BrowserType): Promise<Peer> {
-  const browser = await type.launch()
+  const browser = await launchFixtureBrowser(type)
   const page = await browser.newPage()
   page.on('pageerror', (error) => process.stderr.write(`[${engine}] page error: ${error.message}\n`))
   // The relay arrives through the page's own `?relay=` query string — the thing a visitor

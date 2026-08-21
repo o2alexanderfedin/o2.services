@@ -5,6 +5,7 @@ import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { encodeRequest, parseResponse } from '@o2/net'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -134,7 +135,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   baseUrl = url.endsWith('/') ? url : `${url}/`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
   context = await browser.newContext()
 }, 180_000)
 

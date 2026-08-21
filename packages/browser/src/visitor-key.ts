@@ -138,11 +138,41 @@ export async function visitorKeyPair(dbName: string = VISITOR_DB): Promise<Crypt
     const stored = await db.get(STORE, KEY_PAIR_KEY)
     if (isKeyPair(stored)) return stored
 
-    const generated = await generateSubtleKeyPair()
     // A `CryptoKey` handle round-trips through the structured clone algorithm; the private
     // half stays where it was and only the handle is stored. Written before returning, so a
     // reload finds the same key rather than minting a second one for the same person.
-    await db.put(STORE, generated, KEY_PAIR_KEY)
+    const generated = await generateSubtleKeyPair()
+
+    // ---- Compare-and-set, in ONE transaction — task #49, and it is NOT the shape the node
+    // seed uses one file over.
+    //
+    // The hazard is the same: the read above and the write below are two operations, and a
+    // browser profile's tabs share this database, so N tabs opening a cold origin together
+    // each read `undefined`, each mint, and the last write wins. The people behind those
+    // tabs are one person; two visitor keys for one person is two `operatorId`s, which is
+    // the unit `composeQuorum` spreads a quorum across. **A raced mint would let one
+    // profile's tabs count as independent operators**, which is a diversity claim about a
+    // single failure domain and worse than a wasted key.
+    //
+    // `IdbIdentityStore.loadOrMintSeed` fixes its version by doing the read and the write
+    // inside one `readwrite` transaction. **That is unavailable here**, and the reason is
+    // exact rather than stylistic: `generateSubtleKeyPair()` is asynchronous, and awaiting
+    // anything that is not part of an IndexedDB transaction lets that transaction commit —
+    // so the `put` would land in a second one with the check no longer covering it. The same
+    // race, one level in and harder to see.
+    //
+    // So the key is minted first and the transaction only decides *whose* wins. The loser
+    // discards what it minted and adopts the winner's, which is the property that matters —
+    // one person, one key — and the discarded handle costs nothing: it is non-extractable,
+    // unreferenced, and was never published to anyone.
+    const tx = db.transaction(STORE, 'readwrite')
+    const raced = await tx.store.get(KEY_PAIR_KEY)
+    if (isKeyPair(raced)) {
+      await tx.done
+      return raced
+    }
+    await tx.store.put(generated, KEY_PAIR_KEY)
+    await tx.done
     return generated
   } finally {
     db.close()

@@ -597,10 +597,38 @@ the failure this surface exists to prevent:**
 | Y7 | `byo/verification-multiplier` | reading | `.verificationMultiplier` | `Not measured: no job has been submitted from this form.` | `Not measured: this tab's node is stopped.` | — |
 | Y8 | `byo/fetched` | reading | `.fetched` | `Not counted: no job has been submitted from this form.` | `Not counted: this tab's node is stopped.` | — |
 | Y9 | `byo/rejected` | reading | `.rejected` | as Y8 | as Y8 | — |
-| Y10 | `byo/failures` | reading | `.failures[]` — `nodeId` and `reason`, the fabric's own words, verbatim | `No refusals: no job has been submitted from this form.` | `No refusals: this tab's node is stopped.` | `No refusals: every shard reached agreement.` |
+| Y10 | `byo/failures` | reading | `.failures[]` — `nodeId` and `reason`, the fabric's own words, verbatim | `No refusals: no job has been submitted from this form.` | `No refusals: this tab's node is stopped.` | `No refusals: no node declined a shard — the placement reading above says whether every shard was agreed.` (amended; see below) |
 | Y11 | `byo/attestation` | reading | `.attestation` — §5.1 | `Not established: no job has been submitted from this form.` | `Not established: this tab's node is stopped.` | §5.1's absence arm |
 | Y12 | `byo/egress` | reading | `.egress` — §5.2 | `Nothing measured: nothing has left this device for this job yet.` | `Nothing measured: this tab's node is stopped.` | — |
 | Y13 | `byo/sovereign-label` | reading | whether the submitted job carried `sovereign` | `Not dispatched: no job has been submitted from this form.` | `Not dispatched: this tab's node is stopped.` | — |
+
+**AMENDED 2026-08-20 — Y10's unavailable sentence was false, and it was measured false.**
+
+It read `No refusals: every shard reached agreement.` `owner-domain-tabs.e2e.test.ts` printed
+that sentence beside ten `no agreement` shards on its first run, and reproduced it at eight
+under a deliberate plant. Nothing had agreed; nothing had even been placed.
+
+The mechanism is not a faulty emptiness test. `TabJobReport.failures` is filled from
+`VerificationResult`'s `disagreed` and `insufficient` arms, and a shard that was never
+**placed** reaches neither — there is no executor to have refused it — so an empty list is the
+correct reading of a job in which nothing ran. The sentence then read empty-as-universal-success.
+
+So the amendment is not a better test for emptiness. **It is this region declining to make
+another region's claim.** *Were there refusals* is Y10's question and its answer was always
+honest. *Did every shard agree* is Y6's, and Y6 answers it correctly in the same render —
+`No placement: no shard reached agreement.` — as does §5.1's attestation arm: *"this shard is
+unplaceable rather than agreed, so there is no agreement to attest."* The fabric knew
+throughout; one sentence did not, because it had been given a fact it does not read.
+
+The general rule this makes explicit, and the reason it is stated in the contract rather than
+in a comment: **a region's absence copy may describe only what that region reads.** Two authors
+of one claim are two things that can disagree, and here they did — for as long as the sentence
+existed.
+
+Proved by `byo-surface.node.test.ts`, which calls `format` directly with an empty `failures`
+list and unplaced shards. That state is a real one the fabric produces and a healthy two-tab
+fixture does not produce to order, which is why the proof is a pure-function reading rather
+than an end-to-end one.
 
 **The sovereign option.** A checkbox plus an owner-id field, the two inseparable in the form as
 they are inseparable on the contract — `submitJob` refuses a sovereign shard with no owner by

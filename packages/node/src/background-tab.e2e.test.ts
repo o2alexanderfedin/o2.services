@@ -10,6 +10,7 @@ import { signName, toHex } from '@o2/core'
 import type { TabNameRecord } from '@o2/browser'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -136,7 +137,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   baseUrl = url.endsWith('/') ? url : `${url}/`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
   // One context, several pages: that is what makes bringToFront actually hide the
   // other page. Separate contexts are separate windows and both stay visible.
   context = await browser.newContext()

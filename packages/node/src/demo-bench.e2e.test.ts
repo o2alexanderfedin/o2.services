@@ -8,6 +8,7 @@ import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { perfReport } from '../../browser/vite.config.ts'
 import { PROVENANCE, SOURCE_DOCUMENT } from '../../browser/demo/surfaces/bench.ts'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 
 /**
  * **P9 — every figure on the Benchmarks surface occurs verbatim in the committed document.**
@@ -122,7 +123,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   base = url.endsWith('/') ? url : `${url}/`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
   context = await browser.newContext()
   page = await context.newPage()
   page.on('pageerror', (error) => {

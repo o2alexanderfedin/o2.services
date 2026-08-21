@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium, firefox, webkit } from 'playwright'
 import type { Browser, BrowserType, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -142,7 +143,7 @@ function messageOf(error: unknown): string {
 async function openPeer(engine: string, type: BrowserType): Promise<Peer | Excluded> {
   let browser: Browser
   try {
-    browser = await type.launch()
+    browser = await launchFixtureBrowser(type)
   } catch (error) {
     return { engine, reason: `launch failed: ${messageOf(error)}` }
   }

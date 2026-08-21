@@ -14,6 +14,7 @@ import { RemoteExecutor } from '@o2/net'
 // Test-only relative imports — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { OWNER_ID, OWNER_KEY, chainSupplierFor, directChainFor } from './capability-fixture.ts'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -188,7 +189,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   const baseUrl = url.endsWith('/') ? url : `${url}/`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
   context = await browser.newContext()
   page = await context.newPage()
 

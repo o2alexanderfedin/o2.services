@@ -12,6 +12,7 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { describeAttestation, toHex } from '@o2/core'
 import type { NodeSovereignty } from '@o2/core'
 import { KERNEL_RECORD, KERNEL_TRUST_ANCHOR, kernelBytes } from '@o2/demo'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -254,7 +255,7 @@ beforeAll(async () => {
   if (address === null || typeof address === 'string') throw new Error('no server port')
   baseUrl = `http://127.0.0.1:${address.port}`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
 }, 420_000)
 
 afterAll(async () => {
@@ -795,8 +796,14 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
    * `insufficient` arms; a shard that was never PLACED reaches neither, so the list is
    * legitimately empty and the renderer reads empty as universal success. The attestation
    * line in the same render gets it right — *"this shard is unplaceable rather than agreed,
-   * so there is no agreement to attest"* — so the fabric knows and only this sentence does
-   * not. Filed as its own defect; it is a rendering fault, not a placement one.
+   * so there is no agreement to attest"* — so the fabric knew and only this sentence did
+   * not. It was a rendering fault, not a placement one.
+   *
+   * **FIXED the same day.** Y10's copy now describes only what Y10 reads — whether any node
+   * declined a shard — and points at the placement region for the fact it used to borrow.
+   * UI-SPEC section 4 carries the amendment and the rule it generalises to; the proof is
+   * `byo-surface.node.test.ts`, which reaches the `failures`-empty-and-unplaced arm over the
+   * pure formatter because no healthy fixture produces it to order.
    */
   it('criterion 5 — places a sovereign shard on its owner’s machine, and is refused for want of a chain', async () => {
     const provider = await startProvider('provider-sovereign-domain')
