@@ -114,10 +114,17 @@ That toggle cannot be set from a shell. Safari's preference container is TCC-pro
     ls: ... : Operation not permitted
 
 So `defaults write` cannot reach it, and the setting is a security-relevant permission on the
-owner's own browser — not something to flip unattended even if it were writable. The probe is
-written and waiting at `certprobe/safari-probe.mjs`; it reuses the same two certificates and the
-same three-port design, and deliberately sets `acceptInsecureCerts: false`, which is Safari's
-equivalent of `ignoreHTTPSErrors` and would destroy the measurement exactly as that flag would.
+owner's own browser — not something to flip unattended even if it were writable.
+
+**The probe is committed and waiting**, at
+
+    .planning/consults/2026-08-21-safari-cert-exception-probe.mjs
+
+and it is self-contained: it generates both certificates with `openssl` rather than depending on
+a scratch directory that does not outlive the session that made it, serves the same three-port
+design, and asks the OS for a free driver port. It deliberately sets `acceptInsecureCerts: false`,
+which is Safari's equivalent of `ignoreHTTPSErrors` and would destroy the measurement exactly as
+that flag would. It was run to the wall rather than committed unrun.
 
 **Owner action, roughly ten seconds:** Safari → Settings → Advanced → "Show features for web
 developers", then Develop → "Allow Remote Automation". Then re-run the probe.
