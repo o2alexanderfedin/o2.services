@@ -1164,7 +1164,33 @@ export const REGIONS: readonly Region[] = [
     absence: {
       initial: 'No refusals: no job has been submitted from this form.',
       stopped: "No refusals: this tab's node is stopped.",
-      unavailable: 'No refusals: every shard reached agreement.',
+      /**
+       * **RETRACTED 2026-08-20. This read `No refusals: every shard reached agreement.` and
+       * that sentence was measurably false on a real run.**
+       *
+       * `owner-domain-tabs.e2e.test.ts` printed it beside ten `no agreement` shards on its
+       * first run, and reproduced it at eight under a deliberate plant. Nothing had agreed
+       * and nothing had even been placed.
+       *
+       * **The mechanism, and it is not a bug in the emptiness test.** `TabJobReport.failures`
+       * is filled from `VerificationResult`'s `disagreed` and `insufficient` arms. A shard
+       * that was never PLACED reaches neither — there is no executor to have refused it — so
+       * an empty list is the correct reading of a job in which nothing ran. The old sentence
+       * then read empty-as-universal-success.
+       *
+       * **So the fix is not a better emptiness test; it is this region declining to make
+       * another region's claim.** *Were there refusals* is Y10's question and the answer is
+       * genuinely no. *Did every shard agree* is Y6's, and Y6 answers it correctly in the
+       * same render — `No placement: no shard reached agreement.` — as does the attestation
+       * line: *"this shard is unplaceable rather than agreed, so there is no agreement to
+       * attest."* The fabric knew throughout; only this one sentence did not.
+       *
+       * The reader is pointed at the region that owns the fact rather than told it twice,
+       * because two authors of one claim are two things that can disagree — which is exactly
+       * what happened here.
+       */
+      unavailable:
+        'No refusals: no node declined a shard — the placement reading above says whether every shard was agreed.',
     },
   },
   {

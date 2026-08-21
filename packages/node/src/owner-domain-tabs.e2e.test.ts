@@ -114,11 +114,14 @@ import { FabricNode } from './fabric-node.ts'
  * `no capability chain supplied`. The chain is minted either way — the plant removes the
  * *eligibility*, not the authority — so this case is failing on the thing it names.
  *
- * The same run also caught a **false sentence on the demo surface**, filed rather than fixed
- * here: eight unplaced shards were printed under `failures: No refusals: every shard reached
- * agreement.` A shard that was never placed reaches neither the `disagreed` nor the
- * `insufficient` arm, so the failure list is legitimately empty and the renderer reads empty
- * as universal success. The attestation line beside it gets it right in the same render.
+ * The same run also caught a **false sentence on the demo surface**: eight unplaced shards
+ * were printed under `failures: No refusals: every shard reached agreement.` A shard that was
+ * never placed reaches neither the `disagreed` nor the `insufficient` arm, so the failure list
+ * is legitimately empty and the renderer read empty as universal success. The attestation line
+ * beside it got it right in the same render.
+ *
+ * **Since fixed** — UI-SPEC section 4's Y10 amendment and `byo-surface.node.test.ts`. The
+ * sentence now describes only what Y10 reads, which is whether any node declined a shard.
  *
  * ## What this file does not claim
  *
