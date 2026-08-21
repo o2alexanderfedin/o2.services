@@ -141,3 +141,77 @@ silently rewrites what three artifacts said.
 for a SOVEREIGN shard"*) with the test name at `:752`. The test's **assertions** are unaffected —
 it measures `unauthorized: no capability chain supplied` and that reading stands whatever the
 clause is numbered.
+
+---
+
+# AMENDMENT 2026-08-20 (later still) — **the three routes above are superseded, and the honest count is one**
+
+The amendment above corrected the criterion *number*. This one corrects the *analysis*, and it
+matters more: **the blocker this file names was ruled out by measurement the same night**, in
+`2a431aa` / `packages/node/src/attestation-ui.e2e.test.ts`. Anyone reaching this file for the
+three routes is reading a menu that no longer describes the problem.
+
+## What this file said, and what the fixture measured
+
+> Because **`TabApi.start` deliberately carries no `sovereignty` option** … the surface that
+> **renders** attestation cannot be pinned to an owner.
+
+**That premise is false, and the reason is a category error this file made about who gets pinned.**
+
+> **The thing that must be pinned is the executor, and the tab is the submitter.** `planPlacement`
+> filters candidates to the owner's own nodes and the submitter is excluded from its own executor
+> set anyway, so the tab never needed to be this owner. The two peers are pinned through
+> `FabricNode.start`'s `sovereignty`, which has **always existed**, and the page learns their owner
+> the ordinary way: `discover-candidates.ts:233` builds each descriptor with
+> `ownerId: executor.certificate.userKey`. **Nothing here reaches around the contract; the contract
+> was never the obstacle.**
+
+Four candidate blockers were eliminated **by running the fixture**, not by reading:
+
+| candidate | verdict |
+|---|---|
+| the page contract needs a `sovereignty` option | **ruled out** — the executor is pinned, and `FabricNode.start` has always taken it |
+| placement cannot put the shard on an owner node | **ruled out** — `asked: true`, one qualified provider, `owners: [<this owner>]`, **0 excluded, 0 undialable** |
+| the surface cannot render the label | **ruled out** — `byo.ts:73` sets `regions['byo/attestation']` |
+| **no capability chain accompanies the shard** | **THE CAUSE.** `unauthorized: no capability chain supplied`, **six times**, refused at the owner's *own* machine |
+
+## So the standing of the three routes, each stated plainly
+
+1. **Put `sovereignty` on the page contract** — **withdrawn, and not because it breaks a rule.**
+   It would not close the criterion. The shard already reaches the right machine; it is turned away
+   there. Breaking the rule buys nothing, which is a better reason to decline it than the one this
+   file originally gave.
+2. **Give the harness a rendering surface** — **unnecessary.** The rendering surface already
+   renders, and the pinned executors already execute. Neither half was ever the gap.
+3. **Let a visitor's tab hold an owner identity for real** — **still live, and now the only one**,
+   though for a narrower reason than this file gave. Not so the tab can be the owner (it need not
+   be), but so the tab can **sign a chain** and so `candidatePool` answers `asked: true` instead of
+   falling back to `ownerId: 'public'`. That is open task #21, and #46 records its CryptoKey blocker
+   already removed: `requestEnrollment` takes a signer.
+
+## What the work actually is, and the good news is that it is not new
+
+**The exact pattern exists, works, and is closed** — on the command line rather than in a tab.
+`AUTH-03` reads **Done** as of 2026-08-19 (`REQUIREMENTS.md:1243`) on `bin/agent.ts`'s sovereign
+coordinator leg, which hands `discoverCandidates` a `(nodeId) => CapabilitySupplier` so every
+`RemoteExecutor` it builds carries a chain — signed with **the task's own owner's** seed rather than
+one fixed seed, audience `audienceKeyOf(nodeId)` matching the serving node's own derivation, one-hour
+expiry computed per dispatch. Measured across four spawned processes in `sovereign-agent.e2e.test.ts`.
+
+**So the browser-tier job is to give the demo page's dispatch path the same supplier**, and its one
+dependency is that the tab hold an enrolled identity it can sign with. `main.ts:2189-2201` predicted
+this exactly — *"Wire a chain here **before** that day, not after it"* — and the fixture is the
+measurement that the warning was right.
+
+## What does not change
+
+The analysis of **where the two halves live** (execution in `browser-capability.e2e.test.ts`,
+rendering in `attestation-ui.e2e.test.ts`) stands. The **weight** stated in the first amendment
+stands and is now doubly true: this is a self-imposed residue, no criterion and no requirement row
+carries it, nothing is blocked on it, and **there is no rule left that closing it would break.**
+
+**The title is still not changed and the file is still not renamed.** Same reason as before: the
+citations exist, and a reader who meets three dated corrections learns more than one who meets a
+tidy file.
+
+_Amended 2026-08-20 · the routes were superseded by a measurement taken hours after they were written_
