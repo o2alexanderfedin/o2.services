@@ -9,6 +9,7 @@ import type { Readable, Writable } from 'node:stream'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 
 /**
  * NET-03, runnable half — the relay binary an operator actually runs, on a real socket,
@@ -231,7 +232,7 @@ const contexts: BrowserContext[] = []
 beforeAll(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-seed-bin-'))
   seed = await timed('seed-spawn-to-banner', async () => startSeed(join(workdir, 'seed')))
-  browser = await timed('chromium-launch', async () => chromium.launch())
+  browser = await timed('chromium-launch', async () => launchFixtureBrowser(chromium))
 }, 240_000)
 
 /**

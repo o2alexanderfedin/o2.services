@@ -11,6 +11,7 @@ import type { Browser, BrowserType, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { PublicKeyHex } from '@o2/core'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -624,7 +625,7 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
       let browser: Browser | undefined
       let page: Page | undefined
       try {
-        browser = await type.launch()
+        browser = await launchFixtureBrowser(type)
         page = await browser.newPage()
         page.on('pageerror', (error) => {
           process.stderr.write(`[${name}] page error: ${error.message}\n`)
@@ -758,7 +759,7 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
       let browser: Browser | undefined
       let page: Page | undefined
       try {
-        browser = await type.launch()
+        browser = await launchFixtureBrowser(type)
         page = await browser.newPage()
         const tab = page
         tab.on('pageerror', (error) => {

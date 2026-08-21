@@ -86,6 +86,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { toHex } from '@o2/core'
 import type { PublicKeyHex } from '@o2/core'
 import { encodeRequest, parseResponse } from '@o2/net'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -274,7 +275,7 @@ afterAll(async () => {
 
 /** One engine's tab, opened on the harness page. */
 async function openTab(engine: string, type: BrowserType): Promise<{ browser: Browser; page: Page }> {
-  const browser = await type.launch()
+  const browser = await launchFixtureBrowser(type)
   const page = await browser.newPage()
   page.on('pageerror', (error) => {
     process.stderr.write(`[${engine}] page error: ${error.message}\n`)

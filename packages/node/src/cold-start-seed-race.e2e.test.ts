@@ -8,6 +8,7 @@ import { createServer } from 'vite'
 import type { Plugin, ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -252,7 +253,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   pageUrl = `${url.endsWith('/') ? url : `${url}/`}${PAGE}`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
   // ONE context. Every page of it shares one origin and therefore one IndexedDB.
   context = await browser.newContext()
 }, 420_000)

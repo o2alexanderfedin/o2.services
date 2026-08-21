@@ -17,6 +17,7 @@ import type { AgentResponse } from '@o2/net'
 import type { TabNameRecord } from '@o2/browser'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -248,7 +249,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   baseUrl = url.endsWith('/') ? url : `${url}/`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
 }, 180_000)
 
 afterAll(async () => {

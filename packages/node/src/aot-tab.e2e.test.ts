@@ -19,6 +19,7 @@ import { RemoteExecutor } from '@o2/net'
 import { MODULE_ECHOES_INPUT } from '../../core/src/executor/fixtures.ts'
 import { ECHO_GUEST_C, LIFTED_ECHO } from '../../../tools/aot/echo-guest.ts'
 import { OWNER_ID, OWNER_KEY } from './capability-fixture.ts'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -250,7 +251,7 @@ describe.skipIf(LIFTED === undefined)('AOT-04 — a live browser tab runs a tran
     if (url === undefined) throw new Error('vite dev server produced no URL')
     const baseUrl = url.endsWith('/') ? url : `${url}/`
 
-    browser = await chromium.launch()
+    browser = await launchFixtureBrowser(chromium)
     context = await browser.newContext()
     page = await context.newPage()
 

@@ -93,6 +93,7 @@ import type { PublicKeyHex } from '@o2/core'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { nodeKeyForPeerId } from '@o2/libp2p'
 import { RpcRecordIndex, encodeRequest, parseResponse } from '@o2/net'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 import { SeedServer } from './seed-server.ts'
 
@@ -392,7 +393,7 @@ afterAll(async () => {
 
 /** One engine's tab, opened on the page the **seed itself** serves, with consent granted. */
 async function openTab(engine: string, type: BrowserType): Promise<{ browser: Browser; page: Page }> {
-  const browser = await type.launch()
+  const browser = await launchFixtureBrowser(type)
   const page = await browser.newPage()
   page.on('pageerror', (error) => {
     process.stderr.write(`[${engine}] page error: ${error.message}\n`)

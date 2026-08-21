@@ -18,6 +18,7 @@ import {
   STATED_WEAKNESS,
 } from '../../browser/demo/surfaces/primes.ts'
 import type { DomRegion } from './demo-region-properties.ts'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -233,7 +234,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   base = url.endsWith('/') ? url : `${url}/`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
   context = await browser.newContext()
   page = await context.newPage()
   page.on('pageerror', (error) => {

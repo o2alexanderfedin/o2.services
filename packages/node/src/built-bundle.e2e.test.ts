@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import type { Browser } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -87,7 +88,7 @@ beforeAll(async () => {
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: 'runs-unsigned-artifacts',
   })
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
 }, 300_000)
 
 afterAll(async () => {

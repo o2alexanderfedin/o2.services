@@ -19,6 +19,7 @@ import { publishStartOutcome } from '@o2/net'
 // under test. `browser-id.ts` imports one type and nothing else, so it drags in no browser
 // globals and no libp2p.
 import { browserLabel, identifyBrowser } from '../../browser/src/browser-id.ts'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -391,7 +392,7 @@ beforeAll(async () => {
   // CPU, and the symptom is a timeout in whichever one lost.
   for (const { name, type } of ENGINES) {
     try {
-      browsers.set(name, await type.launch())
+      browsers.set(name, await launchFixtureBrowser(type))
     } catch (error) {
       excluded.push({ name, reason: `launch failed: ${messageOf(error)}` })
     }

@@ -12,6 +12,7 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { describeAttestation, toHex } from '@o2/core'
 import type { NodeSovereignty } from '@o2/core'
 import { KERNEL_RECORD, KERNEL_TRUST_ANCHOR, kernelBytes } from '@o2/demo'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -254,7 +255,7 @@ beforeAll(async () => {
   if (address === null || typeof address === 'string') throw new Error('no server port')
   baseUrl = `http://127.0.0.1:${address.port}`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
 }, 420_000)
 
 afterAll(async () => {

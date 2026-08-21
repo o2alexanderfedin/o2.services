@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { sha256 } from '@o2/core'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { ARTIFACT_SIZED, CHAINED_HOT, syntheticArtifact } from '../../browser/src/synthetic-artifact.ts'
+import { chromiumFixtureArgs } from './e2e-browser-launch.ts'
 
 /**
  * AOT-05, criterion 4 — does a second visit hit V8's code cache?
@@ -494,7 +495,7 @@ async function launchProfile(label: string, args: readonly string[] = []): Promi
   // difference between those two profiles, which is what makes their disagreement a
   // reading of the flag rather than of the machine.
   const dir = await mkdtemp(join(tmpdir(), `o2-code-cache-${label}-`))
-  return { label, dir, context: await chromium.launchPersistentContext(dir, { headless: true, args: [...args] }) }
+  return { label, dir, context: await chromium.launchPersistentContext(dir, { headless: true, args: chromiumFixtureArgs(args) }) }
 }
 
 beforeAll(async () => {

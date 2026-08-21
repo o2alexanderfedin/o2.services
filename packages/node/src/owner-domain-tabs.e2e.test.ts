@@ -11,6 +11,7 @@ import { describeAttestation } from '@o2/core'
 import type { PublicKeyHex } from '@o2/core'
 import { KERNEL_RECORD, KERNEL_TRUST_ANCHOR, kernelBytes } from '@o2/demo'
 import type { TabNameRecord } from '@o2/browser'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -523,7 +524,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   pageUrl = `${url.endsWith('/') ? url : `${url}/`}${PAGE}`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
   // ONE context. Three pages of it share an origin, and therefore share one visitor key.
   context = await browser.newContext()
 }, 420_000)

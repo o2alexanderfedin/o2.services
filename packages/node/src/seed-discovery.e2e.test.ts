@@ -6,6 +6,7 @@ import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { SeedServer, lanAddresses, localHostname, relayAddrForHost } from './seed-server.ts'
 
 /**
@@ -52,7 +53,7 @@ beforeAll(async () => {
     // refused a circuit and every reading below would be about admission instead of discovery.
     relayAdmission: 'admits-any-peer',
   })
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
   context = await browser.newContext()
 }, 240_000)
 
