@@ -223,7 +223,27 @@ than none of it.
 
 ---
 
-## 6. UI-SPEC section 12's checker sign-off is `pending`
+## 6. UI-SPEC section 12's checker sign-off is `pending` — **PASS RUN 2026-08-20, 4 of 6 signed**
+
+> **The pass this entry says nobody had run has been run.** Readings and attribution:
+> [`27-CHECKER-2026-08-20.md`](./27-CHECKER-2026-08-20.md). Measured on the live page — real dev
+> server, Chromium, consent pressed, computed styles and composited contrast off the DOM, widths on
+> fresh loads at each width rather than a resize.
+>
+> **Signed off: 1 Copywriting, 2 Visuals, 3 Colour, 6 Registry safety.** The headline readings are
+> 74 rendered absences with **0** containing a digit; **73 text runs, 0 contrast failures**;
+> `--color-accent` used as a text colour on **0** runs; every §1.2 property exact; **0 external
+> network requests**.
+>
+> **Still open, and they are one question asked twice: 4 Typography and 5 Spacing.** This contract
+> specifies a fixed-px scale; the page ships an em-relative one off a 15px body. Neither is a
+> rendering defect — nothing fails contrast and no geometry assertion breaks. **Decider: owner**, as
+> this entry already said. What has changed is that *"nobody has run it"* is no longer the blocker,
+> and the entry's own warning about closing by attrition is why it was run.
+>
+> **The entry below is kept unedited**, including its "What blocks it" line, which was true until
+> today.
+
 
 **Decider: the orchestrator's design checker, then the owner.**
 
