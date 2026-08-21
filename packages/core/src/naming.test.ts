@@ -2,8 +2,14 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { describe, expect, it } from 'vitest'
 import { toHex } from './capability.ts'
 import { canonicalCid } from './canonical/encode.ts'
-import { decodeNameRecord, encodeNameRecord, SignedNameResolver, signName } from './naming.ts'
-import type { NameRecord } from './naming.ts'
+import {
+  decodeNameRecord,
+  encodeNameRecord,
+  SignedNameResolver,
+  signName,
+  signNameDelegation,
+} from './naming.ts'
+import type { NameDelegation, NameRecord } from './naming.ts'
 import type { CID } from 'multiformats/cid'
 
 /**
@@ -315,5 +321,179 @@ describe('AOT-02 — a record can vouch for the translation as well as the bytes
     expect(decodeNameRecord(JSON.stringify({ ...good, translationKeyCid: 'not-a-cid' }))).toBeNull()
     expect(decodeNameRecord(JSON.stringify({ ...good, translationKeyCid: 7 }))).toBeNull()
     expect(decodeNameRecord(JSON.stringify(good))).not.toBeNull()
+  })
+})
+
+/**
+ * Task #4, half 2 — a root that can stay offline.
+ *
+ * The property under test is not "a delegation verifies". It is that **every way a delegation
+ * could be abused is refused, by name**, because the reason to introduce a second key at all
+ * is to reduce what an attacker gets from stealing the first one. Each `it` below is one such
+ * abuse, and each was watched failing before the check that catches it existed.
+ */
+describe('#4 — a delegated signing key, under a root that stays offline', () => {
+  const root = keypair(21)
+  const delegate = keypair(22)
+  const stranger = keypair(23)
+
+  /** A delegation that outlives the records signed under it, as `sign-kernel.ts` emits. */
+  const warrant = (over: Partial<NameDelegation> = {}): NameDelegation => ({
+    ...signNameDelegation(root.priv, { delegate: delegate.pub, expiresAt: LATER }),
+    ...over,
+  })
+
+  const delegatedRecord = async (
+    delegation: NameDelegation,
+    signer: { priv: Uint8Array } = delegate,
+    expiresAt: number = LATER,
+  ): Promise<NameRecord> =>
+    signName(signer.priv, {
+      name: 'delegated',
+      cid: await cidFor('delegated'),
+      version: 1,
+      expiresAt,
+      delegation,
+    })
+
+  it('accepts a record signed by a delegate, from a resolver that pins only the root', async () => {
+    const resolver = new SignedNameResolver([root.pub])
+    const record = await delegatedRecord(warrant())
+
+    // The whole point: the resolver has never seen the delegate's key, and the delegate's key
+    // is the one that signed. Nothing was added to the anchor set — `SignedNameResolver` still
+    // cannot learn one at runtime, which is the property this must not weaken.
+    expect(resolver.accept(record, NOW).ok).toBe(true)
+    expect(resolver.trustAnchors).toEqual([root.pub])
+    expect(resolver.resolve('delegated', NOW).ok).toBe(true)
+  })
+
+  it('refuses a delegation from a root that is not pinned', async () => {
+    // A stranger can mint a perfectly valid delegation to themselves. It is valid; it is just
+    // not from anyone this resolver trusts, and that is the only thing standing between a
+    // delegation seam and an open door.
+    const forged = signNameDelegation(stranger.priv, { delegate: delegate.pub, expiresAt: LATER })
+    const record = await delegatedRecord(forged)
+    const result = new SignedNameResolver([root.pub]).accept(record, NOW)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('untrusted-root')
+    expect(result.reason).toContain('not a pinned trust anchor')
+  })
+
+  it('refuses a record whose signer is not the key the delegation names', async () => {
+    // Bearer abuse: lift a genuine delegation off a genuine record and sign with a different
+    // key. Every signature here is real; only the binding between them is missing.
+    const record = await delegatedRecord(warrant(), stranger)
+    const result = new SignedNameResolver([root.pub]).accept(record, NOW)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('delegation-mismatch')
+    expect(result.reason).toContain('authorises one key and not the bearer')
+  })
+
+  it('refuses a delegation the root did not sign', async () => {
+    // The signature is structurally a signature and covers the right shape — it is simply not
+    // over these fields. Produced by re-pointing a real delegation at a different delegate,
+    // which is what an attacker holding one valid delegation would try first.
+    const genuine = warrant()
+    const record = await delegatedRecord({ ...genuine, delegate: stranger.pub })
+    const result = new SignedNameResolver([root.pub]).accept(
+      { ...record, signer: stranger.pub },
+      NOW,
+    )
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('bad-delegation-signature')
+  })
+
+  it('refuses a lapsed delegation, and says so rather than blaming the signer', async () => {
+    const lapsed = signNameDelegation(root.priv, { delegate: delegate.pub, expiresAt: NOW - 1 })
+    const record = await delegatedRecord(lapsed, delegate, NOW - 1)
+    const result = new SignedNameResolver([root.pub]).accept(record, NOW)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    // Not `untrusted-signer`. An operator reading that would go looking for the wrong bug —
+    // a key problem instead of a clock problem — which is why these are distinct kinds.
+    expect(result.failure.kind).toBe('delegation-expired')
+  })
+
+  it('refuses a record that would outlive the delegation authorising it', async () => {
+    // This is what makes expiry usable as revocation. A signing key stolen today must not be
+    // able to mint a record that survives the delegation it was issued under; if it could,
+    // `resolve` — which re-checks only the record's own clock — would honour it indefinitely.
+    const short = signNameDelegation(root.priv, { delegate: delegate.pub, expiresAt: NOW + 1_000 })
+    const record = await delegatedRecord(short, delegate, NOW + 10_000_000)
+    const result = new SignedNameResolver([root.pub]).accept(record, NOW)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('delegation-outlived')
+    expect(result.reason).toContain('outliving the delegation')
+  })
+
+  it('will not let a delegate issue a delegation of its own', async () => {
+    // No chain of length three. The delegate mints a warrant for a stranger, exactly as the
+    // root minted one for it, and the stranger signs. Refused because `#authorise` tests only
+    // `delegation.root` against the anchors and never recurses — a limit that cannot be
+    // miscounted because there is no counter.
+    const subDelegation = signNameDelegation(delegate.priv, {
+      delegate: stranger.pub,
+      expiresAt: LATER,
+    })
+    const record = await delegatedRecord(subDelegation, stranger)
+    const result = new SignedNameResolver([root.pub]).accept(record, NOW)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.kind).toBe('untrusted-root')
+  })
+
+  it('carries the delegation through the wire form unchanged, and still verifies', async () => {
+    // A delegation that cannot survive encode/decode is useless: the whole point is handing a
+    // record to someone else. Round-tripped and then verified, not merely compared — equality
+    // would pass if both sides were equally wrong about the field order the signature covers.
+    const record = await delegatedRecord(warrant())
+    const decoded = decodeNameRecord(encodeNameRecord(record))
+
+    expect(decoded).not.toBeNull()
+    if (decoded === null) return
+    expect(decoded.delegation).toEqual(record.delegation)
+    expect(new SignedNameResolver([root.pub]).accept(decoded, NOW).ok).toBe(true)
+  })
+
+  it('refuses a record whose delegation is present but malformed, rather than dropping it', async () => {
+    // The rule `decodeNameRecord` already states for `translationKeyCid`: a dropped field
+    // would produce a record whose payload differs from the one that was signed, and the
+    // failure would surface as `bad-signature` — a decoding bug wearing a forgery's name.
+    const record = await delegatedRecord(warrant())
+    const parsed: Record<string, unknown> = JSON.parse(encodeNameRecord(record))
+    const delegation: Record<string, unknown> = { ...(parsed['delegation'] as object) }
+
+    // Guarded, because a mangle that does not mangle makes the refusal below vacuous — the
+    // first version of this test used a regex that silently matched nothing and asserted that
+    // an untouched record was refused, which it was not.
+    expect(delegation['expiresAt']).toBeTypeOf('number')
+    delegation['expiresAt'] = 'soon'
+    const mangled = JSON.stringify({ ...parsed, delegation })
+    expect(mangled).not.toBe(encodeNameRecord(record))
+
+    expect(decodeNameRecord(mangled)).toBeNull()
+  })
+
+  it('leaves an undelegated record byte-identical to what it was before delegations existed', async () => {
+    // The compatibility property, held as a byte comparison for the same reason the
+    // translation field's is: every record signed before this field existed must still
+    // verify, and it does so only if `payloadOf` omits the key entirely when absent.
+    const cid = await cidFor('plain')
+    const plain = signName(publisher.priv, { name: 'plain', cid, version: 1, expiresAt: LATER })
+
+    expect('delegation' in plain).toBe(false)
+    expect(encodeNameRecord(plain)).not.toContain('delegation')
+    expect(new SignedNameResolver([publisher.pub]).accept(plain, NOW).ok).toBe(true)
   })
 })

@@ -2320,6 +2320,22 @@ const api: TabApi = {
       expiresAt: options.moduleRecord.expiresAt,
       signer: options.moduleRecord.signer,
       signature: options.moduleRecord.signature,
+      // Task #4. Named field by field for the SAME reason the five above are — a spread would
+      // carry whatever the harness attached — and present only when the sender sent one, so a
+      // record signed directly by an anchor still hashes exactly as it did before delegations
+      // existed. Its absence here is what turned every demo dispatch into `untrusted-signer`
+      // the first time the demo records became delegated: this list must name every field
+      // `payloadOf` hashes, and it named six of eight.
+      ...(options.moduleRecord.delegation === undefined
+        ? {}
+        : {
+            delegation: {
+              root: options.moduleRecord.delegation.root,
+              delegate: options.moduleRecord.delegation.delegate,
+              expiresAt: options.moduleRecord.delegation.expiresAt,
+              signature: options.moduleRecord.delegation.signature,
+            },
+          }),
     }
     // DATA-10, WIRE-03 — the shard label is the caller's, defaulting to public.
     //

@@ -1,7 +1,8 @@
 import type { EgressManifest } from '@o2/net'
 import { describe, expect, it } from 'vitest'
-import { format } from '../demo/surfaces/byo.ts'
+import { DEFAULT_FORM, format, recordOf } from '../demo/surfaces/byo.ts'
 import type { ByoState } from '../demo/surfaces/byo.ts'
+import { KERNEL_RECORD } from '@o2/demo'
 import { REGIONS } from './demo-regions.ts'
 import type { TabJobReport } from './tab-api.ts'
 
@@ -141,4 +142,35 @@ describe('Y10 — the refusals reading never claims another region’s fact', ()
     const { regions } = format({ report, sovereign: null })
     expect(regions['byo/failures']).toBe('peer-a: not a pinned trust anchor')
   })
+})
+
+/**
+ * Task #4 — the warrant survives the trip through the DOM, or the demo refuses its own module.
+ *
+ * `readByoForm` in `index.html` rebuilds the form out of its `<input>` elements, so any value
+ * that is not an input is gone by the time `recordOf` sees it. When this bundle's records
+ * became delegated on 2026-08-21 that silently dropped the delegation, and the e2e gate
+ * reported `untrusted-signer` naming the delegate on six files — a refusal that reads exactly
+ * like an attack and was in fact the page forgetting its own paperwork.
+ */
+describe('#4 — recordOf recovers the delegation the form cannot carry', () => {
+  it('attaches this bundle’s warrant to a record signed by the key it authorises', () => {
+    const record = recordOf(DEFAULT_FORM)
+
+    expect(KERNEL_RECORD.delegation, 'the fixture is pointless if the bundle is undelegated')
+      .toBeDefined()
+    expect(record.delegation).toEqual(KERNEL_RECORD.delegation)
+    expect(record.signer).toBe(KERNEL_RECORD.delegation?.delegate)
+  })
+
+  it('attaches nothing to a record signed by anyone else', () => {
+    // The narrowing that keeps this honest. Attaching the warrant to a foreign record would
+    // not open a hole — `accept` answers `delegation-mismatch` — but it would be this page
+    // claiming to know something about a record it has never seen.
+    const foreign = recordOf({ ...DEFAULT_FORM, signer: 'a'.repeat(64) })
+
+    expect(foreign.delegation).toBeUndefined()
+    expect('delegation' in foreign).toBe(false)
+  })
+
 })

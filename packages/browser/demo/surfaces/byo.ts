@@ -277,13 +277,40 @@ export function validity(form: ByoForm): Validity {
  * only assume that because the caller cannot reach it otherwise.
  */
 export function recordOf(form: ByoForm): TabNameRecord {
+  const signer = form.signer.trim()
+  // ---- Task #4. The warrant, recovered by SIGNER rather than carried through the DOM.
+  //
+  // The page's form is read back out of its input elements (`readByoForm` in `index.html`),
+  // so anything that is not an `<input>` does not survive a round trip through the UI — and a
+  // delegation is four fields no visitor types. Left unattached, every dispatch of this
+  // bundle's own record was refused as `untrusted-signer` naming the delegate, which is what
+  // the 2026-08-21 e2e run reported on six files.
+  //
+  // Keyed on the delegate because that is the exact claim being made: this bundle holds one
+  // delegation, it authorises exactly one key, and a record signed by that key is one this
+  // bundle can vouch for. Attaching it to a record signed by anyone else would not be a
+  // security hole — `accept` refuses that as `delegation-mismatch` — but it would be a lie
+  // about what this page knows, and the narrower rule is no harder to write.
+  //
+  // A visitor pasting a *third-party delegated* record cannot express its warrant here — the
+  // form is nine strings and a checkbox, and a delegation is four more fields nobody has asked
+  // for. Such a record is refused by name (`untrusted-signer`, naming the delegate) rather
+  // than hanging, which is this surface's contract. `validity` is where the parse would go.
+  //
+  // **One rule and no override.** An earlier version also honoured a `delegation` carried on
+  // the form itself; that field could not be reached, because `readByoForm` rebuilds the form
+  // out of `<input>` elements and a delegation is not one. A configuration point nothing can
+  // set is a branch that cannot be exercised, so it is gone rather than left looking optional.
+  const bundled = KERNEL_RECORD.delegation
+  const warrant = bundled !== undefined && bundled.delegate === signer ? bundled : undefined
   return {
     name: form.name.trim(),
     cid: form.cid.trim(),
     version: Number.parseInt(form.version.trim(), 10),
     expiresAt: Number.parseInt(form.expiresAt.trim(), 10),
-    signer: form.signer.trim(),
+    signer,
     signature: form.signature.trim(),
+    ...(warrant === undefined ? {} : { delegation: warrant }),
   }
 }
 
