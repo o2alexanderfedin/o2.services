@@ -50,15 +50,62 @@ storage, and the harness had to be taught to click `#allow` only when it is ther
 
 ## So the fixture that would close the residue has a determined shape
 
-Two pages **in one `browser.newContext()`**, each enrolled through the *visitor* path
-(`acceptEnrolment`, no harness-supplied `userPrivateKey`), which makes them two nodes of one
+Pages **in one `browser.newContext()`**, each enrolled through the *visitor* path
+(`acceptEnrolment`, no harness-supplied `userPrivateKey`), which makes them nodes of one
 owner with `sovereignFor: [thatKey]` falling out of enrolment rather than being configured.
 One dispatches a sovereign shard pinned to that shared key; `chainsForOwner` roots the chain
-at it because it is the tab's own; the other executes it.
+at it because it is the tab's own; the others execute it.
 
 **And this is why `TabApi.start` needing no `sovereignty` option was the right call all
 along.** A tab enrolled with its own key *is* an owner node of that owner, automatically. The
 option would have been configuring a fact that enrolment already establishes.
+
+### AMENDED 2026-08-20 — the count was wrong: it is THREE tabs, not two
+
+This section said "two pages" and the task said "two-tab". Both were arithmetic taken on
+trust. `classifyAttestation` returns `owner-attested` at `<= 1` agreeing replica and
+`owner-domain` only at two or more under one operator — and **the submitter cannot be one of
+the two**. `attestedNodes` hands a discovered descriptor only to a *peer*, and
+`discoveredPool` filters the submitting tab out by `nodeId !== n.peerId`, so its own
+descriptor falls back to `ownerId: 'public'`; `eligibleNodes` places a non-public shard only
+where the owner ids are equal and therefore passes it over however `includeSelf` is set. Two
+tabs read `owner-attested` — correctly — and would not close the criterion. The fixture is
+`owner-domain-tabs.e2e.test.ts` and it opens three.
+
+### AMENDED 2026-08-20 — the owner relation falls out of enrolment, but only *from the next start*
+
+The claim above is true and was **not sufficient on the demo path**, which the fixture found
+by failing. Every demo tab published `sovereignFor: []` and `canExecuteSovereign: false`,
+forever, so an owner-pinned shard was **unplaceable on the owner's own device** — the one
+place it is supposed to be placeable. `enrolledUserKey` closes it, reading this origin's own
+stored certificate rather than adding a `start` parameter, which keeps the rule above intact.
+It carries `enrolledIssuer`'s one-start delay for `enrolledIssuer`'s reason: `PeerVerifier`
+is composed *before* `resolveCertificate`, so the certificate this start is about to obtain
+does not exist while the options are being built. The enrolling start is nobody's owner node;
+every later one is its own.
+
+### A sovereign shard runs where its data already is — and the fixture has to seed it
+
+Not a new rule; the wire's own consequence, written here because it determines the fixture's
+shape. A tab that submits sovereign data **refuses to serve it** — `submitJob` records the
+CID at the blockstore-put on a set that outlives the job, which is what
+`tab-refusals.e2e.test.ts` reads — so an owner-pinned input cannot travel, **not even to
+another node of the same owner**. The executor must already hold it. `capability-harness.ts`
+says the same thing in its own words: *"seed the owner's row into the node that owns it,
+before anything is dispatched."* The fixture seeds through the page's front door, by running
+the same values on both peers first as public work.
+
+**Whether an owner's own devices should sync sovereign data between themselves is a real
+design question and is deliberately not answered here.** It is an owner ruling, and the
+criterion does not need it.
+
+**One honest subtlety, measured rather than reasoned about.** A value dispatched public and
+later declared sovereign is the **same block** — same dag-cbor bytes, same CID — and the
+fabric cannot retract what already left. A first draft warmed with two shards; the sovereign
+run then reached agreement on shards 0 and 1 and reported `input block missing` for 2 through
+7, because `{a:0}` and `{a:1}` had already travelled as public work. The run said so plainly:
+`violations: []`, `0 withheld`. The guard is a scan of what crossed *during this job*, and it
+was telling the truth.
 
 ## What is built, and what this leaves
 
@@ -66,8 +113,14 @@ option would have been configuring a fact that enrolment already establishes.
 across chromium/firefox/webkit), and `runJob` minting a chain per node for an owner-pinned
 shard. Both plants watched red and restored at `CMP_EXIT=0`.
 
-**Not built**: the two-tab fixture above. So no e2e yet reads `owner-domain` off a page for a
-sovereign shard, and **`attestation-ui.e2e.test.ts`'s criterion case still passes** — because
+**Since built**: `packages/node/src/owner-domain-tabs.e2e.test.ts` — three tabs of one
+profile, `owner-domain` read off the page for a sovereign shard, plant watched red and
+restored at `CMP_EXIT=0`. The paragraph below is left as it stood on the day, because its
+reasoning about `attestation-ui.e2e.test.ts` is unchanged by the new fixture and is why that
+case keeps its assertions.
+
+**Not built at the time of writing**: the fixture above. So no e2e then read `owner-domain`
+off a page for a sovereign shard, and **`attestation-ui.e2e.test.ts`'s criterion case still passes** — because
 it pins its peers to a Node-held key the tab cannot sign for, so `chainsForOwner` correctly
 answers `null` and the dispatch is unchanged. **That case did not redden, and per its own
 docblock it was supposed to.** The docblock predicted *"the day a chain is wired here, the

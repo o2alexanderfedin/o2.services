@@ -545,7 +545,18 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // `capability.ts` itself, so both already have call sites this metric counts. Three
       // exports arrived and the number moved by one — if it had moved by three, something
       // other than the hop would be hiding them.
-    ).toBeLessThanOrEqual(67)
+      //
+      // **RAISED 67 -> 68 on 2026-08-20, one symbol, same class, same day.**
+      // `browser/enrolledUserKey` is `enrolledIssuer`'s sibling: called from `main.ts#start`,
+      // hidden by the same `window.o2` assignment, dispositioned `global-object-hop`, and the
+      // hop-tracing arm reports it flipping. It has a production reading end to end —
+      // `owner-domain-tabs.e2e.test.ts` places a sovereign shard on the owner's own tabs, which
+      // is impossible without it.
+      //
+      // **The check on this raise is the same one the raise above used.** `enrolledUserKey` is
+      // the only new barrel export in that change; `main.ts`'s wiring of it is a call, not an
+      // export. One export arrived and the number moved by one.
+    ).toBeLessThanOrEqual(68)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {

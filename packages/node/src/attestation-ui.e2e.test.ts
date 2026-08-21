@@ -757,10 +757,21 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
    * (`visitor:27b260b7…`).
    *
    * **So this case keeps its assertions and keeps its subject**, which was always the
-   * refusal rather than the label. The case that will read `owner-domain` off a page is a
-   * DIFFERENT one with a determined shape: two pages in ONE `browser.newContext()`, both
-   * enrolled through the visitor path, which makes them two nodes of one owner because
-   * `sovereignFor: [certificate.userKey]` falls out of enrolment. It is not written yet.
+   * refusal rather than the label. The case that reads `owner-domain` off a page is a
+   * DIFFERENT one, and it is now written: **`owner-domain-tabs.e2e.test.ts`**.
+   *
+   * Its shape was predicted here as *"two pages in ONE `browser.newContext()`"* and the
+   * arithmetic was wrong — it is **three**. `attestedNodes` gives a discovered descriptor
+   * only to a peer and `discoveredPool` filters the submitter out by `nodeId !== n.peerId`,
+   * so the submitting tab's own descriptor falls back to `ownerId: 'public'` and
+   * `eligibleNodes` passes it over however `includeSelf` is set. Two tabs therefore leave
+   * one agreeing replica and read `owner-attested`. Corrected in that file, in the consult,
+   * and here.
+   *
+   * The rest of the prediction held: both enrolled through the visitor path, which makes
+   * them nodes of one owner because `sovereignFor: [certificate.userKey]` falls out of
+   * enrolment, and **nothing there passes `sovereignty` or any key material** — that fixture
+   * reads the owner id back off `lastCandidates().owners` because it cannot know it.
    *
    * ## One reading from the mutation, recorded because it was not expected
    *
@@ -770,11 +781,22 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
    * every shard reached agreement`**, not a named absence. So with no eligible owner node
    * present, something still ran these owner-pinned shards and reported agreement.
    *
-   * **That is written down and NOT diagnosed here.** It was observed in a planted tree,
+   * **That was written down and NOT diagnosed here.** It was observed in a planted tree,
    * which is not a measurement of the real one, and this case's subject is the refusal
-   * above rather than what a fabric with no eligible owner does. Worth a look on its own
-   * terms: either the submitter legitimately runs its own owner-attested map and the owner
-   * id simply is not the tab's, or a shard nobody may run found somewhere to run.
+   * above rather than what a fabric with no eligible owner does. Two candidates were
+   * offered: either the submitter legitimately runs its own owner-attested map and the
+   * owner id simply is not the tab's, or a shard nobody may run found somewhere to run.
+   *
+   * **DIAGNOSED 2026-08-20, and it is neither of those — it is the sentence.** Nothing ran.
+   * `owner-domain-tabs.e2e.test.ts` reproduced the reading on an UNPLANTED tree on its first
+   * run, and then again under a deliberate plant, both times printing eight or ten
+   * `no agreement` shards directly beside `No refusals: every shard reached agreement`.
+   * `TabJobReport.failures` is filled from `VerificationResult`'s `disagreed` and
+   * `insufficient` arms; a shard that was never PLACED reaches neither, so the list is
+   * legitimately empty and the renderer reads empty as universal success. The attestation
+   * line in the same render gets it right — *"this shard is unplaceable rather than agreed,
+   * so there is no agreement to attest"* — so the fabric knows and only this sentence does
+   * not. Filed as its own defect; it is a rendering fault, not a placement one.
    */
   it('criterion 5 — places a sovereign shard on its owner’s machine, and is refused for want of a chain', async () => {
     const provider = await startProvider('provider-sovereign-domain')

@@ -105,6 +105,7 @@ import {
   classifyStartError,
   currentBrowserLabel,
   enrolledIssuer,
+  enrolledUserKey,
   firstGap,
   forgetVisitorKey,
   grantConsent,
@@ -991,6 +992,33 @@ const api: TabApi = {
     // configured must not let whatever found it choose who this tab believes.
     const pinned = await enrolledIssuer(options.blockstoreName)
 
+    // AUTH-03 — **whose sovereign work this device is a device of**, read back out of the
+    // same stored certificate one line above, at the same site and under the same ordering
+    // constraint. `enrolledUserKey` carries the argument; the two lines that matter here
+    // are which fact this is and which it is not.
+    //
+    // It is **not** configuration. `TabApi.start` takes relays, a store name and anchors,
+    // and grows no parameter for this, for the reason it grows none for `trustAnchors`: a
+    // page that was found rather than configured must not let whatever found it declare
+    // whose data this device will run. What reaches this field is this origin's own prior
+    // enrolment, arriving from this origin's own storage.
+    //
+    // It is **not a widening of who may dispatch**, either. `canExecuteSovereign` decides
+    // whether the executor's sovereignty guard will consider an owner-pinned task at all;
+    // `authorizeCapability` — built from the same value, twenty lines into
+    // `BrowserNode.start` — still demands a delegation chain rooted at this key and
+    // addressed to this node. A visitor's key is minted `extractable: false`, so the only
+    // parties who can produce such a chain are tabs of this same browser profile. That set
+    // is exactly what `owner-domain` is a claim about: the owner's own machines.
+    //
+    // **The one-start delay is `enrolledIssuer`'s and is not a second one.** A first visit
+    // enrols and is cleared for nobody, which is today's behaviour unchanged; from the next
+    // start the tab is an owner node of its own owner. Before this line existed, every demo
+    // tab published `sovereignFor: []` and declared `canExecuteSovereign: false` forever —
+    // so an owner-pinned shard was *unplaceable on the owner's own device*, which is the
+    // state `owner-domain-tabs.e2e.test.ts` measured before it measured this.
+    const ownerKey = await enrolledUserKey(options.blockstoreName)
+
     // AUTH-01/02/04 — **the visitor's own enrolment decision, read from storage exactly as
     // the pinning above is.**
     //
@@ -1017,6 +1045,16 @@ const api: TabApi = {
         // size zero — and different to a reader, who can see here that "pins nobody" is a
         // state this tab was found in and not a list that came back empty.
         ...(pinned === null ? {} : { trustedIssuers: [pinned] }),
+        // Conditional spread for `trustedIssuers`' reason: a tab that has never enrolled
+        // passes no `sovereignty` at all rather than a cleared-for-nobody record, so
+        // `BrowserNode.start`'s own default is what applies and a reader can see that
+        // "cleared for nobody" is a state this tab was found in rather than one this page
+        // asked for. `ownerId` and `ownerKey` are the same hex key deliberately — see
+        // `fabric-node.ts`'s note on why `sovereignFor` carries `certificate.userKey` and
+        // never an opaque operator label.
+        ...(ownerKey === null
+          ? {}
+          : { sovereignty: { ownerId: ownerKey, ownerKey, canExecuteSovereign: true } }),
         // DET-03/DATA-08: the build authorities this tab will run a module for. With no
         // `trustAnchors` supplied — which is every visitor, and `autoStart` — that is the
         // demo's own committed key, the same one `bin/agent.ts` and `bin/seed.ts` pin

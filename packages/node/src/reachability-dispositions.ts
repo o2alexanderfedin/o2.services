@@ -206,6 +206,20 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   // it verbatim, *"expected [ 'browser/enrolledIssuer' ] to deeply equal []"*, which is the
   // G14 defence doing its job for the second recorded time.
   'browser/enrolledIssuer',
+  // AUTH-03, 2026-08-20 — `enrolledIssuer`'s sibling, added by the same route and for the same
+  // reason one line up: `main.ts#start` calls it, `start` is a member of the `api` literal
+  // assigned to `window.o2`, and that assignment is the one edge this graph cannot trace.
+  //
+  // What it does, because the name does not say: it reads back the user key of the certificate
+  // a *previous* start stored, so the tab can declare itself an owner node of its own owner.
+  // Before it existed every demo tab published `sovereignFor: []` and an owner-pinned shard was
+  // unplaceable on the owner's own device. `owner-domain-tabs.e2e.test.ts` is the production
+  // reading of that chain end to end.
+  //
+  // Not read off the source. The derived case named it verbatim, *"expected
+  // [ 'browser/enrolledUserKey' ] to deeply equal []"* — the G14 defence for the seventh
+  // recorded time, and the second on this one file.
+  'browser/enrolledUserKey',
   'browser/firstGap',
   'browser/gatewayUrl',
   'browser/grantConsent',
@@ -780,8 +794,16 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * arm reports all three flipping to reachable, which is the basis for the disposition rather
  * than an `OPEN_FINDINGS` row. Not read off the source: the derived case went red naming both
  * numbers verbatim, and this is the one it printed.
+ *
+ * **Raised 67 -> 68 later the same day**, same rule and one entry: `browser/enrolledUserKey`,
+ * the sibling of `browser/enrolledIssuer` two hundred lines up and hidden by the identical
+ * `window.o2` assignment. The hop-tracing arm reports it flipping, so it is a disposition
+ * rather than an `OPEN_FINDINGS` row, and its production reading is
+ * `owner-domain-tabs.e2e.test.ts` — a sovereign shard placed on the owner's own tabs, which
+ * is not possible without it. Not read off the source: the derived case went red first and
+ * named it verbatim.
  */
-export const DISPOSITION_CEILING = 67
+export const DISPOSITION_CEILING = 68
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {
