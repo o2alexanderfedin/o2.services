@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { compileKernel } from '../scripts/compile-kernel.mjs'
 import { KERNEL_WASM_BASE64 } from './kernel-bytes.ts'
-import { KERNEL_NAME, KERNEL_RECORD, KERNEL_TRUST_ANCHOR } from './kernel-record.ts'
+import { KERNEL_DELEGATION, KERNEL_NAME, KERNEL_RECORD, KERNEL_TRUST_ANCHOR } from './kernel-record.ts'
 import { kernelBytes } from './kernel.ts'
 
 /**
@@ -89,13 +89,26 @@ describe('the committed record vouches for the committed kernel.wasm', () => {
     const result = new SignedNameResolver([impostor]).accept(KERNEL_RECORD, Date.now())
     expect(result.ok).toBe(false)
     if (result.ok) return
-    expect(result.failure.kind).toBe('untrusted-signer')
+    // `untrusted-root`, not `untrusted-signer` — task #4 half 2. The record is signed by a
+    // delegate rather than by the anchor, so the reason a foreign resolver refuses it is that
+    // the ROOT it chains to is not pinned. Asserting the specific kind is what keeps this a
+    // negative control: `ok === false` alone would pass just as happily if the delegation had
+    // failed to decode, which is a different defect wearing the same answer.
+    expect(result.failure.kind).toBe('untrusted-root')
   })
 
-  it('was emitted with an anchor for the key that actually signed it', () => {
-    // A build that wrote one key into the record and another into the anchor would
-    // ship a demo that refuses its own kernel, everywhere, on first dispatch.
-    expect(KERNEL_TRUST_ANCHOR).toBe(KERNEL_RECORD.signer)
+  it('was emitted with a chain that closes: anchor -> delegation -> the key that signed it', () => {
+    // A build that wrote one key into the record and another into the anchor would ship a demo
+    // that refuses its own kernel, everywhere, on first dispatch. That hazard did not go away
+    // when the anchor stopped being the signer (task #4 half 2) — it gained two more links that
+    // can disagree, so all three are checked rather than the one that used to be the whole chain.
+    expect(KERNEL_DELEGATION.root).toBe(KERNEL_TRUST_ANCHOR)
+    expect(KERNEL_RECORD.signer).toBe(KERNEL_DELEGATION.delegate)
+    expect(KERNEL_RECORD.delegation).toEqual(KERNEL_DELEGATION)
+    // And the anchor is NOT the signer, which is the property the delegation exists to buy.
+    // Without this line the three above would all still hold if the change had silently
+    // collapsed back to signing with the root.
+    expect(KERNEL_TRUST_ANCHOR).not.toBe(KERNEL_RECORD.signer)
   })
 
   it('still has more than 60 days of life left', () => {

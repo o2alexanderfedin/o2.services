@@ -85,6 +85,7 @@ import type {
   EnrollmentResult,
   ExecutionOutcome,
   Freshness,
+  NameDelegation,
   NameRecord,
   NodeCapacity,
   OfferStanding,
@@ -1041,6 +1042,24 @@ function taskFrame(
  * signature covers the canonical encoding of five of these six fields. An extra key
  * or a reordered one is a record that no longer verifies.
  */
+/**
+ * A name record as a canonical value.
+ *
+ * **Every field the signature covers must appear here, and two did not.** `payloadOf` in
+ * `@o2/core`'s `naming.ts` hashes `translationKeyCid` and `delegation` when they are present,
+ * so a record carrying either used to arrive on the far side with the field gone — and the
+ * receiver then recomputed a payload the publisher never signed and reported `bad-signature`.
+ * A transport bug wearing a forgery's name, and unfalsifiable from the receiving end.
+ *
+ * `delegation` was noticed on 2026-08-21 while wiring the offline root (task #4 half 2), which
+ * made it load-bearing: the demo's three records are now signed by a delegate, so dropping the
+ * warrant means every dispatch across this codec is refused. `translationKeyCid` had the same
+ * hole already and was fixed in the same edit rather than left as a sibling known to be broken.
+ *
+ * Spread-omitted, never written as `field: record.field`, because an explicit `undefined` is
+ * not the same as an absent key to a canonical encoder — the same rule `payloadOf` states, and
+ * the two must agree or nothing verifies.
+ */
 function nameRecordToValue(record: NameRecord): CanonicalValue {
   return {
     name: record.name,
@@ -1048,8 +1067,40 @@ function nameRecordToValue(record: NameRecord): CanonicalValue {
     version: record.version,
     expiresAt: record.expiresAt,
     signer: record.signer,
+    ...(record.translationKeyCid === undefined
+      ? {}
+      : { translationKeyCid: record.translationKeyCid }),
+    ...(record.delegation === undefined
+      ? {}
+      : {
+          delegation: {
+            root: record.delegation.root,
+            delegate: record.delegation.delegate,
+            expiresAt: record.delegation.expiresAt,
+            signature: record.delegation.signature,
+          },
+        }),
     signature: record.signature,
   }
+}
+
+/**
+ * A name-record delegation off the wire — NOT `parseDelegation`, which parses the capability
+ * chain's `Delegation`. Two unrelated types share the word; see `naming.ts`'s `NameDelegation`.
+ *
+ * Present-and-malformed returns `null` for the whole record rather than dropping the field,
+ * on `parseNameRecord`'s own stated rule: a dropped field changes the payload and turns a
+ * parsing failure into a signature failure.
+ */
+function parseNameDelegation(value: unknown): NameDelegation | null {
+  const record = asRecord(value as CanonicalValue)
+  if (record === null) return null
+  const { root, delegate, signature } = record
+  if (typeof root !== 'string' || typeof delegate !== 'string') return null
+  if (typeof signature !== 'string') return null
+  const expiresAt = asFiniteNumber(record['expiresAt'])
+  if (expiresAt === null) return null
+  return { root, delegate, expiresAt, signature }
 }
 
 /** Delegations are plain records, but must be listed explicitly to stay canonical. */
@@ -1101,7 +1152,36 @@ function parseNameRecord(value: CanonicalValue): NameRecord | null {
   const version = asIndex(record['version'])
   const expiresAt = asFiniteNumber(record['expiresAt'])
   if (cid === null || version === null || expiresAt === null) return null
-  return { name, cid, version, expiresAt, signer, signature }
+
+  // Absent is a record with no translation behind it, or one signed by an anchor directly.
+  // Present-and-unparseable is a malformed record and is refused whole — dropping it would
+  // hand `SignedNameResolver` a payload that differs from the signed one.
+  const translationValue = record['translationKeyCid']
+  let translationKeyCid: CID | undefined
+  if (translationValue !== undefined) {
+    const parsed = CID.asCID(translationValue ?? null)
+    if (parsed === null) return null
+    translationKeyCid = parsed
+  }
+
+  const delegationValue = record['delegation']
+  let delegation: NameDelegation | undefined
+  if (delegationValue !== undefined) {
+    const parsed = parseNameDelegation(delegationValue)
+    if (parsed === null) return null
+    delegation = parsed
+  }
+
+  return {
+    name,
+    cid,
+    version,
+    expiresAt,
+    signer,
+    signature,
+    ...(translationKeyCid === undefined ? {} : { translationKeyCid }),
+    ...(delegation === undefined ? {} : { delegation }),
+  }
 }
 
 export function parseRequest(body: CanonicalValue): AgentRequest | null {

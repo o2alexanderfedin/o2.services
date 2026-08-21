@@ -21,10 +21,22 @@
  *
  * ## Key handling — read this before running it
  *
- * Every run generates a **new** ed25519 key and discards the private half the moment
- * it has signed. There is no way to re-sign later. Regenerating therefore means a new
- * key, a new anchor and a new record, and all three are committed together in one
- * change.
+ * Every run generates **two** new ed25519 keys — a root and a signing key — and discards both
+ * private halves the moment they have signed. There is no way to re-sign later. Regenerating
+ * therefore means a new root, a new delegation, a new anchor and three new records, all
+ * committed together in one change.
+ *
+ * **Two keys rather than one, since task #4 half 2.** The root signs a
+ * `NameDelegation` naming the signing key; the signing key signs the three records; the anchor
+ * names the ROOT. The reason is that a publishing key and a pinned key want opposite things —
+ * one wants to be online and rotatable, the other wants to be neither — and while they were the
+ * same key, "rotate the signer" meant "re-pin every consumer". It no longer does.
+ *
+ * In this script both halves are still ephemeral, so the demo tier's guarantee is exactly what
+ * it was; what the split buys **here** is that the delegated path is exercised on every build
+ * instead of lying dormant. The ceremony that puts a genuinely offline root behind it is written
+ * out step by step at {@link rootKey}, and it supplies a value, not a capability — nothing in
+ * `naming.ts` changes when a real root replaces this one.
  *
  * That is deliberate, and it is also the exact point at which this phase's guarantee
  * is weaker than it sounds — so it gets stated rather than left implicit.
@@ -44,7 +56,7 @@
  */
 
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { MemoryBlockstore, signName } from '@o2/core'
+import { MemoryBlockstore, signName, signNameDelegation, SignedNameResolver, toHex } from '@o2/core'
 import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { kernelBytes } from '../src/kernel.ts'
@@ -148,13 +160,85 @@ function quoted(text: string): string {
  */
 const signingKey = ed25519.utils.randomSecretKey()
 
-const record = signName(signingKey, { name: KERNEL_NAME, cid, version: 1, expiresAt })
-const piRecord = signName(signingKey, { name: PI_NAME, cid: piCid, version: 1, expiresAt })
+/**
+ * The root — task #4, half 2. **This is the key the anchor now names, and it is NOT the key
+ * that signs the records.**
+ *
+ * ## What changed and why it was worth changing
+ *
+ * Until now the signing key WAS the anchor: `KERNEL_TRUST_ANCHOR` was the public half of the
+ * key three lines up, so the key that had to be present at every publish was also the key
+ * every consumer pinned. Those two roles have opposite requirements — a publishing key wants
+ * to be online and rotatable, a pinned key wants to be neither — and collapsing them is what
+ * made "regenerate" mean "re-pin every consumer".
+ *
+ * Now the root signs one short statement naming the signing key, and the signing key signs the
+ * artifacts. The anchor names the root. Rotating the signing key needs a new delegation and no
+ * change to any pinned anchor.
+ *
+ * ## In THIS script the root is still ephemeral, and that is a real limit, stated
+ *
+ * Both halves are generated per run and both are discarded, exactly as before, so the demo
+ * tier's guarantee is unchanged: the anchor and the artifacts ship in one bundle from one
+ * origin, and it proves nothing to anyone who does not already trust this repository. What the
+ * delegation buys HERE is that the mechanism is exercised on every build rather than sitting
+ * dormant waiting for a ceremony — `SignedNameResolver.accept` walks the delegated path for
+ * all three demo records, so a defect in it fails the demo rather than hiding until the day
+ * the real root exists.
+ *
+ * ## The ceremony that makes it mean something, for whoever performs it
+ *
+ * The code side is finished and takes a VALUE, not a capability. To put a genuinely offline
+ * root behind this, on a machine that is not this one:
+ *
+ *   1. `node -e "const{ed25519}=require('@noble/curves/ed25519.js');const k=ed25519.utils.randomSecretKey();
+ *      console.log('secret',Buffer.from(k).toString('hex'));
+ *      console.log('public',Buffer.from(ed25519.getPublicKey(k)).toString('hex'))"`
+ *   2. Keep `secret` off every networked machine. It is never needed again except to issue
+ *      the next delegation.
+ *   3. Per publish, on the offline machine, sign a delegation to that run's signing public
+ *      half with {@link signNameDelegation} and carry back the four fields it returns.
+ *   4. Replace {@link rootKey} here with "read the delegation from disk", and pin the root's
+ *      public half as `KERNEL_TRUST_ANCHOR`.
+ *
+ * Nothing in `naming.ts` changes for that. The verifier already cannot tell an offline root
+ * from this one, which is the point: it checks a signature, not a provenance story.
+ */
+const rootKey = ed25519.utils.randomSecretKey()
+
+/**
+ * The delegation the three records travel under.
+ *
+ * **Expires exactly when the records do, not later.** `SignedNameResolver.accept` refuses a
+ * record that would outlive its delegation, so the two clocks must agree or nothing verifies —
+ * and picking the tightest legal value rather than a longer one means a compromised signing
+ * key cannot mint anything that survives the artifacts it was issued for.
+ */
+const delegation = signNameDelegation(rootKey, {
+  delegate: toHex(ed25519.getPublicKey(signingKey)),
+  expiresAt,
+})
+
+const record = signName(signingKey, {
+  name: KERNEL_NAME,
+  cid,
+  version: 1,
+  expiresAt,
+  delegation,
+})
+const piRecord = signName(signingKey, {
+  name: PI_NAME,
+  cid: piCid,
+  version: 1,
+  expiresAt,
+  delegation,
+})
 const primesRecord = signName(signingKey, {
   name: PRIMES_NAME,
   cid: primesCid,
   version: 1,
   expiresAt,
+  delegation,
 })
 
 // Every record, against the first — not pairwise-adjacent, which would let a third key slip
@@ -166,6 +250,47 @@ for (const [label, candidate] of [
 ] as const) {
   if (candidate.signer !== record.signer) {
     throw new Error(`the ${label} record disagrees on its signer — all three must share one anchor`)
+  }
+  // Reference equality, NOT a signature comparison — CRYPTO-06 caught the first version of
+  // this line and was right to. Signature bytes are not an identifier: comparing them to decide
+  // "is this the same delegation" teaches the pattern that a signature names a thing, when what
+  // it does is attest to one. All three records are built from the one `delegation` binding
+  // above, so identity is the property actually being asserted, and it is stricter besides —
+  // a structurally-equal copy would be a second delegation and should fail this.
+  if (candidate.delegation !== delegation) {
+    throw new Error(`the ${label} record carries a different delegation — all three must share one`)
+  }
+}
+
+// The chain, checked here rather than trusted, because everything below this line is string
+// interpolation and a mismatch would be discovered as a provenance refusal in a browser tab
+// instead of as an error in the script that caused it. Three facts, each one a way the emitted
+// file could be internally consistent and still wrong.
+const rootPublic = toHex(ed25519.getPublicKey(rootKey))
+if (delegation.root !== rootPublic) {
+  throw new Error('the delegation names a root that is not this run’s root key')
+}
+if (delegation.delegate !== record.signer) {
+  throw new Error('the delegation authorises a key that did not sign the records')
+}
+if (record.expiresAt > delegation.expiresAt) {
+  throw new Error('the records outlive their delegation — SignedNameResolver would refuse them')
+}
+
+// And the whole thing verified end to end, through the REAL verifier, before a byte is written.
+// A generator that emits records its own consumer refuses is the failure this script exists to
+// prevent, and the only check that cannot drift from `accept` is calling `accept`.
+{
+  const resolver = new SignedNameResolver([rootPublic])
+  for (const [label, candidate] of [
+    ['colouring', record],
+    ['pi', piRecord],
+    ['primes', primesRecord],
+  ] as const) {
+    const accepted = resolver.accept(candidate, Date.now())
+    if (!accepted.ok) {
+      throw new Error(`the ${label} record does not verify under the emitted anchor: ${accepted.reason}`)
+    }
   }
 }
 
@@ -218,14 +343,37 @@ writeFileSync(
  * half of the old one was discarded the day it signed.
  */
 
-import type { NameRecord, PublicKeyHex } from '@o2/core'
+import type { NameDelegation, NameRecord, PublicKeyHex } from '@o2/core'
 import { CID } from 'multiformats/cid'
 
 /** The name the demo's module is published under. */
 export const KERNEL_NAME: string = ${quoted(KERNEL_NAME)}
 
-/** The public half of the key that signed {@link KERNEL_RECORD}. Pin this, nothing else. */
-export const KERNEL_TRUST_ANCHOR: PublicKeyHex = ${quoted(record.signer)}
+/**
+ * The public half of the ROOT key. Pin this, nothing else.
+ *
+ * **This is no longer the key that signed the records** — task #4, half 2. It is the key that
+ * signed {@link KERNEL_DELEGATION}, which in turn authorises the key that signed them. Pinning
+ * the root rather than the signer is what lets a signing key rotate without re-pinning every
+ * consumer, and what lets a real root's private half stay on a machine that never publishes.
+ */
+export const KERNEL_TRUST_ANCHOR: PublicKeyHex = ${quoted(rootPublic)}
+
+/**
+ * The one-link chain from {@link KERNEL_TRUST_ANCHOR} to the key that signed all three records.
+ *
+ * \`SignedNameResolver.accept\` verifies this before it verifies any record: the delegate must
+ * be the record's signer, the root must be a pinned anchor, this signature must hold, the
+ * delegation must be unexpired, and no record may outlive it. All five are checked on every
+ * accept, and this file is written only after the real verifier accepted all three records
+ * under exactly this anchor.
+ */
+export const KERNEL_DELEGATION: NameDelegation = {
+  root: KERNEL_TRUST_ANCHOR,
+  delegate: ${quoted(delegation.delegate)},
+  expiresAt: ${delegation.expiresAt},
+  signature: ${quoted(delegation.signature)},
+}
 
 /** The signed mapping from {@link KERNEL_NAME} to the CID of the committed \`kernel.wasm\`. */
 export const KERNEL_RECORD: NameRecord = {
@@ -233,7 +381,8 @@ export const KERNEL_RECORD: NameRecord = {
   cid: CID.parse(${quoted(record.cid.toString())}),
   version: ${record.version},
   expiresAt: ${record.expiresAt},
-  signer: KERNEL_TRUST_ANCHOR,
+  signer: KERNEL_DELEGATION.delegate,
+  delegation: KERNEL_DELEGATION,
   signature: ${quoted(record.signature)},
 }
 
@@ -243,16 +392,18 @@ export const PI_NAME: string = ${quoted(PI_NAME)}
 /**
  * The signed mapping from {@link PI_NAME} to the CID of the committed \`pi.wasm\`.
  *
- * **Signed by {@link KERNEL_TRUST_ANCHOR}, the same anchor as {@link KERNEL_RECORD}**, because
- * both node binaries default to exactly one anchor and a second key would be refused by every
- * stock node. \`sign-kernel.ts\` asserts the two signers match before writing this file.
+ * **Signed under {@link KERNEL_DELEGATION}, the same delegation as {@link KERNEL_RECORD}**,
+ * because both node binaries default to exactly one anchor and a record whose chain led
+ * anywhere else would be refused by every stock node. \`sign-kernel.ts\` asserts that all three
+ * records share one signer AND one delegation before writing this file.
  */
 export const PI_RECORD: NameRecord = {
   name: PI_NAME,
   cid: CID.parse(${quoted(piRecord.cid.toString())}),
   version: ${piRecord.version},
   expiresAt: ${piRecord.expiresAt},
-  signer: KERNEL_TRUST_ANCHOR,
+  signer: KERNEL_DELEGATION.delegate,
+  delegation: KERNEL_DELEGATION,
   signature: ${quoted(piRecord.signature)},
 }
 
@@ -269,16 +420,17 @@ export const PRIMES_NAME: string = ${quoted(PRIMES_NAME)}
  * — refused a prime-counting dispatch on provenance, so the surface shipped with no run control
  * and said so on screen.
  *
- * Signed by {@link KERNEL_TRUST_ANCHOR}, the same anchor as the other two, for the same forced
- * reason: both node binaries default to exactly one anchor. \`sign-kernel.ts\` checks all three
- * signers against the first before writing this file.
+ * Signed under {@link KERNEL_DELEGATION}, the same delegation as the other two, for the same
+ * forced reason: both node binaries default to exactly one anchor. \`sign-kernel.ts\` checks all
+ * three signers and all three delegations against the first before writing this file.
  */
 export const PRIMES_RECORD: NameRecord = {
   name: PRIMES_NAME,
   cid: CID.parse(${quoted(primesRecord.cid.toString())}),
   version: ${primesRecord.version},
   expiresAt: ${primesRecord.expiresAt},
-  signer: KERNEL_TRUST_ANCHOR,
+  signer: KERNEL_DELEGATION.delegate,
+  delegation: KERNEL_DELEGATION,
   signature: ${quoted(primesRecord.signature)},
 }
 `,
@@ -287,14 +439,16 @@ export const PRIMES_RECORD: NameRecord = {
 console.log(`src/kernel-record.ts  ${kernelBytes.length} bytes signed`)
 console.log(`  name                ${KERNEL_NAME}`)
 console.log(`  cid                 ${record.cid.toString()}`)
-console.log(`  anchor              ${record.signer}`)
+console.log(`  anchor (root)       ${rootPublic}`)
+console.log(`  signer (delegate)   ${record.signer}`)
+console.log(`  delegation expires  ${new Date(delegation.expiresAt).toISOString()}`)
 console.log(`  expires             ${new Date(expiresAt).toISOString()} (${LIFETIME_DAYS} days)`)
 console.log(`src/kernel-record.ts  ${piKernelBytes.length} bytes signed (pi)`)
 console.log(`  name                ${PI_NAME}`)
 console.log(`  cid                 ${piRecord.cid.toString()}`)
-console.log(`  anchor              ${piRecord.signer}  (shared — asserted equal above)`)
+console.log(`  signer (delegate)   ${piRecord.signer}  (shared — asserted equal above)`)
 console.log(`src/kernel-record.ts  ${primesKernelBytes.length} bytes signed (primes)`)
 console.log(`  name                ${PRIMES_NAME}`)
 console.log(`  cid                 ${primesRecord.cid.toString()}`)
-console.log(`  anchor              ${primesRecord.signer}  (shared — asserted equal above)`)
-console.log(`  private key         discarded — regenerating produces a new anchor for ALL THREE`)
+console.log(`  signer (delegate)   ${primesRecord.signer}  (shared — asserted equal above)`)
+console.log(`  private keys        root AND delegate discarded — regenerating replaces ALL THREE`)

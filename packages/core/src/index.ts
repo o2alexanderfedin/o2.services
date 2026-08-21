@@ -337,9 +337,10 @@ export {
   describeResolveFailure,
   encodeNameRecord,
   SignedNameResolver,
+  signNameDelegation,
   signName,
 } from './naming.ts'
-export type { NameRecord, ResolveFailure, ResolveResult } from './naming.ts'
+export type { NameDelegation, NameRecord, ResolveFailure, ResolveResult } from './naming.ts'
 
 // Decomposable tree-reduce — MR-02 through MR-07.
 export {
