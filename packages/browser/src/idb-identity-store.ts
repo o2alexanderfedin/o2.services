@@ -95,6 +95,74 @@ export class IdbIdentityStore {
     await this.#db.put(STORE, seed, SEED_KEY)
   }
 
+  /**
+   * The stored seed, or one minted **and** persisted in the same transaction — task #49.
+   *
+   * ## What this replaces, and why the pair it replaces was wrong
+   *
+   * `browser-node.ts` ran `loadSeed()`, and on `null` called `generateSeed()` and
+   * `saveSeed()`. Nothing spanned the read and the write. IndexedDB is per-origin and tabs
+   * of one profile share it, so **N tabs opening a cold origin at once each read `null`,
+   * each mint, and the last write wins** — leaving N−1 tabs running as nodes whose seed is
+   * not the one in storage. Each comes back on its next start as a *different* node, and any
+   * certificate naming the old one is orphaned: silent arrival at exactly the state
+   * `whenSeedIsGone` exists to make loud.
+   *
+   * ## Why one transaction is the whole fix, rather than a lock or a retry
+   *
+   * IndexedDB serialises `readwrite` transactions with overlapping scope, **across
+   * connections in one origin** — which is to say across tabs. That is the cross-tab
+   * mutual exclusion this needs, and the browser already provides it; nothing here has to
+   * invent one. The second transaction sees the first's write and returns it, so the loser
+   * *adopts the winner's identity* rather than keeping the one it minted. That is the
+   * property, and it is why a retry would have been the wrong shape: the point is not that
+   * the write eventually succeeds, it is that exactly one seed can win and everyone else
+   * must take it.
+   *
+   * ## The one constraint on the caller, stated because breaking it is silent
+   *
+   * `mint` **must be synchronous.** Awaiting anything that is not part of an IndexedDB
+   * transaction lets that transaction commit, and the `put` below would then land in a
+   * second transaction with the check no longer covering it — the same race, one level
+   * further in and harder to see. `generateSeed()` is synchronous, which is what makes this
+   * shape available here; `visitor-key.ts` cannot use it and says what it does instead.
+   */
+  async loadOrMintSeed(mint: () => Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
+    const tx = this.#db.transaction(STORE, 'readwrite')
+    const existing = await tx.store.get(SEED_KEY)
+    if (existing instanceof Uint8Array) {
+      await tx.done
+      return existing as Uint8Array<ArrayBuffer>
+    }
+    const seed = mint()
+    await tx.store.put(seed, SEED_KEY)
+    await tx.done
+    return seed
+  }
+
+  /**
+   * The provider signing key, or one minted and persisted in the same transaction.
+   *
+   * {@link loadOrMintSeed}'s reasoning applies unchanged — it is the same read-then-write
+   * pair on the same store, reached from `browser-node.ts`'s provider branch. Included in
+   * the same pass rather than left for later precisely because "the other one has the same
+   * shape" is how a fixed defect comes back.
+   */
+  async loadOrMintProviderSeed(
+    mint: () => Uint8Array<ArrayBuffer>,
+  ): Promise<Uint8Array<ArrayBuffer>> {
+    const tx = this.#db.transaction(STORE, 'readwrite')
+    const existing = await tx.store.get(PROVIDER_KEY)
+    if (existing instanceof Uint8Array) {
+      await tx.done
+      return existing as Uint8Array<ArrayBuffer>
+    }
+    const seed = mint()
+    await tx.store.put(seed, PROVIDER_KEY)
+    await tx.done
+    return seed
+  }
+
   /** The provider signing key this node issues certificates with, or `null`. */
   async loadProviderSeed(): Promise<Uint8Array<ArrayBuffer> | null> {
     return (await this.#readBytes(PROVIDER_KEY)) ?? null
