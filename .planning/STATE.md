@@ -17,7 +17,15 @@ stopped_at: >-
   BELOW IS CORRECT AND WAS WRONGLY CALLED STALE**: it is scoped to the milestone's own phases (11,
   12, 13, 13.1, 14-24) and those hold exactly 103 plans, counted 2026-08-20. A prior handoff
   compared it against 141, which is the repository-wide count of SUMMARY files — a different
-  population, and the reason to say which population a count is over. NOTHING IS IN FLIGHT. Work
+  population, and the reason to say which population a count is over. *(CORRECTED 2026-08-22 —
+  141 is the count of SUMMARY files under `.planning/phases/`, not the repository-wide count.
+  Repository-wide is 143: `git ls-files | grep -cE 'SUMMARY\.md$'` returns 143 and
+  `find .planning/phases -name '*SUMMARY.md' | wc -l` returns 141, the two outliers being
+  `.planning/research/SUMMARY.md` and `.planning/quick/20260806-o2-vs-peers-study/SUMMARY.md`.
+  Both figures were the same at `e84537c`, the commit that wrote this sentence, so 141 was never
+  the repository-wide count on the day it was asserted. The substantive point stands — 103 and
+  141 are different populations — and only the label on the 141 population was wrong, in the very
+  clause arguing that a count must name its population.)* NOTHING IS IN FLIGHT. Work
   since the milestone close is verification and hygiene, all merged. The open items are owner
   decisions, listed under Pending Todos, and none of them blocks anything. FIELD CHANGES MADE BY
   THIS RECONCILIATION, RECORDED HERE RATHER THAN AS TRAILING COMMENTS ON THE FIELDS THEMSELVES —
@@ -413,6 +421,40 @@ exist. A plan is not finished when its commit lands.
 Do not take these from `gsd-sdk query progress.bar` — it counts plan files across the
 nine unarchived v1.0 phase directories and reports "17/9 plans (100%)".
 
+**CORRECTED 2026-08-22 — the directive stands, the quoted reading is stale, and the mechanism
+was wrong.** Measured today the bar reports `141/125 plans (100%)`; it read `17/9 plans (100%)`
+when this note was written on 2026-07-27, before phases 25-28 existed. Two defects, both read in
+the shipped source at `get-shit-done-cc/sdk/src/query/progress.ts`:
+
+- **`progressJson` applies no milestone filter at all.** `progress.ts:88-108` walks every
+  directory under `.planning/phases/` — all 28 — where its sibling `statsJson` in the same file
+  does filter (`progress.ts:193` and `:224`, `.filter(isDirInMilestone)`). So the denominator
+  125 = 103 (this milestone's own phases 11, 12, 13, 13.1, 14-24, which is what `total_plans:
+  103` above is scoped to) + 21 (phases 25-28, planned after v1.1 was scoped) + 1 (phase-9's
+  lone v1.0 plan). **Only +1 of the +22 plan inflation comes from the v1.0 directories** —
+  attributing the divergence to them is backwards today.
+- **The numerator is the raw `*-SUMMARY.md` count with no pairing to a plan** —
+  `completed: totalSummaries` at `progress.ts:145`. Summaries exceed plans by 16: +8 from the
+  eight v1.0 directories holding a bare `SUMMARY.md` and no plan (phases 2-8 and 10), and +8
+  from inside v1.1 itself — the gap-closure summaries 15-05, 16-05, 16-06, 17-06 and phase-19's
+  four `defect-*-SUMMARY.md`. That ratio is 112.8%, and `Math.min(100, …)` at `progress.ts:111`
+  clamps it to a flat 100%, which is why the bar always looks finished.
+
+So archiving the v1.0 directories — the remedy the word "unarchived" invites, and what
+`gsd-cleanup` exists to do — would **not** fix the reading. It leaves 132/124, still over 100%
+before the clamp.
+
+**And `gsd-sdk query stats` is worse, not the fallback: it reports 0 plans, 0 summaries and 0
+phases completed.** Its filter is `getMilestonePhaseFilter` (`state.ts:37-72`), and both of its
+branches anchor on the raw directory name. The numeric branch, `/^0*(\d+[A-Za-z]?(?:\.\d+)*)/`
+at `state.ts:62`, requires a leading digit; every phase directory in this repository is named
+`phase-<N>-<slug>` and always has been, so it never fires. The custom-ID branch at `state.ts:65`
+then captures the whole name — `phase-14-signed-artifact-resolution` — which matches no roadmap
+phase number. The filter therefore rejects all 28 directories, which makes the docblock at
+`state.ts:33` describing it as the check for whether a directory "belongs to the current
+milestone" false in this repository. Recount on disk phase by phase, or read
+`gsd-sdk query roadmap.analyze` for the post-v1.0 slice: 19 phases, 124 plans, 132 summaries.
+
 **Seven separate writers have now corrupted this frontmatter, so treat the whole family
 as unsafe and maintain it by hand.** *This line read "Three" until 2026-08-13 while the list
 below it already had six entries* — the count was never updated as the list grew, which is the
@@ -512,14 +554,40 @@ rather than parsing. **Not taken autonomously.**
 See: .planning/PROJECT.md (updated 2026-07-27)
 
 **Core value:** Usable capacity grows super-linearly with the user base, without any raw data leaving its owner's device.
-**Current focus:** **The count is 12 of 15.** Phase 24 closed at 1/1 and Phase 19 at 5/5 on
+**Current focus:** **The count is 12 of 15.** *(SUPERSEDED 2026-08-22 — the count is 15 of 15,
+and v1.1 "Wire What Was Built" is CLOSED at 15/15 phases and 50/50 requirements: merged
+`2c720b9`, milestone merge `af8828f`, corroborated at `.planning/COVERAGE-BASELINE.md:38`. The
+three carried phases all closed 2026-08-18, each by a dated amendment to its own verification
+file rather than by a rewrite — 20 at 7/7 (`20-VERIFICATION.md:8`, criterion 7 closed at
+`ce97bc8`), 21 at 3/3 (`21-VERIFICATION.md:6`), 22 at 3/3 (`22-VERIFICATION.md:5`, changed from
+2/3). **Why this line was wrong is the instructive part**: the 2026-08-20 reconciliation at
+`e84537c` wrote the close into this file's own frontmatter — `status` milestone_complete,
+`completed_phases` 15, `percent` 100 — and never touched this sentence, so for two days the file
+disagreed with itself in the line a reader looks at first. That is the exact defect this
+milestone keeps finding, committed in its own bookkeeping. The paragraph below is kept because
+it records how the milestone ran.)* Phase 24 closed at 1/1 and Phase 19 at 5/5 on
 2026-08-06; **Phase 17 closed at 3/3 on 2026-08-07**, having been *declined* the day before.
 **AOT-06 was answered on 2026-08-07 and the answer is negative with a located cause**:
 elfconv cannot lift x86-64 today, because `lifter/TraceManager.cpp`'s entry-point discovery
 is hardcoded AArch64 byte patterns with no amd64 branch — **not** instruction semantics,
 which Remill has had for years, and **not** the build, which CI publishes as `:amd64`.
 elfconv is now a submodule pinned at the commit both images report, so that is readable
-in-tree. **Phase 22 (Reachability Guard) ran last and landed 2026-08-08 at 2/3, and the v1.1
+in-tree. *(SUPERSEDED 2026-08-22 — there IS an amd64 branch, and the pin has moved.
+`third_party/elfconv/lifter/TraceManager.cpp:300` opens `#elif defined(ELFCONV_X86_BUILD)` —
+the `#elif` arm of the very `#if defined(ELFCONV_AARCH64_BUILD)` block this sentence describes
+— and that arm recovers `main` from `_start` by decoding the three `%rdi` materialisations
+`48 c7 c7 <imm32>`, `48 8d 3d <rel32>` and `bf <imm32>`. It is compiled, not dead source:
+`lifter/CMakeLists.txt:35-36` defines `ELFCONV_X86_BUILD=1` under `CMAKE_ELFCONV_X86_BUILD`,
+set by `scripts/build.sh:192`. This project wrote it on 2026-08-07 at submodule commit
+`975289c`, "amd64: make the ELF front end work on x86-64 binaries", on the fork branch
+`amd64-elf-frontend`. So the second clause is stale too: the gitlink is `9655e33`
+(`git ls-files -s third_party/elfconv`), four commits past the `5319dd8` the cached images
+report at line 116 of this file — the pin is no longer the commit both images report.
+**What is falsified is the located cause, not the verdict.** No lift has been run against the
+amd64 arm, so whether an x86-64 ELF now lifts end to end is UNMEASURED, and by this repository's own rule unmeasured is
+not met: AOT-06 is open, not re-closed as a positive.)*
+
+**Phase 22 (Reachability Guard) ran last and landed 2026-08-08 at 2/3, and the v1.1
 milestone audit has since run** (`.planning/v1.1-MILESTONE-AUDIT.md`, `gaps_found`, 17 findings).
 The open work is that gap list, **not** a phase. That order
 is an owner ruling of 2026-08-05, which inserted 24 ahead of 22; 22 was already last, because
@@ -528,7 +596,13 @@ rested on was re-confirmed 2026-08-07**: the narrow reading of *"the fabric"* st
 will certify a fabric with an admission posture stated on every relay-capable door.
 
 **Three phases are verified and stay uncounted, and that is the rule working rather than
-the rule failing**: 20 at 6/7, 21 at 2/3, and 22 unexecuted. Each of the first two has
+the rule failing**: 20 at 6/7, 21 at 2/3, and 22 unexecuted. *(SUPERSEDED 2026-08-22 — all three
+are now counted: 20 at 7/7 (`20-VERIFICATION.md:8`), 21 at 3/3 (`21-VERIFICATION.md:6`), 22 at
+3/3 (`22-VERIFICATION.md:5`), each closed 2026-08-18 by a dated amendment to its own
+verification file, none by a rewrite. "22 unexecuted" was already false when written — 22 ran
+2026-08-08 with 4 plans and 4 summaries on disk (`22-01`..`22-04`, PLAN and SUMMARY both), which
+the paragraph above already records as "landed 2026-08-08 at 2/3".)*
+Each of the first two has
 exactly one PARTIAL criterion **carried to a named destination rather than rewritten** —
 20's to a checkpoint sink no shipped entry point supplies, and 21's recorded as a measured
 negative on AOT-05's precedent.
@@ -563,8 +637,11 @@ ruling anticipated.
 
 ## Current Position
 
-**THE COUNT IS 12 OF 15**, as of 2026-08-07 — **and a 2026-08-08 attempt to make it 11 was
-RETRACTED the same day, on discovering the reopen rested on half the evidence.**
+**THE COUNT IS 12 OF 15**, as of 2026-08-07 *(SUPERSEDED 2026-08-22 — read this as WAS, like
+the paragraph further down this section that already does. The count is 15 of 15 and v1.1 is
+CLOSED at 15/15 phases and 50/50 requirements; 20, 21 and 22 all closed 2026-08-18 at 7/7, 3/3 and 3/3.)* — **and a
+2026-08-08 attempt to make it 11 was RETRACTED the same day, on discovering the reopen rested on
+half the evidence.**
 
 Audit finding L3 reported that `13-VERIFICATION.md` reads `criteria_met: 0` while this file counted
 Phase 13 closed. That is true of that file and **irrelevant**, because the phase has **two**
@@ -925,7 +1002,9 @@ browser peer as a block source — a fabric partitioned by tier, against the car
 instrument was observed at **both** values against the same gate node with the same pinned
 issuer. The insecure-origin path 17-01 left unmeasured is now measured in three engines.
 
-**⚠ ONE DEFECT IS OPEN AND NEEDS AN OWNER DECISION — see Pending Todos.**
+**⚠ ONE DEFECT IS OPEN AND NEEDS AN OWNER DECISION — see Pending Todos.** *(CLOSED —
+SUPERSEDED 2026-08-22. The defect was the `PeerVerifier` verdict-once behaviour; it was decided
+and executed on 2026-08-14 at `e1088ce`. See the amended entry under Pending Todos.)*
 
 Previous phase: 16 (Decomposable Tree-Reduce Wiring) — **4/4 on criteria, CLOSED 2026-08-06**
 Status: 4 planned plans + 2 gap-closure plans (16-05, 16-06), 6 summaries, 1 verification
@@ -1685,7 +1764,21 @@ Recent decisions affecting current work:
 ### Pending Todos
 
 **⚠ OPEN DEFECT NEEDING A DECISION — `PeerVerifier` settles a verdict once and never
-revisits it (found by 17-06, 2026-08-01, deliberately not fixed).**
+revisits it (found by 17-06, 2026-08-01, deliberately not fixed).** *(CLOSED — SUPERSEDED
+2026-08-22. The ruling was taken and executed on 2026-08-14 at `e1088ce`, and the shape it took
+is none of the three candidates listed below exactly: re-ask on read, bounded by `FINAL` plus a
+retry floor. `verifiedPeers`
+(`packages/libp2p/src/peer-verifier.ts:469-473`) calls `#refresh` for every connected peer on
+every read; `#refresh` (`:517-541`) re-issues `verify` for a peer with no settled verdict and
+for any standing refusal whose kind falls outside `FINAL` (`:260-269` — `unreachable`,
+`no-records` and `expired` are all outside it), bounded only by `DEFAULT_VERDICT_RETRY_FLOOR_MS`
+at 5,000 ms (`:286`, `:400`). `#demoteIfExpired` covers the other direction, dropping an
+acceptance the instant its certificate's `expiresAt` passes. The getter is read per fetch on
+both tiers — `fabric-node.ts:2366,2381` and `browser-node.ts:1543,1598` — so a node that enrols
+after a peer connected to it is taken back within one floor interval rather than excluded
+permanently. Measured at `packages/node/src/peer-verifier.node.test.ts:670-815`, "a peer that
+enrols after connecting stops being excluded". The paragraphs below are kept because they record
+the observation and the three candidate fixes the decision chose between.)*
 
 `PeerVerifier` decides a peer's verdict on `peer:connect` and never asks again. **So a node
 that enrols *after* a peer has already connected to it is permanently excluded by that
@@ -1706,6 +1799,21 @@ path this defect lives on.**
 reason: no browser consumer exists, and **an export with no traced call path is exactly what
 Phase 22's guard fails on.**
 
+*(SUPERSEDED 2026-08-22 — `PeerVerifier` did move, on 2026-08-14 at `e1088ce`, as AUTH-02's
+browser-pinning leg. It lives at `packages/libp2p/src/peer-verifier.ts` and is exported from the
+`@o2/libp2p` barrel at `packages/libp2p/src/index.ts:69`, deliberately not re-exported from
+`@o2/node`; the move is recorded at `packages/node/src/index.ts:32`. **Both grounds above were
+false by the time it landed.** `@o2/libp2p` does depend on `@o2/net` —
+`packages/libp2p/package.json:16` declares `"@o2/net": "*"`, an edge the file's own docblock names at
+`peer-verifier.ts:154-157` as the first of "the two prices... both were paid, not avoided". And a browser consumer does exist: `packages/browser/src/browser-node.ts`
+imports `PeerVerifier` at `:76` and calls `PeerVerifier.start({...})` at `:1525`, which is the
+traced call path Phase 22's guard wanted and the wiring the move existed for. Of this
+paragraph's factual clauses only one survives — the module does import four symbols from
+`@o2/net` (`RpcFailure`, `encodeRequest`, `parseResponse`, and the type `RpcEndpoint`, at
+`peer-verifier.ts:192-193`). `@o2/net` itself remains an impossible destination:
+`packages/node/src/purity.node.test.ts:94` forbids `/^@libp2p\//` across the `PORTABLE` set
+(`:45`, which includes `net`).)*
+
 **Scheduled work carried out of 13.1's and 14's verifications (2026-07-31):**
 
 - **DATA-10's at-rest half — owner-scheduled, not deferred.** A node still serves a raw
@@ -1716,7 +1824,25 @@ Phase 22's guard fails on.**
   **Phase 20**, where `submitJob` becomes the single job path and the fix lands at one
   boundary instead of two. `sovereignty-placement.node.test.ts` currently drives a real
   spawned-agent sovereign scenario through bare `submitJob` and **passes because the gap
-  is real**.
+  is real**. *(CLOSED 2026-08-02 — SUPERSEDED 2026-08-22. Both halves landed at the one
+  boundary this ruling asked for, and neither went to Phase 20. The durable per-node set is
+  `FsSovereignCids.open(options.blockstoreDir)` (`packages/node/src/fabric-node.ts:2311`, class
+  at `packages/node/src/sovereign-cids.ts:41`; `IdbSovereignCids.open` at
+  `packages/browser/src/browser-node.ts:1575`), handed to `egressDisposition` and read by CID
+  before any payload scan at `packages/net/src/agent.ts:1171-1177` and
+  `packages/net/src/sovereign-egress.ts:205` — so the refusal outlives both the job and the
+  process, measured at `packages/node/src/sovereign-at-rest.node.test.ts:176`, "still refuses
+  after the process that recorded it is gone". Bare `submitJob` registers at its own
+  blockstore-put (`packages/core/src/job/submit.ts:2668-2672`), which covers every caller that
+  supplies the set rather than only the guarded wrapper; production callers do supply it
+  (`packages/node/src/bin/agent.ts:2397-2402`, `packages/browser/demo/main.ts:2392`). What
+  survives is narrower than the bullet above: a node built with no `blockstoreDir` takes the
+  named opt-out `'forgets-sovereignty-between-jobs'` and does still serve after the job, by
+  design rather than by omission, and `sovereignty-placement.node.test.ts` does still call bare
+  `submitJob` without the set — but it asserts placement and never asserted egress, so it was
+  never the standing evidence the last sentence made it. Ledgered `[x]` at
+  `.planning/REQUIREMENTS.md:1116` and **Done** in the traceability row at `:1393`; see this
+  file's own DATA-10 paragraph under Current focus.)*
 - **Two load-sensitive bounds, same family.** `churn.test.ts`'s 30%-killed case failed once
   at load 17.5-59.4 and passed 3/3 in isolation; `transport-bounds.node.test.ts`'s
   retained-bytes bound failed twice at load ~12.4 and passed at 8.72 and 7.70. Both are
@@ -1742,7 +1868,15 @@ in hand.
 
 Four smaller follow-ups recorded during the 22-bug round, none load-bearing:
 `SpeculationLedger.discarded` has zero readers; `submit.test.ts:79-206` duplicates
-`verify.test.ts`; the `agreed` outcome carries no `failures` field; and
+`verify.test.ts`; the `agreed` outcome carries no `failures` field *(CLOSED 2026-08-05 at
+`0e045f5` — SUPERSEDED 2026-08-22. It does carry one: `failures: readonly { nodeId: string;
+reason: string }[]` is declared on the `'agreed'` arm at `packages/core/src/job/verify.ts:187`
+and returned by `executeVerified` at `:269`, the same array the `disagreed` and `insufficient`
+arms return, computed once at `:226`. The field's own docblock at `:157-186` records the fix —
+"on the agreed arm too, and that is the whole of the fix" — and every other `agreed`
+construction site carries it: `commit-reveal.ts:469`, `submit.ts:1577` (`failures: []`, with a
+comment explaining the measured zero) and `submit.ts:1721`.
+Listed so it is not re-found.)*; and
 `classifyStartFailure` can only ever return `other` for an unreachable relay.
 
 ### Blockers/Concerns
@@ -1907,7 +2041,13 @@ once as a ghost with `directory: null` and `not_started`. So `29` double-counts 
 in nine from a prior milestone. This is the same family as the `progress.bar` defect the
 frontmatter comment already warns about — *"it counts plan files across the nine unarchived v1.0
 phase directories and reports `17/9 plans (100%)`"* — and it was quoted here as if it were an
-independent reading. **Recounted on disk: 28 phase directories, 9 v1.0 and 19 post-v1.0, and every
+independent reading. *(SUPERSEDED 2026-08-22 — that quotation is stale and its mechanism was
+wrong. `progress.bar` reports `141/125 plans (100%)` today, and it applies no milestone filter at
+all rather than merely failing to exclude v1.0: of the +22 plan inflation only +1 is v1.0, the
+other +21 being phases 25-28. The corrected account is in the frontmatter comment above; the
+family resemblance to the `init.progress` defect stands.)*
+
+**Recounted on disk: 28 phase directories, 9 v1.0 and 19 post-v1.0, and every
 one of the 19 has plan/summary parity or better, so no phase is in flight.** `12 of 15` on criteria
 remains the governing figure and nothing in `progress:` was moved.
 
