@@ -76,7 +76,36 @@ website" link's internal command is present and callable. Call it and nothing ha
 no movement. Ten attempts, twenty seconds of waiting, and a full page reload: still on the
 warning. This looks deliberate, and it is a reasonable thing for a browser to do.
 
-**So the click has to be a person's, and the job was to make that cheap.** Run:
+**ANSWERED 2026-08-22 by a person clicking, and the two browsers disagree.**
+
+| browser | socket on the **page's own port** | socket on another port, same certificate | different certificate *(control)* |
+|---|---|---|---|
+| Chrome | works | works | correctly refused |
+| Safari | **works** | **refused** | correctly refused |
+
+So the acceptance is remembered for a host **and a port**, not for a host. Chrome is more
+forgiving; Safari is not. **A socket on the same port as the page is covered by the one click in
+both.**
+
+**This matters because the seed server uses two ports today** — the web page on one, the network
+connection on another (`packages/node/src/seed-server.ts:427`). Served with a self-made
+certificate as it stands, a Safari visitor would accept the page and then the network connection
+would fail *silently*: no warning, nothing to click, just a connection that never opens. Chrome
+would have shown no sign of the problem at all.
+
+**Two ways forward, and this one is a real choice:**
+
+- **Put both on one port.** No router change, no certificate anywhere, works in both browsers —
+  but every visitor still sees the scary warning page once, and the seed server has to serve the
+  page and the network connection from a single server rather than two.
+- **Use a real certificate (AutoTLS).** No warning page at all, which is a much better first
+  impression for a public demo — but it needs a port opened on the home router, which is the
+  owner's to authorise.
+
+The measurement removed the guesswork; the remaining question is whether one scary click per
+visitor is acceptable.
+
+**To re-run the check.** Run:
 
     node .planning/consults/2026-08-21-safari-cert-manual-check.mjs
 
