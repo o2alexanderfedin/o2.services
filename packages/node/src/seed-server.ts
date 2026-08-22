@@ -33,6 +33,34 @@
  * kernel hashes in pure JS precisely so that does not matter — see `@o2/core/hash.ts`.
  * WebSockets over `ws://` are likewise fine from an `http://` page; it is only an
  * `https://` page that would refuse them as mixed content.
+ *
+ * ## If this is ever served over HTTPS: the two-port shape breaks Safari, silently
+ *
+ * **Read this before adding `https` here.** This server binds *two* ports — the page on
+ * `httpPort` and the libp2p WebSocket on `wsPort` (see the `listen` array below). Over plain
+ * HTTP that is free. With a **self-signed** certificate it is not, and the cost falls on one
+ * engine only.
+ *
+ * Measured 2026-08-21/22 against real browsers, three ports, with a different-certificate
+ * negative control that failed in every arm
+ * (`.planning/consults/2026-08-22-safari-keys-cert-exceptions-per-port.md`):
+ *
+ * | browser | socket on the page's own port | socket on another port, same cert |
+ * |---|---|---|
+ * | Chrome 151 | opens | opens |
+ * | Safari 26.5.2 | opens | **refused** |
+ *
+ * **A certificate exception is keyed to host _and port_.** So a Safari visitor would click
+ * through the warning for the page, land on it successfully, and then have the WebSocket fail
+ * with **no interstitial and nothing to act on** — the connection simply never opens. Chrome
+ * shows no sign of the problem, which is the dangerous part: tested only there, this ships
+ * looking healthy.
+ *
+ * Two ways out, and the choice is about visitor experience rather than protocol:
+ * serve the page and the WebSocket upgrade from **one** listener (no router change, but every
+ * visitor still sees the warning once), or use AutoTLS for a real certificate (no warning at
+ * all, but it needs a port opened on the operator's router). Nothing is decided here — this
+ * note exists so the decision is made knowing the two-port shape is not neutral.
  */
 
 import { networkInterfaces, hostname } from 'node:os'
