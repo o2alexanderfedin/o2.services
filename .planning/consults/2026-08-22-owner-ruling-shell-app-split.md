@@ -44,6 +44,25 @@ visitor and onto the **relay**, which is infrastructure this project controls:
 | browser ↔ browser | **no.** WebRTC uses DTLS with self-signed certificates by design; no CA is involved at any point. Unaffected. |
 | browser → **relay** | **yes, today** — an `https://` shell can only dial `wss://`, and the relay currently listens on plain `ws`. |
 
+### RULED 2026-08-22 (second ruling, same day) — the relay is hosted too
+
+**Both the shell and the relay are hosted by Cloudflare and/or the company website, with regular
+commercial certificates. Those certificates are what sign the fabric's decentralised root
+certs.** So the third row is answered the same way as the first: the relay carries an ordinary CA
+certificate because it lives on hosted infrastructure, and a browser dials it as `wss://` with
+nothing to negotiate.
+
+**Neither option below is needed.** `AutoTLS` solves "this node is on someone's home connection
+and needs a certificate" — not a problem a Cloudflare-hosted relay has. `webRTCDirect` solves
+"there is no certificate authority available at all" — also not the case. Both are recorded here
+as the alternatives that were considered and ruled out, not as pending work.
+
+The one implementation consequence: the relay's listen address becomes `/tls/ws` rather than
+today's plain `/ws` (`seed-server.ts:427`), and the browser dials `wss://`. That is a
+configuration of hosted infrastructure, not a design question.
+
+*(Below: the two options as they stood before this ruling, kept for the record.)*
+
 **Two ways to satisfy the third row, neither of which asks anything of a visitor:**
 
 - **AutoTLS on the relay** (`@ipshipyard/libp2p-auto-tls`) — a real Let's Encrypt certificate at
