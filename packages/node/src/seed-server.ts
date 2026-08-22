@@ -43,24 +43,28 @@
  *
  * Measured 2026-08-21/22 against real browsers, three ports, with a different-certificate
  * negative control that failed in every arm
- * (`.planning/consults/2026-08-22-safari-keys-cert-exceptions-per-port.md`):
+ * (`.planning/consults/2026-08-22-cert-exceptions-are-keyed-per-port.md`):
  *
- * | browser | socket on the page's own port | socket on another port, same cert |
- * |---|---|---|
- * | Chrome 151 | opens | opens |
- * | Safari 26.5.2 | opens | **refused** |
+ * | engine | browser | socket on the page's own port | socket on another port, same cert |
+ * |---|---|---|---|
+ * | Chromium | Chrome 151 | opens | opens |
+ * | Chromium | Edge 151 | opens | opens |
+ * | Gecko | Firefox 152 | opens | **refused** |
+ * | WebKit | Safari 26.5.2 | opens | **refused** |
  *
- * **A certificate exception is keyed to host _and port_.** So a Safari visitor would click
- * through the warning for the page, land on it successfully, and then have the WebSocket fail
- * with **no interstitial and nothing to act on** — the connection simply never opens. Chrome
- * shows no sign of the problem, which is the dangerous part: tested only there, this ships
- * looking healthy.
+ * **A certificate exception is keyed to host _and port_ in two of the three engine families.**
+ * Carrying it across ports is the *Chromium* behaviour, not the norm — so a Firefox or Safari
+ * visitor would click through the warning for the page, land on it successfully, and then have
+ * the WebSocket fail with **no interstitial and nothing to act on**. The connection simply
+ * never opens. Both Chromium browsers show no sign of the problem, which is the dangerous
+ * part: tested only there, this ships looking healthy.
  *
- * Two ways out, and the choice is about visitor experience rather than protocol:
- * serve the page and the WebSocket upgrade from **one** listener (no router change, but every
- * visitor still sees the warning once), or use AutoTLS for a real certificate (no warning at
- * all, but it needs a port opened on the operator's router). Nothing is decided here — this
- * note exists so the decision is made knowing the two-port shape is not neutral.
+ * **Same-port opened in all four**, so if this is ever served with a self-signed certificate,
+ * one listener is not the safer option — it is the only portable one. The remaining choice is
+ * about visitor experience rather than protocol: one listener (no router change, but every
+ * visitor still sees the warning once) versus AutoTLS for a real certificate (no warning at
+ * all, but a port opened on the operator's router). Nothing is decided here — this note exists
+ * so the decision is made knowing the two-port shape is not neutral.
  */
 
 import { networkInterfaces, hostname } from 'node:os'

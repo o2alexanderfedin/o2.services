@@ -118,7 +118,15 @@ const page = createServer(X, (req, res) => {
     // that could not be attributed to an engine from the log alone, so it had to be taken
     // again. An unattributed reading from a manual check is barely a reading.
     const ua = req.headers['user-agent'] ?? '(no user-agent)'
-    const engine = /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'unknown'
+    // Order matters and is the whole content of this line. Edge's user-agent contains
+    // BOTH `Edg/` and `Chrome/`, and Chrome's contains `Safari/` — so a check written in
+    // the obvious order labels Edge as Chrome and would have labelled Chrome as Safari.
+    // The first version of this did exactly that: a genuine Edge reading was filed as
+    // Chrome, and only the raw string underneath showed it. Test most specific first.
+    const engine = /Edg\//.test(ua) ? 'Edge'
+      : /Firefox\//.test(ua) ? 'Firefox'
+        : /Chrome\//.test(ua) ? 'Chrome'
+          : /Safari\//.test(ua) ? 'Safari' : 'unknown'
     const verdict = c === 'open'
       ? 'INVALID — the control also succeeded, so nothing was measured'
       : b === 'open'

@@ -76,16 +76,21 @@ website" link's internal command is present and callable. Call it and nothing ha
 no movement. Ten attempts, twenty seconds of waiting, and a full page reload: still on the
 warning. This looks deliberate, and it is a reasonable thing for a browser to do.
 
-**ANSWERED 2026-08-22 by a person clicking, and the two browsers disagree.**
+**ANSWERED 2026-08-22 by a person clicking, across four browsers.**
 
 | browser | socket on the **page's own port** | socket on another port, same certificate | different certificate *(control)* |
 |---|---|---|---|
 | Chrome | works | works | correctly refused |
-| Safari | **works** | **refused** | correctly refused |
+| Edge | works | works | correctly refused |
+| **Firefox** | works | **refused** | correctly refused |
+| **Safari** | works | **refused** | correctly refused |
 
-So the acceptance is remembered for a host **and a port**, not for a host. Chrome is more
-forgiving; Safari is not. **A socket on the same port as the page is covered by the one click in
-both.**
+So the acceptance is remembered for a host **and a port**, not for a host. **Two of the four
+refuse the second port** — and they are two different engines (Firefox and Safari share nothing
+here; Chrome and Edge are the same engine underneath, so they count once). Being forgiving about
+the second port is the unusual behaviour, not the normal one.
+
+**A connection on the same port as the page worked in all four.**
 
 **This matters because the seed server uses two ports today** — the web page on one, the network
 connection on another (`packages/node/src/seed-server.ts:427`). Served with a self-made
@@ -95,9 +100,11 @@ would have shown no sign of the problem at all.
 
 **Two ways forward, and this one is a real choice:**
 
-- **Put both on one port.** No router change, no certificate anywhere, works in both browsers —
-  but every visitor still sees the scary warning page once, and the seed server has to serve the
-  page and the network connection from a single server rather than two.
+- **Put both on one port.** No router change, no certificate anywhere, works in all four
+  browsers — but every visitor still sees the scary warning page once, and the seed server has
+  to serve the page and the network connection from a single server rather than two. Note this
+  is no longer the *cautious* option; with two of four browsers refusing, it is the only one
+  that works everywhere.
 - **Use a real certificate (AutoTLS).** No warning page at all, which is a much better first
   impression for a public demo — but it needs a port opened on the home router, which is the
   owner's to authorise.
