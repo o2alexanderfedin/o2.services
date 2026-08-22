@@ -98,7 +98,30 @@ certificate as it stands, a Safari visitor would accept the page and then the ne
 would fail *silently*: no warning, nothing to click, just a connection that never opens. Chrome
 would have shown no sign of the problem at all.
 
-**Two ways forward, and this one is a real choice:**
+**RULED BY THE OWNER, 2026-08-22 — and this closes the visitor half.** A web app here is two
+pieces: a *shell* hosted on a trusted host (Cloudflare, a company's own site) with an ordinary
+commercial certificate, and the *app*, which arrives into that shell over the P2P network. So the
+browser only ever checks a normal certificate, and the project's own certificates live inside the
+app, underneath what the browser inspects. **No visitor sees a warning, because no visitor is
+ever sent to a self-made certificate.** The measurement above still stands, but it now applies
+only to the laptop-serves-a-phone development path — not to the product.
+
+**The ruling moves the requirement rather than removing it, and this is the successor question.**
+A page served over `https://` is not allowed to open an insecure `ws://` connection. The browser
+currently reaches the relay over plain `ws`. So the certificate requirement moves off the visitor
+and onto the relay — which is infrastructure this project runs, not a stranger's browser.
+Browser-to-browser is unaffected either way: it uses WebRTC, which has never involved a
+certificate authority.
+
+**Two ways to satisfy that, neither of which asks anything of a visitor:**
+
+- **A real certificate on the relay (AutoTLS).** Automatic and free, but the relay must be
+  reachable from the internet on its port.
+- **A transport that needs no certificate authority at all (`webRTCDirect`).** No certificate, no
+  DNS name, no relay — the fingerprint travels in the address itself. It is not currently one of
+  the browser's transports, so this is real work rather than a setting.
+
+*(Superseded, kept for the record — the choice as it stood before the ruling:)*
 
 - **Put both on one port.** No router change, no certificate anywhere, works in all four
   browsers — but every visitor still sees the scary warning page once, and the seed server has
