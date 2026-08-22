@@ -106,6 +106,31 @@ command line is not a no-op. Firefox's equivalent lever
 **deliberately not set**: `[firefox] ICE failed` console lines appear in green-era logs
 too, so those arms may pass unchanged. Measure before reaching for it.
 
+### AMENDED 2026-08-21 04:45 — the pref IS set, and the refusal above was overturned
+
+Two hours after the 02:35 refusal, the same bare-`RTCPeerConnection` probe, run firefox to
+firefox with no repo code, measured the opposite:
+
+| `media.peerconnection.ice.obfuscate_host_addresses` | candidates offered | result |
+|---|---|---|
+| `true` (Firefox default) | `<uuid>.local` host + srflx | **`failed` after 30 s** |
+| `false` | host `10.144.82.249` + srflx | **connected in 87 ms** |
+
+Nothing in this repository changed between the two readings. The host did — Firefox was
+never immune, it was measured during a good window, which is this file's own thesis applied
+to itself. `73b09f8` (2026-08-21 04:49) therefore set the pref:
+`packages/node/src/e2e-browser-launch.ts:110-112` exports
+`FIREFOX_SHOW_LOCAL_ICE_CANDIDATES`, and `:127-134` merges it into `firefoxUserPrefs` on
+every Firefox launch through `launchFixtureBrowser` — merged *under* a caller's own prefs,
+so a fixture that deliberately sets it still wins. The full reversal is recorded in that
+file's docblock at `:73-101`.
+
+The paragraph above is left standing rather than rewritten, because a reader who meets only
+the current answer cannot tell that this host's mDNS is intermittent — which is the single
+most useful fact in this file. **The cost stated below for Chromium applies identically to
+Firefox**: same-LAN production dials depend on mDNS candidate resolution on both engines,
+and after this change nothing in the gate exercises it on either.
+
 ### The cost, stated rather than absorbed
 
 **This removes real coverage.** The suite no longer exercises Chromium's mDNS candidate
@@ -188,6 +213,9 @@ because the dial underneath it never completed.
 
 ## The hypothesis this file had to drop: firefox and webkit were never the problem
 
+*(AMENDED 2026-08-21 04:45 — half of this heading is wrong. Firefox **was** the problem,
+measured two hours later; only webkit survives the claim. See **RE-OPENED** below.)*
+
 The two survivors were both webkit-side assertions, which made the obvious next step
 Firefox's `media.peerconnection.ice.obfuscate_host_addresses` pref. **It was measured
 first, and the measurement refused it.**
@@ -203,9 +231,25 @@ Both sides offered `.local` names, **both resolved them, and the channel opened.
 pref would have changed nothing, and it was not set. Setting it would have been a fix
 applied to a mechanism that was never broken.
 
+**RE-OPENED 2026-08-21 04:45.** The refusal above held for two hours. A firefox-to-firefox
+probe — not cross-engine — then measured `obfuscate_host_addresses: true` → `failed` after
+30 s and `false` → connected in 87 ms, and `73b09f8` set the pref
+(`packages/node/src/e2e-browser-launch.ts:110-112`, applied at `:127-134`, the whole
+reversal recorded in that file's docblock at `:73-101`). The 02:35 cross-engine reading was
+correct for its own window; what it could not see is that this host's mDNS varies *between*
+windows — this file's own thesis, applied to itself. The refusal is left standing rather
+than deleted for the reason the docblock gives: a reader who finds only the current answer
+cannot tell that the host is intermittent.
+
 **This narrows the fault.** It is not "this host cannot resolve mDNS ICE candidates" — it
 is specific to **Chromium's** ephemeral names on this host. Firefox and WebKit register
 and resolve each other's fine.
+
+*(SUPERSEDED 2026-08-21 04:45 — the narrowing does not survive the later reading. Firefox
+offered `.local` names and **failed** on them two hours after this was written. Only
+**webkit** is left alone now, and only because no fault was ever demonstrated for it and
+Playwright's webkit exposes no equivalent pref through `launch` —
+`packages/node/src/e2e-browser-launch.ts:99-101`.)*
 
 **Dated to its own window, because that discipline is the whole lesson of the file this
 one amends:** the cross-engine probe ran at **02:35**, *after* the 02:16–02:30 sweep. It

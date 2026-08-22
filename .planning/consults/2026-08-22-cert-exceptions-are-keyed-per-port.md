@@ -74,9 +74,16 @@ should not depend on.
 
 `packages/node/src/seed-server.ts` binds **two** ports today: the Vite page on `httpPort`, and
 the libp2p WebSocket listener on `wsPort` (`listen: ['/ip4/0.0.0.0/tcp/${wsPort}/ws', …]`,
-`:427`). That is exactly the layout Safari refuses. **Served over self-signed HTTPS as it stands,
-a Safari visitor would accept the page and then have the WebSocket fail silently** — no
-interstitial, no error the visitor can act on, just a socket that never opens.
+`:427`). *(SUPERSEDED 2026-08-22 — the anchor was stale before this file was even committed.
+The array is at `:463`, in `SeedServer.#compose`; `:427` is comment prose about `FabricNode`
+deriving its relay service from the listen list. `f098adb`, the commit that added this consult,
+also edited `seed-server.ts` and left the array at `:459` — `:427` was last correct at
+`8211d3c`. Re-run `grep -n 'ip4/0.0.0.0/tcp' packages/node/src/seed-server.ts`. Anchor on the
+symbol rather than the number: a bare line number in a consult drifts on the next edit to the
+file it cites. The two-port claim itself is unchanged and correct.)* That is exactly the layout
+Safari refuses. **Served over self-signed HTTPS as it stands, a Safari visitor would accept the
+page and then have the WebSocket fail silently** — no interstitial, no error the visitor can act
+on, just a socket that never opens.
 
 So the measurement is not academic: it identifies a concrete defect in the seed server's shape
 that would only have appeared on Safari, only over HTTPS, and only as silence.
