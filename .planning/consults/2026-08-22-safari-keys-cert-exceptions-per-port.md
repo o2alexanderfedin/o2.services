@@ -47,11 +47,26 @@ If the exception is keyed to host *and port*, then a socket on the **page's own 
 covered by the click the visitor already made. Node serves both from one `https.Server` — this
 is exactly how `ws` attaches — so it costs nothing structurally.
 
-If that holds in Safari, the whole self-signed-versus-AutoTLS trade dissolves: one click, every
-browser, no router port opened, no certificate installed anywhere. It is validated on Chrome
-(`same-port: open`) and is the third arm of the harness.
+**It holds.** Measured 2026-08-22, attributed by user-agent:
 
-**Status: awaiting one Safari click.**
+| browser | **same port as page** | same cert, other port | different cert *(control)* |
+|---|---|---|---|
+| Chrome 151 | `open` | `open` | `error` |
+| Safari 26.5.2 | **`open`** | `error` | `error` |
+
+**A socket on the page's own port is covered by the one click the visitor already made, in both
+engines.** The exception is keyed to host **and port**, and same-port is inside it.
+
+### What this costs the current design, which is the part that matters
+
+`packages/node/src/seed-server.ts` binds **two** ports today: the Vite page on `httpPort`, and
+the libp2p WebSocket listener on `wsPort` (`listen: ['/ip4/0.0.0.0/tcp/${wsPort}/ws', …]`,
+`:427`). That is exactly the layout Safari refuses. **Served over self-signed HTTPS as it stands,
+a Safari visitor would accept the page and then have the WebSocket fail silently** — no
+interstitial, no error the visitor can act on, just a socket that never opens.
+
+So the measurement is not academic: it identifies a concrete defect in the seed server's shape
+that would only have appeared on Safari, only over HTTPS, and only as silence.
 
 ## Method notes worth keeping
 
