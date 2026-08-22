@@ -1,45 +1,61 @@
-# Safari refuses the exception on another port; Chrome accepts it
+# A certificate exception is keyed to host AND port — in two of the three engine families
 
 **Measured 2026-08-21/22.** Task #24's deciding question:
 
 > After the visitor clicks through the interstitial for `https://host:A`, does that acceptance
 > cover `wss://host:B` presenting the SAME certificate on a different port?
 
-**Chrome: yes. Safari: no.** The two engines disagree, and the disagreement decides the trade.
+**Chromium: yes. Gecko and WebKit: no.** The permissive behaviour is the *Chromium* one, and a
+project that tested only there — as this one did at first — would have recorded the question
+settled in the wrong direction.
 
-## The reading
+## The reading — four browsers, three engine families
 
-Same harness instance, same two certificates, same three ports, minutes apart:
+Same harness instance, same two certificates, same ports. Every reading confirmed by screenshot
+and attributed by user-agent.
 
-| browser | same cert, other port | different cert *(control)* | verdict |
-|---|---|---|---|
-| Chrome 151 | `open` | `error` | **YES** |
-| Safari 26.5.2 | `error` | `error` | **NO** |
+| engine | browser | **same port as page** | same cert, other port | different cert *(control)* |
+|---|---|---|---|---|
+| Chromium | Chrome 151 | `open` | `open` | `error` |
+| Chromium | Edge 151 | `open` | `open` | `error` |
+| Gecko | **Firefox 152** | `open` | **`error`** | `error` |
+| WebKit | **Safari 26.5.2** | `open` | **`error`** | `error` |
 
-**Two things make this a comparison rather than two anecdotes.**
+**Same-port opened in all four. Cross-port opened only in Chromium.**
+
+**Three things make this a comparison rather than four anecdotes.**
 
 1. **The control failed in both.** A third port serves a *different* self-signed certificate. If
    it had succeeded, "the socket opened" would be equally consistent with the browser not
    checking certificates on WebSockets at all, and the reading would mean nothing.
 2. **Chrome was re-run against the same live instance *after* the Safari reading**, and returned
-   `open` again. That rules out the servers having died between the two readings — the one
-   alternative explanation for `error` that had nothing to do with the browser.
+   `open` again. That rules out the servers having died between readings — the one alternative
+   explanation for `error` that has nothing to do with the browser. It was not a hypothetical:
+   the harness *was* stopped once mid-sweep, and Edge and Firefox promptly reported
+   `ERR_CONNECTION_REFUSED` and "Unable to connect". Those two screens are the tester's own
+   server being gone, **not** browser findings, and reading them as engine behaviour would have
+   invented a result.
+3. **The user-agent is recorded and classified.** An early reading contradicting Chrome could not
+   be attributed from the log at all and had to be retaken. The first classifier then labelled
+   **Edge as Chrome**, because Edge's user-agent contains both `Edg/` and `Chrome/` — and
+   Chrome's contains `Safari/`. Match most specific first, or the instrument quietly merges two
+   engines.
 
 `ignoreHTTPSErrors` / `acceptInsecureCerts` were never set. Setting either makes every arm
 succeed and measures nothing.
 
 ## What it means
 
-**Safari keys a certificate exception to host *and port*. Chrome keys it to host.**
+**Firefox and Safari key a certificate exception to host *and port*. Chromium keys it to host.**
 
 This is precisely the hazard task #24 named before any of it was measured — *"a WebSocket TLS
-failure has no interstitial in any browser, so it fails silently"* — and it does materialise. It
-simply does not materialise in Chrome, which is why the first round of measurement missed it and
-reported the question settled.
+failure has no interstitial in any browser, so it fails silently"* — and it does materialise, in
+the majority of engines. It simply does not materialise in Chromium, which is why the first round
+of measurement missed it and reported the question settled.
 
-For the fabric: a self-signed seed page that serves the page on one port and the libp2p
-WebSocket on another **works in Chrome and silently fails in Safari**, with no warning the
-visitor can act on. The socket just never opens.
+For the fabric: a self-signed seed page serving the page on one port and the libp2p WebSocket on
+another **works in Chrome and Edge and silently fails in Firefox and Safari**, with no warning
+the visitor can act on. The socket just never opens.
 
 ## The way out that the finding implies
 
@@ -47,15 +63,12 @@ If the exception is keyed to host *and port*, then a socket on the **page's own 
 covered by the click the visitor already made. Node serves both from one `https.Server` — this
 is exactly how `ws` attaches — so it costs nothing structurally.
 
-**It holds.** Measured 2026-08-22, attributed by user-agent:
+**It holds — in all four**, as the table above records. A socket on the page's own port is
+covered by the one click the visitor already made, in every engine tested.
 
-| browser | **same port as page** | same cert, other port | different cert *(control)* |
-|---|---|---|---|
-| Chrome 151 | `open` | `open` | `error` |
-| Safari 26.5.2 | **`open`** | `error` | `error` |
-
-**A socket on the page's own port is covered by the one click the visitor already made, in both
-engines.** The exception is keyed to host **and port**, and same-port is inside it.
+**So one listener is not the safer option. It is the only portable one.** Two of three engine
+families refuse the second port outright, and the third's tolerance is a convenience this design
+should not depend on.
 
 ### What this costs the current design, which is the part that matters
 
