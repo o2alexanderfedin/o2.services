@@ -57,7 +57,7 @@ const wssDiff = createServer(Y, (_q, s) => { s.writeHead(404); s.end() })
 new WebSocketServer({ server: wssDiff }).on('connection', (s) => s.send('diff'))
 const [pB, pC] = await Promise.all([listen(wssSame), listen(wssDiff)])
 
-const html = (pageHost, b, c) => `<!doctype html>
+const html = (pageHost, a, b, c) => `<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Certificate exception check</title>
 <style>
@@ -78,7 +78,8 @@ const html = (pageHost, b, c) => `<!doctype html>
 <table>
  <tr><th>Connection</th><th>Certificate</th><th>Result</th></tr>
  <tr><td>This page</td><td>X</td><td>accepted (you clicked through)</td></tr>
- <tr><td><code>wss://…:${b}</code></td><td>X — same, other port</td><td id="rb">…</td></tr>
+ <tr><td><code>wss://…:${a}</code></td><td>X — <strong>same port as this page</strong></td><td id="ra">…</td></tr>
+ <tr><td><code>wss://…:${b}</code></td><td>X — same cert, other port</td><td id="rb">…</td></tr>
  <tr><td><code>wss://…:${c}</code></td><td>Y — different <em>(control)</em></td><td id="rc">…</td></tr>
 </table>
 <p class="n">The control must fail. If both succeed, the browser is not checking certificates
@@ -95,33 +96,49 @@ const test=(p)=>new Promise(res=>{
   setTimeout(()=>fin('timeout'),10000);
 });
 (async()=>{
-  const b=await test(${b}), c=await test(${c});
+  const a=await test(${a}), b=await test(${b}), c=await test(${c});
+  document.getElementById('ra').textContent=a;
   document.getElementById('rb').textContent=b;
   document.getElementById('rc').textContent=c;
   const v=document.getElementById('v');
-  if(b==='open'&&c!=='open'){v.className='verdict yes';v.textContent='YES — one click covered the other port';}
-  else if(b!=='open'&&c!=='open'){v.className='verdict no';v.textContent='NO — the other port was refused';}
-  else {v.className='verdict broken';v.textContent='INVALID — the control also succeeded';}
-  try{await fetch('/result?b='+b+'&c='+c)}catch(e){}
+  if(c==='open'){v.className='verdict broken';v.textContent='INVALID — the control also succeeded';}
+  else if(b==='open'){v.className='verdict yes';v.textContent='YES — one click covered a DIFFERENT port';}
+  else if(a==='open'){v.className='verdict yes';v.textContent='SAME PORT works — a different port does not';}
+  else {v.className='verdict no';v.textContent='NO — even the page\u2019s own port was refused';}
+  try{await fetch('/result?a='+a+'&b='+b+'&c='+c)}catch(e){}
 })();
 </script>`
 
 const page = createServer(X, (req, res) => {
   if (req.url.startsWith('/result')) {
     const q = new URL(req.url, 'https://x').searchParams
-    const b = q.get('b'); const c = q.get('c')
-    const verdict = b === 'open' && c !== 'open'
-      ? 'YES — one accepted certificate covered wss:// on another port'
-      : b !== 'open' && c !== 'open'
-        ? 'NO — the other port was refused despite the same certificate'
-        : 'INVALID — the control also succeeded, so nothing was measured'
-    console.log(`\n  RESULT  same-cert/other-port: ${b}   different-cert control: ${c}`)
+    const a = q.get('a'); const b = q.get('b'); const c = q.get('c')
+    // Record WHICH browser reported. The first version of this harness did not, and a
+    // reading came back that contradicted Chrome — a real and decisive result, but one
+    // that could not be attributed to an engine from the log alone, so it had to be taken
+    // again. An unattributed reading from a manual check is barely a reading.
+    const ua = req.headers['user-agent'] ?? '(no user-agent)'
+    const engine = /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'unknown'
+    const verdict = c === 'open'
+      ? 'INVALID — the control also succeeded, so nothing was measured'
+      : b === 'open'
+        ? 'YES — one acceptance covered wss:// on a DIFFERENT port'
+        : a === 'open'
+          ? "SAME PORT works, a different port does not — the exception is keyed to host AND port"
+          : "NO — even a socket on the page's own port was refused"
+    console.log(`\n  RESULT from ${engine}`)
+    console.log(`  user-agent: ${ua}`)
+    console.log(`  same-PORT: ${a}   same-cert/other-port: ${b}   different-cert control: ${c}`)
     console.log(`  ${verdict}\n  Ctrl-C to stop.\n`)
     res.writeHead(204); res.end(); return
   }
   res.writeHead(200, { 'content-type': 'text/html' })
-  res.end(html(HOST, pB, pC))
+  res.end(html(HOST, pA, pB, pC))
 })
+// The SAME port as the page. Safari keys the exception to host AND port (measured
+// 2026-08-21), so a socket sharing the page's port should be covered by the one click the
+// visitor already made — which would remove the need for a second acceptance entirely.
+new WebSocketServer({ server: page }).on('connection', (s) => s.send('samePort'))
 const pA = await listen(page)
 
 console.log(`
