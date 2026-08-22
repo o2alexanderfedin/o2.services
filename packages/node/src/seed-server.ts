@@ -60,11 +60,15 @@
  * part: tested only there, this ships looking healthy.
  *
  * **Same-port opened in all four**, so if this is ever served with a self-signed certificate,
- * one listener is not the safer option — it is the only portable one. The remaining choice is
- * about visitor experience rather than protocol: one listener (no router change, but every
- * visitor still sees the warning once) versus AutoTLS for a real certificate (no warning at
- * all, but a port opened on the operator's router). Nothing is decided here — this note exists
- * so the decision is made knowing the two-port shape is not neutral.
+ * one listener is not the safer option — it is the only portable one.
+ *
+ * **Scope, per the owner's ruling of 2026-08-22** — see
+ * `.planning/consults/2026-08-22-owner-ruling-shell-app-split.md`. Production serves the shell
+ * from a *trusted* host with an ordinary CA certificate and delivers the app into it over P2P,
+ * so no visitor is ever pointed at a self-signed origin and nobody sees an interstitial. **This
+ * warning therefore applies to _this file only_** — the LAN seed path, where a laptop serves a
+ * phone directly — which is a development convenience rather than the product's shape. It is
+ * kept because that is precisely the path the ruling does not cover.
  */
 
 import { networkInterfaces, hostname } from 'node:os'
