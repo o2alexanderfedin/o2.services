@@ -33,7 +33,8 @@ an `http://` page; it is only an `https://` page that would refuse them as mixed
 
 Today's browser node dials the relay over plain WebSockets — `browser-node.ts:1400` lists
 `transports: [webSockets(), webRTC(), circuitRelayTransport()]`, and `webSockets()` there exists
-*only* to dial the relay. The seed listens on `/ip4/0.0.0.0/tcp/${wsPort}/ws` — **insecure `ws`**.
+*only* to dial the relay. The seed listens on `/ip4/0.0.0.0/tcp/${wsPort}/ws` (`seed-server.ts:463`)
+— **insecure `ws`**.
 
 So the ruling moves the certificate requirement rather than deleting it. It moves it off the
 visitor and onto the **relay**, which is infrastructure this project controls:
@@ -60,6 +61,14 @@ as the alternatives that were considered and ruled out, not as pending work.
 The one implementation consequence: the relay's listen address becomes `/tls/ws` rather than
 today's plain `/ws` (`seed-server.ts:427`), and the browser dials `wss://`. That is a
 configuration of hosted infrastructure, not a design question.
+
+*(CORRECTED 2026-08-22 — the consequence stands; only the anchor was wrong. The listen line is
+`seed-server.ts:463` — ``listen: [`/ip4/0.0.0.0/tcp/${wsPort}/ws`, '/ip4/0.0.0.0/tcp/0']``. `:427`
+is not code at all: it lands on comment prose in the :420–:428 block that explains the listen list
+ahead of `FabricNode.start({` at :429 — "listen list rather than from an option, so there is
+nothing further to switch". That is how the drift happened: the anchor pointed at a sentence
+**about** the listen list instead of the list itself, and it has been wrong since 00faea7, the
+commit that wrote it. Re-run: `grep -n 'ip4/0.0.0.0/tcp' packages/node/src/seed-server.ts` → 463.)*
 
 *(Below: the two options as they stood before this ruling, kept for the record.)*
 

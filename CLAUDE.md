@@ -93,7 +93,7 @@ manifest and coverage report, not by a quorum.
 | `@libp2p/tls` | `3.1.6` | **NO** | YES | Optional second connection encrypter on the backbone (cheaper handshake than Noise on TCP). Node only. |
 | `@libp2p/identify` | `4.1.10` | YES | YES | **Required in practice.** AutoNAT, DCUtR, AutoTLS, and relay discovery all depend on it. Export both `identify()` and `identifyPush()`. |
 | `@libp2p/ping` | `3.1.9` | YES | YES | Liveness probing — the "confirm liveness on connect" step in design §3.4, and the load-probe leg of power-of-d-choices. |
-| `@libp2p/kad-dht` | `16.4.0` | **see below** | server mode | **NOT INSTALLED — no DHT exists in this repository today.** See [DHT reality check](#dht-reality-check). The claim that a browser "never gets a dialable address, so it stays a client" is **false**: `browser-node.ts:197` listens on `['/p2p-circuit', '/webrtc']`. Whether kad-dht's server-mode promotion accepts a relayed address is unverified. Set `clientMode` explicitly rather than relying on promotion. |
+| `@libp2p/kad-dht` | `16.4.0` | **see below** | server mode | **INSTALLED AND WIRED — CORRECTED 2026-08-22.** This cell read *"NOT INSTALLED — no DHT exists in this repository today"* until then. It was true when written and stopped being true 69 seconds later: `16.4.0` landed at `eb42af7` and is now pinned exactly in three workspace manifests (`packages/libp2p/package.json:12`, `packages/browser/package.json:14`, `packages/node/package.json:16`), and `kadDHT()` is constructed at `packages/browser/src/browser-node.ts:1430` (`clientMode: true`, `:1432`) and `packages/node/src/fabric-node.ts:1979` (`clientMode: !canRelay`, `:1981`), both on the private keyspace `/o2/kad/1.0.0` (`packages/libp2p/src/dht-record-index.ts:78`). See [DHT reality check](#dht-reality-check). The claim that a browser "never gets a dialable address, so it stays a client" is **false**: `browser-node.ts:197` listens on `['/p2p-circuit', '/webrtc']`. Whether kad-dht's server-mode promotion accepts a relayed address is unverified. *(SUPERSEDED 2026-08-22 — it was measured on 2026-08-14 and promotion **does** accept a relayed address. A tab's `/webrtc` listen addr resolves to `<relay>/p2p-circuit/webrtc/p2p/<self>`, which passes `!isPrivate(ma) && !Circuit.exactMatch(ma)` — `node_modules/@libp2p/kad-dht/src/kad-dht.ts:347`, a predicate installed only when `clientMode` is left unset at `:340`. So leaving it unset makes a node's DHT role follow the relay's network position.)* Set `clientMode` explicitly rather than relying on promotion — both tiers now do. |
 | `@libp2p/dcutr` | `3.0.24` | **effectively no** | YES | DCUtR is implemented in JS and works. But hole-punching needs a transport that can *listen* on a punched port — browsers can't. **Browser NAT traversal is WebRTC's own ICE, not DCUtR.** DCUtR is for Node↔Node behind NAT. |
 | `@libp2p/autonat` / `@libp2p/autonat-v2` | `3.0.24` / `2.1.0` | pointless | YES | Reachability detection. Meaningless in a browser (never reachable). Use v2 on new backbone nodes; keep v1 for interop with older go-libp2p. |
 | `@libp2p/tcp` | `11.0.24` | **NO** | YES | Backbone only. |
@@ -148,7 +148,7 @@ manifest and coverage report, not by a quorum.
 | `vite` | `8.1.5` | Dev server + demo app bundle | For the browser demo/benchmark harness (not the library). Node 20.19+/22.12+ required. |
 | `vitest` | `4.1.10` | Test runner — **Node and browser from one config** | Use the `projects` feature: one project `environment: 'node'`, another with `browser.enabled`. Same test files, two runtimes. This is the single most important tool choice for "runs identically in browser and Node". |
 | `@vitest/browser` | `4.1.10` | Browser-mode runner | Provider `playwright`, `instances: [{browser:'chromium'},{browser:'firefox'},{browser:'webkit'}]`. Requires Chrome ≥87 / Firefox ≥78 / Safari ≥15.4. |
-| `playwright` / `@playwright/test` | `1.61.1` | Multi-browser E2E + multi-tab orchestration | Doubles as the **benchmark driver**: `browser.newContext()` × N gives N isolated "nodes" in one process for the tabs-scaling curve. |
+| `playwright` / `@playwright/test` | `1.61.1` | Multi-browser E2E + multi-tab orchestration | Doubles as the **benchmark driver**: `browser.newContext()` × N gives N isolated "nodes" in one process for the tabs-scaling curve. *(SUPERSEDED 2026-08-22 — the installed driver is `playwright@1.62.0`, declared `^1.62.0` at the root `package.json:30`, so `1.61.1` does not even satisfy this repo's own floor. `@playwright/test` is installed nowhere — `ls node_modules/@playwright` reports no such directory — and nothing imports it: the e2e specs drive bare `playwright`, and browser-mode tests run through the provider package `@vitest/browser-playwright@4.1.10` (`package.json:28`), which this table never mentions. `.planning/research/STACK.md:113` already carries the pin retired — `~~1.61.1~~ → re-verify at install time`, noting `1.62.0` was current on 2026-07-24 — and the correction was never propagated here.)* |
 | `tinybench` | `6.1.2` | Micro-benchmarks, browser + Node | What `vitest bench` uses under the hood. Correct for per-op measurement (CID hashing, WASM instantiate, Noise handshake). |
 | `eslint` + `typescript-eslint` | `10.7.0` / `8.65.0` | Lint | Or `oxlint@1.75.0` for speed. Not load-bearing. |
 ## Installation
@@ -187,6 +187,26 @@ manifest and coverage report, not by a quorum.
 >    ping, tcp, utils, webrtc, websockets — and `kadDHT` appears nowhere in `packages/`.
 >    Discovery today runs over the relay's reservation store (`net/src/rendezvous.ts`), not a
 >    DHT. So this section describes a component that was never built.
+>
+>    **SUPERSEDED 2026-08-22.** Item 1 was true when it was written and false 69 seconds
+>    later. The docs commit that wrote it is `49eebe5` (2026-08-14 22:43:22); `eb42af7`
+>    (22:44:31) added `@libp2p/kad-dht@16.4.0` pinned exactly, `4ae8575` (2026-08-15) built
+>    the record layer and discovery, and `8998915` joined the browser tier to the same
+>    keyspace. The package is now a direct dependency of three workspace manifests
+>    (`packages/libp2p/package.json:12`, `packages/browser/package.json:14`,
+>    `packages/node/package.json:16`), `kadDHT()` is constructed at `browser-node.ts:1430`
+>    and `fabric-node.ts:1979` on the private protocol `/o2/kad/1.0.0`
+>    (`packages/libp2p/src/dht-record-index.ts:78`), and `packages/libp2p/src/` carries
+>    `dht-record-index.ts` and `dht-registration.ts` with a spec each. The hand-written
+>    `@libp2p/*` enumeration above is stale for the same reason and should be re-derived
+>    rather than trusted — `ls node_modules/@libp2p/` additionally lists `kad-dht`,
+>    `record`, `http`, `http-fetch`, `http-peer-id-auth`, `http-utils` and `http-websocket`.
+>    What survives from item 1 is the rendezvous half: `packages/net/src/rendezvous.ts`
+>    still exists and is still exported (`packages/net/src/index.ts:137-138`), so the DHT
+>    runs *alongside* relay-reservation discovery rather than instead of it — which of the
+>    two a requestor actually takes was not re-measured here. The section no longer
+>    describes a component that was never built, and what settles the fabric's design is
+>    item 2, browser dialability, not DHT absence.
 > 2. **A browser node is dialable.** `browser-node.ts:197` listens on
 >    `['/p2p-circuit', '/webrtc']`. A browser holding a relay reservation *can be dialed by
 >    other peers*, which is the entire prerequisite for serving records.
@@ -316,7 +336,7 @@ manifest and coverage report, not by a quorum.
 | `@helia/block-brokers@5.2.4` | ⚠️ **lags** | Still on `@helia/interface ^6.2.1` / `@helia/utils ^2.5.2` while `helia@7` uses `@helia/interface ^7.1.0`. **Do not add it directly** — use `helia@7`'s built-in composition (`withBitswap`, `withHTTP`) instead. Same caution for `@helia/routers@5.1.1` (last touched 2026-05-29) vs the newer split packages `@helia/delegated-routing-client` / `@helia/trustless-gateway-client` / `@helia/fallback-router` (all 2026-07-24). |
 | `typescript@7.0.2` | `rolldown-plugin-dts@0.27.14` | The plugin auto-selects the `tsgo` generator when TS 7 is present. Prefer `isolatedDeclarations: true` ⇒ `oxc` generator ⇒ no TS API dependency at all. |
 | `typescript@7.0.2` | `typescript-eslint@8.65.0` | Verify before adopting — typescript-eslint uses the TS API heavily, and TS 7's API is unstable until 7.1. **Fallback: `oxlint@1.75.0`, which has no TS-API dependency.** |
-| `vitest@4.1.10` | `@vitest/browser@4.1.10` + `playwright@1.61.1` | Versions must match exactly between `vitest` and `@vitest/browser`. |
+| `vitest@4.1.10` | `@vitest/browser@4.1.10` + `playwright@1.61.1` | Versions must match exactly between `vitest` and `@vitest/browser`. *(SUPERSEDED 2026-08-22 — the pin is `playwright@^1.62.0` (root `package.json:30`, installed `1.62.0`), and browser mode needs a **third** vitest package, `@vitest/browser-playwright@4.1.10` (`package.json:28`), which must match the other two exactly. The `playwright` version is not pinned against `vitest` at all; it resolves against that provider's `peerDependencies` at install time.)* |
 | `vite@8.1.5` | Node ≥20.19 / ≥22.12 | Node 24 LTS satisfies this. |
 | `@bjorn3/browser_wasi_shim@0.4.2` | any | Zero dependencies, pure JS. No compatibility surface. |
 ## Open Questions / Gaps
