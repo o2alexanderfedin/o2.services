@@ -2450,6 +2450,8 @@ export class FabricNode {
         verifyCertificate(found.certificate, pinnedIssuers, Date.now()).ok &&
         verifyCapabilityRecord(found.capabilities, Date.now()),
       timeoutMs: DHT_QUERY_TIMEOUT_MS,
+      // A requestor is not its own candidate — see `DhtRecordIndexOptions.self`.
+      self: identity.nodeKey,
       // Without this a lookup yields a node key libp2p holds no address for, and the
       // candidate is undialable — a successful discovery that cannot be acted on.
       addresses: (info) => {

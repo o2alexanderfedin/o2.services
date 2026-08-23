@@ -1657,6 +1657,8 @@ export class BrowserNode {
         verifyCertificate(found.certificate, pinnedIssuers, Date.now()).ok &&
         verifyCapabilityRecord(found.capabilities, Date.now()),
       timeoutMs: DHT_QUERY_TIMEOUT_MS,
+      // A requestor is not its own candidate — see `DhtRecordIndexOptions.self`.
+      self: identity.nodeKey,
       addresses: (info) => {
         void libp2p.peerStore.merge(info.id, { multiaddrs: info.multiaddrs }).catch(() => {})
       },

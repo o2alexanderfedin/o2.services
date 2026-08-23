@@ -116,6 +116,10 @@ function dhtOnly(reader: FabricNode, issuer: PublicKeyHex): DhtRecordIndex {
       verifyCapabilityRecord(found.capabilities, Date.now()),
     timeoutMs: DHT_QUERY_TIMEOUT_MS,
     addresses: 'discards-provider-addresses',
+    // The reader's own key, exactly as production wires it: a requestor is not its own
+    // candidate. It costs nothing in these cases — the reader holds none of the blocks it
+    // asks about — and it keeps the fixture the same shape the node factories build.
+    self: reader.nodeKey,
   })
 }
 

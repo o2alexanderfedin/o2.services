@@ -601,8 +601,38 @@ export async function discoverExecutors(
     excluded.push({ reason, detail: describe(reason) })
   }
 
-  for (const nodeKey of providers) {
-    const records = await index.recordsFor(nodeKey)
+  // ## The lookups are concurrent, and that is a bound rather than a speed-up
+  //
+  // This loop read `await index.recordsFor(nodeKey)` **inside** the iteration until
+  // 2026-08-23, so the cost of a lookup was `providers × per-lookup`. That was free while
+  // the only index asked directly-connected peers, and it stopped being free the moment a
+  // DHT answered: `DHT_QUERY_TIMEOUT_MS` is 5 000 and `CANDIDATES_DEADLINE_MS` is also
+  // 5 000, so **two** providers whose records the DHT does not hold spend the whole page
+  // budget before the second one has been asked.
+  //
+  // That is not a prediction. `attestation-ui.e2e.test.ts`'s SCHED-01 case went red the
+  // first time provider announcement put a second, recordless provider in front of the
+  // page, with `no answer inside 5000ms` — and the risk was named and declined in
+  // `REQUIREMENTS.md`'s NET-06 row on exactly these three numbers before it landed.
+  //
+  // The providers are independent — nothing in the loop below reads another provider's
+  // record — so asking them together makes the worst case one lookup rather than N.
+  //
+  // **The output is unchanged, deliberately.** The verification loop still runs in sorted
+  // provider order over the resolved values, so `executors` and `excluded` come out in the
+  // same order as before; only the waiting is shared. A rejection is re-thrown at the
+  // *earliest provider index* that produced one rather than at whichever rejected first in
+  // time, because that is what the sequential loop did and a caller catching it should not
+  // learn about a different provider than it used to.
+  const settled = await Promise.allSettled(providers.map((nodeKey) => index.recordsFor(nodeKey)))
+  const firstRejection = settled.find((outcome) => outcome.status === 'rejected')
+  if (firstRejection !== undefined && firstRejection.status === 'rejected') {
+    throw firstRejection.reason
+  }
+
+  for (const [position, nodeKey] of providers.entries()) {
+    const outcome = settled[position]
+    const records = outcome?.status === 'fulfilled' ? outcome.value : undefined
     if (records === undefined) {
       exclude({ kind: 'no-records', nodeKey })
       continue

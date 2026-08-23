@@ -187,6 +187,7 @@ interface Overrides {
   readonly recordsFallback?: RecordIndex | 'answers-from-the-dht-alone'
   readonly verify?: (nodeKey: PublicKeyHex, records: NodeRecords) => boolean | Promise<boolean>
   readonly addresses?: ((info: PeerInfo) => void) | 'discards-provider-addresses'
+  readonly self?: PublicKeyHex | 'answers-about-itself-too'
 }
 
 function makeIndex(dht: KadDHT, over: Overrides = {}): DhtRecordIndex {
@@ -197,6 +198,10 @@ function makeIndex(dht: KadDHT, over: Overrides = {}): DhtRecordIndex {
     verify: over.verify ?? reallyVerify,
     timeoutMs: 50,
     addresses: over.addresses ?? 'discards-provider-addresses',
+    // The cases below are about what the keyspace answers, not about who asked, so the
+    // default states that this index reports every provider it is told about. The
+    // self-exclusion has its own case.
+    self: over.self ?? 'answers-about-itself-too',
   })
 }
 
@@ -266,6 +271,50 @@ describe('providers is a union, so the DHT can only add', () => {
     expect(seen).toHaveLength(1)
     expect(seen[0]?.multiaddrs).toHaveLength(1)
     expect(answer).toStrictEqual([one.nodeKey])
+  })
+
+  it('leaves the reader out of its own provider answer, addresses and all', async () => {
+    // Once a node announces what it holds, `findProviders` truthfully answers **itself**
+    // for every block it stored. A requestor's own key in its own candidate list
+    // double-counts for a redundancy whose entire claim is that the executors are
+    // independent — a shard run twice on one node agrees with itself and shows nothing.
+    //
+    // Measured rather than anticipated: `attestation-ui.e2e.test.ts`'s SCHED-01 case went
+    // red the first time provider announcement shipped, with the tab appearing as a second
+    // provider of the block it had itself put there.
+    const me = await subject(20)
+    const other = await subject(21)
+    const seen: PeerInfo[] = []
+    const mine = await infoFor(20, '/ip4/1.1.1.1/tcp/1')
+    const theirs = await infoFor(21, '/ip4/2.2.2.2/tcp/1')
+    const index = makeIndex(
+      fakeDht({ findProviders: () => emitting([providerEvent([mine, theirs])]) }),
+      { self: me.nodeKey, addresses: (each) => seen.push(each) },
+    )
+
+    const answer = await index.providers(CID_UNDER_TEST)
+
+    // Plant that reddens this: drop the `nodeKey === this.#self` guard, or place it after
+    // the sink call. The second is the subtler one and is why the sink is asserted too — a
+    // filtered key whose addresses still reached the peer store would leave the reader
+    // merging its own record on every lookup.
+    expect(answer).toStrictEqual([other.nodeKey])
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.id.toString()).not.toBe(mine.id.toString())
+  })
+
+  it('reports itself when the caller says so, because that has to be a decision', async () => {
+    const me = await subject(22)
+    const info = await infoFor(22, '/ip4/3.3.3.3/tcp/1')
+    const index = makeIndex(
+      fakeDht({ findProviders: () => emitting([providerEvent([info])]) }),
+      { self: 'answers-about-itself-too' },
+    )
+
+    // Plant that reddens this: filter unconditionally. The sentinel is what an audit of
+    // what the keyspace actually holds needs, and a filter with no way off is a policy
+    // hidden inside a port.
+    expect(await index.providers(CID_UNDER_TEST)).toStrictEqual([me.nodeKey])
   })
 })
 
