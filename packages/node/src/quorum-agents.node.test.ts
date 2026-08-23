@@ -417,6 +417,7 @@ function candidateOptions(fixture: {
   return {
     rpc: fixture.requestor.rpc,
     peers: () => fixture.requestor.verifiedPeers,
+    index: 'asks-connected-peers-only' as const,
     trustedIssuers: new Set([fixture.provider.issuerKey as string]),
     now: () => Date.now(),
     peerIdFor: peerIdForNodeKey,

@@ -87,6 +87,7 @@ import type {
   ExecutorQuery,
   NodeDescriptor,
   PublicKeyHex,
+  RecordIndex,
   ReplicaSet,
 } from '@o2/core'
 import { RpcRecordIndex } from './discovery.ts'
@@ -103,6 +104,23 @@ export interface CandidateOptions {
    * signature and `AgentOptions.reservations`.
    */
   readonly peers: () => readonly string[]
+  /**
+   * The index this lookup asks, or the stated decision to ask only connected peers.
+   *
+   * **This field exists because its absence was the seam NET-06 spent thirteen days
+   * naming.** Both node tiers compose a `DhtRecordIndex` over an `RpcRecordIndex` and
+   * expose it as `.recordIndex`; until this option existed, `.recordIndex` occurred
+   * exactly twice in the whole repository and both were assignments, because this
+   * function built its own bare `RpcRecordIndex` internally and had no field to hand it
+   * one. A port neither tier consumes is not a port.
+   *
+   * The sentinel is spelled out rather than defaulted, following
+   * `DhtRecordIndexOptions.recordsFallback`: it builds exactly the
+   * `RpcRecordIndex(rpc, peers)` this function always built, so asking connected peers
+   * only is a decision a caller made rather than a field a caller omitted — and no
+   * existing behaviour changes by being left alone.
+   */
+  readonly index: RecordIndex | 'asks-connected-peers-only'
   /** Provider keys pinned in advance. Certificates are verified offline against these. */
   readonly trustedIssuers: ReadonlySet<PublicKeyHex>
   /** Read once per lookup, so a long-lived caller does not pin a stale clock. */
@@ -191,7 +209,10 @@ export async function discoverCandidates(
   query: ExecutorQuery,
   options: CandidateOptions,
 ): Promise<CandidateSet> {
-  const index = new RpcRecordIndex(options.rpc, options.peers)
+  const index =
+    options.index === 'asks-connected-peers-only'
+      ? new RpcRecordIndex(options.rpc, options.peers)
+      : options.index
   // Read once and reused below, so the replica sets are grouped against the same
   // instant the certificates were qualified at rather than a slightly later one.
   const now = options.now()

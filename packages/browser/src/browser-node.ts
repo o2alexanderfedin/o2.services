@@ -28,7 +28,7 @@ import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { circuitRelayTransport } from '@libp2p/circuit-relay-v2'
 import { identify, identifyPush } from '@libp2p/identify'
-import { kadDHT } from '@libp2p/kad-dht'
+import { kadDHT, passthroughMapper } from '@libp2p/kad-dht'
 import { ping } from '@libp2p/ping'
 import { webRTC } from '@libp2p/webrtc'
 import { webSockets } from '@libp2p/websockets'
@@ -69,7 +69,10 @@ import type {
 } from '@o2/core'
 import {
   DHT_QUERY_TIMEOUT_MS,
+  DhtProviderAnnouncer,
   DhtRecordIndex,
+  ObservingBlockstore,
+  RecordPublisher,
   Libp2pTransport,
   O2_KAD_PROTOCOL,
   O2_RECORD_NAMESPACE,
@@ -77,11 +80,12 @@ import {
   audienceKeyOf,
   generateSeed,
   identityFromSeed,
+  o2RecordSelector,
   o2RecordValidator,
   peerIdForNodeKey,
-  publishRecords,
 } from '@o2/libp2p'
-import type { NodeIdentity, PeerVerdict } from '@o2/libp2p'
+import type { NodeIdentity, PeerVerdict, SweepOutcome } from '@o2/libp2p'
+import type { KadDHT } from '@libp2p/kad-dht'
 import {
   CountingExecutor,
   EgressGuard,
@@ -949,9 +953,11 @@ export class BrowserNode {
   readonly egress: EgressGuard
   /** IndexedDB plus network fallback — what the executor reads from. */
   readonly blockstore: FetchingBlockstore
-  readonly store: IdbBlockstore
+  readonly store: ObservingBlockstore<IdbBlockstore>
   /** See {@link registrationRefusal}. Written once, after start. */
   #registrationRefusal: string | undefined
+  readonly #publisher: RecordPublisher | null
+  readonly #announcer: DhtProviderAnnouncer
   /**
    * Who advertises a block, and what a node's signed records say — SCHED-01, NET-06.
    *
@@ -959,6 +965,12 @@ export class BrowserNode {
    * in what it can listen on, never in what it may ask.
    */
   readonly recordIndex: RecordIndex
+  /**
+   * This tab's Kademlia handle, typed — the same reading `FabricNode.dht` carries, and
+   * present here for the reason every pair on these two classes is: a tab differs from a
+   * backbone node in what it can listen on, never in what it may ask.
+   */
+  readonly dht: KadDHT
   /**
    * This tab's durable sovereign-CID set — DATA-10.
    *
@@ -1123,12 +1135,15 @@ export class BrowserNode {
 
   private constructor(parts: {
     recordIndex: RecordIndex
+    dht: KadDHT
+    publisher: RecordPublisher | null
+    announcer: DhtProviderAnnouncer
     libp2p: Libp2p
     transport: Libp2pTransport
     rpc: RpcEndpoint
     egress: EgressGuard
     blockstore: FetchingBlockstore
-    store: IdbBlockstore
+    store: ObservingBlockstore<IdbBlockstore>
     sovereignCids: SovereignCids
     identityStore: IdbIdentityStore
     certificate: NodeCertificate | null
@@ -1150,6 +1165,9 @@ export class BrowserNode {
     this.blockstore = parts.blockstore
     this.store = parts.store
     this.recordIndex = parts.recordIndex
+    this.dht = parts.dht
+    this.#publisher = parts.publisher
+    this.#announcer = parts.announcer
     this.sovereignCids = parts.sovereignCids
     this.identityStore = parts.identityStore
     this.certificate = parts.certificate
@@ -1345,8 +1363,14 @@ export class BrowserNode {
     installSubtleDigestFallback()
 
     const blockstoreName = options.blockstoreName ?? DEFAULT_BLOCKSTORE_NAME
-    const store = await IdbBlockstore.open(blockstoreName)
-    undo.push(() => store.close())
+    // SCHED-01 — wrapped so the provider announcer learns what this tab comes to hold, on
+    // the identical reasoning `fabric-node.ts` states at its own store: the DHT does not
+    // exist until `createLibp2p` below, so the wrapper buffers what is put in between and
+    // `observeWith` replays it. `inner` is the `IdbBlockstore` itself, which this decorator
+    // must not swallow — an open IndexedDB connection is what blocks a `deleteDatabase`,
+    // and `start-unwind.browser.test.ts` reads exactly that.
+    const store = new ObservingBlockstore(await IdbBlockstore.open(blockstoreName))
+    undo.push(() => store.inner.close())
 
     // A separate database from the blocks, deliberately — see `idb-identity-store.ts`.
     // Opened here rather than lazily because `createLibp2p` below needs the derived key,
@@ -1429,8 +1453,36 @@ export class BrowserNode {
         // record and **reads** everyone else's, which is what this tier needs.
         dht: kadDHT({
           protocol: O2_KAD_PROTOCOL,
+          // **`peerInfoMapper`, and leaving it unset made the whole keyspace inert.**
+          // Measured 2026-08-23 on two nodes on loopback: both promote to `server`, both
+          // advertise `/o2/kad/1.0.0`, identify completes and each holds the other as a
+          // peer — and a `put` yields **no events at all** while `getClosestPeers` never
+          // returns. The routing tables were empty. `kad-dht` defaults
+          // `peerInfoMapper` to `removePrivateAddressesMapper` (`src/kad-dht.ts:179`), and
+          // `onPeerConnect` drops any peer left with zero addresses after mapping
+          // (`:403-406`), so **every peer whose only address is private was silently never
+          // added.**
+          //
+          // That default is correct for Amino, whose whole point is a public network, and
+          // wrong for this one. `/o2/kad/1.0.0` is a *private* keyspace whose membership is
+          // decided by a certificate, not by address class: its peers are on loopback in
+          // tests, on a LAN in the multi-machine demo, and behind a relay in every browser
+          // tab. `removePublicAddressesMapper` — kad-dht's own suggestion for a LAN DHT —
+          // would be the same mistake mirrored. `passthroughMapper` is what says the fabric
+          // decides who is in it.
+          //
+          // What this does **not** do is admit anybody: `relay-admission.ts` and the
+          // certificate gate are unchanged, and a peer that reaches a routing table still
+          // has to verify to be dispatched to.
+          peerInfoMapper: passthroughMapper,
           clientMode: true,
           validators: { [O2_RECORD_NAMESPACE]: o2RecordValidator(() => Date.now()) },
+          // Registering `validators` without `selectors` makes a keyspace that accepts
+          // every write and errors on every read — `bestRecord` throws
+          // `MissingSelectorError` when the namespace is unknown, and `DhtRecordIndex`'s
+          // own catch turns that into a silent *"the DHT holds nothing"*. Measured
+          // 2026-08-23; see `o2RecordSelector` for the rule and for how it presented.
+          selectors: { [O2_RECORD_NAMESPACE]: o2RecordSelector },
         }),
       },
       ...(options.allowPrivateAddrs === true
@@ -1955,6 +2007,36 @@ export class BrowserNode {
       now: Date.now,
     })
 
+    // ── SCHED-01 / NET-06 — registration and provider announcement, and a tab does both ──
+    //
+    // Constructed here, before the node, so both are readable off it; started below, once
+    // there is a node for a refusal to be recorded against. Byte-identical composition to
+    // `fabric-node.ts`'s, which is the point: `clientMode: true` above says this tab does
+    // not ANSWER a query, and says nothing whatever about what it may WRITE.
+    //
+    // A kad client puts to the servers closest to the key, which is exactly what makes a
+    // tab findable by a peer that has never met it — the gap `rendezvous.ts` opens with:
+    // *"no tab can be dialled cold, and none of them will ever announce itself."* This is
+    // the announcement.
+    const ownRecordsForDht =
+      certificate === null ? undefined : await records.recordsFor(certificate.nodeKey)
+    const publisher =
+      ownRecordsForDht === undefined
+        ? null
+        : new RecordPublisher(libp2p.services.dht, ownRecordsForDht)
+    const announcer = new DhtProviderAnnouncer({
+      dht: libp2p.services.dht,
+      withhold: withholdingFrom(egressDisposition),
+    })
+    store.observeWith((cid) => {
+      announcer.observe(cid)
+      // Peer arrival covers the blocks a node already holds; this covers the peers it
+      // already has. A requestor connects and *then* stores its module and inputs, so
+      // without this every block it holds would be stored after its last arrival and
+      // never announced. Collapsed to one sweep per turn — see `sweepSoon`.
+      announcer.sweepSoon()
+    })
+
     const node = new BrowserNode({
       libp2p,
       transport,
@@ -1963,6 +2045,9 @@ export class BrowserNode {
       blockstore,
       store,
       recordIndex,
+      dht: libp2p.services.dht,
+      publisher,
+      announcer,
       sovereignCids,
       identityStore,
       certificate,
@@ -2158,25 +2243,45 @@ export class BrowserNode {
       attest: attestor,
     })
 
-    // SCHED-01 / NET-06 — registration, and a tab does it too.
+    // Started here, and the trigger is start **and every peer arrival**.
     //
-    // `clientMode: true` above says this tab does not ANSWER queries; it does not stop it
-    // WRITING one. A kad client puts to the servers closest to the key, which is exactly
-    // what makes a tab findable by a peer that has never met it — the gap
-    // `rendezvous.ts` opens with: *"no tab can be dialled cold, and none of them will ever
-    // announce itself."* This is the announcement.
+    // **Published once was published nowhere, and a tab is the case where that bit
+    // hardest.** A put against an empty routing table does not fail — `kad-dht` writes the
+    // record to the local datastore before it walks to the closest peers — so the one-shot
+    // reported success and left the record in the only place that already had it. A tab
+    // starts behind a relay with an empty table *by definition*, so every tab registered
+    // with nobody, and every `dht.get` for a tab missed.
+    //
+    // `peer:identify` rather than `peer:connect`: kad-dht populates its routing table
+    // through a topology registered on the DHT protocol, and that fires once identify has
+    // said which protocols the peer speaks. The announcer sweeps on the same signal for the
+    // same reason — an announcement walks the same table. Nothing here is timed.
     //
     // Published from the same object that serves them, so what a peer reads from the DHT
     // and what this tab answers over RPC cannot come to disagree. Not awaited and not
     // fatal, for the reason given at the Node factory's identical line.
-    if (certificate !== null) {
-      const own = await records.recordsFor(certificate.nodeKey)
-      if (own !== undefined) {
-        void publishRecords(libp2p.services.dht, own).then((outcome) => {
-          if (outcome.kind === 'refused') node.noteRegistrationRefused(outcome.reason)
-        })
+    const onPeerArrival = (listener: () => void): (() => void) => {
+      const onIdentify = (): void => {
+        listener()
+      }
+      libp2p.addEventListener('peer:identify', onIdentify)
+      return () => {
+        libp2p.removeEventListener('peer:identify', onIdentify)
       }
     }
+    if (publisher !== null) {
+      undo.push(() => {
+        publisher.stop()
+      })
+      void publisher.start(onPeerArrival).then((outcome) => {
+        if (outcome.kind === 'refused') node.noteRegistrationRefused(outcome.reason)
+      })
+    }
+    undo.push(
+      onPeerArrival(() => {
+        void announcer.sweep()
+      }),
+    )
 
     return node
   }
@@ -2195,6 +2300,28 @@ export class BrowserNode {
   /** Recorded by the start path's publish; see {@link registrationRefusal}. */
   noteRegistrationRefused(reason: string): void {
     this.#registrationRefusal = reason
+  }
+
+  /**
+   * How many peers stored this tab's records at its most recent publish — SCHED-01.
+   *
+   * Zero is a real state, not a failure: `kad-dht` writes a record locally before walking
+   * to the closest peers, so a publish with an empty routing table succeeds and reaches
+   * nobody. See {@link FabricNode.registrationPeers} for the full reading — the two are one
+   * measurement on two tiers.
+   */
+  get registrationPeers(): number {
+    return this.#publisher?.peers ?? 0
+  }
+
+  /** How many of this tab's blocks are currently advertised in the keyspace — SCHED-01. */
+  get announcedBlocks(): number {
+    return this.#announcer.announcedCount
+  }
+
+  /** Announce the blocks this tab holds, and retract the ones it may no longer advertise. */
+  async announceHeldBlocks(): Promise<SweepOutcome> {
+    return this.#announcer.sweep()
   }
 
   get peerId(): string {
@@ -2285,7 +2412,7 @@ export class BrowserNode {
     await this.transport.stop()
     await this.libp2p.stop()
     this.governor.stop()
-    this.store.close()
+    this.store.inner.close()
     // Closed last and beside the blockstore, because an open IndexedDB connection is what
     // blocks a `deleteDatabase` — the effect `start-unwind.browser.test.ts` reads.
     this.identityStore.close()

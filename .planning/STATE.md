@@ -1977,6 +1977,12 @@ residual is recorded immediately below rather than dropped.
 - **Node 23.11.0 is the host runtime and is not LTS.** Outside vitest's declared range (`^20 || ^22 || >=24`), so every install prints `EBADENGINE`, and `packages/node/src/bin/agent.ts` depends on Node's experimental native type stripping. Everything passes today. `STACK.md` specifies Node 24 LTS — switching the toolchain is a human action, deliberately not taken autonomously.
 - **Open decisions carried into planning:** aegir vs. vitest for the three-target test discipline (Phase 2); WASM fuel metering has no maintained JS-side tool (Phase 1/2); Safari + WebRTC-Direct is unverified with a WSS-only fallback branch (Phase 4).
 
+## Quick Tasks Completed
+
+| Task | Date | Outcome |
+|------|------|---------|
+| `260823-fkf-wire-dht-registration-and-discovery` | 2026-08-23 | **The DHT is used for registration and discovery, and the reason it was not is two `kad-dht` settings rather than missing code.** `peerInfoMapper` was left at `removePrivateAddressesMapper`, so on loopback, LAN and relay no peer ever entered a routing table — measured on two `server`-mode nodes where `put` yielded no events and `getClosestPeers` never returned; and `selectors` had no `o2` entry, so `bestRecord` threw `MissingSelectorError` on every read and `DhtRecordIndex`'s catch presented it as an empty keyspace. Both fixed on both tiers. Registration moved from a one-shot start put to `RecordPublisher`, which republishes on every `peer:identify`; `dht.provide` is now called for the first time, through `DhtProviderAnnouncer`, under the owner ruling of 2026-08-23 and behind the same `withholdingFrom` predicate the serving index uses. `discoverCandidates` gained a required `index` option so the composed `DhtRecordIndex` finally has a reader on both tiers. `submit.ts` now marks a shard sovereign **before** it puts the bytes, which closes at its source the window an announcer would otherwise have had to dodge. Proof: `packages/node/src/dht-registration.node.test.ts`, DHT-only via `recordsFallback: 'answers-from-the-dht-alone'`, three plants watched red. **Open decision left to the owner**: a provider record already replicated survives `cancelReprovide` until `PROVIDERS_VALIDITY` (48 h), so a block that was public when swept and becomes sovereign afterwards stays discoverable-as-provided until then. |
+
 ## Deferred Items
 
 Items acknowledged and carried forward from previous milestone close:

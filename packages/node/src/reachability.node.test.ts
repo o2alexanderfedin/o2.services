@@ -647,8 +647,24 @@ describe('each edge class is load-bearing — one ablation per class', () => {
     // only the object half, `seed`, which is a `let` of no interest. So there is no second path
     // to these two, and dropping member edges loses them.
     //
+    // ## Two became four on 2026-08-23, and the two that arrived came in by a different door
+    //
+    // `node/lanAddresses` and `node/localHostname` are here because of a property **read** —
+    // the paragraph above. `libp2p/publishRecords` and `net/encodeNodeRecords` are here for the
+    // older reason, a **call through an object**: registration used to be
+    // `publishRecords(libp2p.services.dht, own)` written directly in both node factories, which
+    // the reference class covers by name. It is now `publisher.start(...)` and
+    // `publisher.publish()` on a `RecordPublisher`, so the only production path into
+    // `publishRecords` — and through it into `encodeNodeRecords` — runs through a member call
+    // on a local whose own name tells the reference class nothing.
+    //
+    // Recorded rather than absorbed into the count, because the shape of the finding is the
+    // point: moving one call site behind a class moved two symbols between edge classes, and a
+    // list is what makes that visible where a total would not have been.
+    //
     // Asserted as the *difference* and by *identity* rather than as two totals, because a bare
-    // inequality would be satisfied by any regression that happened to cost two verdicts.
+    // inequality would be satisfied by any regression that happened to cost the same number of
+    // verdicts.
     const off = buildCallGraph({ memberEdges: false })
     const reachedOff = reachableFrom(off.calls, off.roots)
     const on = graph()
@@ -659,7 +675,12 @@ describe('each edge class is load-bearing — one ablation per class', () => {
       const id = nodeId(relativeToRoot(one.declaredIn), one.name)
       if (reachedOn.has(id) && !reachedOff.has(id)) lost.push(`${one.barrel}/${one.name}`)
     }
-    expect(lost.toSorted()).toStrictEqual(['node/lanAddresses', 'node/localHostname'])
+    expect(lost.toSorted()).toStrictEqual([
+      'libp2p/publishRecords',
+      'net/encodeNodeRecords',
+      'node/lanAddresses',
+      'node/localHostname',
+    ])
   }, ABLATION_TIMEOUT_MS)
 
   it('Vite ?worker: the browser worker module goes unreachable and nothing else does', () => {

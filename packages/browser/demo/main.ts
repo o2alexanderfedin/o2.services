@@ -736,6 +736,10 @@ async function discoveredPool(
         // steers where work goes, so a peer that has not cleared verification does not get
         // to put an entry in one. A tab that pinned nobody never reaches this line.
         peers: () => n.verifiedPeers,
+        // NET-06 / SCHED-01 — the tab's own composed asking index, which is the byte
+        // identical composition `fabric-node.ts` builds. A tab differs from a backbone
+        // node in what it can listen on, never in what it may ask.
+        index: n.recordIndex,
         // The same anchor `peerCertificate` uses and for the same reason — this tab's own
         // issuer is the only key it holds that was not handed to it by the peer being
         // checked.
@@ -1804,7 +1808,7 @@ const api: TabApi = {
       moduleCid,
       Array.from({ length: options.cubes }, () => encodedInput.cid),
     )
-    const records = await checkpointsFor(node.store.name)
+    const records = await checkpointsFor(node.store.inner.name)
     const offered = await records.newestHandleFor(jobId)
     // Dynamic, following this file's existing convention at the three other `CID` sites.
     const { CID } = await import('multiformats/cid')
@@ -2179,7 +2183,7 @@ const api: TabApi = {
   },
 
   async storedBlocks() {
-    return required().store.refresh()
+    return required().store.inner.refresh()
   },
 
   async hasBlock(cid) {

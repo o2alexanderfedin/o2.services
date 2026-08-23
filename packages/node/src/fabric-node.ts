@@ -84,7 +84,7 @@ import { circuitRelayServer, circuitRelayTransport } from '@libp2p/circuit-relay
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { http } from '@libp2p/http'
 import { identify, identifyPush } from '@libp2p/identify'
-import { kadDHT } from '@libp2p/kad-dht'
+import { kadDHT, passthroughMapper } from '@libp2p/kad-dht'
 import { keychain } from '@libp2p/keychain'
 import { ping } from '@libp2p/ping'
 import { tcp } from '@libp2p/tcp'
@@ -156,7 +156,10 @@ import type { SovereignCids } from '@o2/net'
 import {
   LIBP2P_INBOUND_CONNECTION_THRESHOLD,
   DHT_QUERY_TIMEOUT_MS,
+  DhtProviderAnnouncer,
   DhtRecordIndex,
+  ObservingBlockstore,
+  RecordPublisher,
   LIBP2P_MAX_CONNECTIONS,
   LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS,
   Libp2pTransport,
@@ -173,11 +176,12 @@ import {
   generateSeed,
   identityFromSeed,
   nodeKeyForPeerId,
+  o2RecordSelector,
   o2RecordValidator,
   peerIdForNodeKey,
-  publishRecords,
 } from '@o2/libp2p'
-import type { NodeIdentity, PeerVerdict, RelayAdmission } from '@o2/libp2p'
+import type { NodeIdentity, PeerVerdict, RelayAdmission, SweepOutcome } from '@o2/libp2p'
+import type { KadDHT } from '@libp2p/kad-dht'
 import {
   IDENTITY_FILE,
   PROVIDER_FILE,
@@ -1487,6 +1491,16 @@ export class FabricNode {
    * be one kind-check away from behaving differently on the answer.
    */
   readonly store: Blockstore
+  /**
+   * This node's Kademlia handle, typed — SCHED-01 / NET-06.
+   *
+   * `libp2p` above is exposed as the widened `Libp2p`, whose `services` is an open map, so
+   * a caller reaching through it holds `unknown` and can do nothing with it that does not
+   * involve an assertion. Naming the service here is what lets a caller — or a case — build
+   * a second index over the same keyspace, which is how *"the DHT carried this answer"* is
+   * told apart from *"the RPC fallback did"*.
+   */
+  readonly dht: KadDHT
   readonly executor: Executor
   /**
    * This node's execution admission control — SCHED-06.
@@ -1575,6 +1589,8 @@ export class FabricNode {
   readonly #verifier: PeerVerifier
   /** See {@link registrationRefusal}. Mutable because it is written once, after start. */
   #registrationRefusal: string | undefined
+  readonly #publisher: RecordPublisher | null
+  readonly #announcer: DhtProviderAnnouncer
   /**
    * BROW-02 — what this node has been told about how starting went, including its own row.
    *
@@ -1607,6 +1623,9 @@ export class FabricNode {
     blockstore: FetchingBlockstore
     recordIndex: RecordIndex
     store: Blockstore
+    dht: KadDHT
+    publisher: RecordPublisher | null
+    announcer: DhtProviderAnnouncer
     executor: GovernedExecutor
     counter: CountingExecutor
     governor: DutyCycleGovernor
@@ -1631,6 +1650,9 @@ export class FabricNode {
     this.egress = parts.egress
     this.blockstore = parts.blockstore
     this.recordIndex = parts.recordIndex
+    this.dht = parts.dht
+    this.#publisher = parts.publisher
+    this.#announcer = parts.announcer
     this.store = parts.store
     this.executor = parts.executor
     this.#counter = parts.counter
@@ -1828,10 +1850,18 @@ export class FabricNode {
     options: FabricNodeOptions,
     undo: (() => Promise<void> | void)[],
   ): Promise<FabricNode> {
-    const store: Blockstore =
+    // SCHED-01 — the local-only tier, wrapped so the provider announcer learns what this
+    // node comes to hold. **It announces nothing here**, and cannot: `libp2p.services.dht`
+    // does not exist until `createLibp2p` below, which needs the identity that is read
+    // beside these very blocks. `observeWith` is called once the DHT exists and replays
+    // whatever was put in between, so nothing put during start is unaccounted for. See
+    // `dht-provider-announcer.ts`'s header for why the moment a block arrives is the one
+    // moment a node must not advertise it.
+    const store = new ObservingBlockstore(
       options.blockstoreDir === undefined
         ? new MemoryBlockstore()
-        : await FsBlockstore.open(options.blockstoreDir)
+        : await FsBlockstore.open(options.blockstoreDir),
+    )
 
     // AUTH-01 — resolved **here**, and the position is forced rather than chosen:
     // `createLibp2p` below needs the key, so identity resolution has to precede it.
@@ -1978,6 +2008,28 @@ export class FabricNode {
         // answer and does not claim to.
         dht: kadDHT({
           protocol: O2_KAD_PROTOCOL,
+          // **`peerInfoMapper`, and leaving it unset made the whole keyspace inert.**
+          // Measured 2026-08-23 on two nodes on loopback: both promote to `server`, both
+          // advertise `/o2/kad/1.0.0`, identify completes and each holds the other as a
+          // peer — and a `put` yields **no events at all** while `getClosestPeers` never
+          // returns. The routing tables were empty. `kad-dht` defaults
+          // `peerInfoMapper` to `removePrivateAddressesMapper` (`src/kad-dht.ts:179`), and
+          // `onPeerConnect` drops any peer left with zero addresses after mapping
+          // (`:403-406`), so **every peer whose only address is private was silently never
+          // added.**
+          //
+          // That default is correct for Amino, whose whole point is a public network, and
+          // wrong for this one. `/o2/kad/1.0.0` is a *private* keyspace whose membership is
+          // decided by a certificate, not by address class: its peers are on loopback in
+          // tests, on a LAN in the multi-machine demo, and behind a relay in every browser
+          // tab. `removePublicAddressesMapper` — kad-dht's own suggestion for a LAN DHT —
+          // would be the same mistake mirrored. `passthroughMapper` is what says the fabric
+          // decides who is in it.
+          //
+          // What this does **not** do is admit anybody: `relay-admission.ts` and the
+          // certificate gate are unchanged, and a peer that reaches a routing table still
+          // has to verify to be dispatched to.
+          peerInfoMapper: passthroughMapper,
           clientMode: !canRelay,
           // Mandatory, not optional: kad-dht dispatches a validator on the key's
           // namespace and `put` throws `No validator available for key type "o2"`
@@ -1985,6 +2037,12 @@ export class FabricNode {
           // `o2RecordValidator`'s own doc for what a disinterested storer can and
           // cannot check.
           validators: { [O2_RECORD_NAMESPACE]: o2RecordValidator(() => Date.now()) },
+          // Registering `validators` without `selectors` makes a keyspace that accepts
+          // every write and errors on every read — `bestRecord` throws
+          // `MissingSelectorError` when the namespace is unknown, and `DhtRecordIndex`'s
+          // own catch turns that into a silent *"the DHT holds nothing"*. Measured
+          // 2026-08-23; see `o2RecordSelector` for the rule and for how it presented.
+          selectors: { [O2_RECORD_NAMESPACE]: o2RecordSelector },
         }),
         // NET-03. Three services rather than one, because AutoTLS is an orchestrator over
         // capabilities libp2p does not install by default:
@@ -2399,6 +2457,8 @@ export class FabricNode {
       },
     })
 
+
+
     // The node's own peer id is its executor id, so a disagreement names the
     // machine that produced the dissenting result.
     //
@@ -2605,6 +2665,51 @@ export class FabricNode {
     // `FabricNodeOptions.startReporting`.
     const startLedger = ownStartLedger(ownStartOutcome(OWN_START_FAMILY), options.startReporting)
 
+    // ── SCHED-01 / NET-06 — the two halves that make the DHT something this node USES ──
+    //
+    // Constructed here, before the node, so both are readable off it; started below, once
+    // there is a node for a refusal to be recorded against.
+
+    // Registration. This node puts its own signed records into the fabric's keyspace under
+    // its own key, so a peer that has never met it can still find out what it can run.
+    //
+    // **Published from the same object that serves them.** `records` is the
+    // `SelfRecordIndex` handed to `serveAgent`, so what goes into the DHT and what this
+    // node answers over RPC cannot come to disagree — there is one source, read twice.
+    //
+    // A node holding no certificate has nothing to register: there is no signed statement
+    // of who it is, so there is no record for the keyspace to be about. It still serves.
+    const ownRecordsForDht = certificate === null ? undefined : await records.recordsFor(certificate.nodeKey)
+    const publisher =
+      ownRecordsForDht === undefined
+        ? null
+        : new RecordPublisher(libp2p.services.dht, ownRecordsForDht)
+
+    // Provider announcement — owner ruling of 2026-08-23.
+    //
+    // `DhtRecordIndex.providers` unions what `findProviders` answers with what the RPC
+    // index answers, and nothing in this repository had ever called `dht.provide` — so the
+    // first half of that union was empty by construction and the DHT could only ever
+    // restate what this node already knew from the peers it was connected to.
+    //
+    // **The predicate is the value the serving index was given, not a second construction
+    // of the same idea.** `withholdingFrom`'s own docblock says why: holding an invariant
+    // between two branches means asking one question twice, not writing the question down
+    // twice — and a provider record is read by strangers and outlives the query that made
+    // it, so it is where a second, agreeing-today copy would cost the most.
+    const announcer = new DhtProviderAnnouncer({
+      dht: libp2p.services.dht,
+      withhold: withholdingFrom(egressDisposition),
+    })
+    store.observeWith((cid) => {
+      announcer.observe(cid)
+      // Peer arrival covers the blocks a node already holds; this covers the peers it
+      // already has. A requestor connects and *then* stores its module and inputs, so
+      // without this every block it holds would be stored after its last arrival and
+      // never announced. Collapsed to one sweep per turn — see `sweepSoon`.
+      announcer.sweepSoon()
+    })
+
     const node = new FabricNode({
       libp2p,
       transport,
@@ -2613,6 +2718,9 @@ export class FabricNode {
       blockstore,
       recordIndex,
       store,
+      dht: libp2p.services.dht,
+      publisher,
+      announcer,
       executor,
       counter,
       governor,
@@ -2774,30 +2882,47 @@ export class FabricNode {
       attest: attestor,
     })
 
-    // SCHED-01 / NET-06 — registration. This node puts its own signed records into the
-    // fabric's keyspace under its own key, so a peer that has never met it can still find
-    // out what it can run.
+    // Started here, and the trigger is start **and every peer arrival** rather than start
+    // alone.
     //
-    // **Published from the same object that serves them.** `records` is the
-    // `SelfRecordIndex` handed to `serveAgent` above, so what goes into the DHT and what
-    // this node answers over RPC cannot come to disagree — there is one source, read twice.
+    // **Publishing once registered nothing, and the comment this replaces called that an
+    // acceptable start.** It is not. A put against an empty routing table does not merely
+    // time out, it *succeeds*: `kad-dht` writes the record to the local datastore before it
+    // walks to the closest peers (`content-fetching/index.ts:149-158`), so the one-shot
+    // reported success, reached nobody, and left the record in the only place that already
+    // had it. Every `dht.get` from every other node therefore missed and `DhtRecordIndex`
+    // degraded to its RPC fallback — silently, and always.
     //
-    // **Not awaited, and failure is not fatal.** At this line `createLibp2p` has started
-    // but no peer has necessarily connected, so the routing table may well be empty and the
-    // put will time out. That is a normal start, not a broken one: the node still serves
-    // records over RPC to anyone who asks it directly, which is exactly what it did before
-    // this line existed. `publishRecords` returns its refusal rather than throwing for the
-    // same reason — a node whose DHT is not reachable yet is a working node.
-    // A node holding no certificate has nothing to register: there is no signed statement
-    // of who it is, so there is no record for the keyspace to be about. It still serves.
-    if (certificate !== null) {
-      const own = await records.recordsFor(certificate.nodeKey)
-      if (own !== undefined) {
-        void publishRecords(libp2p.services.dht, own).then((outcome) => {
-          if (outcome.kind === 'refused') node.noteRegistrationRefused(outcome.reason)
-        })
+    // `peer:identify` rather than `peer:connect`: kad-dht populates its routing table
+    // through a topology registered on the DHT protocol, and a topology fires once identify
+    // has said which protocols the peer speaks. A put on `peer:connect` walks a table the
+    // arriving peer is not in yet. The announcer sweeps on the same signal for the same
+    // reason — an announcement is a walk of that same table. Nothing here is timed.
+    //
+    // Not awaited, and failure is not fatal: `publishRecords` returns its refusal rather
+    // than throwing, because a node whose DHT is not reachable yet is a working node that
+    // still answers records over RPC to anyone who asks it directly.
+    const onPeerArrival = (listener: () => void): (() => void) => {
+      const onIdentify = (): void => {
+        listener()
+      }
+      libp2p.addEventListener('peer:identify', onIdentify)
+      return () => {
+        libp2p.removeEventListener('peer:identify', onIdentify)
       }
     }
+    if (publisher !== null) {
+      undo.push(() => {
+        publisher.stop()
+      })
+      void publisher.start(onPeerArrival).then((outcome) => {
+        if (outcome.kind === 'refused') node.noteRegistrationRefused(outcome.reason)
+      })
+    }
+    const stopSweeping = onPeerArrival(() => {
+      void announcer.sweep()
+    })
+    undo.push(stopSweeping)
 
     return node
   }
@@ -2834,6 +2959,41 @@ export class FabricNode {
   /** Recorded by the start path's publish; see {@link registrationRefusal}. */
   noteRegistrationRefused(reason: string): void {
     this.#registrationRefusal = reason
+  }
+
+  /**
+   * How many peers stored this node's records at its most recent publish — SCHED-01.
+   *
+   * **Zero is not a failure and is not an error, and reading it as one is the trap this
+   * getter exists to remove.** `kad-dht` writes a record to the local datastore before it
+   * walks to the closest peers, so a publish against an empty routing table succeeds and
+   * reaches nobody. Zero therefore means *registered with itself and nobody else* — a real
+   * state, and the one every node is in until its first peer arrives. A node that has met
+   * peers and still reads zero is the reading worth acting on.
+   *
+   * Zero for a node holding no certificate too, which has nothing to publish at all;
+   * {@link FabricNode.registrationRefusal} is what tells the two apart.
+   */
+  get registrationPeers(): number {
+    return this.#publisher?.peers ?? 0
+  }
+
+  /** How many of this node's blocks are currently advertised in the keyspace — SCHED-01. */
+  get announcedBlocks(): number {
+    return this.#announcer.announcedCount
+  }
+
+  /**
+   * Announce the blocks this node holds and retract the ones it may no longer advertise.
+   *
+   * Runs on its own whenever a peer arrives, which is when there is a routing table worth
+   * walking. Exposed because a caller that has just stored blocks and wants them findable
+   * *now* would otherwise be waiting on somebody else's connection — and because a sweep
+   * is the only thing that retracts, so a caller that has just made data sovereign has a
+   * way to say so without waiting either.
+   */
+  async announceHeldBlocks(): Promise<SweepOutcome> {
+    return this.#announcer.sweep()
   }
 
   /**

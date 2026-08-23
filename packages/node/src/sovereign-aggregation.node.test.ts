@@ -412,6 +412,7 @@ describe('MR-02 — each owner computes a partial over its own data, and the agg
           {
             rpc: requestor.rpc,
             peers: () => requestor.verifiedPeers,
+            index: 'asks-connected-peers-only',
             trustedIssuers: new Set([fixture.providerKey]),
             now: () => Date.now(),
             peerIdFor: peerIdForNodeKey,

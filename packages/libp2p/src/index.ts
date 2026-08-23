@@ -101,8 +101,20 @@ export type {
 // only the holder of that key's secret can put a record there, enforced by every storer.
 export {
   O2_RECORD_NAMESPACE,
+  RecordPublisher,
   RecordRefused,
+  o2RecordSelector,
   o2RecordValidator,
   publishRecords,
 } from './dht-registration.ts'
-export type { PublishOutcome, RecordRefusal } from './dht-registration.ts'
+export type { PeerArrivals, PublishOutcome, RecordRefusal } from './dht-registration.ts'
+
+// Provider announcement — the half that lets `findProviders` answer anything at all.
+// It deliberately does not announce inside `put`; that module's header carries the
+// measured ordering in `submit.ts` which makes the obvious place a side channel.
+export { DhtProviderAnnouncer, ObservingBlockstore } from './dht-provider-announcer.ts'
+export type {
+  ProviderAnnouncerOptions,
+  SweepOutcome,
+  WithholdingPredicate,
+} from './dht-provider-announcer.ts'
