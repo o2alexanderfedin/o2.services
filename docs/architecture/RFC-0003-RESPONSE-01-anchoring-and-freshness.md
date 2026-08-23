@@ -72,6 +72,31 @@ list, no `revoked` failure kind, and no `@libp2p/kad-dht`. Every mechanism §8 o
 lists is prospective. The one that exists is **expiry**, and the one rollback defence that
 exists is `NameResolver`'s monotonic `version`.
 
+> **SUPERSEDED IN ITS LAST CLAUSE, 2026-08-23 — the rest of the paragraph still holds.**
+> The clause naming `@libp2p/kad-dht` among the things that do not exist was true when this
+> section was written and is now false: version `16.4.0` is installed, pinned exactly in
+> three workspace manifests (`packages/libp2p/package.json`, `packages/browser/package.json`,
+> `packages/node/package.json`), constructed on both tiers on the private protocol
+> `/o2/kad/1.0.0`, and — since 2026-08-23 — actually carrying records in both directions.
+> Getting there needed **four** settings rather than the two that are obvious: `protocol` and
+> `clientMode` leave a keyspace inert, because `peerInfoMapper` defaults to stripping private
+> addresses (which empties every routing table on loopback, on a LAN, and behind a relay) and
+> because a namespace registered in `validators` but not in `selectors` accepts every write
+> and throws on every read. The full working is in
+> `.planning/quick/260823-fkf-wire-dht-registration-and-discovery/`.
+>
+> The wrong reading is left standing above rather than edited away, because the paragraph's
+> other six items are still correct and because the reason this one aged is instructive: the
+> commit that wrote it and the commit that installed the package are 69 seconds apart.
+>
+> **Consequences for this document.** §1.3's channel table is unaffected — a DHT is inside
+> the fabric and therefore cannot deliver an anchor under any circumstances, which is exactly
+> what row C6 already refuses. What *is* affected is §2's premise that no directory exists:
+> `cert-lifecycle.ts`'s `DirectoryPort` now has a candidate implementation. That is taken up
+> in `RFC-0003-RESPONSE-04-certificate-inventory-and-audit.md`, together with an audit of the
+> tree against §1.8 and §2.10 — one of ten substantive recommendations implemented, and the
+> one that is (§2.10 item 11) is the precondition the others need.
+
 ---
 
 # Point 1 — CR is the anchor of a specific policy, not a trust anchor in general
