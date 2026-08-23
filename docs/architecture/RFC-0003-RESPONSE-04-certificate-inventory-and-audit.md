@@ -16,8 +16,9 @@ that §0 does not:
 2. **Audits the tree against Response 01's own recommendations**, one row per
    recommendation, measured rather than recalled.
 3. **Records what was learned about the DHT this week**, because two of Response 01's
-   assumptions about it are now false and one library behaviour contradicts its own
-   documentation.
+   assumptions about it are now false, and because one library's public options are
+   declared, threaded into a constructor, and read by nothing — which cost this project
+   three wrong answers before a test settled it (§8).
 
 A fourth section carries the **work register**, so that "implement everything" has an
 enumerable referent rather than being a mood.
@@ -270,44 +271,87 @@ own**, not a configuration.
 
 ---
 
-## §8. Provider records never expire — and both numbers previously quoted were wrong
+## §8. Provider-record lifetime — three wrong answers, then a measurement
 
-This is the sharpest correction in this document, and it was made twice before it was right.
+This section originally asserted that provider records never expire. **That was the third
+wrong answer in a row about the same number, and it is corrected here by measurement rather
+than by a fourth reading.**
 
-**In `@libp2p/kad-dht@16.4.0` a provider record stored on behalf of another node never
-expires.** Measured by reading the class:
+### What is true, and is what produced the wrong conclusion
 
-- `src/providers.ts` — its own `ProvidersInit` declares exactly two fields, `logPrefix` and
-  `datastorePrefix`. The class body references no validity and no cleanup.
-- `getProviders` (`:57`) returns everything `loadProviders` finds under the key prefix, with
-  **no date comparison**.
-- There is no cleanup timer.
-- The **public** options type does declare `cleanupInterval` and `provideValidity`
-  (`src/index.ts:432,438`), and `kad-dht.ts:182` spreads `...init.providers` into the
-  constructor — where those two fields are simply unused.
+`@libp2p/kad-dht@16.4.0` splits provider-record lifetime across two modules. The one that
+looks authoritative is inert:
 
-**Where the well-known 48 hours actually applies.** `PROVIDERS_VALIDITY` is read in exactly
-two places, neither of them the provider store: `reprovider.ts:82`, where it is the
-*announcing* node's assumption about how long its own record lives and therefore drives when
-to republish; and `rpc/handlers/get-value.ts:132`, where it expires **value** records — which
-in this fabric are the registration records under `/o2/<nodeKey>`.
+- `src/providers.ts` — the store — takes an init of exactly `logPrefix` and
+  `datastorePrefix`. The class body reads no validity and runs no cleanup.
+- `getProviders` (`:57`) returns every entry under the key prefix **with no date
+  comparison**. Reads are not filtered.
+- The public options type *declares* `providers.provideValidity` and
+  `providers.cleanupInterval` (`src/index.ts:432,438`), and `kad-dht.ts:182` spreads them
+  into that constructor — where nothing reads them. **Those two options are dead.**
 
-**Two corrections to statements made in the course of this work, recorded rather than
-deleted.** It was first said that a retracted provider record survives up to **48 hours**,
-and then, on a second reading, up to **24 hours**. Both figures came from documentation for
-options the implementation ignores. The correct statement is that such a record survives
-**indefinitely**, and the reason nobody has noticed is §2: nothing persists the datastore, so
-a restart clears it.
+Every sentence above is still correct. The conclusion drawn from them was not.
 
-**The coupling this creates, which is the operative conclusion.** Persistence would turn a
-harmless defect into an unbounded one — records about who held what, accumulating across
-every restart with nothing ever removing them. **Expiry must therefore land before, or
-together with, persistence.** The owner has ruled that provider records must expire; since
-the library ignores its own settings, the expiry is ours to implement. The material is
-present: each stored entry already carries a varint timestamp written by `writeProviderEntry`
-(`providers.ts:69`), so a read-time filter and a prefix sweep have something to read.
+### What was missed
 
----
+Expiry lives in `src/reprovider.ts`, and it runs. `kad-dht.ts`'s `start()` passes the
+reprovider to `@libp2p/interface`'s `start(...)` helper alongside the routing table and the
+network, so its timer is armed with everything else. Every `interval` it walks the same key
+prefix and:
+
+- **deletes** any entry older than `validity` whose provider is not this node;
+- **exempts its own**, deliberately — the code's own comment is *"if user node is down for
+  a while, we still persist provide intent"*;
+- **republishes** its own records that are within `threshold` of expiring.
+
+So the honoured knob is **`reprovide.validity`**, and its default is 48 hours.
+
+### The three corrections, kept rather than deleted
+
+| Said | Basis | Verdict |
+|---|---|---|
+| 48 hours | `PROVIDERS_VALIDITY` | **Right by accident** — it is the default of the honoured knob, but the reasoning pointed at the wrong module |
+| 24 hours | the `provideValidity` doc comment | Wrong — that option is dead |
+| Never expires | `providers.ts` having no cleanup | Wrong — the cleanup is in `reprovider.ts` |
+
+The pattern is one thing three times: **a reading of a type declaration presented as a
+reading of behaviour.** The correction is not a fourth reading.
+
+### What the fabric now does, and how it is known
+
+Both tiers pass an explicit `reprovide` policy, for the same reason `clientMode` is stated
+rather than inherited: an unset value makes behaviour follow a default sited against
+something else. `providerRecordPolicy` (`packages/libp2p/src/constants.ts`) derives all
+three figures from one — validity **1 hour**, sweep a quarter of it, republish at half — so
+the staleness bound stays `1.25 × validity` instead of becoming an accident between three
+independently chosen numbers. The library's own defaults, 48 h / 1 h / 24 h, are each
+reasonable and jointly republish a record at about the instant it would otherwise expire.
+
+**Measured, not argued:** `packages/node/src/provider-expiry.node.test.ts` runs two real
+nodes on loopback. The holder announces a CID; the keeper is handed the record over the
+wire by `ADD_PROVIDER`; the holder is then **stopped**, so the only possible answer is what
+the keeper still stores; and the case waits for the keeper to stop answering. Forcing the
+validity back to the library's 48 h turns it red on the sweep assertion — watched, then
+restored by the inverse of the plant with `cmp` exit 0.
+
+Two refusals were found by that case failing, and both are recorded because neither is
+visible from the type:
+
+- **`ADD_PROVIDER` ignores a provider that sends no addresses**
+  (`rpc/handlers/add-provider.ts` — *"no valid addresses for provider … Ignore"*).
+- **The key on the wire is `multihash.bytes`, decoded by `CID.decode`**, which works only
+  because a sha-256 multihash is byte-identical to a CIDv0. An identity multihash begins
+  `0x00`, is read as a version, and the whole message is refused as `Invalid CID`. The
+  first draft of the case announced into a keeper that stored nothing and reported only
+  *"the keeper was never handed the record"*.
+
+### Why the ordering against persistence still holds, on a weaker argument
+
+The original claim — persistence would turn an unbounded leak durable — is withdrawn with
+the finding behind it. What remains is smaller and still worth the ordering: with the
+library defaults a restarting node would carry 48 hours of other nodes' provider records
+forward, and with an explicit 1 hour it carries one. Setting the policy first costs
+nothing and makes the persisted footprint a number somebody chose.
 
 ## §9. "Provider" means four different things, and only one of them is built
 
@@ -352,8 +396,8 @@ order is stated where it is forced, and forced order is not a preference.
 
 | ID | Work | Depends on | Why here |
 |---|---|---|---|
-| W1 | **Provider-record expiry** — read-time filter plus prefix sweep, ours because the library ignores its own options (§8) | — | Owner-ruled. Must precede W2 |
-| W2 | **Persistent datastore** — `datastore-level` on the server tier; keychain persistence so the address key survives restart (§2) | W1 | Owner-ruled. Turns the address from per-restart into stable |
+| W1 | **Provider-record lifetime stated rather than inherited** — `providerRecordPolicy`, 1 h, on both tiers (§8) | — | Owner-ruled. **DONE**, measured by `provider-expiry.node.test.ts`. It turned out to be a setting, not a mechanism to build — the third answer about that number and the first one measured |
+| W2 | **Persistent datastore** — `datastore-level` on the server tier; keychain persistence so the address key survives restart (§2) | W1 | Owner-ruled. Turns the address from per-restart into stable. W1 first so the persisted footprint is a number somebody chose rather than the library's 48 h |
 | W3 | **`revoked` member of `CertificateFailure`** (§3 item 9) | — | It is the vocabulary every status mechanism needs; cheap, and blocking if deferred |
 | W4 | **Certificate and verdict caching** on the persisted store (§2) | W2 | Safe by construction — offline verification |
 | W5 | **Relay-as-provider**: announce under a well-known key, plus the reader (§9) | — | Both halves exist; this is the join |
@@ -400,8 +444,11 @@ with the implementation on the one point where it mattered most.
 | `DirectoryPort` shape; `Action` includes `relay` | `packages/core/src/cert-lifecycle.ts:333`, `:172` |
 | Keychain persists through `components.datastore` | `node_modules/@libp2p/keychain/src/keychain.ts:174,241` |
 | Kademlia dials each peer itself | `node_modules/@libp2p/kad-dht/src/network.ts:180`, `query/query-path.ts:205` |
-| Provider records are never expired | `node_modules/@libp2p/kad-dht/src/providers.ts` (whole file), `src/index.ts:432,438`, `kad-dht.ts:182` |
-| `PROVIDERS_VALIDITY` applies to republish and to value records | `node_modules/@libp2p/kad-dht/src/reprovider.ts:82`, `rpc/handlers/get-value.ts:132` |
+| The provider **store** never expires anything, and its two options are dead | `node_modules/@libp2p/kad-dht/src/providers.ts` (whole file), `src/index.ts:432,438`, `kad-dht.ts:182` |
+| Expiry is the **reprovider's**, it is started, and it exempts self | `node_modules/@libp2p/kad-dht/src/reprovider.ts` `processRecords`, started via `kad-dht.ts`'s `start(...)` |
+| `PROVIDERS_VALIDITY` is the reprovider default and also expires **value** records | `reprovider.ts:82`, `rpc/handlers/get-value.ts:132` |
+| A foreign provider record is actually swept once the fabric's validity passes | `packages/node/src/provider-expiry.node.test.ts` — two nodes on loopback, plant watched red |
+| `ADD_PROVIDER` ignores a provider with no addresses, and decodes the key as a CID | `node_modules/@libp2p/kad-dht/src/rpc/handlers/add-provider.ts` |
 | A browser cannot run the relay server | `node_modules/@libp2p/circuit-relay-v2/README.md:46` |
 | Relays do not chain | `node_modules/@libp2p/circuit-relay-v2/src/server/index.ts:164-167`, `:259-262` |
 | Only the destination needs a reservation | same file, `:284-287` |

@@ -83,6 +83,7 @@ import {
   o2RecordSelector,
   o2RecordValidator,
   peerIdForNodeKey,
+  providerRecordPolicy,
 } from '@o2/libp2p'
 import type { NodeIdentity, PeerVerdict, SweepOutcome } from '@o2/libp2p'
 import type { KadDHT } from '@libp2p/kad-dht'
@@ -118,6 +119,17 @@ import type { WorkerFactory } from './worker-executor.ts'
 export interface BrowserNodeOptions {
   /** Relays to reserve on. At least one is required to be addressable at all. */
   readonly relayAddrs: readonly string[]
+  /**
+   * How long this tab keeps another node's provider record before sweeping it. **1 hour
+   * by default** — {@link PROVIDER_RECORD_VALIDITY_MS}.
+   *
+   * Byte-identical in meaning to `FabricNodeOptions.providerRecordValidityMs`, and both
+   * tiers thread the same derivation, so a tab and a backbone node forget on the same
+   * schedule. That matters here more than it looks: a tab is the shortest-lived provider
+   * in the fabric, and a record about it is the one most likely to outlive what it
+   * describes.
+   */
+  readonly providerRecordValidityMs?: number
   /**
    * SCHED-03. Read on every request to decide whether this tab is **paused** — alive,
    * reachable, unchanged in what it can do, and declining all work right now.
@@ -1476,6 +1488,17 @@ export class BrowserNode {
           // has to verify to be dispatched to.
           peerInfoMapper: passthroughMapper,
           clientMode: true,
+          // NET-06 — provider-record lifetime, stated for the same reason `clientMode` is.
+          //
+          // Left unset the fabric inherits 48 h / 1 h / 24 h, which are sited against a
+          // long-running IPFS daemon. `providerRecordPolicy` derives all three from one
+          // number so the staleness bound stays `1.25 × validity` rather than becoming an
+          // accident between three independently-chosen figures. The reading that makes
+          // this necessary — that `providers.provideValidity` is declared, spread in, and
+          // read by nothing, while the honoured knob lives in `reprovide` — is in the
+          // constant's own docblock, because this project drew the wrong conclusion from
+          // it twice.
+          reprovide: providerRecordPolicy(options.providerRecordValidityMs),
           validators: { [O2_RECORD_NAMESPACE]: o2RecordValidator(() => Date.now()) },
           // Registering `validators` without `selectors` makes a keyspace that accepts
           // every write and errors on every read — `bestRecord` throws

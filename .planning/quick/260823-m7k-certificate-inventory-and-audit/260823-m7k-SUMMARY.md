@@ -41,25 +41,41 @@ artefact provenance by omission. `trustedIssuers` **can** be empty, and empty me
 verifier does nothing. The difference is between an opt-out somebody had to type and one
 somebody could reach by forgetting a field.
 
-## A correction made twice before it was right
+## A correction made three times, and settled by a test rather than a fourth reading
 
 It was said in the course of this work that a retracted provider record survives **48 hours**,
-then, on a second reading, **24 hours**. Both came from documentation for options the
-implementation ignores.
+then **24 hours**, then that provider records **never expire**. All three came from reading
+type declarations and presenting the result as a reading of behaviour.
 
-**Provider records in `@libp2p/kad-dht@16.4.0` never expire.** `src/providers.ts` declares an
-init of exactly `logPrefix` and `datastorePrefix`; the class reads no validity and no cleanup;
-`getProviders` returns everything under the key prefix with no date comparison; there is no
-cleanup timer. The public options type *declares* `cleanupInterval` and `provideValidity`
-(`src/index.ts:432,438`) and `kad-dht.ts:182` spreads them into a constructor that ignores
-them. `PROVIDERS_VALIDITY` (48 h) is read only by `reprovider.ts:82` — the announcer's own
-republish threshold — and by `rpc/handlers/get-value.ts:132`, which expires **value** records,
-i.e. this fabric's registration records.
+**What is true:** `@libp2p/kad-dht@16.4.0`'s provider *store* really does expire nothing —
+`src/providers.ts` takes an init of `logPrefix` and `datastorePrefix` only, `getProviders`
+filters nothing by date, and `providers.provideValidity` / `providers.cleanupInterval` are
+declared publicly (`src/index.ts:432,438`), spread into that constructor by `kad-dht.ts:182`,
+and read by nothing. Those two options are dead.
 
-**The operative consequence:** this is harmless today only because nothing persists the
-datastore, so a restart clears it. Persistence would make it unbounded. **Expiry must land
-before, or with, persistence** — which is why the work register orders them that way rather
-than by preference.
+**What was missed:** expiry lives in `src/reprovider.ts`, whose timer is armed by
+`kad-dht.ts`'s `start(...)` alongside the routing table. Every `interval` it deletes foreign
+entries older than `validity`, exempts its own on purpose — *"if user node is down for a
+while, we still persist provide intent"* — and republishes its own within `threshold`. The
+honoured knob is `reprovide.validity`, default 48 h. So the very first answer was right by
+accident and its reasoning was not.
+
+**What was then done, and it is a setting rather than a mechanism.** Both tiers now pass an
+explicit policy for the same reason `clientMode` is stated: an unset value makes behaviour
+follow a default sited against a long-running IPFS daemon. `providerRecordPolicy` derives
+all three figures from one — validity 1 h, sweep a quarter, republish at half — so the
+staleness bound stays `1.25 x validity` rather than becoming an accident between three
+numbers. Reads are not date-filtered, which is why the bound includes the interval.
+
+**Measured**: `packages/node/src/provider-expiry.node.test.ts`, two real nodes on loopback.
+The holder announces, the keeper is handed the record over the wire, the holder is stopped
+so no network answer is possible, and the keeper stops answering. Forcing the validity back
+to 48 h turns it red on the sweep assertion — watched, restored by the inverse of the plant,
+`cmp` exit 0. Two undocumented refusals surfaced while getting there: `ADD_PROVIDER` ignores
+a provider that sends no addresses, and it decodes the wire key with `CID.decode`, which
+works only because a sha-256 multihash is byte-identical to a CIDv0 — an identity multihash
+is refused as `Invalid CID`, silently, with the case reporting only that the record never
+arrived.
 
 ## The contradiction, recorded rather than tidied
 

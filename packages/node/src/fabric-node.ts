@@ -179,6 +179,7 @@ import {
   o2RecordSelector,
   o2RecordValidator,
   peerIdForNodeKey,
+  providerRecordPolicy,
 } from '@o2/libp2p'
 import type { NodeIdentity, PeerVerdict, RelayAdmission, SweepOutcome } from '@o2/libp2p'
 import type { KadDHT } from '@libp2p/kad-dht'
@@ -236,6 +237,17 @@ export interface FabricNodeOptions {
    * business choosing.
    */
   readonly datastore?: Datastore
+  /**
+   * How long this node keeps another node's provider record before sweeping it. **1 hour
+   * by default** — {@link PROVIDER_RECORD_VALIDITY_MS}.
+   *
+   * One number rather than three: `providerRecordPolicy` derives the sweep interval and
+   * the republish threshold from it, so the staleness bound stays `1.25 ×` this value.
+   * Raise it for a deployment of long-lived server nodes, which pay a republish walk per
+   * block per cycle and gain nothing from forgetting quickly; lower it where the peer set
+   * churns and a record that outlives its provider costs a dial timeout on the read path.
+   */
+  readonly providerRecordValidityMs?: number
   /**
    * Directory backing the persistent blockstore.
    *
@@ -2031,6 +2043,17 @@ export class FabricNode {
           // has to verify to be dispatched to.
           peerInfoMapper: passthroughMapper,
           clientMode: !canRelay,
+          // NET-06 — provider-record lifetime, stated for the same reason `clientMode` is.
+          //
+          // Left unset the fabric inherits 48 h / 1 h / 24 h, which are sited against a
+          // long-running IPFS daemon. `providerRecordPolicy` derives all three from one
+          // number so the staleness bound stays `1.25 × validity` rather than becoming an
+          // accident between three independently-chosen figures. The reading that makes
+          // this necessary — that `providers.provideValidity` is declared, spread in, and
+          // read by nothing, while the honoured knob lives in `reprovide` — is in the
+          // constant's own docblock, because this project drew the wrong conclusion from
+          // it twice.
+          reprovide: providerRecordPolicy(options.providerRecordValidityMs),
           // Mandatory, not optional: kad-dht dispatches a validator on the key's
           // namespace and `put` throws `No validator available for key type "o2"`
           // without one. It is also the gate that makes `/o2/<nodeKey>` ownable — see

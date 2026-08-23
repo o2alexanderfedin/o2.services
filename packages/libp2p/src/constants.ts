@@ -245,3 +245,80 @@ export const MAX_CONCURRENT_STREAMS_PER_PEER = 8
  * rather than argued from this number.
  */
 export const MAX_QUEUED_SENDS_PER_PEER = 256
+
+/**
+ * NET-06 — how long the keyspace keeps a statement that some node holds a block. **1 hour.**
+ *
+ * ## Why this is stated rather than left at the library default, and what was measured
+ *
+ * `@libp2p/kad-dht@16.4.0` splits provider-record lifetime across two modules, and reading
+ * only one of them yields a false conclusion. **This project reached that false conclusion
+ * twice**, so the reading is recorded here rather than in a commit message.
+ *
+ * `src/providers.ts` — the store — takes an init of exactly `logPrefix` and
+ * `datastorePrefix`, reads no validity and runs no cleanup, and `getProviders` returns every
+ * entry under the key prefix **with no date comparison**. The public options type declares
+ * `providers.provideValidity` and `providers.cleanupInterval` (`src/index.ts:432,438`) and
+ * `kad-dht.ts:182` spreads them into that constructor, where nothing reads them. Those two
+ * options are inert, and a reader who stops there concludes provider records never expire.
+ *
+ * They do expire. The mechanism is `src/reprovider.ts`, started with the other components
+ * by `kad-dht.ts`'s `start(...)` call: every `interval` it walks the same key prefix,
+ * deletes any entry older than `validity` **whose provider is not this node**, and queues a
+ * republish for its own records that are within `threshold` of expiring. Its own comment
+ * gives the reason self records are exempt — *"if user node is down for a while, we still
+ * persist provide intent"*.
+ *
+ * So the honoured knob is `reprovide.validity`, and its default is 48 hours.
+ *
+ * ## What the number is sited against
+ *
+ * The fabric's shortest-lived participant is a browser tab, whose session is minutes. Its
+ * freshness is not carried by this timer at all — `RpcRecordIndex` asks directly-connected
+ * peers, which is fresh by construction — so this number governs the population that
+ * outlives it, and 48 hours is sited against a long-running IPFS daemon rather than against
+ * anything in this fabric.
+ *
+ * The cost of a record that outlives its provider is **measured**: an `attestation-ui`
+ * e2e case failed with *"no answer inside 5000ms"* when discovery spent the page's budget
+ * on a provider that was no longer there. A stale record is worse than a missing one,
+ * because a missing one fails immediately.
+ *
+ * **The staleness bound is `validity + interval`, not `validity`**, because reads are not
+ * filtered by date — an entry is served until a sweep removes it. {@link providerRecordPolicy}
+ * derives the interval from the validity so that bound stays a property of one number
+ * instead of an accident between two.
+ */
+export const PROVIDER_RECORD_VALIDITY_MS = 3_600_000
+
+/**
+ * The three `reprovide` figures, derived from one so they cannot drift apart.
+ *
+ * `interval` is a quarter of `validity`, which fixes the staleness bound at `1.25 ×
+ * validity`. `threshold` is half, so a node republishes in the second half of its record's
+ * life — early enough that one missed sweep is not a gap, late enough not to republish on
+ * every pass.
+ *
+ * Taking all three from one argument is the point. The library's own defaults are 48 h / 1 h
+ * / 24 h, which are individually reasonable and jointly mean a record is republished at
+ * roughly the same instant it would otherwise expire.
+ */
+export interface ProviderRecordPolicy {
+  /** How long a record about another node is kept before a sweep deletes it. */
+  readonly validity: number
+  /** How often the sweep runs. */
+  readonly interval: number
+  /** How close to expiry this node's own records are republished. */
+  readonly threshold: number
+}
+
+/** Derive the three coupled `reprovide` figures from a single validity. */
+export function providerRecordPolicy(
+  validityMs: number = PROVIDER_RECORD_VALIDITY_MS,
+): ProviderRecordPolicy {
+  return {
+    validity: validityMs,
+    interval: Math.max(1, Math.floor(validityMs / 4)),
+    threshold: Math.max(1, Math.floor(validityMs / 2)),
+  }
+}

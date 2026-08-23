@@ -38,6 +38,12 @@ export {
   WIRE_CHUNK_BYTES,
 } from './constants.ts'
 
+// NET-06 — how long the keyspace remembers who holds a block, stated rather than inherited.
+// The constant's docblock carries the reading that makes it necessary: `kad-dht` splits
+// provider lifetime across two modules, and the one that looks authoritative is inert.
+export { PROVIDER_RECORD_VALIDITY_MS, providerRecordPolicy } from './constants.ts'
+export type { ProviderRecordPolicy } from './constants.ts'
+
 // AUTH-02 / AUTH-04 — who a relay admits, stated by the operator and read by nothing yet.
 //
 // Lives here rather than in `@o2/core` or `@o2/net` for two reasons, both measured. It is
