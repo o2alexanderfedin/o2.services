@@ -110,6 +110,52 @@ whatever beta answers, the keyspace put there while they were up. Three plants w
 
 Each restored by the surgical inverse of the plant, `cmp` against a pre-plant snapshot exit 0.
 
+## Two more defects, found only because the e2e suite runs real tabs
+
+Neither is in the announcer. Both are consequences of the keyspace answering **at all**,
+and both were measured rather than predicted.
+
+### A node discovered itself
+
+Once a node announces what it holds, `findProviders` truthfully answers *itself* for every
+block it stored — so a tab that put the kernel block appeared as a second provider of it.
+Wrong twice over: it double-counts for a redundancy whose entire claim is that the
+executors are **independent** (a shard run twice on one node agrees with itself and shows
+nothing), and it is exactly the anti-vacuity property `attestation-ui.e2e.test.ts`'s
+SCHED-01 case names — *"a page that had quietly answered from its own record index would
+list itself here"*.
+
+`DhtRecordIndexOptions.self` is now required, with `'answers-about-itself-too'` for an audit
+that genuinely wants every provider. The RPC half never needed it and that asymmetry is the
+argument for where the filter lives: a node asks its **peers**, and `SelfRecordIndex` answers
+only about the node it belongs to, so a requestor was never in a position to hear about
+itself. A DHT has no such shape.
+
+### `discoverExecutors` asked for records one provider at a time
+
+Free while the only index asked directly-connected peers. Not free the moment a DHT
+answers: `DHT_QUERY_TIMEOUT_MS` is 5 000 and `CANDIDATES_DEADLINE_MS` is also 5 000, so two
+providers whose records the keyspace does not hold spend the whole page budget before the
+second has been asked. The same case failed with `no answer inside 5000ms`.
+
+**This risk was named and declined before it landed** — `REQUIREMENTS.md`'s NET-06 row says
+wiring the DHT index into the page's budget was declined on exactly these three numbers,
+*"and no spec in this repository has ever measured a kad query across processes"*. Now one
+has. The lookups run together; the verification loop still runs in sorted provider order
+over the resolved values, so output ordering is unchanged, and a rejection is re-thrown at
+the earliest provider index rather than whichever rejected first in time.
+
+## The table this task was checked against, row by row
+
+| Function | o2 | Where it is read |
+|---|---|---|
+| Announce itself | `RecordPublisher` → `/o2/<nodeKey>` | record survives its publisher going offline |
+| Announce capabilities | capability record **inside** the signed record | read two hops away, before dialling |
+| Announce data | `DhtProviderAnnouncer` → `dht.provide` | provider lookup answered from the keyspace |
+| Find data | `findProviders` ∪ RPC index | same case, DHT-only index |
+| Find a node / its address | plain Kademlia lookup | `findPeer` answers for a node whose address was never given |
+| Bootstrap | one seed dial, then kad's own `QuerySelf` | three-node chain: gamma is told only about bridge |
+
 ## Open decision, left to the owner rather than decided here
 
 **A provider record already replicated survives retraction.** `cancelReprovide` stops this
@@ -128,5 +174,27 @@ taken unilaterally.
   whose peer set is stable for longer than a record's lifetime would want a timer. Nothing
   here is timed, deliberately; this is the next thing to add if a long-running deployment
   shows records ageing out.
+- **Nothing persists the DHT's own stores, and that is the "cache" half of the bootstrap
+  row.** `FabricNodeOptions.datastore` exists, is typed as libp2p's `Datastore`, and
+  **zero production callers pass it** — checked across `packages/node/src/bin`,
+  `packages/browser/src` and `packages/browser/demo`, where the identifier does not appear
+  at all. So libp2p's peer store, kad-dht's record store and its provider store are all
+  in-memory on every real node. Three consequences, in order of weight: a node that stored
+  somebody else's record **forgets it on restart**, which is the durability half of
+  registration; a node has no remembered peers to start from, so bootstrap is always the
+  configured seed and never a cache, unlike both BitTorrent and IPFS; and AutoTLS
+  re-acquires a certificate every start, which that option's own docblock already calls
+  wasteful. `CLAUDE.md`'s stack table already names the adapters this would use —
+  `datastore-level` for Node, `datastore-idb` for the browser — and **neither is
+  installed**. Adding two dependencies is a stack decision and was not taken here.
+- **The survival case's wait is weaker than it reads, and the sleep is what carries it.**
+  Its predicate is `alpha.registrationPeers >= afterFirst` against `afterFirst`'s own captured
+  value — vacuously true on the first poll. So what actually gates the read is beta's peer
+  count plus a 1.5 s sleep, and a sleep is the kind of timing assumption this repo's
+  conventions dislike. The discriminating form is `> afterFirst` — *the republish was observed
+  reaching more peers than the first put did* — which would retire the sleep rather than tune
+  it. Left alone deliberately: the case has survived four runs including two full-suite passes,
+  and re-running the three plants to change a wait buys nothing today. Recorded here so the
+  first flake arrives with its diagnosis already written.
 - **`features: []` is still honest rather than a stub** — `wasm-feature-detect` remains
   uninstalled, unchanged by this task.
