@@ -497,3 +497,113 @@ describe('#4 — a delegated signing key, under a root that stays offline', () =
     expect(new SignedNameResolver([publisher.pub]).accept(plain, NOW).ok).toBe(true)
   })
 })
+
+/**
+ * RFC-0003 Response 01 §1.8 recommendation 5, second half — **refusal within the set,
+ * never pick.**
+ *
+ * The first half ("replace across channels") was already true: `bin/agent.ts` and
+ * `bin/seed.ts` let a supplied `--trust-anchor` list replace the compiled-in default
+ * rather than join it. The second half was not, and the behaviour it left was measured
+ * before it was changed: `accept` compared **only** `record.version` against the version
+ * it already held, and nothing compared the authority. So with two anchors pinned, either
+ * could take over any name the other published simply by signing a higher version — the
+ * resolver *picked*, and it picked by a number the attacker chooses.
+ *
+ * The exposure was never the default: one anchor ships compiled in and the flag replaces
+ * the list. It is a deployment that deliberately pins several, which is exactly the case
+ * §1.6 is about.
+ *
+ * **Priced, not free.** §1.8 records the cost as a denial-of-service surface: an attacker
+ * who can get one contradictory record into an accepted anchor's namespace stops that name
+ * resolving, where a precedence rule would have produced an answer. That is deliberate —
+ * "two anchors disagree" is not a condition a resolver can adjudicate, and quietly
+ * preferring one of them is how a pin becomes decorative.
+ *
+ * The comparison is on the **root authority** and not on `signer`, because a delegation
+ * is a legitimate way for one anchor to sign under several keys. Two records delegated by
+ * the same root are the same authority; the same key promoted to a different root is not.
+ */
+describe('DATA-07 — two pinned anchors do not overwrite each other’s names', () => {
+  const other = keypair(13)
+
+  it('refuses a higher version for a name another anchor already holds', async () => {
+    const mine = await cidFor('mine')
+    const theirs = await cidFor('theirs')
+    const resolver = new SignedNameResolver([publisher.pub, other.pub])
+
+    expect(
+      resolver.accept(
+        signName(publisher.priv, { name: 'kernel', cid: mine, version: 1, expiresAt: LATER }),
+        NOW,
+      ).ok,
+    ).toBe(true)
+
+    const takeover = resolver.accept(
+      signName(other.priv, { name: 'kernel', cid: theirs, version: 99, expiresAt: LATER }),
+      NOW,
+    )
+    expect(takeover.ok, 'a second pinned anchor took over a name by out-numbering it').toBe(false)
+    if (takeover.ok) return
+    expect(takeover.failure.kind).toBe('authority-changed')
+    expect(takeover.reason).toContain('kernel')
+
+    // And the name still resolves to what its own authority published.
+    const resolved = resolver.resolve('kernel', NOW)
+    expect(resolved.ok).toBe(true)
+    if (!resolved.ok) return
+    expect(resolved.cid.toString()).toBe(mine.toString())
+  })
+
+  it('still accepts a higher version from the authority that already holds the name', async () => {
+    const first = await cidFor('v1')
+    const second = await cidFor('v2')
+    const resolver = new SignedNameResolver([publisher.pub, other.pub])
+
+    resolver.accept(
+      signName(publisher.priv, { name: 'kernel', cid: first, version: 1, expiresAt: LATER }),
+      NOW,
+    )
+    const update = resolver.accept(
+      signName(publisher.priv, { name: 'kernel', cid: second, version: 2, expiresAt: LATER }),
+      NOW,
+    )
+    expect(update.ok, 'the refusal caught an ordinary update by its own publisher').toBe(true)
+
+    const resolved = resolver.resolve('kernel', NOW)
+    expect(resolved.ok).toBe(true)
+    if (!resolved.ok) return
+    expect(resolved.cid.toString()).toBe(second.toString())
+  })
+
+  it('treats a delegate of the holding authority as that authority, not as a stranger', async () => {
+    const first = await cidFor('by-root')
+    const second = await cidFor('by-delegate')
+    const delegate = keypair(14)
+    const resolver = new SignedNameResolver([publisher.pub, other.pub])
+
+    resolver.accept(
+      signName(publisher.priv, { name: 'kernel', cid: first, version: 1, expiresAt: LATER }),
+      NOW,
+    )
+
+    const delegation: NameDelegation = signNameDelegation(publisher.priv, {
+      delegate: delegate.pub,
+      expiresAt: LATER,
+    })
+    const viaDelegate = resolver.accept(
+      signName(delegate.priv, {
+        name: 'kernel',
+        cid: second,
+        version: 2,
+        expiresAt: LATER,
+        delegation,
+      }),
+      NOW,
+    )
+    expect(
+      viaDelegate.ok,
+      'the check compared signers rather than root authorities, so an anchor could not delegate',
+    ).toBe(true)
+  })
+})
