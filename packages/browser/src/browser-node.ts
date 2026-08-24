@@ -29,6 +29,7 @@ import { yamux } from '@chainsafe/libp2p-yamux'
 import { circuitRelayTransport } from '@libp2p/circuit-relay-v2'
 import { identify, identifyPush } from '@libp2p/identify'
 import { kadDHT, passthroughMapper } from '@libp2p/kad-dht'
+import { peerIdFromString } from '@libp2p/peer-id'
 import { ping } from '@libp2p/ping'
 import { webRTC } from '@libp2p/webrtc'
 import { webSockets } from '@libp2p/websockets'
@@ -82,8 +83,11 @@ import {
   identityFromSeed,
   o2RecordSelector,
   o2RecordValidator,
+  RELAY_RESERVATION_TARGET,
+  discoverRelays,
   peerIdForNodeKey,
   providerRecordPolicy,
+  topUpRelays,
 } from '@o2/libp2p'
 import type { NodeIdentity, PeerVerdict, SweepOutcome } from '@o2/libp2p'
 import type { KadDHT } from '@libp2p/kad-dht'
@@ -2305,6 +2309,46 @@ export class BrowserNode {
     undo.push(
       onPeerArrival(() => {
         void announcer.sweep()
+      }),
+    )
+
+    // NET-05 — a tab looks for relays and never offers itself as one.
+    //
+    // There is no `canRelay` branch here because there is no case to branch on: the relay
+    // server *"will not work in browsers"* in its own package's words, and a tab's
+    // certificate says `'via-relay'` for the same reason. So this tier performs only the
+    // looking half, and it is the tier that needs it most — a tab's every address runs
+    // through a relay, so losing that relay removes it from the fabric entirely, and it
+    // cannot be told about a replacement because being told requires being reachable.
+    //
+    // Bounded by `RELAY_RESERVATION_TARGET`, byte-identical to the backbone's ceiling, and
+    // the constant carries the arithmetic: 64 slots per relay make `k` a divisor on how
+    // many tabs the fabric can hold at once.
+    const topUpRelayReservations = async (): Promise<void> => {
+      await topUpRelays({
+        target: RELAY_RESERVATION_TARGET,
+        // An approximation and stated as one, exactly as the backbone states it: one relay
+        // may publish more than one circuit address for this tab, so this can over-count
+        // and stop early. Over-counting spends fewer slots than the ceiling rather than
+        // more, which is the safe direction for a number whose whole job is to be a
+        // ceiling.
+        reserved: () =>
+          libp2p.getMultiaddrs().filter((ma) => ma.toString().includes('/p2p-circuit')).length,
+        discover: () => discoverRelays({ index: recordIndex, self: identity.nodeKey }),
+        connect: async (nodeKey) => {
+          const spelling = peerIdForNodeKey(nodeKey)
+          if (spelling === null) return
+          // Connecting is what reserves: `/p2p-circuit` is already in this tab's listen
+          // list, and libp2p turns a connection to a relay into a reservation because of
+          // it.
+          await libp2p.dial(peerIdFromString(spelling))
+        },
+      })
+    }
+    void topUpRelayReservations()
+    undo.push(
+      onPeerArrival(() => {
+        void topUpRelayReservations()
       }),
     )
 

@@ -148,6 +148,7 @@ import {
 } from '@o2/net'
 import type { EnrolOutcome } from '@o2/net'
 import { createLibp2p } from 'libp2p'
+import { peerIdFromString } from '@libp2p/peer-id'
 import type { Libp2p, PeerId } from '@libp2p/interface'
 import { FsBlockstore } from './fs-blockstore.ts'
 import { FsIssuance } from './fs-issuance.ts'
@@ -169,6 +170,7 @@ import {
   RELAY_DURATION_LIMIT_MS,
   O2_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATIONS,
+  RELAY_RESERVATION_TARGET,
   RELAY_MAX_RESERVATION_TTL_MS,
   PeerVerifier,
   admitsAnyPeer,
@@ -178,8 +180,11 @@ import {
   nodeKeyForPeerId,
   o2RecordSelector,
   o2RecordValidator,
+  discoverRelays,
   peerIdForNodeKey,
   providerRecordPolicy,
+  relayServiceCid,
+  topUpRelays,
 } from '@o2/libp2p'
 import type { NodeIdentity, PeerVerdict, RelayAdmission, SweepOutcome } from '@o2/libp2p'
 import type { KadDHT } from '@libp2p/kad-dht'
@@ -2948,6 +2953,84 @@ export class FabricNode {
       void announcer.sweep()
     })
     undo.push(stopSweeping)
+
+    // NET-05 — the two halves of relay discovery, joined here and nowhere else.
+    //
+    // A node that binds a listening socket is the one whose certificate says `'seed'`
+    // (`discoverability: canRelay ? 'seed' : 'via-relay'` above), so `canRelay` decides
+    // which half this process performs. There is no third case and no option: a node
+    // either offers the service or looks for it.
+    //
+    // **Announcing.** One `provide` of the well-known key. It is not repeated on a timer
+    // because it does not have to be — kad-dht's reprovider republishes a node's *own*
+    // provider records within `threshold` of expiry and exempts them from the sweep, which
+    // is the one place its `isSelf` branch is what keeps a record alive. Not awaited and not fatal: a
+    // relay whose keyspace is not reachable yet is a working relay, and everything that
+    // reaches it by configured address is untouched.
+    //
+    // **Looking.** Bounded by `RELAY_RESERVATION_TARGET`, which is a divisor on the
+    // fabric's own capacity rather than a preference — that constant carries the
+    // arithmetic. Re-run on peer arrival for the same reason registration is: the first
+    // attempt happens against a routing table that may still be empty, and a relay this
+    // node could use may only become findable once a third node has joined.
+    if (canRelay) {
+      // **Re-announced on peer arrival, and a one-shot here was written first and was
+      // wrong in exactly the way registration was.** `provide` walks to the closest peers;
+      // at start there are none, so the walk either blocks until the first peer arrives or
+      // completes against whoever was there then — and every node that joins afterwards
+      // never hears it. Measured: with a single start-time announcement,
+      // `relay-discovery.node.test.ts` timed out at 40 s having found nothing.
+      //
+      // kad-dht's reprovider does republish a node's own provider records, but on its own
+      // clock — a quarter of `PROVIDER_RECORD_VALIDITY_MS`, so fifteen minutes. That is a
+      // durability mechanism, not a joining one.
+      let announcing: Promise<void> | null = null
+      const announceRelayService = (): void => {
+        if (announcing !== null) return
+        announcing = (async () => {
+          try {
+            for await (const _event of libp2p.services.dht.provide(await relayServiceCid())) {
+              // Events are progress. `provide` reports success by not throwing.
+            }
+          } catch {
+            // A relay that could not announce is still a relay to everyone holding its
+            // address. Counted nowhere on purpose: there is no reading this would support
+            // that `registrationPeers` does not already give.
+          } finally {
+            announcing = null
+          }
+        })()
+      }
+      announceRelayService()
+      const stopAnnouncing = onPeerArrival(announceRelayService)
+      undo.push(stopAnnouncing)
+    } else {
+      const topUp = async (): Promise<void> => {
+        await topUpRelays({
+          target: RELAY_RESERVATION_TARGET,
+          // An approximation, and stated as one: a relay may publish more than one circuit
+          // address for this node, so this can over-count and stop early. Over-counting
+          // spends fewer slots than the target rather than more, which is the safe
+          // direction for a number whose whole purpose is to be a ceiling.
+          reserved: () =>
+            libp2p.getMultiaddrs().filter((ma) => ma.toString().includes('/p2p-circuit')).length,
+          discover: () => discoverRelays({ index: recordIndex, self: identity.nodeKey }),
+          connect: async (nodeKey) => {
+            const spelling = peerIdForNodeKey(nodeKey)
+            if (spelling === null) return
+            const peerId = peerIdFromString(spelling)
+            // Connecting is what reserves — the `/p2p-circuit` listen entry is what turns
+            // a connection into a reservation, and it is already in `listen` above.
+            await libp2p.dial(peerId)
+          },
+        })
+      }
+      void topUp()
+      const stopTopUp = onPeerArrival(() => {
+        void topUp()
+      })
+      undo.push(stopTopUp)
+    }
 
     return node
   }

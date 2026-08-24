@@ -33,6 +33,7 @@ export {
   RELAY_DURATION_LIMIT_MS,
   RELAY_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATION_TTL_MS,
+  RELAY_RESERVATION_TARGET,
   WEBRTC_MAX_BUFFERED_BYTES,
   WEBRTC_MAX_MESSAGE_BYTES,
   WIRE_CHUNK_BYTES,
@@ -119,6 +120,18 @@ export type { PeerArrivals, PublishOutcome, RecordRefusal } from './dht-registra
 // It deliberately does not announce inside `put`; that module's header carries the
 // measured ordering in `submit.ts` which makes the obvious place a side channel.
 export { DhtProviderAnnouncer, ObservingBlockstore } from './dht-provider-announcer.ts'
+
+// NET-05 — a relay announces itself under a well-known key, and the certificate it already
+// carries is what proves the claim. See the module header for why a DHT cannot simply be
+// asked "who is a seed".
+export {
+  MAX_RELAY_CANDIDATES,
+  RELAY_SERVICE_KEY,
+  discoverRelays,
+  relayServiceCid,
+  topUpRelays,
+} from './relay-service.ts'
+export type { RelayDiscoveryOptions, RelayTopUpOptions } from './relay-service.ts'
 export type {
   ProviderAnnouncerOptions,
   SweepOutcome,

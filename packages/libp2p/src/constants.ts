@@ -322,3 +322,24 @@ export function providerRecordPolicy(
     threshold: Math.max(1, Math.floor(validityMs / 2)),
   }
 }
+
+/**
+ * NET-05 — how many relays a node keeps itself reachable through. **2.**
+ *
+ * Arithmetic, not taste. A relay grants {@link O2_MAX_RESERVATIONS} reservations — 64, and
+ * the library's own default is 15. A node that took a slot on every relay it could find
+ * would cap a fabric of `M` relays at 64 participants however many relays were added; at
+ * `k` slots per node the cap is `64 × M / k`. So `k` is a divisor on the fabric's own
+ * capacity and wants to be as small as it can be.
+ *
+ * One is too small for a reason that has nothing to do with capacity: a node whose only
+ * address runs through one relay disappears from the fabric when that relay does, and
+ * cannot be told about a replacement because being told requires being reachable. Two is
+ * the smallest number that survives that, and it is what a relay slot is actually being
+ * spent on.
+ *
+ * **This bounds only the nodes that need reserving.** A relay's `handleConnect` checks the
+ * reservation of the **destination** (`server/index.ts:284-287`), so a node that only ever
+ * initiates — a pure requestor — occupies no slot anywhere and is not counted here.
+ */
+export const RELAY_RESERVATION_TARGET = 2
