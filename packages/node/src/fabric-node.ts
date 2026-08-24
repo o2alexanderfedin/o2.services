@@ -93,6 +93,7 @@ import { multiaddr } from '@multiformats/multiaddr'
 import type { TLSCertificate } from '@libp2p/interface'
 import { join as nodePathJoin } from 'node:path'
 import type { Datastore } from 'interface-datastore'
+import { DatastoreCertificateCache } from './certificate-cache.ts'
 import { FsDatastore } from './fs-datastore.ts'
 import { AbiExecutor, WasiExecutor } from '@o2/aot'
 import {
@@ -2010,6 +2011,29 @@ export class FabricNode {
       },
     })
 
+    // DATA-08 — **what survives a restart**, and it now does by default.
+    //
+    // A libp2p datastore holds the peer store, the keychain and the DHT's own records.
+    // Left unset, libp2p supplies an in-memory one, so every restart threw away the peers
+    // this node had met and the WebRTC-Direct certificate its published multiaddr is
+    // derived from — which makes a *restart* invalidate addresses other peers are still
+    // holding.
+    //
+    // A node given a durable directory gets a durable datastore inside it, on the same
+    // reasoning `.identity.key` and the certificate already live there: a node told where
+    // to keep things keeps them. A node with **no** directory gets libp2p's in-memory
+    // default, which is the honest behaviour and not a fallback. An explicitly supplied
+    // `datastore` still wins.
+    //
+    // Bound to a name rather than spread inline because W4's certificate cache writes into
+    // **this same store**: two constructions would be two stores over one directory, and
+    // the second would be the one nothing could read.
+    const libp2pDatastore: Datastore | undefined =
+      options.datastore ??
+      (options.blockstoreDir === undefined
+        ? undefined
+        : new FsDatastore(nodePathJoin(options.blockstoreDir, '.datastore')))
+
     const libp2p = await createLibp2p({
       // AUTH-01. Without this line libp2p mints a fresh ephemeral key on every start, so
       // a node has no identity that outlives its process and no certificate could refer
@@ -2032,11 +2056,7 @@ export class FabricNode {
       //
       // An explicitly supplied `datastore` still wins, so a caller with its own store or a
       // test that wants memory says so.
-      ...(options.datastore !== undefined
-        ? { datastore: options.datastore }
-        : options.blockstoreDir === undefined
-          ? {}
-          : { datastore: new FsDatastore(nodePathJoin(options.blockstoreDir, '.datastore')) }),
+      ...(libp2pDatastore === undefined ? {} : { datastore: libp2pDatastore }),
       addresses: {
         listen,
         // Absent rather than empty when unset, and the reason is *not* that an empty array
@@ -2526,6 +2546,17 @@ export class FabricNode {
       rpc,
       peers: () => transport.peers,
       trustedIssuers: new Set(options.trustedIssuers ?? []),
+      // W4 — a peer verified before this process started does not have to be asked again.
+      //
+      // **A hint and never a decision**: `PeerVerifier` runs a cached certificate through
+      // the same `#accept` a fresh one takes, against the issuers pinned now and the clock
+      // now, so this cannot widen what is accepted. Safe because revocation here is
+      // non-renewal on the certificate's own clock rather than a list — verification
+      // reaches nothing, so a remembered copy can never be more acceptable than a fresh
+      // one. In a fabric with an online status check the same line would be a hole.
+      ...(libp2pDatastore === undefined
+        ? {}
+        : { certificates: new DatastoreCertificateCache(libp2pDatastore) }),
     })
 
     // Blocks this node lacks are pulled from whichever peers are connected **and

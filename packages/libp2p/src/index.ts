@@ -74,7 +74,8 @@ export type { RelayAdmission } from './relay-admission.ts'
 // is named by three `mutation-ledger.ts` rows and by `AUTH-02`'s witness list — so the
 // constant has to be reachable by package specifier or the retry-floor cases cannot see it.
 export { DEFAULT_VERDICT_RETRY_FLOOR_MS, PeerVerifier } from './peer-verifier.ts'
-export type { PeerFailure, PeerVerdict, PeerVerifierOptions } from './peer-verifier.ts'
+export type { PeerFailure, PeerVerdict, CertificateCache,
+  PeerVerifierOptions } from './peer-verifier.ts'
 
 // AUTH-01 — one on-device seed, read in two namespaces.
 export {
