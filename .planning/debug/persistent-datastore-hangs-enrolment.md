@@ -42,8 +42,17 @@ where the next attempt should look:
   outbound work per peer. An enrolment request queued behind requests that cannot complete
   is a hang with idle CPU, which is what was measured.
 
-**Neither is confirmed.** The test that would confirm the second is a reading of the gate's
-queue depth at the moment the enrolment request is admitted, and it was not taken.
+**Neither is confirmed, and here is the reading that would settle it.** Instrument NET-09's
+per-peer send gate to record its queue depth at the instant the enrolment request is
+admitted, and run the failing case with an asynchronous datastore wired. If the queue is
+full of `records` requests aimed at a peer that holds no certificate — which is what a
+peer mid-enrolment is — hypothesis 2 is confirmed and the fix belongs in how `PeerVerifier`
+paces its re-ask, not in the datastore. If the queue is shallow, hypothesis 2 is dead and
+the next place to look is libp2p's own peer-store locking, where the same reasoning applies
+one layer down.
+
+Take that reading **before** trying another datastore implementation. Two have already been
+tried and the second told us nothing the first had not.
 
 ## What the attempt was worth even so
 
