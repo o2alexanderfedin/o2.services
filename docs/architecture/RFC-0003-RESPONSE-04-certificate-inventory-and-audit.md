@@ -178,7 +178,14 @@ will come away with the wrong model.
 
 - `enrollment.ts` and `result-attestation.ts` say revocation **is not a list** and that
   there must not be one.
-- `cert-lifecycle.ts` declares `RevocationReason` (`'key-compromise' | 'superseded' |
+> **The contradiction below was dissolved rather than settled, 2026-08-24.** One of the two
+> designs left the tree: `cert-lifecycle.ts` was deleted, so the only revocation design in
+> `@o2/core` is now the one `enrollment.ts` and `result-attestation.ts` state — non-renewal
+> on the certificate's own clock, and no list. The paragraph is kept because a reader who
+> finds either of those two sentences needs to know that the disagreement was real, was
+> named, and was closed by removing a design and not by softening a sentence.
+
+- `cert-lifecycle.ts` declared `RevocationReason` (`'key-compromise' | 'superseded' |
   'ceased-operation'`), `RevocationStatus`, `Revocation`, and a `DirectoryPort` with
   `publishRevocation` and `revocationStatus`.
 
@@ -197,7 +204,22 @@ reason is this section** rather than an oversight to be tidied up by a later rea
 
 ---
 
-## §6. `cert-lifecycle.ts` — complete, tested, and connected to nothing
+## §6. `cert-lifecycle.ts` — complete, tested, connected to nothing, and now deleted
+
+> **RESOLVED 2026-08-24 by owner ruling — *"we might wanna unify that"*.** One certificate
+> system, not two, and the form of the unification is deletion because merging was empty:
+> the delegation half duplicated `capability.ts`, the identity half duplicated
+> `enrollment.ts`, the crypto-backend selection had already been merged into
+> `ed25519-backend.ts` by Phase 28, and the revocation half is refused by standing ruling.
+>
+> **What follows is preserved as the reading that produced the decision**, not rewritten as
+> though the module were still here. It is the record of what a 775-line tested module with
+> no consumer actually contained, and the argument that it should be wired is preserved
+> alongside the price that argument never paid — see §10 W7 and `REQUIREMENTS.md` CRYPTO-03,
+> which had left this open as an owner call in as many words.
+>
+> Everything named below lives in git at `0c49c42`.
+
 
 `packages/core/src/index.ts:513` records it: *"`cert-lifecycle.ts` is imported by nothing in
 the production corpus — measured, and it is one of 27 such modules."* The state is held
@@ -499,7 +521,7 @@ is the owner's call and it is recorded as one.
 |---|---|---|
 | W11 | **The freshness mechanism** (`CM-Status`, stapled status, `MAX_STATUS_AGE`) | The owner chose the **shortened lifetime** for W9, which is the alternative branch of this decision, not a stage before it. Freshness is carried by the certificate's own clock. So no status object, no `MAX_STATUS_AGE`, and — this is the point — **no new online key**: `CM-Status` would have been the only key that must be online, i.e. the one most likely to be compromised. Verification stays fully offline, which is what keeps every certificate in this system safe to cache (§2) |
 | W3 | **`revoked` member of `CertificateFailure`** | Follows from W11. It was the vocabulary a status mechanism needs, and there is no status mechanism. Adding it now would put a member in a union that nothing can ever produce |
-| W7 | **`DirectoryPort` publish/fetch over the DHT** | Also follows, and the reason is stronger than the register first recorded. Two facts, both read from the tree. **(1)** What such a port would adapt already exists and is wired: `RecordPublisher` publishes and `DhtRecordIndex` fetches, both on the private keyspace, and an adapter over them is a **second way to do one thing** — the rule `job-entry-points.node.test.ts` enforces by name. **(2)** More decisive: `cert-lifecycle.ts`'s `Certificate` is a **different type from `NodeCertificate`** — `{subject, parent, grant, window, ref, signature}` against `{nodeKey, userKey, operatorId, discoverability, relayIds, …}` — with its own `Issuer`, `Verifier` and `Subject`. A DHT `DirectoryPort` would therefore put a *parallel certificate system* onto the keyspace rather than the one the fabric runs on, and would be module 28 with no production importer in a repository that counts the other 27. `publishRevocation`/`revocationStatus` stay unwired, and §5 is the recorded reason: revocation here is non-renewal on the certificate's own clock, and a list must not be reintroduced through a port |
+| W7 | **`DirectoryPort` publish/fetch over the DHT** | Also follows, and the reason is stronger than the register first recorded. Two facts, both read from the tree. **(1)** What such a port would adapt already exists and is wired: `RecordPublisher` publishes and `DhtRecordIndex` fetches, both on the private keyspace, and an adapter over them is a **second way to do one thing** — the rule `job-entry-points.node.test.ts` enforces by name. **(2)** More decisive, and it settled the module's fate the same day: `cert-lifecycle.ts`'s `Certificate` was a **different type from `NodeCertificate`** — `{subject, parent, grant, window, ref, signature}` against `{nodeKey, userKey, operatorId, discoverability, relayIds, …}` — with its own `Issuer`, `Verifier` and `Subject`. A DHT `DirectoryPort` would therefore put a *parallel certificate system* onto the keyspace rather than the one the fabric runs on, and would have been a module with no production importer in a repository that counts them. **The owner then removed the question rather than answering it: on 2026-08-24 `cert-lifecycle.ts` was deleted** — *"we might wanna unify that"*, one certificate system rather than two — so there is no longer a `DirectoryPort` to adapt. What the fabric publishes and fetches is `NodeRecords` through `RecordPublisher` and `DhtRecordIndex`, and that is now the only certificate transport there is. `publishRevocation`/`revocationStatus` stay unwired, and §5 is the recorded reason: revocation here is non-renewal on the certificate's own clock, and a list must not be reintroduced through a port |
 
 ### (c) W2 — a week spent on a diagnosis that was wrong in a specific way
 
