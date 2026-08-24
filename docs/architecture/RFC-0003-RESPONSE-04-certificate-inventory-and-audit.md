@@ -36,7 +36,7 @@ and it is the top of this list rather than a footnote in it. What follows is the
 | 1 | **Root policy anchor** (CR) | compiled into the bundle | which publisher this deployment believes | Present. Supplied at construction and **immutable** — no rotation, no re-pin, no runtime revocation |
 | 2 | **`trustAnchors`** | `packages/core/src/naming.ts` | who may sign **name records** — artefact provenance | Present, **required, no default**. Type `readonly PublicKeyHex[] \| 'runs-unsigned-artifacts'`. Enforced by `SignedNameResolver` + `guardModuleProvenance` |
 | 3 | **`trustedIssuers`** | `packages/core/src/enrollment.ts` | who may sign **node certificates** — admission and peer selection | Present but **optional**. Enforced by `verifyCertificate` + `PeerVerifier` + `relayAdmissionGate` |
-| 4 | **`NodeCertificate`**, native envelope | `packages/core/src/enrollment.ts:190` | that a node is who it says, and how it is reachable | Present. Lifetime **30 days** |
+| 4 | **`NodeCertificate`**, native envelope | `packages/core/src/enrollment.ts:190` | that a node is who it says, and how it is reachable | Present. Lifetime **1 hour** since 2026-08-23 — see §10 W9. It also now carries an optional `nextKeyCommitment` (W13) |
 | 5 | **The same statement as DER X.509 v3** | `enrollment.ts:233`, `x509.ts` | interoperability with X.509 tooling | Present and **wired on the trust path, fail-closed** |
 | 6 | **Capability delegation chains** | `packages/core/src/capability.ts` | what a holder may do, and what it may pass on | Present |
 | 7 | **Signed `NameRecord`** | `packages/core/src/naming.ts` | which bytes a name resolves to | Present, with monotonic-version rollback refusal |
@@ -387,64 +387,122 @@ a relay it has no way to learn about, which is why the two are one piece of work
 
 ---
 
-## §10. The work register
+## §9a. What this audit scored, and what it scores now
 
-Written so that "implement everything" has a countable referent. Three buckets. Dependency
-order is stated where it is forced, and forced order is not a preference.
+§3 scored **1 of 10** substantive §2.10 recommendations implemented, and §4 found items 4
+and 6 of §1.8 absent. Those tables are left exactly as they were read — an audit that edits
+its own findings after acting on them is not an audit — and what changed is recorded here.
 
-### (a) Doable now
-
-| ID | Work | Depends on | Why here |
-|---|---|---|---|
-| W1 | **Provider-record lifetime stated rather than inherited** — `providerRecordPolicy`, 1 h, on both tiers (§8) | — | Owner-ruled. **DONE**, measured by `provider-expiry.node.test.ts`. It turned out to be a setting, not a mechanism to build — the third answer about that number and the first one measured |
-| W2 | **Persistent datastore** — so the address key, the peer store and stored records survive a restart (§2) | **a defect, not W1** | Owner-ruled and **attempted, then backed out 2026-08-23**. Any datastore whose operations are asynchronous hangs this fabric's enrolment RPC; a synchronous one does not, and two independent implementations reproduce it, so it is ours and not a dependency's. Restart-and-reload itself works — `node-identity` and `relaying` pass 24/24 with one wired. Full reading, including the six eliminations, in `.planning/debug/persistent-datastore-hangs-enrolment.md`. **This moves from bucket (a) to bucket (b): blocked on a defect, and the defect is now the work** |
-| W3 | **`revoked` member of `CertificateFailure`** (§3 item 9) | — | It is the vocabulary every status mechanism needs; cheap, and blocking if deferred |
-| W4 | **Certificate and verdict caching** on the persisted store (§2) | W2 | Safe by construction — offline verification |
-| W5 | **Relay-as-provider**: announce under a well-known key, plus the reader (§9) | — | **DONE.** `packages/libp2p/src/relay-service.ts`. A relay announces itself as a provider of a CID derived from `/o2/relay/1.0.0`, and `discoverRelays` treats that announcement as a *narrowing* rather than as an answer: a candidate is kept only when its certificate says `'seed'`, which only an issuer can mint. Announcement is re-run on peer arrival — a one-shot was written first and reproduced registration's own defect, measured as a 40 s timeout finding nothing. Read across three real nodes in `relay-discovery.node.test.ts`, DHT-only index, plant watched red |
-| W6 | **Bounded auto-reservation**, k = 2, on relays learned via W5 (§7) | W5 | **DONE.** `topUpRelays`, wired on both tiers — the backbone takes the looking half only when it is not itself a relay, the browser always, because a tab cannot be one. `RELAY_RESERVATION_TARGET` carries the arithmetic: 64 slots per relay make k a divisor on how many nodes the fabric holds, and 1 is too few only because a node whose single relay disappears cannot be told about a replacement |
-| W7 | **`DirectoryPort` publish/fetch over the DHT**; `publishRevocation`/`revocationStatus` left unwired with §5 as the recorded reason | W3 | Unblocks `cert-lifecycle.ts` without importing the revocation-list design |
-| W8 | **Determine** whether two disagreeing anchors refuse or pick (§4, recommendation 5 second half) | — | A measurement, not an implementation; it decides whether there is work at all |
-
-### (b) Blocked on a measurement or a defect that is itself in scope
-
-| ID | Work | Blocked by |
+| Recommendation | Then | Now |
 |---|---|---|
-| W9 | **Certificate lifetime 30 d → 1 h** (§3 item 1) | **No longer the measurement — W10 is done and the answer was "yes, comfortably".** Blocked instead on W14, which the measurement uncovered |
-| W10 | **The issuance-rate measurement** | **DONE.** `packages/node/src/issuance-rate.node.test.ts`: six joiners arriving at once are all issued to, none refused and none timed out, ~28 ms per joiner — an issuer of that shape has room for ~130 000 renewals an hour. Throughput is not the constraint. The plant is a starved budget, watched red. **A ratio was tried first and removed because it could not fail**; that is recorded at the assertion |
-| W14 | **Certificate renewal — it does not exist** | Nothing in the production corpus renews a certificate. `renew` is declared only in `cert-lifecycle.ts`, which is wired to nothing; `fabric-node.ts` enrols once at start, reuses a persisted unexpired certificate, and a node whose certificate has expired *stops advertising capabilities*. So cutting the lifetime to an hour without this would take every node off the fabric an hour after start. §2.10's recommendation assumes renewal without saying so. **Scoped 2026-08-23 and it is a phase rather than a quick task** — see below |
+| §2.10 #1 — lifetime 30 d → 1 h | not done | **done**, owner ruling; `DEFAULT_CERTIFICATE_LIFETIME_MS` |
+| §2.10 #3, 5, 6, 7, 8 — stapled status, `MAX_STATUS_AGE`, `CM-Status`, status record, rollback floor | not done | **refused as a design**, W11: the shortened lifetime is the alternative branch and carries freshness alone |
+| §2.10 #9 — `revoked` failure kind | not done | **refused**, W3: nothing can produce it under non-renewal |
+| §2.10 #11 — re-ask a settled acceptance once its certificate expired | done | unchanged |
+| §1.8 #4 — anchor change as a consent event | not done | **done**, W12 |
+| §1.8 #6 — `nextKeyCommitment` pre-rotation | not done | **done**, W13 |
 
-The trade W9 buys must be stated when it lands and not after: at 30 days a node survives an
-issuer outage for a month; at 1 hour, for an hour. That is a real loss of partition
-tolerance and is the price of the revocation guarantee.
+So of ten substantive recommendations: **four implemented, six refused as a coherent
+design** with the refusal recorded beside each. Nothing is left in the state the audit found
+worst — recommended, unimplemented, and unexplained.
 
-**And W10 changed which of the two is the blocker.** The register said W9 waited on a
-measurement. The measurement says the issuer has three orders of magnitude of headroom, and
-uncovered the real prerequisite in passing: **there is no renewal**, so the arithmetic that
-matters is not requests per hour but what happens to a node at the end of its hour. W14
-carries it. This is the second register row whose stated blocker turned out to be the wrong
-one — W2 was the first — and both times the wrong blocker was the one that could be argued
-from a document while the real one needed the tree.
-
-### W14's four surfaces, scoped so the next pass starts from a design
-
-A certificate is not held in one place, and renewal is not a timer bolted to `resolveCertificate`. Four things hold it, and the first is the one that decides the shape:
-
-1. **`SelfRecordIndex` holds a snapshot.** `packages/core/src/discovery.ts:896` — `readonly #records: NodeRecords | 'holds-no-records'`, assigned once in the constructor. Everything a peer learns about this node over RPC comes from there, so a renewed certificate that does not reach it is invisible. Making `SelfRecordIndexOptions.records` a **supplier** rather than a value is the change that unlocks the rest, and it is a breaking change to a `@o2/core` port that both tiers and several fixtures construct.
-2. **`RecordPublisher` is given a snapshot too** (`fabric-node.ts` — `new RecordPublisher(dht, ownRecordsForDht)`), so the keyspace would keep serving the old record until it expired.
-3. **`FabricNode.certificate` is `readonly`** and public. Renewal makes it change during a node's life, which is a change to the class's contract, not an internal detail.
-4. **The persisted copy** — `resolveCertificate` returns a stored unexpired certificate without contacting the provider, which is right at start and wrong at renewal. Renewal needs to bypass that branch by name rather than by deleting the file.
-
-None of this is hard; all of it is public surface. Doing it as a quick task would change a core port under a deadline, which is how the regressions this project has already paid for get made.
-
-### (c) Needs an owner decision on *which*, not on *whether*
-
-| ID | Decision |
-|---|---|
-| W11 | **The freshness mechanism** — §3 items 3, 5, 6, 7, 8 are one design, and it introduces `CM-Status`: a new key, and the only **online** one, i.e. the key most likely to be compromised. §2.10 prices it by blast radius. The alternative is to let W9's shortened lifetime carry freshness alone and build no status object. These are alternatives, not stages |
-| W12 | **Anchor change as a consent event** (§4 item 4) — the cost is a one-time re-consent for every existing visitor and a support burden on every legitimate publisher rotation. §1.8 argues that visibility is the point and that invisibility is why HPKP died. The counter-argument is the same fact |
-| W13 | **Pre-rotation** (`nextKeyCommitment`, §4 item 6) — cheap in code, but it commits the anchor format |
+**One recommendation was implemented that §2.10 never made**, and it is the one that
+mattered most: certificate **renewal**. §2.10 recommends a one-hour lifetime and does not
+mention renewal at all, which means the recommendation as written would have taken every
+node off the fabric one hour after start. That gap was found by measuring, not by reading.
 
 ---
+
+## §10. The work register
+
+Written so that "implement everything" has a countable referent. Rewritten **2026-08-23
+after the owner ruled on all three open decisions**, so the three-bucket shape below is the
+outcome and not the question.
+
+### Where it stands
+
+**Ten of fourteen are done with proofs. Two are closed by the owner's design choice. One is
+an open defect with a reproducible procedure. One is a phase nobody has scoped.**
+
+### (a) Done, each with a proof that was watched failing
+
+| ID | Work | Proof, and what reddened it |
+|---|---|---|
+| W1 | **Provider records expire** — `providerRecordPolicy`, both tiers (§8) | `provider-expiry.node.test.ts`: two real nodes, the holder announces, the keeper is handed the record over the wire, the holder stops, the keeper must stop answering. The fixture CID had to become sha-256 — an identity multihash begins `0x00`, is read as a CID version, and the whole `ADD_PROVIDER` is refused as `Invalid CID` |
+| W5 | **A relay announces itself as a provider** (§9) | `relay-service.test.ts`, 10 cases in node + three browser engines; `relay-discovery.node.test.ts`, three real nodes on a DHT-only index. The announcement only *narrows*: a candidate is kept when its certificate says `'seed'`, which only an issuer can mint. Written as a one-shot first, which reproduced registration's own defect and was measured as a 40 s timeout finding nothing |
+| W6 | **Bounded auto-reservation**, k = 2 | Same files. The bound is arithmetic, not taste: 64 slots per relay make k a divisor on how many nodes the fabric holds, and 1 is too few only because a node whose single relay disappears cannot be told about a replacement |
+| W8 | **Two pinned anchors do not overwrite each other's names** | `naming.test.ts`, three cases. New failure kind `authority-changed`, checked *before* the version comparison |
+| W10 | **What a one-hour certificate costs the issuer** | `issuance-rate.node.test.ts`: six joiners arriving at once are all issued to, ~28 ms each, i.e. ~10⁵ renewals an hour. Throughput is not the constraint. **A ratio was tried first and removed because it could not fail** — the calibration leg carries a whole node's start cost — and that is recorded at the assertion |
+| W14 | **Certificate renewal** — it did not exist | `certificate-renewal.test.ts` (8 cases) + `certificate-renewal-loop.test.ts` (3), node + three browser engines. See below: it was three snapshots, not a timer |
+| W9 | **Certificate lifetime 30 d → 1 h** | Owner ruling 2026-08-23, reversing the 2026-08-02 correction recorded in `enrollment.ts`'s own header. Asserted against an **actually issued certificate**, not only against the constant. `DEFAULT_MAX_PER_WINDOW` doubled with it — see the note below, which is the part that would have been missed |
+| W12 | **A change of trust anchors asks the visitor again** | `consent.test.ts`, 5 new cases, node + three engines. Fourth `ConsentGap` kind `anchor-changed`; `readConsent`'s new argument is required, so the compile error fired at every call site rather than defaulting open |
+| W13 | **A certificate can announce the key its node will rotate to** | `key-rotation.test.ts`, 9 cases, node + three engines. A hash and not the key, inside the issuer's signature, optional and byte-compatible. **Nothing rotates yet** — both exports are registered in `reachability-guard`'s `OPEN_FINDINGS` with the wiring that would close each |
+| W2 | **The recorded cause of the datastore hang is falsified** | Not the fix — the diagnosis. See (c) |
+
+#### W14 was three snapshots, not a timer
+
+The register previously scoped this as four surfaces. Three of them turned out to be *the
+same defect written three times*: a certificate held as a value by something that outlives
+it.
+
+- `SelfRecordIndex` held `records` as a value. **Its own docblock already made the
+  argument**, about the neighbouring field: *"A snapshot resolved in the constructor would
+  advertise a block that became sovereign a second later."* A certificate is the same shape
+  of fact.
+- `RecordPublisher` was handed `NodeRecords` at construction. A value record outlives the
+  certificate inside it, so renewing without republishing leaves the keyspace advertising
+  the expired one — and every reader running `verifyCertificate` discards the node anyway.
+- `FabricNode.certificate` and `BrowserNode.certificate` were fields.
+
+All three now read through one `CertificateHolder`, so a renewal is a single write. The
+holder refuses a replacement that is not strictly newer, so two overlapping exchanges or a
+replayed older signature cannot shorten a node's own reachability window.
+
+Two decisions worth not re-litigating. `CERTIFICATE_RENEW_AT` is two-thirds and is
+**deliberately not aliased** to `lease.ts`'s `RENEW_AT`, which holds the same number today:
+a lease renewal is a heartbeat to a scheduler already talking to this node, a certificate
+renewal is a fresh two-leg exchange with an authority that may be unreachable for hours.
+And `shouldRenewCertificate` deliberately **disagrees** with `shouldRenew` in one place — it
+stays true after expiry, because a worker whose lease lapsed lost the task and should stop,
+while a node whose issuer was down across the whole window is refused by every peer and
+cannot get back in by giving up.
+
+A defect was found in review and fixed before it shipped: `setTimeout` stores its delay in a
+signed 32-bit integer and **overflows to one millisecond** rather than saturating, so
+two-thirds of any lifetime over ~37 days would have spun the node at full CPU. The default
+is thirty days and clears it — but the span is the *issuing authority's* choice, not the
+joining node's.
+
+#### What W9 dragged with it
+
+`DEFAULT_MAX_PER_WINDOW` 32 → 64. Its sizing argument rests explicitly on *"a persisted
+certificate lives 30 days = 720 of these windows … a returning visitor spends nothing in 719
+hours of 720."* A one-hour lifetime inverts that: a node spends an issuance in **every**
+window. The worst ordinary case is no longer the ~20-tab session restore alone but that
+restore *plus* every already-enrolled node of the same owner renewing in the same hour. The
+number doubles, which keeps the 1.6× headroom the original argument chose rather than
+inventing a new ratio.
+
+**And the trade, stated where it cannot be missed:** revocation reach falls from thirty days
+to one hour, and partition tolerance falls the same way. A node whose issuer is unreachable
+for over an hour now leaves the fabric, where before it had a month. Renewal starts at
+two-thirds, so the real margin is the last twenty minutes. No measurement pays for that; it
+is the owner's call and it is recorded as one.
+
+### (b) Closed by the owner's design choice, not deferred
+
+| ID | Work | Why it is closed |
+|---|---|---|
+| W11 | **The freshness mechanism** (`CM-Status`, stapled status, `MAX_STATUS_AGE`) | The owner chose the **shortened lifetime** for W9, which is the alternative branch of this decision, not a stage before it. Freshness is carried by the certificate's own clock. So no status object, no `MAX_STATUS_AGE`, and — this is the point — **no new online key**: `CM-Status` would have been the only key that must be online, i.e. the one most likely to be compromised. Verification stays fully offline, which is what keeps every certificate in this system safe to cache (§2) |
+| W3 | **`revoked` member of `CertificateFailure`** | Follows from W11. It was the vocabulary a status mechanism needs, and there is no status mechanism. Adding it now would put a member in a union that nothing can ever produce |
+| W7 | **`DirectoryPort` publish/fetch over the DHT** | Also follows. What it would adapt already exists and is wired: `RecordPublisher` publishes and `DhtRecordIndex` fetches, both on the private keyspace. An adapter over them would be a **second way to do one thing**, which is the rule `job-entry-points.node.test.ts` enforces by name. `publishRevocation`/`revocationStatus` stay unwired, and §5 is the recorded reason: revocation here is non-renewal on the certificate's own clock, and a list must not be reintroduced through a port |
+
+### (c) Genuinely open
+
+| ID | Work | State |
+|---|---|---|
+| W2 | **Persistent datastore** | An open defect with a reproducible procedure. **The recorded cause was falsified 2026-08-23**: the note claimed any asynchronous datastore hangs enrolment, and an async-delegating `MemoryDatastore` enrols fine — at 0 ms, at 5 ms and at 25 ms per operation, on one node and on both. So it is neither the async boundary nor latency. What remains is what a *real* store does that an in-memory one does not. The next reading is named in `.planning/debug/persistent-datastore-hangs-enrolment.md`, and it says to take it **before** trying a fourth store |
+| W4 | **Certificate and verdict caching** on the persisted store | Waits on W2 and on nothing else. Safe by construction once there is somewhere to put it — §2 |
 
 ## Appendix — where each reading came from
 
