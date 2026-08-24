@@ -3,11 +3,41 @@
 **2026-08-23.** Attempted under the work register's W2 (`RFC-0003-RESPONSE-04`). **Backed out
 of the tree**; the tree is byte-identical to before the attempt, checked by `git status`.
 
-## The claim, stated so it can be falsified
+## The claim, stated so it could be falsified — and it was, 2026-08-23
 
-**Give `createLibp2p` a datastore whose operations are asynchronous, and this fabric's
-enrolment RPC never completes.** A datastore whose operations are synchronous is fine, and
-so is everything else about persistence.
+**The claim was:** *"Give `createLibp2p` a datastore whose operations are asynchronous, and
+this fabric's enrolment RPC never completes. A datastore whose operations are synchronous is
+fine, and so is everything else about persistence."*
+
+**It is false.** Measured the same day it was written, by the reading this note itself asked
+for — and it is preserved rather than rewritten because it was the working hypothesis for
+ten eliminations above and a reader needs to know which of them rested on it.
+
+A `MemoryDatastore` was wrapped in a proxy that awaits a macrotask before delegating every
+operation, and wired through `FabricNodeOptions.datastore`. Zero filesystem, purely
+asynchronous. Enrolment **completed**:
+
+| Arm | Datastore calls | Result |
+|---|---|---|
+| Joiner only, 0 ms yield | 24 get / 23 put / 2 query | enrolled, 646 ms |
+| Joiner only, 5 ms per op | 24 / 23 / 2 | enrolled |
+| Joiner only, 25 ms per op | 24 / 23 / 2 | enrolled |
+| **Both nodes**, 0 ms yield | 47 / 44 / 4 | enrolled |
+
+So **asynchrony is not the cause, and neither is per-operation latency** — 25 ms on every
+call is two orders of magnitude above what a filesystem costs, and it still enrolled.
+
+**What this leaves.** Two real implementations — `datastore-level@13.0.1` and a hand-written
+`FsDatastore` on `BaseDatastore` — reproduce the hang, and an asynchronous in-memory store
+does not. The remaining difference between them is therefore **not** the async boundary and
+**not** the delay. Candidates, none measured: `query`'s result semantics under a real store
+(the probe's `query` returned an empty async iterable four times and was never consumed
+lazily), batch/commit paths that `MemoryDatastore` short-circuits, or `@libp2p/keychain`,
+which reads and writes `components.datastore` directly.
+
+The two hypotheses in the next section were framed against the async explanation. **They are
+weaker now than when they were written**, because both are about ordering across an await
+boundary and an await boundary alone has been shown not to do it.
 
 ## What was tried, in order, and what each reading eliminated
 
@@ -42,7 +72,9 @@ where the next attempt should look:
   outbound work per peer. An enrolment request queued behind requests that cannot complete
   is a hang with idle CPU, which is what was measured.
 
-**Neither is confirmed, and here is the reading that would settle it.** Instrument NET-09's
+**Neither is confirmed, and the falsification above makes both less likely — the reading
+below is still the cheapest next step, but start by diffing what a real store does that an
+async in-memory one does not.** Instrument NET-09's
 per-peer send gate to record its queue depth at the instant the enrolment request is
 admitted, and run the failing case with an asynchronous datastore wired. If the queue is
 full of `records` requests aimed at a peer that holds no certificate — which is what a
@@ -52,7 +84,8 @@ the next place to look is libp2p's own peer-store locking, where the same reason
 one layer down.
 
 Take that reading **before** trying another datastore implementation. Two have already been
-tried and the second told us nothing the first had not.
+tried and the second told us nothing the first had not — and a third would now be the fourth
+store measured, since the async in-memory probe above is effectively one that works.
 
 ## What the attempt was worth even so
 
