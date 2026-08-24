@@ -488,7 +488,32 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
    * won, nor on how many did.
    */
   it('refuses past the threshold the refusal states, under one user key', async () => {
-    const provider = await spawnAgent('burst-provider', ['--issues-certificates', '--max-issued-per-window', '64'])
+    // **The aggregate budget must not be able to bind, or this case cannot tell which bound
+    // produced the refusal it reads.** It was the literal `'64'` until 2026-08-23, chosen
+    // when the per-user default was 32 and comfortably clear of it. W9 doubled the per-user
+    // default to 64, so the two became the same number — and this case is about the per-user
+    // one, which its own title says.
+    //
+    // It would still pass. `EnrollmentAuthority.enrol` checks the per-user window strictly
+    // before the aggregate, deliberately and with the reason recorded there, so a tie goes
+    // to `rate-limited` every time. That determinism is what makes this a weakness rather
+    // than a bug: the case would go green while measuring a coincidence, and the day
+    // somebody reorders those two checks — a change that file's own comment invites a
+    // reader to consider — it would fail for a reason nothing here would explain.
+    //
+    // **This is NOT the explanation for the one failure that prompted the change.** That
+    // hypothesis was written here and then killed by reading the check order; the failure
+    // is recorded as unexplained in the commit rather than given a story that fits.
+    //
+    // Derived from the per-user default rather than written down, for the reason the
+    // population below already gives: a fixed literal beside a moving default does not fail
+    // loudly, it goes green and stops measuring.
+    const aggregate = String(DEFAULT_MAX_PER_WINDOW * 4)
+    const provider = await spawnAgent('burst-provider', [
+      '--issues-certificates',
+      '--max-issued-per-window',
+      aggregate,
+    ])
     const client = await startClient('burst-client')
     await client.dial(provider.multiaddrs[0] as string)
 
