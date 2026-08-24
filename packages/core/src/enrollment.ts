@@ -124,6 +124,26 @@
  * node. Revocation is **non-renewal on the certificate's own clock**, not a list and not
  * a shorter clock; `certificateLifetimeMs` keeps its default.
  *
+ * > **SUPERSEDED 2026-08-23 — the last clause only, by owner ruling.** The default is now
+ * > one hour ({@link DEFAULT_CERTIFICATE_LIFETIME_MS}). The paragraph above is preserved
+ * > rather than rewritten because everything in it except that clause still holds, and
+ * > because it records *why* the shortening was refused for three weeks: the argument it
+ * > rejects — shortening as a mitigation for the unauthenticated enrolment frame — is
+ * > still rejected, and nothing in this change buys anti-abuse.
+ * >
+ * > What changed is that the two things the shortening was actually blocked on were built
+ * > and measured on 2026-08-23. **Issuance cost**: ~28 ms per joiner under simultaneous
+ * > arrival, i.e. an issuer of this shape serves on the order of 10^5 renewals an hour, so
+ * > throughput is not the constraint (`issuance-rate.node.test.ts`). **Renewal**: it did
+ * > not exist — a certificate was obtained once at start and the only route to another was
+ * > a restart, which made any short lifetime simply a node that expired
+ * > (`@o2/libp2p`'s `certificate-renewal.ts`).
+ * >
+ * > **The trade the owner accepted, stated plainly**: revocation reach falls from thirty
+ * > days to one hour, and partition tolerance falls the same way — a node whose issuer is
+ * > unreachable for over an hour now leaves the fabric, where before it had a month. That
+ * > is the whole cost, and no measurement pays for it.
+ *
  * Pure module, with **one** stated exception: {@link EnrollmentAuthority.mintChallenge}
  * draws random bytes, because a nonce a caller could predict is not a nonce. Nothing else
  * here reads a clock, a random source, or a platform API — `enrol` still takes `now` as a
@@ -797,10 +817,46 @@ export const DEFAULT_ISSUANCE_WINDOW_MS = 3_600_000
  * device and profile fan-out inside one hour while staying far below any aggregate budget
  * an operator would plausibly set — so one buggy client still cannot drain a window.
  *
+ * > **AMENDED 2026-08-23 to 64, and the reason is arithmetic in the paragraph above.** The
+ * > sentence *"a persisted certificate lives 30 days = 720 of these windows and is reused
+ * > without contacting the provider at all, so a returning visitor spends nothing in 719
+ * > hours of 720"* was the load-bearing half of this sizing, and
+ * > {@link DEFAULT_CERTIFICATE_LIFETIME_MS} inverted it: at a one-hour lifetime a node
+ * > spends an issuance in **every** window, not in one of 720. The worst ordinary case is
+ * > therefore no longer the ~20-tab restore alone but that restore *plus* every already-
+ * > enrolled node of the same owner renewing inside the same hour — about twice what it
+ * > was. So the number doubles too, which keeps the 1.6x headroom the original argument
+ * > chose rather than inventing a new ratio.
+ * >
+ * > The paragraph above is left standing because its *reasoning* is what still decides this
+ * > number; only one input to it moved. And the warning below is sharper now, not weaker:
+ * > sizing this back down under a one-hour lifetime refuses honest owners far faster than
+ * > it ever could at thirty days.
+ *
  * **A reader who takes this for an anti-abuse control will size it back down and
  * reintroduce the refusal it exists to prevent.** Read the two paragraphs above first.
  */
-export const DEFAULT_MAX_PER_WINDOW = 32
+export const DEFAULT_MAX_PER_WINDOW = 64
+
+/**
+ * How long an issued certificate is valid — one hour.
+ *
+ * **Owner ruling 2026-08-23**, reversing the 2026-08-02 correction quoted in this module's
+ * header. The header carries the trade; what belongs here is the consequence for anybody
+ * reading this number.
+ *
+ * Expiry is the only revocation this fabric has — *non-renewal on the certificate's own
+ * clock, not a list* — so this number **is** the revocation window. At thirty days a
+ * compromised node stayed accepted for a month. At one hour it stays accepted for at most
+ * an hour, and no directory, no status service and no online lookup is introduced to
+ * achieve that: verification stays fully offline, which is what makes every certificate in
+ * this system safe to cache.
+ *
+ * The other side is exact and is not a footnote: **a node whose issuer is unreachable for
+ * more than an hour leaves the fabric.** Before this it had thirty days of grace. Renewal
+ * begins at two-thirds — forty minutes — so the real margin is the last twenty.
+ */
+export const DEFAULT_CERTIFICATE_LIFETIME_MS = 3_600_000
 
 /** What the sentinel selects: a history that lives and dies with this object. */
 class InProcessIssuance implements IssuanceLedger {
@@ -926,7 +982,7 @@ export class EnrollmentAuthority {
     this.#maxPerWindow = options.maxPerWindow ?? DEFAULT_MAX_PER_WINDOW
     this.#maxIssuedPerWindow = options.maxIssuedPerWindow
     this.#windowMs = options.windowMs ?? DEFAULT_ISSUANCE_WINDOW_MS
-    this.#lifetimeMs = options.certificateLifetimeMs ?? 30 * 24 * 3_600_000
+    this.#lifetimeMs = options.certificateLifetimeMs ?? DEFAULT_CERTIFICATE_LIFETIME_MS
     this.#challengeTtlMs = options.challengeTtlMs ?? ENROLLMENT_CHALLENGE_TTL_MS
     this.#issuesX509 = options.x509 === 'issues-the-x509-form'
     this.#issuance =

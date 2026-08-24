@@ -387,6 +387,8 @@ export {
   // says which one produced it. `CERTIFICATE_RENEW_AT` is exported for the same reason
   // `DEFAULT_MAX_PER_WINDOW` is — a test that witnesses the timing has to name it.
   CERTIFICATE_RENEW_AT,
+  // The revocation window, because expiry is the only revocation this fabric has.
+  DEFAULT_CERTIFICATE_LIFETIME_MS,
   // The single cell a renewing node's certificate lives in. Exported because both tiers
   // construct one and `@o2/libp2p`'s renewal loop writes through it.
   CertificateHolder,

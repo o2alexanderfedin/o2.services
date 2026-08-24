@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   CERTIFICATE_RENEW_AT,
   CertificateHolder,
+  DEFAULT_CERTIFICATE_LIFETIME_MS,
+  DEFAULT_MAX_PER_WINDOW,
   EnrollmentAuthority,
   msUntilRenewalDue,
   requestEnrollment,
@@ -136,5 +138,34 @@ describe('AUTH-04 — the one cell a certificate lives in', () => {
     expect(holder.current).toBeNull()
     expect(holder.replace(certificate(NOW, NOW + 1000))).toBe(true)
     expect(holder.current).not.toBeNull()
+  })
+})
+
+describe('AUTH-04 — the lifetime, which is this fabric’s entire revocation window', () => {
+  it('is one hour by default, and that is what an authority actually signs', () => {
+    // Owner ruling 2026-08-23, reversing the 2026-08-02 correction that this module's
+    // header still carries. Asserted against the *issued certificate* and not only against
+    // the constant, because the constant being right and the constructor still holding the
+    // old literal is exactly the shape this change could fail in.
+    expect(DEFAULT_CERTIFICATE_LIFETIME_MS).toBe(3_600_000)
+    expect(real.expiresAt - real.issuedAt).toBe(3_600_000)
+  })
+
+  it('leaves the per-user budget able to cover a restore plus a full renewal round', () => {
+    // **The arithmetic that had to move with the lifetime, and would have been missed.**
+    // DEFAULT_MAX_PER_WINDOW was sized against a ~20-tab session restore, on the explicit
+    // ground that "a persisted certificate lives 30 days = 720 of these windows … a
+    // returning visitor spends nothing in 719 hours of 720". At a one-hour lifetime a node
+    // spends an issuance in EVERY window, so the worst ordinary case is that restore plus
+    // every already-enrolled node of the same owner renewing in the same hour.
+    //
+    // If this ever fails, honest owners are being refused — which is precisely what the
+    // constant's own docblock warns a reader not to cause.
+    const TAB_RESTORE = 20
+    expect(DEFAULT_MAX_PER_WINDOW).toBeGreaterThanOrEqual(TAB_RESTORE * 2)
+    // And the window the budget is measured over is the lifetime itself, so "per window"
+    // and "per certificate life" are now the same period. A budget measured over a longer
+    // window than the lifetime would refuse a node its own renewal.
+    expect(DEFAULT_CERTIFICATE_LIFETIME_MS).toBeLessThanOrEqual(3_600_000)
   })
 })
