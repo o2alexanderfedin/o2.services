@@ -1,4 +1,15 @@
-# A persistent libp2p datastore hangs enrolment — open, with the scope measured
+# A persistent libp2p datastore hangs enrolment — CLOSED 2026-08-23, and the title was wrong
+
+> **RESOLVED.** A persistent datastore does not hang enrolment. `packages/node/src/fs-datastore.ts`
+> is wired by default into every node given a `blockstoreDir`, and the three specs that
+> failed — `dht-registration`, `enrol-through-a-closed-door`, `provider-expiry` — pass with it.
+> The fault was in the two implementations that had been tried, not in this fabric.
+>
+> The whole note is kept, title included, because it is the record of a week spent on a
+> diagnosis that was wrong in a specific and repeatable way: **every elimination below was
+> sound, and the claim they were assembled into was not.** What settled it was making the
+> suspect property — asynchrony — a variable rather than a description, which none of the
+> ten readings did.
 
 **2026-08-23.** Attempted under the work register's W2 (`RFC-0003-RESPONSE-04`). **Backed out
 of the tree**; the tree is byte-identical to before the attempt, checked by `git status`.

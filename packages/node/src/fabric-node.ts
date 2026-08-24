@@ -91,7 +91,9 @@ import { tcp } from '@libp2p/tcp'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
 import type { TLSCertificate } from '@libp2p/interface'
+import { join as nodePathJoin } from 'node:path'
 import type { Datastore } from 'interface-datastore'
+import { FsDatastore } from './fs-datastore.ts'
 import { AbiExecutor, WasiExecutor } from '@o2/aot'
 import {
   CertificateHolder,
@@ -2014,7 +2016,27 @@ export class FabricNode {
       // to it — which is exactly what every start did before this phase.
       privateKey: identity.privateKey,
       ...(gate === undefined ? {} : { connectionGater: { denyInboundRelayReservation: gate } }),
-      ...(options.datastore === undefined ? {} : { datastore: options.datastore }),
+      // DATA-08 — **what survives a restart**, and it now does by default.
+      //
+      // A libp2p datastore holds the peer store, the keychain and the DHT's own records.
+      // Left unset, libp2p supplies an in-memory one, so every restart threw away the
+      // peers this node had met, the WebRTC-Direct certificate its published multiaddr is
+      // derived from, and any Let's Encrypt material — the last of which makes a
+      // *restart* invalidate addresses other peers are still holding.
+      //
+      // So a node given a durable directory gets a durable datastore inside it, on the
+      // same reasoning `.identity.key` and the certificate already live there: a node
+      // that was told where to keep things keeps them. A node with **no** directory is
+      // told it has nowhere durable to write, by the absence of the option, and gets
+      // libp2p's in-memory default — which is the honest behaviour and not a fallback.
+      //
+      // An explicitly supplied `datastore` still wins, so a caller with its own store or a
+      // test that wants memory says so.
+      ...(options.datastore !== undefined
+        ? { datastore: options.datastore }
+        : options.blockstoreDir === undefined
+          ? {}
+          : { datastore: new FsDatastore(nodePathJoin(options.blockstoreDir, '.datastore')) }),
       addresses: {
         listen,
         // Absent rather than empty when unset, and the reason is *not* that an empty array
