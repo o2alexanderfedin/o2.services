@@ -812,8 +812,24 @@ export interface SelfRecordIndexOptions {
    * doc's second section for why that would turn a question into a fetch.
    */
   readonly store: Blockstore
-  /** This node's own signed records, or `'holds-no-records'` if it has none. */
-  readonly records: NodeRecords | 'holds-no-records'
+  /**
+   * This node's own signed records, or `'holds-no-records'` if it has none — as a value,
+   * or as a thunk asked again on every lookup.
+   *
+   * **The thunk arm exists for the reason the class doc already gives about `withhold`**,
+   * and the sentence there transfers word for word: *"A snapshot resolved in the
+   * constructor would advertise a block that became sovereign a second later."* A
+   * certificate is the same shape of fact. It expires on its own clock, and a node that
+   * renews one — `shouldRenewCertificate` in `enrollment.ts` — swaps the record the
+   * moment the new certificate lands. Held as a value, this index would go on answering
+   * with the expired one until the process restarted, and every reader running
+   * `verifyCertificate` would discard the node while the node itself believed it was
+   * enrolled.
+   *
+   * A plain value is still accepted, and is still right for anything whose records
+   * genuinely cannot change under it — a fixture, or a tier with no renewal loop.
+   */
+  readonly records: NodeRecords | 'holds-no-records' | (() => NodeRecords | 'holds-no-records')
   /**
    * Says a CID must not be advertised even though this node holds it, or
    * `'advertises-everything-it-holds'`.
@@ -896,7 +912,7 @@ export interface SelfRecordIndexOptions {
 export class SelfRecordIndex implements RecordIndex {
   readonly #nodeKey: PublicKeyHex
   readonly #store: Blockstore
-  readonly #records: NodeRecords | 'holds-no-records'
+  readonly #records: SelfRecordIndexOptions['records']
   readonly #withhold: SelfRecordIndexOptions['withhold']
 
   constructor(options: SelfRecordIndexOptions) {
@@ -923,6 +939,10 @@ export class SelfRecordIndex implements RecordIndex {
 
   async recordsFor(nodeKey: PublicKeyHex): Promise<NodeRecords | undefined> {
     if (nodeKey !== this.#nodeKey) return undefined
-    return this.#records === 'holds-no-records' ? undefined : this.#records
+    // Asked again on every lookup, exactly as `withhold` is and for the same reason. A
+    // thunk resolved once in the constructor would be the snapshot this arm exists to
+    // avoid, and it is planted and caught in `discovery.test.ts`.
+    const held = typeof this.#records === 'function' ? this.#records() : this.#records
+    return held === 'holds-no-records' ? undefined : held
   }
 }

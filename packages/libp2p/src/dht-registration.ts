@@ -260,14 +260,27 @@ export interface PeerArrivals {
  */
 export class RecordPublisher {
   readonly #dht: KadDHT
-  readonly #records: NodeRecords
+  readonly #records: NodeRecords | (() => NodeRecords | undefined)
   readonly #outcomes: PublishOutcome[] = []
   #unsubscribe: (() => void) | null = null
   #inFlight: Promise<PublishOutcome> | null = null
   #again = false
   #stopped = false
 
-  constructor(dht: KadDHT, records: NodeRecords) {
+  /**
+   * `records` may be a value or a thunk asked again on every publish.
+   *
+   * **The thunk arm is what makes renewal visible.** A registration record outlives the
+   * certificate inside it — the keyspace holds a value record for far longer than a
+   * certificate is valid — so a node that renewed and republished its *original* records
+   * would go on advertising the expired certificate, and every reader running
+   * `verifyCertificate` would discard it. Held as a value this class was that defect, in
+   * the same shape `SelfRecordIndex` carried it.
+   *
+   * The thunk returning `undefined` means *"this node currently has nothing to register"*,
+   * and the publish is refused rather than fabricated.
+   */
+  constructor(dht: KadDHT, records: NodeRecords | (() => NodeRecords | undefined)) {
     this.#dht = dht
     this.#records = records
   }
@@ -321,8 +334,12 @@ export class RecordPublisher {
       this.#again = true
       return this.#inFlight
     }
+    const held = typeof this.#records === 'function' ? this.#records() : this.#records
+    if (held === undefined) {
+      return { kind: 'refused', reason: 'node holds no records to publish' }
+    }
     const run = async (): Promise<PublishOutcome> => {
-      const outcome = await publishRecords(this.#dht, this.#records)
+      const outcome = await publishRecords(this.#dht, held)
       this.#outcomes.push(outcome)
       return outcome
     }

@@ -124,6 +124,10 @@ export { DhtProviderAnnouncer, ObservingBlockstore } from './dht-provider-announ
 // NET-05 — a relay announces itself under a well-known key, and the certificate it already
 // carries is what proves the claim. See the module header for why a DHT cannot simply be
 // asked "who is a seed".
+// AUTH-04 renewal — the loop both tiers run so a certificate outlives its first issue.
+export { RENEWAL_RETRY_FLOOR_MS, startCertificateRenewal } from './certificate-renewal.ts'
+export type { CertificateRenewalOptions } from './certificate-renewal.ts'
+
 export {
   MAX_RELAY_CANDIDATES,
   RELAY_SERVICE_KEY,

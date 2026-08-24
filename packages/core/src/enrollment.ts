@@ -1448,3 +1448,116 @@ export function resolveReplicaSets(
     }))
     .sort((a, b) => a.userKey.localeCompare(b.userKey))
 }
+
+/**
+ * When a node should start trying to renew, as a fraction of its certificate elapsed.
+ *
+ * Two-thirds leaves a full third of the lifetime for the exchange to happen — and the
+ * exchange is two round trips to a provider that may be down, so the margin is doing real
+ * work rather than being a rounding allowance. Renewing at the deadline would mean every
+ * renewal races the expiry it exists to prevent.
+ *
+ * **Deliberately not aliased to `RENEW_AT` in `lease.ts`**, which today holds the same
+ * number. A lease renewal is a heartbeat to a scheduler that is already talking to this
+ * node; a certificate renewal is a fresh two-leg exchange with an authority that might be
+ * unreachable for hours. The two will drift, and the drift is the point: a change to one
+ * must not silently become a change to the other. Same call as
+ * `MAX_CONCURRENT_STREAMS_PER_PEER` in `@o2/libp2p`'s constants makes about the muxer
+ * default it sits below.
+ */
+export const CERTIFICATE_RENEW_AT: number = 2 / 3
+
+/**
+ * Whether a node holding this certificate should be trying to renew it now.
+ *
+ * ## The one place this deliberately disagrees with `shouldRenew`
+ *
+ * `lease.ts`' `shouldRenew` answers **false** once the lease has expired: a worker whose
+ * lease lapsed has lost the task, and the right move is to stop rather than to keep
+ * heartbeating about work somebody else now holds.
+ *
+ * A certificate is the opposite case and must keep trying. A node whose issuer was down
+ * across the whole renewal window is not a node that lost anything to somebody else — it
+ * is a node that is now refused by every peer running `verifyCertificate`, including the
+ * relay admission gate, and it cannot get back in by giving up. So this stays **true**
+ * after `expiresAt`, and the caller's retry floor is what keeps a dead issuer from being
+ * hammered.
+ *
+ * The disagreement is written down because the two functions otherwise look like they
+ * should share an implementation, and somebody will try to make them.
+ *
+ * Returns false only for a certificate not yet two-thirds through its life. A certificate
+ * whose `issuedAt` and `expiresAt` do not describe a positive span is treated as due,
+ * because there is no window left to wait inside.
+ */
+export function shouldRenewCertificate(certificate: NodeCertificate, now: number): boolean {
+  const span = certificate.expiresAt - certificate.issuedAt
+  if (span <= 0) return true
+  return now >= certificate.issuedAt + span * CERTIFICATE_RENEW_AT
+}
+
+/**
+ * How long to wait before asking again, given a certificate and the instant now.
+ *
+ * Never negative and never zero — a caller scheduling a timer needs a real delay, and a
+ * zero here would spin. A certificate already due returns `floorMs`, which is the caller's
+ * statement about how hard it is willing to press an authority that is refusing or down.
+ */
+export function msUntilRenewalDue(
+  certificate: NodeCertificate,
+  now: number,
+  floorMs: number,
+): number {
+  const span = certificate.expiresAt - certificate.issuedAt
+  if (span <= 0) return floorMs
+  const dueAt = certificate.issuedAt + span * CERTIFICATE_RENEW_AT
+  return Math.max(floorMs, Math.ceil(dueAt - now))
+}
+
+/**
+ * The one mutable cell a renewing node's certificate lives in.
+ *
+ * ## Why a box rather than a field somebody reassigns
+ *
+ * A renewed certificate has to become visible to several readers at once — the record
+ * index a peer's `records` request is answered from, the node's own public accessor, the
+ * DHT registration that republishes it, and whatever persisted it. Handing each of them a
+ * `NodeCertificate` at construction time gives every one of them its own snapshot, and a
+ * renewal then updates however many of them the wiring happened to reach. That is not a
+ * hypothetical: `SelfRecordIndex` held exactly such a snapshot until this type existed,
+ * and a node that renewed went on serving the expired certificate to every peer.
+ *
+ * So there is **one** cell, everybody reads through it, and renewal is a single write.
+ *
+ * Pure: no clock, no timer, no I/O. Deciding *when* to write is
+ * {@link shouldRenewCertificate}'s job and *doing* it is the caller's.
+ */
+export class CertificateHolder {
+  #current: NodeCertificate | null
+
+  constructor(initial: NodeCertificate | null) {
+    this.#current = initial
+  }
+
+  /** The certificate this node holds right now, or `null` if it holds none. */
+  get current(): NodeCertificate | null {
+    return this.#current
+  }
+
+  /**
+   * Replace it.
+   *
+   * **Refuses to move backwards.** A renewal that arrived out of order — two exchanges
+   * overlapping, or a provider replaying an older signature — must not shorten a node's
+   * own reachability window. `issuedAt` is the authority's statement about which is
+   * newer, and a replacement that is not strictly newer is dropped.
+   *
+   * Returns whether the write happened, so a caller can tell a real renewal from a
+   * no-op without comparing certificates itself.
+   */
+  replace(certificate: NodeCertificate): boolean {
+    if (this.#current !== null && certificate.issuedAt <= this.#current.issuedAt) return false
+    this.#current = certificate
+    return true
+  }
+}
