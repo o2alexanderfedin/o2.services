@@ -421,8 +421,11 @@ outcome and not the question.
 
 ### Where it stands
 
-**Ten of fourteen are done with proofs. Two are closed by the owner's design choice. One is
-an open defect with a reproducible procedure. One is a phase nobody has scoped.**
+**Eleven of fourteen are done with proofs. Three are closed by the owner's design choice.
+Nothing is open.**
+
+The last two closed on the same day the register was rewritten, and the interesting one is
+W2 — see (c), which is now a record of a wrong diagnosis rather than a blocker.
 
 ### (a) Done, each with a proof that was watched failing
 
@@ -437,7 +440,8 @@ an open defect with a reproducible procedure. One is a phase nobody has scoped.*
 | W9 | **Certificate lifetime 30 d → 1 h** | Owner ruling 2026-08-23, reversing the 2026-08-02 correction recorded in `enrollment.ts`'s own header. Asserted against an **actually issued certificate**, not only against the constant. `DEFAULT_MAX_PER_WINDOW` doubled with it — see the note below, which is the part that would have been missed |
 | W12 | **A change of trust anchors asks the visitor again** | `consent.test.ts`, 5 new cases, node + three engines. Fourth `ConsentGap` kind `anchor-changed`; `readConsent`'s new argument is required, so the compile error fired at every call site rather than defaulting open |
 | W13 | **A certificate can announce the key its node will rotate to** | `key-rotation.test.ts`, 9 cases, node + three engines. A hash and not the key, inside the issuer's signature, optional and byte-compatible. **Nothing rotates yet** — both exports are registered in `reachability-guard`'s `OPEN_FINDINGS` with the wiring that would close each |
-| W2 | **The recorded cause of the datastore hang is falsified** | Not the fix — the diagnosis. See (c) |
+| W2 | **A node with a durable directory keeps its libp2p state** | `datastore-persistence.node.test.ts`, 6 cases. `FsDatastore` is wired by default under `<blockstoreDir>/.datastore`. See (c) for why this was recorded as blocked for a week |
+| W4 | **A peer verified before this process started is not asked again** | `certificate-cache.node.test.ts` (6) + 4 cases in `peer-verifier.node.test.ts` that hand the verifier a certificate a real store would never hold |
 
 #### W14 was three snapshots, not a timer
 
@@ -497,12 +501,44 @@ is the owner's call and it is recorded as one.
 | W3 | **`revoked` member of `CertificateFailure`** | Follows from W11. It was the vocabulary a status mechanism needs, and there is no status mechanism. Adding it now would put a member in a union that nothing can ever produce |
 | W7 | **`DirectoryPort` publish/fetch over the DHT** | Also follows. What it would adapt already exists and is wired: `RecordPublisher` publishes and `DhtRecordIndex` fetches, both on the private keyspace. An adapter over them would be a **second way to do one thing**, which is the rule `job-entry-points.node.test.ts` enforces by name. `publishRevocation`/`revocationStatus` stay unwired, and §5 is the recorded reason: revocation here is non-renewal on the certificate's own clock, and a list must not be reintroduced through a port |
 
-### (c) Genuinely open
+### (c) W2 — a week spent on a diagnosis that was wrong in a specific way
 
-| ID | Work | State |
-|---|---|---|
-| W2 | **Persistent datastore** | An open defect with a reproducible procedure. **The recorded cause was falsified 2026-08-23**: the note claimed any asynchronous datastore hangs enrolment, and an async-delegating `MemoryDatastore` enrols fine — at 0 ms, at 5 ms and at 25 ms per operation, on one node and on both. So it is neither the async boundary nor latency. What remains is what a *real* store does that an in-memory one does not. The next reading is named in `.planning/debug/persistent-datastore-hangs-enrolment.md`, and it says to take it **before** trying a fourth store |
-| W4 | **Certificate and verdict caching** on the persisted store | Waits on W2 and on nothing else. Safe by construction once there is somewhere to put it — §2 |
+Closed 2026-08-23. It is written up rather than deleted because the failure mode is one
+this repository is prone to.
+
+The note carried a claim assembled from **ten sound eliminations**: *"any datastore whose
+operations are asynchronous hangs this fabric's enrolment RPC."* Every elimination was
+real — the wiring, the library, slowness, libuv, the store being stuck, persistence in
+general. The claim they were assembled into was false.
+
+What settled it was making the suspect property a **variable** rather than a description,
+which none of the ten readings did. An in-memory store was proxied four ways and run
+against the very specs that had failed:
+
+| Arm | Result |
+|---|---|
+| Await a macrotask before every operation | enrols |
+| 5 ms and 25 ms per operation | enrols |
+| Every operation serialized behind one queue | enrols |
+| `query` yielding lazily — **the first probe missed this**, because `query` returns an async iterable and the probe tested for `then` | enrols |
+| An unmapped `ENOENT` in place of the interface's `NotFoundError` | enrols |
+
+So not asynchrony, not latency, not laziness, not serialization, not error type. The
+question narrowed from *"can this fabric take a persistent datastore"* to *"what did those
+two implementations do"*, and the cheaper answer was a store small enough to read.
+
+`FsDatastore` — synchronous `node:fs`, one flat file per key, write-then-rename, **base32
+names** because APFS is case-insensitive by default and libp2p keys carry mixed-case base58
+peer IDs, so two keys differing only in case would merge on the development machine and
+stay distinct in CI. `get` is `async` so that a miss is always a *rejected promise*: the
+interface permits a synchronous return, and a caller written as `store.get(k).catch(…)`
+never enters its handler when the call throws before returning. Found by that file's own
+miss case on its first run.
+
+**The lesson worth keeping is not about datastores.** Ten correct eliminations produced one
+wrong conclusion, and the wrong conclusion then blocked a register row for a week. An
+elimination says what a cause is *not*; only varying the suspected property says what it
+*is*.
 
 ## Appendix — where each reading came from
 
