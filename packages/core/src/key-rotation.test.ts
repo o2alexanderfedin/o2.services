@@ -125,6 +125,34 @@ describe('AUTH-05 — carrying it through issuance', () => {
   })
 })
 
+describe('AUTH-05 — the commitment and the X.509 form together', () => {
+  it('issues a certificate that still verifies when both are present', async () => {
+    // **The crossing nobody would have run.** `enrol` builds the X.509 form over the same
+    // `fields` object the commitment now lives in, and `verifyCertificate` checks the two
+    // forms against each other **fail-closed** — it refuses a certificate whose X.509 half
+    // does not agree with the envelope field-for-field. So a field added to one and not
+    // carried into the other produces a certificate that a legitimate issuer mints and
+    // every peer in the fabric rejects, which is the worst failure available here: it looks
+    // like the issuer is broken and it only appears on deployments that turned X.509 on.
+    const auth = new EnrollmentAuthority({
+      providerPrivateKey: providerSeed,
+      maxPerWindow: 100,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+      x509: 'issues-the-x509-form',
+    })
+    const commitment = keyCommitment(keyOf(new Uint8Array(32).fill(0x84)))
+    const cert = await issue(auth, new Uint8Array(32).fill(0x85), commitment)
+
+    expect(cert.x509, 'the authority was told to issue the X.509 form and did not').toBeDefined()
+    expect(cert.nextKeyCommitment).toBe(commitment)
+    expect(
+      verifyCertificate(cert, new Set([auth.issuerKey]), NOW + 1000).ok,
+      'a certificate carrying both a commitment and an X.509 form was refused by its own issuer’s key',
+    ).toBe(true)
+  })
+})
+
 describe('AUTH-05 — whether a rotation was the one announced', () => {
   it('accepts the key the previous certificate committed to', async () => {
     const auth = authority()

@@ -2372,6 +2372,17 @@ export class FabricNode {
     // reason — the owner's 2026-08-02 correction rules certificate lifetimes out of the
     // cost argument entirely, so a knob here would invite exactly the tuning it forbids.
     //
+    // **AMENDED 2026-08-23.** That correction was reversed by the owner and the default is
+    // now one hour, not thirty days — `DEFAULT_CERTIFICATE_LIFETIME_MS`, with the trade
+    // recorded at `enrollment.ts`'s header. **The conclusion here is unchanged and the
+    // reason for it is stronger, not weaker.** There is still no node-factory knob, because
+    // the lifetime is now this fabric's entire revocation window: a deployment that could
+    // quietly lengthen it per node would be lengthening how long a compromised node stays
+    // accepted, one process at a time, with nothing in any certificate saying which
+    // setting produced it. A provider that genuinely needs a different lifetime constructs
+    // its own `EnrollmentAuthority`, where the number is an ordinary option and the
+    // decision is visible.
+    //
     // **AUTH-04, and this is the line that turns the mechanism on in production.** Both
     // required options carried a named sentinel for one wave; both now carry the real
     // thing.
