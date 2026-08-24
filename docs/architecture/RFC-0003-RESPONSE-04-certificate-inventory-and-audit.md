@@ -397,7 +397,7 @@ order is stated where it is forced, and forced order is not a preference.
 | ID | Work | Depends on | Why here |
 |---|---|---|---|
 | W1 | **Provider-record lifetime stated rather than inherited** — `providerRecordPolicy`, 1 h, on both tiers (§8) | — | Owner-ruled. **DONE**, measured by `provider-expiry.node.test.ts`. It turned out to be a setting, not a mechanism to build — the third answer about that number and the first one measured |
-| W2 | **Persistent datastore** — `datastore-level` on the server tier; keychain persistence so the address key survives restart (§2) | W1 | Owner-ruled. Turns the address from per-restart into stable. W1 first so the persisted footprint is a number somebody chose rather than the library's 48 h |
+| W2 | **Persistent datastore** — so the address key, the peer store and stored records survive a restart (§2) | **a defect, not W1** | Owner-ruled and **attempted, then backed out 2026-08-23**. Any datastore whose operations are asynchronous hangs this fabric's enrolment RPC; a synchronous one does not, and two independent implementations reproduce it, so it is ours and not a dependency's. Restart-and-reload itself works — `node-identity` and `relaying` pass 24/24 with one wired. Full reading, including the six eliminations, in `.planning/debug/persistent-datastore-hangs-enrolment.md`. **This moves from bucket (a) to bucket (b): blocked on a defect, and the defect is now the work** |
 | W3 | **`revoked` member of `CertificateFailure`** (§3 item 9) | — | It is the vocabulary every status mechanism needs; cheap, and blocking if deferred |
 | W4 | **Certificate and verdict caching** on the persisted store (§2) | W2 | Safe by construction — offline verification |
 | W5 | **Relay-as-provider**: announce under a well-known key, plus the reader (§9) | — | Both halves exist; this is the join |
@@ -405,7 +405,7 @@ order is stated where it is forced, and forced order is not a preference.
 | W7 | **`DirectoryPort` publish/fetch over the DHT**; `publishRevocation`/`revocationStatus` left unwired with §5 as the recorded reason | W3 | Unblocks `cert-lifecycle.ts` without importing the revocation-list design |
 | W8 | **Determine** whether two disagreeing anchors refuse or pick (§4, recommendation 5 second half) | — | A measurement, not an implementation; it decides whether there is work at all |
 
-### (b) Blocked on a measurement that is itself in scope
+### (b) Blocked on a measurement or a defect that is itself in scope
 
 | ID | Work | Blocked by |
 |---|---|---|
