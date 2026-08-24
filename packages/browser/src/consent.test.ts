@@ -3,6 +3,7 @@ import { DISCLOSURE, DISCLOSURE_VERSION } from './disclosure.ts'
 import {
   CONSENT_KEY,
   GrantedConsent,
+  describeAnchors,
   grantConsent,
   localConsentStore,
   memoryConsentStore,
@@ -10,6 +11,15 @@ import {
   readConsent,
   revokeConsent,
 } from './consent.ts'
+
+/**
+ * The anchor set every case below consents under unless it is the case about changing it.
+ *
+ * Named once rather than written at each call, so a case that is *not* about anchors
+ * cannot accidentally become one — and so the anchor-change cases have something
+ * unambiguous to differ from.
+ */
+const ANCHORS: string = describeAnchors('runs-unsigned-artifacts')
 import type { ConsentStore } from './consent.ts'
 
 /** BROW-01 — a visitor gives explicit informed consent before any compute begins. */
@@ -30,11 +40,11 @@ describe('consent is a value that cannot be fabricated', () => {
 
   it('is produced by granting, and by finding an existing grant', () => {
     const store = memoryConsentStore()
-    const granted = grantConsent(store, { now: () => 1_000 })
+    const granted = grantConsent(store, { anchoredTo: ANCHORS, now: () => 1_000 })
     expect(granted).toBeInstanceOf(GrantedConsent)
     expect(granted.grantedAt).toBe(1_000)
 
-    const found = readConsent(store)
+    const found = readConsent(store, ANCHORS)
     expect(found.ok).toBe(true)
     if (!found.ok) return
     expect(found.consent).toBeInstanceOf(GrantedConsent)
@@ -44,7 +54,7 @@ describe('consent is a value that cannot be fabricated', () => {
 
 describe('the gate stays shut until it is opened', () => {
   it('reports never-asked on a fresh store, not a permissive default', () => {
-    const found = readConsent(memoryConsentStore())
+    const found = readConsent(memoryConsentStore(), ANCHORS)
     expect(found.ok).toBe(false)
     if (found.ok) return
     expect(found.gap.kind).toBe('never-asked')
@@ -52,9 +62,9 @@ describe('the gate stays shut until it is opened', () => {
 
   it('shuts again when consent is revoked', () => {
     const store = memoryConsentStore()
-    grantConsent(store)
+    grantConsent(store, { anchoredTo: ANCHORS })
     revokeConsent(store)
-    expect(readConsent(store).ok).toBe(false)
+    expect(readConsent(store, ANCHORS).ok).toBe(false)
   })
 
   it('treats a corrupt record as absent rather than repairing it', () => {
@@ -63,7 +73,7 @@ describe('the gate stays shut until it is opened', () => {
     for (const junk of ['', 'null', '{}', '{"disclosureVersion":1}', 'not json at all']) {
       const store = memoryConsentStore()
       store.write(CONSENT_KEY, junk)
-      const found = readConsent(store)
+      const found = readConsent(store, ANCHORS)
       expect(found.ok, `stored ${JSON.stringify(junk)} was accepted as consent`).toBe(false)
     }
   })
@@ -78,7 +88,7 @@ describe('the gate stays shut until it is opened', () => {
       write: () => undefined,
       clear: () => undefined,
     }
-    const found = readConsent(hostile)
+    const found = readConsent(hostile, ANCHORS)
     expect(found.ok).toBe(false)
     if (found.ok) return
     expect(found.gap.kind).toBe('unreadable')
@@ -96,7 +106,7 @@ describe('a consent answers a specific disclosure', () => {
       JSON.stringify({ disclosureVersion: '0-older', grantedAt: 1, reportingAllowed: false }),
     )
 
-    const found = readConsent(store)
+    const found = readConsent(store, ANCHORS)
     expect(found.ok).toBe(false)
     if (found.ok) return
     expect(found.gap.kind).toBe('terms-changed')
@@ -109,7 +119,7 @@ describe('a consent answers a specific disclosure', () => {
 
   it('records the current version when granted', () => {
     const store = memoryConsentStore()
-    expect(grantConsent(store).disclosureVersion).toBe(DISCLOSURE_VERSION)
+    expect(grantConsent(store, { anchoredTo: ANCHORS }).disclosureVersion).toBe(DISCLOSURE_VERSION)
     expect(DISCLOSURE.version).toBe(DISCLOSURE_VERSION)
   })
 })
@@ -118,13 +128,13 @@ describe('the optional report is optional', () => {
   it('is off unless the visitor turns it on — never pre-ticked', () => {
     // A pre-ticked box is the dark pattern this phase exists to avoid. The
     // default has to be observable, not merely intended.
-    expect(grantConsent(memoryConsentStore()).reportingAllowed).toBe(false)
+    expect(grantConsent(memoryConsentStore(), { anchoredTo: ANCHORS }).reportingAllowed).toBe(false)
   })
 
   it('survives a round trip through storage when it is turned on', () => {
     const store = memoryConsentStore()
-    grantConsent(store, { reportingAllowed: true })
-    const found = readConsent(store)
+    grantConsent(store, { anchoredTo: ANCHORS, reportingAllowed: true })
+    const found = readConsent(store, ANCHORS)
     expect(found.ok).toBe(true)
     if (!found.ok) return
     expect(found.consent.reportingAllowed).toBe(true)
@@ -132,8 +142,8 @@ describe('the optional report is optional', () => {
 
   it('does not let consent to compute imply consent to report', () => {
     const store = memoryConsentStore()
-    grantConsent(store, { reportingAllowed: false })
-    const found = readConsent(store)
+    grantConsent(store, { anchoredTo: ANCHORS, reportingAllowed: false })
+    const found = readConsent(store, ANCHORS)
     expect(found.ok && found.consent.reportingAllowed).toBe(false)
   })
 })
@@ -149,7 +159,7 @@ describe('a denied store does not deny the visitor', () => {
       },
       clear: () => undefined,
     }
-    const granted = grantConsent(writeOnly)
+    const granted = grantConsent(writeOnly, { anchoredTo: ANCHORS })
     expect(granted).toBeInstanceOf(GrantedConsent)
     expect(granted.disclosureVersion).toBe(DISCLOSURE_VERSION)
   })
@@ -189,15 +199,15 @@ describe('a denied store does not deny the visitor', () => {
       // demo did, and the grant is unreadable a line later — which is the refusal a
       // visitor met.
       const naive = localConsentStore()
-      grantConsent(naive)
-      expect(readConsent(naive).ok, 'the unguarded store must NOT be able to read its own grant').toBe(
+      grantConsent(naive, { anchoredTo: ANCHORS })
+      expect(readConsent(naive, ANCHORS).ok, 'the unguarded store must NOT be able to read its own grant').toBe(
         false,
       )
 
       // And the fix, over the identical hostile global.
       const guarded = pageConsentStore()
-      grantConsent(guarded)
-      const found = readConsent(guarded)
+      grantConsent(guarded, { anchoredTo: ANCHORS })
+      const found = readConsent(guarded, ANCHORS)
       expect(found.ok, 'a visitor who granted must be able to start').toBe(true)
       if (!found.ok) return
       expect(found.consent.disclosureVersion).toBe(DISCLOSURE_VERSION)
@@ -213,9 +223,9 @@ describe('a denied store does not deny the visitor', () => {
     // The other half: the fallback must not fire on a healthy page, or every visitor
     // silently stops being remembered — a regression that looks like nothing at all.
     const store = pageConsentStore()
-    const granted = grantConsent(store)
+    const granted = grantConsent(store, { anchoredTo: ANCHORS })
     expect(granted).toBeInstanceOf(GrantedConsent)
-    expect(readConsent(store).ok).toBe(true)
+    expect(readConsent(store, ANCHORS).ok).toBe(true)
 
     // The probe cleans up after itself. Asserted because it writes to the visitor's real
     // storage, and a probe key left behind is litter this page put on someone's device.
@@ -331,5 +341,97 @@ describe('the disclosure says what a visitor needs to decide', () => {
     )
     // And the claim that made version 1 false must not reappear verbatim.
     expect(prose).not.toContain('generated in this tab')
+  })
+})
+describe('DATA-04 — a change of who may sign the code this node runs is a consent event', () => {
+  const PUBLISHER_A = 'a'.repeat(64)
+  const PUBLISHER_B = 'b'.repeat(64)
+
+  it('refuses a consent given under a different anchor set, and names both', () => {
+    // The silence this closes: `trustAnchors` names who may sign the code a visitor's
+    // browser will execute. Agreeing to run code from one publisher is not agreeing to run
+    // code from another, and until this the consent record could not even represent the
+    // question — the swap happened with nothing shown to the visitor.
+    const store = memoryConsentStore()
+    grantConsent(store, { anchoredTo: describeAnchors([PUBLISHER_A]) })
+
+    const found = readConsent(store, describeAnchors([PUBLISHER_B]))
+
+    expect(found.ok).toBe(false)
+    if (found.ok) return
+    expect(found.gap.kind).toBe('anchor-changed')
+    // Both sides named, because a UI that can only say "something changed" cannot write
+    // the sentence this gap exists to let it write.
+    expect(found.gap).toMatchObject({
+      answered: describeAnchors([PUBLISHER_A]),
+      current: describeAnchors([PUBLISHER_B]),
+    })
+  })
+
+  it('accepts the same set supplied in a different order', () => {
+    // A set is a set. Re-asking a visitor because a configuration file listed two keys the
+    // other way round would train them to click through the dialogue, which costs more
+    // than the question is worth.
+    const store = memoryConsentStore()
+    grantConsent(store, { anchoredTo: describeAnchors([PUBLISHER_A, PUBLISHER_B]) })
+
+    expect(readConsent(store, describeAnchors([PUBLISHER_B, PUBLISHER_A])).ok).toBe(true)
+  })
+
+  it('distinguishes pinning nobody from pinning somebody', () => {
+    // `runs-unsigned-artifacts` keeps its own name rather than collapsing to an empty
+    // string, for the reason `trustAnchors` is a named literal at all: "unsigned artifacts
+    // are allowed" and "nobody has been pinned yet" are different statements, and a fabric
+    // that could not tell them apart would silently promote one into the other.
+    expect(describeAnchors('runs-unsigned-artifacts')).not.toBe(describeAnchors([]))
+
+    const store = memoryConsentStore()
+    grantConsent(store, { anchoredTo: describeAnchors('runs-unsigned-artifacts') })
+
+    expect(readConsent(store, describeAnchors([PUBLISHER_A])).ok).toBe(false)
+  })
+
+  it('fails closed on a consent stored before the field existed, and says so by name', () => {
+    // Such a record is a genuine consent to a genuine disclosure — it simply does not say
+    // which anchors were in force. Reporting it as `unreadable` would claim this origin's
+    // storage is broken, which is false and unhelpful; asking again is the correct response
+    // to not knowing what somebody agreed to.
+    const store = memoryConsentStore()
+    store.write(
+      CONSENT_KEY,
+      JSON.stringify({
+        disclosureVersion: DISCLOSURE_VERSION,
+        grantedAt: 1_000,
+        reportingAllowed: false,
+      }),
+    )
+
+    const found = readConsent(store, ANCHORS)
+
+    expect(found.ok).toBe(false)
+    if (found.ok) return
+    expect(found.gap).toMatchObject({ kind: 'anchor-changed', answered: 'unrecorded' })
+  })
+
+  it('reports the terms first when both the terms and the anchors changed', () => {
+    // A visitor facing both should be told about the document first: re-consenting to new
+    // terms is the broader act and it carries the anchor question with it. Two dialogues
+    // in a row for one situation is how a gate teaches people to dismiss it.
+    const store = memoryConsentStore()
+    store.write(
+      CONSENT_KEY,
+      JSON.stringify({
+        disclosureVersion: 'an-older-disclosure',
+        grantedAt: 1_000,
+        reportingAllowed: false,
+        anchoredTo: describeAnchors([PUBLISHER_A]),
+      }),
+    )
+
+    const found = readConsent(store, describeAnchors([PUBLISHER_B]))
+
+    expect(found.ok).toBe(false)
+    if (found.ok) return
+    expect(found.gap.kind).toBe('terms-changed')
   })
 })

@@ -21,7 +21,7 @@
  * `start(options: { relayAddrs, blockstoreName, trustAnchors? })`, and the visitor's
  * consent reaches the node from `requireConsent()`'s **return value** rather than from a
  * parameter. And `grantConsent` is not the only minter — `requireConsent` goes through
- * `readConsent(store)`, which mints one of its own from a record already on disk
+ * `readConsent(store, DEMO_ANCHORS)`, which mints one of its own from a record already on disk
  * (`consent.ts:154`), so a returning visitor starts with `grantConsent` never running.
  * What is true, and what the gate actually rests on, is that `new GrantedConsent(...)` is
  * reachable at two places only, both inside `consent.ts` and both behind a module-private
@@ -111,6 +111,7 @@ import {
   grantConsent,
   pageConsentStore,
   probeEnvironment,
+  describeAnchors,
   readConsent,
   readEnrolment,
   revokeConsent,
@@ -145,6 +146,16 @@ import * as pid from '@libp2p/peer-id'
 // graph. A type-only import is erased before anything runs, emits no edge, and is the only way
 // to annotate a binding the dynamic import produces.
 import type { CID } from 'multiformats/cid'
+
+/**
+ * The anchor set this demo consents under.
+ *
+ * The demo pins nobody — it runs unsigned artifacts — and says so by name rather than by
+ * an empty list, which is the same distinction `trustAnchors` itself draws. Named once
+ * here so the value handed to `grantConsent` and the value checked by `readConsent` cannot
+ * come to disagree; two literals would be two places to change.
+ */
+const DEMO_ANCHORS: string = describeAnchors('runs-unsigned-artifacts')
 
 let node: BrowserNode | null = null
 let consent: GrantedConsent | null = null
@@ -237,7 +248,7 @@ function checkpointsFor(blockstoreName: string): Promise<IdbCheckpoints> {
  * running on a permission the visitor has withdrawn.
  */
 function requireConsent(): GrantedConsent {
-  const found = readConsent(store)
+  const found = readConsent(store, DEMO_ANCHORS)
   if (found.ok) {
     consent = found.consent
     return found.consent
@@ -247,7 +258,7 @@ function requireConsent(): GrantedConsent {
 }
 
 function stateOf(): TabConsentState {
-  const found = readConsent(store)
+  const found = readConsent(store, DEMO_ANCHORS)
   return found.ok
     ? { granted: true, version: DISCLOSURE_VERSION, reportingAllowed: found.consent.reportingAllowed }
     : { granted: false, gap: found.gap.kind, version: DISCLOSURE_VERSION, reportingAllowed: false }
@@ -340,7 +351,7 @@ async function offerOf(): Promise<TabEnrolmentOffer> {
   // Consent gates the network read inside `discoverRelays`, and a page that has not been
   // granted it has nothing to offer yet. Reported as "no offer" rather than thrown: the
   // consent gate is the surface that should be speaking at that moment, not this one.
-  if (!readConsent(store).ok) {
+  if (!readConsent(store, DEMO_ANCHORS).ok) {
     return { offered: false, accepted: false, canHoldKey, appliedToRunningNode: true }
   }
   const { enrollmentProvider } = await api.discoverRelays()
@@ -941,7 +952,7 @@ const api: TabApi = {
 
   grantConsent(options = {}) {
     const reporting = options.reporting === true
-    consent = grantConsent(store, { reportingAllowed: reporting })
+    consent = grantConsent(store, { anchoredTo: DEMO_ANCHORS, reportingAllowed: reporting })
     if (!reporting) declinedLocally += 1
     notify()
     return stateOf()
