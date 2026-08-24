@@ -411,7 +411,7 @@ order is stated where it is forced, and forced order is not a preference.
 |---|---|---|
 | W9 | **Certificate lifetime 30 d → 1 h** (§3 item 1) | **No longer the measurement — W10 is done and the answer was "yes, comfortably".** Blocked instead on W14, which the measurement uncovered |
 | W10 | **The issuance-rate measurement** | **DONE.** `packages/node/src/issuance-rate.node.test.ts`: six joiners arriving at once are all issued to, none refused and none timed out, ~28 ms per joiner — an issuer of that shape has room for ~130 000 renewals an hour. Throughput is not the constraint. The plant is a starved budget, watched red. **A ratio was tried first and removed because it could not fail**; that is recorded at the assertion |
-| W14 | **Certificate renewal — it does not exist** | Nothing in the production corpus renews a certificate. `renew` is declared only in `cert-lifecycle.ts`, which is wired to nothing; `fabric-node.ts` enrols once at start, reuses a persisted unexpired certificate, and a node whose certificate has expired *stops advertising capabilities*. So cutting the lifetime to an hour without this would take every node off the fabric an hour after start. §2.10's recommendation assumes renewal without saying so |
+| W14 | **Certificate renewal — it does not exist** | Nothing in the production corpus renews a certificate. `renew` is declared only in `cert-lifecycle.ts`, which is wired to nothing; `fabric-node.ts` enrols once at start, reuses a persisted unexpired certificate, and a node whose certificate has expired *stops advertising capabilities*. So cutting the lifetime to an hour without this would take every node off the fabric an hour after start. §2.10's recommendation assumes renewal without saying so. **Scoped 2026-08-23 and it is a phase rather than a quick task** — see below |
 
 The trade W9 buys must be stated when it lands and not after: at 30 days a node survives an
 issuer outage for a month; at 1 hour, for an hour. That is a real loss of partition
@@ -424,6 +424,17 @@ matters is not requests per hour but what happens to a node at the end of its ho
 carries it. This is the second register row whose stated blocker turned out to be the wrong
 one — W2 was the first — and both times the wrong blocker was the one that could be argued
 from a document while the real one needed the tree.
+
+### W14's four surfaces, scoped so the next pass starts from a design
+
+A certificate is not held in one place, and renewal is not a timer bolted to `resolveCertificate`. Four things hold it, and the first is the one that decides the shape:
+
+1. **`SelfRecordIndex` holds a snapshot.** `packages/core/src/discovery.ts:896` — `readonly #records: NodeRecords | 'holds-no-records'`, assigned once in the constructor. Everything a peer learns about this node over RPC comes from there, so a renewed certificate that does not reach it is invisible. Making `SelfRecordIndexOptions.records` a **supplier** rather than a value is the change that unlocks the rest, and it is a breaking change to a `@o2/core` port that both tiers and several fixtures construct.
+2. **`RecordPublisher` is given a snapshot too** (`fabric-node.ts` — `new RecordPublisher(dht, ownRecordsForDht)`), so the keyspace would keep serving the old record until it expired.
+3. **`FabricNode.certificate` is `readonly`** and public. Renewal makes it change during a node's life, which is a change to the class's contract, not an internal detail.
+4. **The persisted copy** — `resolveCertificate` returns a stored unexpired certificate without contacting the provider, which is right at start and wrong at renewal. Renewal needs to bypass that branch by name rather than by deleting the file.
+
+None of this is hard; all of it is public surface. Doing it as a quick task would change a core port under a deadline, which is how the regressions this project has already paid for get made.
 
 ### (c) Needs an owner decision on *which*, not on *whether*
 
