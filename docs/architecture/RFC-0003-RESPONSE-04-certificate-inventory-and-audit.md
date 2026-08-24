@@ -409,12 +409,21 @@ order is stated where it is forced, and forced order is not a preference.
 
 | ID | Work | Blocked by |
 |---|---|---|
-| W9 | **Certificate lifetime 30 d → 1 h** (§3 item 1) | The issuance-cost measurement §2.10 demands of itself: *"Unmeasured, and it must be measured before adoption"* — via `enrollment-cost.node.test.ts` and `enrollment-dos.node.test.ts`. The question is not the mean but whether the issuer's admission path stays inside its bounds at the resulting arrival rate |
-| W10 | **The measurement itself** | — |
+| W9 | **Certificate lifetime 30 d → 1 h** (§3 item 1) | **No longer the measurement — W10 is done and the answer was "yes, comfortably".** Blocked instead on W14, which the measurement uncovered |
+| W10 | **The issuance-rate measurement** | **DONE.** `packages/node/src/issuance-rate.node.test.ts`: six joiners arriving at once are all issued to, none refused and none timed out, ~28 ms per joiner — an issuer of that shape has room for ~130 000 renewals an hour. Throughput is not the constraint. The plant is a starved budget, watched red. **A ratio was tried first and removed because it could not fail**; that is recorded at the assertion |
+| W14 | **Certificate renewal — it does not exist** | Nothing in the production corpus renews a certificate. `renew` is declared only in `cert-lifecycle.ts`, which is wired to nothing; `fabric-node.ts` enrols once at start, reuses a persisted unexpired certificate, and a node whose certificate has expired *stops advertising capabilities*. So cutting the lifetime to an hour without this would take every node off the fabric an hour after start. §2.10's recommendation assumes renewal without saying so |
 
 The trade W9 buys must be stated when it lands and not after: at 30 days a node survives an
 issuer outage for a month; at 1 hour, for an hour. That is a real loss of partition
 tolerance and is the price of the revocation guarantee.
+
+**And W10 changed which of the two is the blocker.** The register said W9 waited on a
+measurement. The measurement says the issuer has three orders of magnitude of headroom, and
+uncovered the real prerequisite in passing: **there is no renewal**, so the arithmetic that
+matters is not requests per hour but what happens to a node at the end of its hour. W14
+carries it. This is the second register row whose stated blocker turned out to be the wrong
+one — W2 was the first — and both times the wrong blocker was the one that could be argued
+from a document while the real one needed the tree.
 
 ### (c) Needs an owner decision on *which*, not on *whether*
 
