@@ -36,6 +36,7 @@ import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
 import { AbiExecutor, WasiExecutor } from '@o2/aot'
 import {
+  CertificateHolder,
   DEFAULT_ISSUANCE_WINDOW_MS,
   DEFAULT_MAX_CONCURRENT_TASKS,
   EnrollmentAuthority,
@@ -59,6 +60,7 @@ import type {
   Executor,
   IssuanceBudget,
   NodeCertificate,
+  NodeRecords,
   NodeSovereignty,
   PublicKeyHex,
   RecordIndex,
@@ -74,6 +76,7 @@ import {
   DhtRecordIndex,
   ObservingBlockstore,
   RecordPublisher,
+  startCertificateRenewal,
   Libp2pTransport,
   O2_KAD_PROTOCOL,
   O2_RECORD_NAMESPACE,
@@ -134,6 +137,12 @@ export interface BrowserNodeOptions {
    * describes.
    */
   readonly providerRecordValidityMs?: number
+  /**
+   * How long the renewal loop waits before asking again after a refused or unreachable
+   * exchange — AUTH-04. Defaults to `RENEWAL_RETRY_FLOOR_MS`. Exists so a test can reach
+   * the retry path inside a run; production leaves it alone.
+   */
+  readonly renewalRetryFloorMs?: number
   /**
    * SCHED-03. Read on every request to decide whether this tab is **paused** — alive,
    * reachable, unchanged in what it can do, and declining all work right now.
@@ -630,6 +639,13 @@ async function resolveCertificate(parts: {
   identityStore: IdbIdentityStore
   canRelay: boolean
   relayPeerIds: readonly string[]
+  /**
+   * Whether the persisted certificate may satisfy this call — AUTH-04. The Node tier's
+   * twin carries the full argument; the short form is that a renewal must not be allowed
+   * to hand back the very certificate it is replacing, which would make the loop a no-op
+   * that reports success.
+   */
+  reuse: 'may-reuse-a-persisted-certificate' | 'must-obtain-a-fresh-certificate'
 }): Promise<NodeCertificate | null> {
   const { enrollment, identity, rpc, libp2p, identityStore, canRelay, relayPeerIds } = parts
 
@@ -646,7 +662,10 @@ async function resolveCertificate(parts: {
   // The case this catches in a tab is the one `whenSeedIsGone` describes: storage was
   // evicted, a new seed was minted, and a certificate naming the *old* node survived —
   // or, just as real, an origin whose database was copied between profiles.
-  const loaded = await identityStore.loadCertificate()
+  const loaded =
+    parts.reuse === 'may-reuse-a-persisted-certificate'
+      ? await identityStore.loadCertificate()
+      : null
   if (
     loaded !== null &&
     peerIdForNodeKey(loaded.nodeKey) === identity.peerId &&
@@ -822,8 +841,34 @@ export async function enrolledUserKey(blockstoreName?: string): Promise<PublicKe
  * answers for them — `records: 'holds-no-records'` is about a signed identity and says
  * nothing about bytes.
  */
-function ownRecords(
+/**
+ * This tab's records as they stand right now — the browser twin of `fabric-node.ts`'
+ * `recordsFrom`, split out for the identical reason. One function computes it and the
+ * index, the DHT publisher and `BrowserNode.certificate` all read through it, so a
+ * certificate that changes under them cannot leave the three disagreeing.
+ */
+function recordsFrom(
   certificate: NodeCertificate | null,
+  identity: NodeIdentity,
+  canExecuteSovereign: boolean,
+): NodeRecords | 'holds-no-records' {
+  if (certificate === null) return 'holds-no-records'
+  return {
+    certificate,
+    capabilities: publishCapabilities(identity.seed, {
+      features: [],
+      sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
+      issuedAt: certificate.issuedAt,
+      expiresAt: certificate.expiresAt,
+      // Stated, not omitted — see `fabric-node.ts`'s `ownRecords` doc. A record
+      // with none signs the payload it signed before the seam existed.
+      extensions: [],
+    }),
+  }
+}
+
+function ownRecords(
+  holder: CertificateHolder,
   identity: NodeIdentity,
   canExecuteSovereign: boolean,
   store: Blockstore,
@@ -832,21 +877,10 @@ function ownRecords(
   return new SelfRecordIndex({
     nodeKey: identity.nodeKey,
     store,
-    records:
-      certificate === null
-        ? 'holds-no-records'
-        : {
-            certificate,
-            capabilities: publishCapabilities(identity.seed, {
-              features: [],
-              sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
-              issuedAt: certificate.issuedAt,
-              expiresAt: certificate.expiresAt,
-              // Stated, not omitted — see `fabric-node.ts`'s `ownRecords` doc. A record
-              // with none signs the payload it signed before the seam existed.
-              extensions: [],
-            }),
-          },
+    // A thunk — AUTH-04 renewal. A tab renews on the same fraction a server does, because
+    // this module's own rule is that all nodes have equal functionality and the only
+    // difference is discovery. A tab that could not renew would be a tab that expired.
+    records: () => recordsFrom(holder.current, identity, canExecuteSovereign),
     withhold,
   })
 }
@@ -1024,7 +1058,7 @@ export class BrowserNode {
    * public signed statement — every peer is meant to be able to read it. Mirrors
    * `FabricNode.certificate`, which carries the long form.
    */
-  readonly certificate: NodeCertificate | null
+  readonly #certificates: CertificateHolder
   /**
    * Governed: throttles with tab visibility.
    *
@@ -1162,7 +1196,7 @@ export class BrowserNode {
     store: ObservingBlockstore<IdbBlockstore>
     sovereignCids: SovereignCids
     identityStore: IdbIdentityStore
-    certificate: NodeCertificate | null
+    certificates: CertificateHolder
     executor: GovernedExecutor
     signingExecutor: Executor
     governor: VisibilityGovernor
@@ -1186,7 +1220,7 @@ export class BrowserNode {
     this.#announcer = parts.announcer
     this.sovereignCids = parts.sovereignCids
     this.identityStore = parts.identityStore
-    this.certificate = parts.certificate
+    this.#certificates = parts.certificates
     this.executor = parts.executor
     this.signingExecutor = parts.signingExecutor
     this.governor = parts.governor
@@ -1641,7 +1675,12 @@ export class BrowserNode {
       identityStore,
       canRelay: canRelayFrom(BROWSER_LISTEN),
       relayPeerIds,
+      reuse: 'may-reuse-a-persisted-certificate',
     })
+
+    // AUTH-04 renewal — one cell, read by the index, the publisher and this tab's own
+    // accessor. `CertificateHolder`'s doc says why it is a type rather than a local.
+    const certificates = new CertificateHolder(certificate)
 
     // DATA-05 — the tap and the local-only tier, bound once and handed to both readers
     // below, exactly as `fabric-node.ts` does and for the identical reason: the withholding
@@ -1661,7 +1700,7 @@ export class BrowserNode {
     // `blockstore`, which has network fallback and would turn a question about this tab
     // into a fetch.
     const records = ownRecords(
-      certificate,
+      certificates,
       identity,
       sovereignty.canExecuteSovereign,
       store,
@@ -2047,12 +2086,20 @@ export class BrowserNode {
     // tab findable by a peer that has never met it — the gap `rendezvous.ts` opens with:
     // *"no tab can be dialled cold, and none of them will ever announce itself."* This is
     // the announcement.
-    const ownRecordsForDht =
-      certificate === null ? undefined : await records.recordsFor(certificate.nodeKey)
+    // A thunk, so a renewed certificate reaches the keyspace. A value record outlives the
+    // certificate inside it, so a tab that renewed without republishing would be discarded
+    // by every reader running `verifyCertificate` while believing it was enrolled.
     const publisher =
-      ownRecordsForDht === undefined
+      certificate === null
         ? null
-        : new RecordPublisher(libp2p.services.dht, ownRecordsForDht)
+        : new RecordPublisher(libp2p.services.dht, () => {
+            const held = recordsFrom(
+              certificates.current,
+              identity,
+              sovereignty.canExecuteSovereign,
+            )
+            return held === 'holds-no-records' ? undefined : held
+          })
     const announcer = new DhtProviderAnnouncer({
       dht: libp2p.services.dht,
       withhold: withholdingFrom(egressDisposition),
@@ -2079,7 +2126,7 @@ export class BrowserNode {
       announcer,
       sovereignCids,
       identityStore,
-      certificate,
+      certificates,
       executor,
       signingExecutor: signing,
       governor,
@@ -2306,6 +2353,43 @@ export class BrowserNode {
         if (outcome.kind === 'refused') node.noteRegistrationRefused(outcome.reason)
       })
     }
+
+    // AUTH-04 — a tab keeps its certificate alive on the same terms a server does.
+    //
+    // Not an optional extra for this tier: a tab is the node most likely to be running
+    // when its certificate lapses, because it has no operator watching it and no restart
+    // to fall back on. Without this it would go on executing while every peer's
+    // `PeerVerifier` demoted it and every relay's admission gate refused its reservation
+    // renewal — visible to the user as a tab that simply stopped being given work.
+    //
+    // The republish is what makes it visible: a value record outlives the certificate
+    // inside it, and the publisher reads through the same holder.
+    if (options.enrollment !== undefined) {
+      undo.push(
+        startCertificateRenewal({
+          holder: certificates,
+          renew: async () =>
+            resolveCertificate({
+              enrollment: options.enrollment,
+              identity,
+              rpc,
+              libp2p,
+              identityStore,
+              canRelay: canRelayFrom(BROWSER_LISTEN),
+              relayPeerIds,
+              reuse: 'must-obtain-a-fresh-certificate',
+            }),
+          renewed: async () => {
+            // `resolveCertificate` already wrote IndexedDB; the keyspace is what is left.
+            if (publisher !== null) await publisher.publish()
+          },
+          ...(options.renewalRetryFloorMs === undefined
+            ? {}
+            : { retryFloorMs: options.renewalRetryFloorMs }),
+        }),
+      )
+    }
+
     undo.push(
       onPeerArrival(() => {
         void announcer.sweep()
@@ -2362,6 +2446,24 @@ export class BrowserNode {
    * table may be empty for a while after start, and a silent failure would be
    * indistinguishable from a successful registration nobody can find.
    */
+  /**
+   * This tab's provider-signed certificate, or `null` when it holds none — AUTH-01.
+   *
+   * `null` is the answer for a node nobody asked to enrol, and it is not a failure. Nor
+   * is it a lesser tier: a node with a certificate executes tasks, holds blocks and takes
+   * quorum slots on exactly the terms as one without, and what the certificate buys is
+   * being taken *by a peer that pinned an issuer*. Public, because a certificate is a
+   * public signed statement — every peer is meant to be able to read it. Mirrors
+   * `FabricNode.certificate`, which carries the long form.
+   *
+   * **A getter rather than a field, since AUTH-04 renewal** — the certificate a running
+   * tab holds is replaced about two-thirds of the way through its life, and a caller that
+   * read a field once would hold one this tab has stopped presenting to peers.
+   */
+  get certificate(): NodeCertificate | null {
+    return this.#certificates.current
+  }
+
   get registrationRefusal(): string | undefined {
     return this.#registrationRefusal
   }

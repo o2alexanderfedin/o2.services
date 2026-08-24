@@ -94,6 +94,7 @@ import type { TLSCertificate } from '@libp2p/interface'
 import type { Datastore } from 'interface-datastore'
 import { AbiExecutor, WasiExecutor } from '@o2/aot'
 import {
+  CertificateHolder,
   DEFAULT_ISSUANCE_WINDOW_MS,
   DEFAULT_MAX_CONCURRENT_TASKS,
   DutyCycleGovernor,
@@ -121,6 +122,7 @@ import type {
   Executor,
   IssuanceBudget,
   NodeCertificate,
+  NodeRecords,
   NodeSovereignty,
   PublicKeyHex,
   RecordIndex,
@@ -171,6 +173,7 @@ import {
   O2_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATIONS,
   RELAY_RESERVATION_TARGET,
+  startCertificateRenewal,
   RELAY_MAX_RESERVATION_TTL_MS,
   PeerVerifier,
   admitsAnyPeer,
@@ -253,6 +256,18 @@ export interface FabricNodeOptions {
    * churns and a record that outlives its provider costs a dial timeout on the read path.
    */
   readonly providerRecordValidityMs?: number
+  /**
+   * How long the renewal loop waits before asking again after a refused or unreachable
+   * exchange — AUTH-04. Defaults to `RENEWAL_RETRY_FLOOR_MS`.
+   *
+   * Exists as an option for the reason `maxQueuedSendsPerPeer` does: a test has to be able
+   * to reach the retry path inside a run rather than in five minutes. Production leaves it
+   * alone, and there is deliberately **no** option for the *fraction* —
+   * `CERTIFICATE_RENEW_AT` is fabric-wide, because a tier renewing on a different one
+   * would have a different reachability window with nothing in a certificate recording
+   * which one produced it.
+   */
+  readonly renewalRetryFloorMs?: number
   /**
    * Directory backing the persistent blockstore.
    *
@@ -1160,6 +1175,20 @@ async function resolveCertificate(parts: {
   blockstoreDir?: string
   canRelay: boolean
   relayPeerIds: readonly string[]
+  /**
+   * Whether a persisted certificate may satisfy this call — AUTH-04.
+   *
+   * `'may-reuse-a-persisted-certificate'` is the start path: a stored, unexpired
+   * certificate means the provider is not contacted at all (decision 11). A **renewal**
+   * must pass `'must-obtain-a-fresh-certificate'`, because the persisted file is the very
+   * certificate it is trying to replace — reusing it would make the loop a no-op that
+   * looks like it is working, which is the worst of the available failures.
+   *
+   * A named literal rather than a boolean for the reason the rest of this file gives for
+   * every other one: at the call site `'must-obtain-a-fresh-certificate'` says what it
+   * does and `true` does not.
+   */
+  reuse: 'may-reuse-a-persisted-certificate' | 'must-obtain-a-fresh-certificate'
 }): Promise<NodeCertificate | null> {
   const { enrollment, identity, rpc, libp2p, blockstoreDir, canRelay, relayPeerIds } = parts
 
@@ -1184,7 +1213,7 @@ async function resolveCertificate(parts: {
   // is specified to fail on (`.planning/ROADMAP.md`, section `### Phase 22: Reachability
   // Guard`, criterion 1 — cited by section because the roadmap's line numbers move as
   // phases are inserted). If this line ever goes, that export goes with it.
-  if (blockstoreDir !== undefined) {
+  if (blockstoreDir !== undefined && parts.reuse === 'may-reuse-a-persisted-certificate') {
     const loaded = await loadCertificate(blockstoreDir)
     if (
       loaded !== null &&
@@ -1324,8 +1353,41 @@ async function resolveCertificate(parts: {
  * at exactly the moment it stops being verifiable — the answer somebody would otherwise
  * have to invent.
  */
-function ownRecords(
+/**
+ * This node's records as they stand right now, rebuilt from whatever certificate it holds.
+ *
+ * Split out of {@link ownRecords} so that **one** function computes this and three readers
+ * share it: the index a peer's `records` request is answered from, the DHT registration
+ * that republishes it, and the node's own accessor. Before renewal existed the three could
+ * safely be given the same value once; a certificate that changes under them makes that a
+ * defect, and three call sites each rebuilding it would be three chances to disagree.
+ *
+ * Rebuilt rather than cached because `publishCapabilities` signs the window it is given:
+ * a renewed certificate carries a new one, and a capability record still signed over the
+ * old window would expire while the certificate beside it was valid.
+ */
+function recordsFrom(
   certificate: NodeCertificate | null,
+  identity: NodeIdentity,
+  canExecuteSovereign: boolean,
+): NodeRecords | 'holds-no-records' {
+  if (certificate === null) return 'holds-no-records'
+  return {
+    certificate,
+    capabilities: publishCapabilities(identity.seed, {
+      features: [],
+      sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
+      issuedAt: certificate.issuedAt,
+      expiresAt: certificate.expiresAt,
+      // Stated, not omitted — see `fabric-node.ts`'s `ownRecords` doc. A record
+      // with none signs the payload it signed before the seam existed.
+      extensions: [],
+    }),
+  }
+}
+
+function ownRecords(
+  holder: CertificateHolder,
   identity: NodeIdentity,
   canExecuteSovereign: boolean,
   store: Blockstore,
@@ -1334,21 +1396,10 @@ function ownRecords(
   return new SelfRecordIndex({
     nodeKey: identity.nodeKey,
     store,
-    records:
-      certificate === null
-        ? 'holds-no-records'
-        : {
-            certificate,
-            capabilities: publishCapabilities(identity.seed, {
-              features: [],
-              sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
-              issuedAt: certificate.issuedAt,
-              expiresAt: certificate.expiresAt,
-              // Stated, not omitted — see `fabric-node.ts`'s `ownRecords` doc. A record
-              // with none signs the payload it signed before the seam existed.
-              extensions: [],
-            }),
-          },
+    // A thunk, not a value — AUTH-04 renewal. `SelfRecordIndexOptions.records` carries the
+    // argument in full; the short form is that this node's certificate changes under this
+    // index while it is running, and a snapshot would go on serving the expired one.
+    records: () => recordsFrom(holder.current, identity, canExecuteSovereign),
     withhold,
   })
 }
@@ -1550,7 +1601,7 @@ export class FabricNode {
    * relays on exactly the same terms as one without. Until 17-04 lands, nobody can fetch
    * it, which is a deliberate one-plan gap rather than a resting state.
    */
-  readonly certificate: NodeCertificate | null
+  readonly #certificates: CertificateHolder
   /**
    * The instrument {@link executorPeakInFlight} reads.
    *
@@ -1654,7 +1705,7 @@ export class FabricNode {
     maxConnections: number
     identity: NodeIdentity
     authority: EnrollmentAuthority | null
-    certificate: NodeCertificate | null
+    certificates: CertificateHolder
     verifier: PeerVerifier
     relayFailures: readonly RelayDialFailure[]
     sovereignCids: SovereignCids | 'forgets-sovereignty-between-jobs'
@@ -1682,7 +1733,7 @@ export class FabricNode {
     this.#maxConnections = parts.maxConnections
     this.#identity = parts.identity
     this.#authority = parts.authority
-    this.certificate = parts.certificate
+    this.#certificates = parts.certificates
     this.#verifier = parts.verifier
     this.#admissionLog = parts.admissionLog
     this.#relayFailures = parts.relayFailures
@@ -2377,7 +2428,15 @@ export class FabricNode {
       ...(options.blockstoreDir === undefined ? {} : { blockstoreDir: options.blockstoreDir }),
       canRelay,
       relayPeerIds,
+      reuse: 'may-reuse-a-persisted-certificate',
     })
+
+    // AUTH-04 renewal — the single cell everything downstream reads this node's
+    // certificate through. `resolveCertificate` runs once, on the start path; the loop
+    // armed below writes here, and the index, the publisher and `node.certificate` all
+    // see the write because none of them holds its own copy. `CertificateHolder`'s doc
+    // says why that is a type and not a reassigned local.
+    const certificates = new CertificateHolder(certificate)
 
     // DATA-05 — the tap and the local-only tier that says which payloads are sovereign,
     // bound **once** and handed to both readers below. Two object literals saying the same
@@ -2412,7 +2471,7 @@ export class FabricNode {
     // test. Holding an invariant between two branches means asking one question twice, not
     // writing the question down twice.
     const records = ownRecords(
-      certificate,
+      certificates,
       identity,
       sovereignty.canExecuteSovereign,
       store,
@@ -2709,11 +2768,27 @@ export class FabricNode {
     //
     // A node holding no certificate has nothing to register: there is no signed statement
     // of who it is, so there is no record for the keyspace to be about. It still serves.
-    const ownRecordsForDht = certificate === null ? undefined : await records.recordsFor(certificate.nodeKey)
+    // **A thunk, so a renewal is republished rather than merely held.** A value record in
+    // the keyspace outlives the certificate inside it by a wide margin, so a node that
+    // renewed without republishing would advertise the expired certificate until something
+    // else wrote — and every reader running `verifyCertificate` would discard it in the
+    // meantime. `RecordPublisher`'s constructor doc carries the full argument.
+    //
+    // A node holding no certificate has nothing to register: there is no signed statement
+    // of who it is, so there is no record for the keyspace to be about. It still serves.
+    // That is now decided per publish rather than once, because a node can acquire a
+    // certificate it did not start with.
     const publisher =
-      ownRecordsForDht === undefined
+      certificate === null
         ? null
-        : new RecordPublisher(libp2p.services.dht, ownRecordsForDht)
+        : new RecordPublisher(libp2p.services.dht, () => {
+            const held = recordsFrom(
+              certificates.current,
+              identity,
+              sovereignty.canExecuteSovereign,
+            )
+            return held === 'holds-no-records' ? undefined : held
+          })
 
     // Provider announcement — owner ruling of 2026-08-23.
     //
@@ -2762,7 +2837,7 @@ export class FabricNode {
       maxConnections,
       identity,
       authority,
-      certificate,
+      certificates,
       verifier,
       relayFailures,
       sovereignCids,
@@ -2949,6 +3024,51 @@ export class FabricNode {
         if (outcome.kind === 'refused') node.noteRegistrationRefused(outcome.reason)
       })
     }
+
+    // AUTH-04 — **keeping the certificate alive**, which until this line nothing did.
+    //
+    // A certificate was obtained once, on the start path, and the only route to another
+    // was a restart. A process that outlived its certificate went on running while every
+    // peer's `PeerVerifier` demoted it and every relay's admission gate stopped admitting
+    // it — a node that believes it is enrolled and is refused by the whole fabric. That is
+    // a defect at the current thirty-day lifetime, not only at a shortened one.
+    //
+    // **The republish is not an extra.** A registration value record is held far longer
+    // than a certificate is valid, so renewing without republishing leaves the keyspace
+    // advertising the expired certificate — and a reader running `verifyCertificate`
+    // discards the node exactly as if it had never renewed. The publisher reads through
+    // the same holder, so `publish()` here writes the new one.
+    //
+    // Armed only for a node that holds a certificate: one that was never told to enrol has
+    // nothing to renew, which is a stated configuration rather than a state to recover
+    // from.
+    if (options.enrollment !== undefined) {
+      const stopRenewing = startCertificateRenewal({
+        holder: certificates,
+        renew: async () =>
+          resolveCertificate({
+            enrollment: options.enrollment,
+            identity,
+            rpc,
+            libp2p,
+            ...(options.blockstoreDir === undefined ? {} : { blockstoreDir: options.blockstoreDir }),
+            canRelay,
+            relayPeerIds,
+            // The persisted file is the certificate this call is replacing. Reusing it
+            // would make renewal a no-op that reports success.
+            reuse: 'must-obtain-a-fresh-certificate',
+          }),
+        renewed: async () => {
+          // `resolveCertificate` already wrote the file; what is left is the keyspace.
+          if (publisher !== null) await publisher.publish()
+        },
+        ...(options.renewalRetryFloorMs === undefined
+          ? {}
+          : { retryFloorMs: options.renewalRetryFloorMs }),
+      })
+      undo.push(stopRenewing)
+    }
+
     const stopSweeping = onPeerArrival(() => {
       void announcer.sweep()
     })
@@ -3062,6 +3182,29 @@ export class FabricNode {
    */
   get registrationRefusal(): string | undefined {
     return this.#registrationRefusal
+  }
+
+  /**
+   * This node's provider-signed certificate, or `null` when it holds none — AUTH-01.
+   *
+   * `null` means this node was **never told to enrol**, which is a stated configuration
+   * and not a failure. It does not mean enrollment was attempted and did not work: a node
+   * told to enrol and unable to never reaches this accessor at all, because it does not
+   * start. Those two are different events and only one of them produces an object.
+   *
+   * Public because a certificate is a public signed statement — every peer is meant to be
+   * able to read and verify it, and it is served through the `index` hook. Holding one is
+   * not a capability: a node with a certificate executes tasks, holds blocks and relays on
+   * exactly the same terms as one without.
+   *
+   * **A getter rather than a field, since AUTH-04 renewal.** The certificate a running
+   * node holds changes: the renewal loop replaces it about two-thirds of the way through
+   * its life. A caller that read a field once would hold a certificate this node has
+   * stopped presenting to peers, which is the same snapshot defect `SelfRecordIndex` and
+   * `RecordPublisher` each carried until the same change.
+   */
+  get certificate(): NodeCertificate | null {
+    return this.#certificates.current
   }
 
   /** Recorded by the start path's publish; see {@link registrationRefusal}. */
