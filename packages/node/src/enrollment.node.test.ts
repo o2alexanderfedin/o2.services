@@ -524,7 +524,13 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
     // a specific number onto the wire, and reading it back out of the constant alone would
     // prove only that this file and that file agree — and it is pinned to the shipped
     // default on the line below so the two cannot drift apart in either direction.
-    expect(first).toMatchObject({ kind: 'rate-limited', limit: 32, windowMs: 3_600_000 })
+    //
+    // **64 since 2026-08-23**, and not because this bound was re-sized. What moved is what
+    // it is measured against: `DEFAULT_CERTIFICATE_LIFETIME_MS` went from 30 days to 1 hour,
+    // so a node now spends an issuance in every window instead of one in 720, and the worst
+    // ordinary case became the tab restore plus every already-enrolled node of the same
+    // owner renewing inside it.
+    expect(first).toMatchObject({ kind: 'rate-limited', limit: 64, windowMs: 3_600_000 })
     expect(
       first?.kind === 'rate-limited' ? first.limit : null,
       'the number crossing the wire and the shipped default are one number',

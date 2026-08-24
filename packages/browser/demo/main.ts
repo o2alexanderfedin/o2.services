@@ -150,12 +150,20 @@ import type { CID } from 'multiformats/cid'
 /**
  * The anchor set this demo consents under.
  *
- * The demo pins nobody — it runs unsigned artifacts — and says so by name rather than by
- * an empty list, which is the same distinction `trustAnchors` itself draws. Named once
- * here so the value handed to `grantConsent` and the value checked by `readConsent` cannot
- * come to disagree; two literals would be two places to change.
+ * `[KERNEL_TRUST_ANCHOR]`, because that is what `start` actually passes when a visitor
+ * supplies nothing — a consent that described some *other* anchor set would be describing
+ * a node this page does not run. The first cut of this line named the provenance opt-out
+ * instead, which was wrong twice over: `trust-anchors.node.test.ts` permits that literal
+ * in two files and this is not one of them, and the demo does not run unsigned artifacts
+ * in the first place.
+ *
+ * Named once so the value handed to `grantConsent` and the value checked by `readConsent`
+ * cannot come to disagree; two expressions would be two places to change.
+ *
+ * A visitor who supplies their own `trustAnchors` to `start` is running under a different
+ * set, and `readConsent` will say so — which is the whole feature, not an edge case.
  */
-const DEMO_ANCHORS: string = describeAnchors('runs-unsigned-artifacts')
+const DEMO_ANCHORS: string = describeAnchors([KERNEL_TRUST_ANCHOR])
 
 let node: BrowserNode | null = null
 let consent: GrantedConsent | null = null

@@ -8,7 +8,8 @@ import {
   requestEnrollment,
   verifyCertificate,
 } from './enrollment.ts'
-import type { NodeCertificate, PublicKeyHex } from './enrollment.ts'
+import type { PublicKeyHex } from './capability.ts'
+import type { NodeCertificate } from './enrollment.ts'
 
 /**
  * AUTH-05 — **a node can announce the key it will move to, before it moves.**

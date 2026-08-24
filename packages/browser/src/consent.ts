@@ -32,7 +32,7 @@
  * browser globals when it is loaded cannot be imported by a Node test at all.
  */
 
-import type { PublicKeyHex } from '@o2/core'
+import type { BrowserNodeOptions } from './browser-node.ts'
 import { DISCLOSURE_VERSION } from './disclosure.ts'
 
 /** Where a consent record is kept. Injectable, so the rules are testable. */
@@ -106,12 +106,28 @@ export type ConsentGap =
  * first place: *"unsigned artifacts are allowed"* and *"nobody has been pinned yet"* are
  * different statements and emptiness cannot tell them apart.
  */
-export function describeAnchors(
-  anchors: readonly PublicKeyHex[] | 'runs-unsigned-artifacts',
-): string {
-  if (anchors === 'runs-unsigned-artifacts') return 'runs-unsigned-artifacts'
-  return [...anchors].sort().join(',')
+export function describeAnchors(anchors: BrowserNodeOptions['trustAnchors']): string {
+  // **Indexed off the option rather than restating the union, and discriminated by
+  // `Array.isArray` rather than by comparing against the opt-out's name.** Both are the
+  // same requirement: `trust-anchors.node.test.ts` permits that literal in exactly two
+  // files — the two node factories, which cannot express their own option without writing
+  // it — and this is not one of them. A third file naming it would be a third place a
+  // reader could take it for a value to pass around, which is what the guard exists to
+  // stop. `import type` is erased, so indexing costs no runtime dependency.
+  if (Array.isArray(anchors)) return [...anchors].sort().join(',')
+  return UNSIGNED_ARTIFACTS_ALLOWED
 }
+
+/**
+ * What {@link describeAnchors} renders the provenance opt-out as.
+ *
+ * Deliberately **not** the opt-out's own name. This is a description written into a
+ * visitor's storage and compared against later; it is not the option, and giving it the
+ * option's spelling would invite exactly the confusion the previous paragraph refuses.
+ * It only has to be a string no anchor list can produce, and a hex list cannot contain
+ * a hyphen.
+ */
+export const UNSIGNED_ARTIFACTS_ALLOWED = 'no-anchors-pinned'
 
 /** What a consent record written before {@link describeAnchors} existed reports as. */
 export const ANCHORS_UNRECORDED = 'unrecorded'
