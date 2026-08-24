@@ -14,7 +14,7 @@ import {
 import type { NodeCertificate, NodeRecords, PublicKeyHex } from '@o2/core'
 import { RpcEndpoint, enrolOverRpc, serveAgent } from '@o2/net'
 import { describe, expect, it } from 'vitest'
-import { startCertificateRenewal } from './certificate-renewal.ts'
+import { MAX_TIMER_MS, renewalDelayMs, startCertificateRenewal } from './certificate-renewal.ts'
 
 /**
  * AUTH-04 — **a node renews, and what it renewed becomes what peers are served.**
@@ -210,4 +210,31 @@ describe('AUTH-04 — the renewal loop, against a real authority', () => {
     await new Promise((resolve) => setTimeout(resolve, 2_500))
     expect(asked).toBe(0)
   }, 30_000)
+})
+
+describe('AUTH-04 — the delay a timer is actually given', () => {
+  it('is clamped to what setTimeout can hold, because overflow fires in 1 ms', () => {
+    // **The failure this prevents is the opposite of what the number looks like.** A
+    // `setTimeout` delay is stored in a signed 32-bit integer; hand it more and it does not
+    // saturate, it overflows and fires after one millisecond. So the quietest schedule
+    // becomes the busiest — wake, find renewal is not due, ask for the same enormous delay,
+    // wake a millisecond later, forever.
+    //
+    // Two-thirds of a lifetime crosses this at spans over about 37 days. The shipped
+    // default is thirty and clears it, but **the span is the issuing authority's choice**:
+    // a provider handing out ninety-day certificates would spin every node it enrolled,
+    // with nothing in the joiner's own configuration to explain it.
+    //
+    // Literals, not `MAX_TIMER_MS` arithmetic on both sides — the timing cases above record
+    // at length why a self-referential assertion here would not be able to fail.
+    expect(MAX_TIMER_MS).toBe(2_147_483_647)
+
+    // A hundred-year span, i.e. any lifetime a careless authority might set.
+    expect(renewalDelayMs(3_155_760_000_000)).toBe(2_147_483_647)
+    // One past the ceiling still clamps; one below is untouched.
+    expect(renewalDelayMs(2_147_483_648)).toBe(2_147_483_647)
+    expect(renewalDelayMs(2_147_483_646)).toBe(2_147_483_646)
+    // And an ordinary delay passes through, so the clamp is not a floor in disguise.
+    expect(renewalDelayMs(20 * 24 * 3_600_000)).toBe(20 * 24 * 3_600_000)
+  })
 })

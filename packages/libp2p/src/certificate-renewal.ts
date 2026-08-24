@@ -52,6 +52,37 @@ import type { CertificateHolder, NodeCertificate } from '@o2/core'
  */
 export const RENEWAL_RETRY_FLOOR_MS = 300_000
 
+/**
+ * The largest delay `setTimeout` actually honours.
+ *
+ * Both Node and every browser store the delay in a signed 32-bit integer. Hand one a
+ * larger number and it does **not** clamp to the maximum — it overflows and fires after
+ * **one millisecond**. That turns the quietest possible schedule into the busiest: the
+ * attempt wakes, finds renewal is not due, computes the same enormous delay, and is woken
+ * again a millisecond later, forever.
+ *
+ * Two-thirds of a lifetime exceeds this at spans over about 37 days. The default is
+ * thirty, so the shipped configuration clears it — **but the span is the authority's to
+ * choose, not the joining node's**. A provider issuing ninety-day certificates would put
+ * every node it ever enrolled into that spin, and nothing in a joiner's own configuration
+ * would say why.
+ *
+ * So {@link renewalDelayMs} clamps. Waking early is free: the attempt recomputes and
+ * re-arms.
+ */
+export const MAX_TIMER_MS: number = 2 ** 31 - 1
+
+/**
+ * How long to sleep before the next attempt: `wanted`, bounded by what a timer can hold.
+ *
+ * Exported so the clamp is checkable rather than inferable from a call site — the bug it
+ * exists for is invisible in the code that would otherwise contain it, because
+ * `setTimeout(f, huge)` looks exactly like `setTimeout(f, small)`.
+ */
+export function renewalDelayMs(wanted: number): number {
+  return Math.min(wanted, MAX_TIMER_MS)
+}
+
 export interface CertificateRenewalOptions {
   /** The one cell everything reads the current certificate through. */
   readonly holder: CertificateHolder
@@ -70,6 +101,12 @@ export interface CertificateRenewalOptions {
    * republish it. **Republishing is not optional**: a registration record outlives the
    * certificate inside it, so a reader verifying that record discards the node from the
    * moment the old certificate expires until something writes a new record.
+   *
+   * Known, and deliberately not designed around: on both tiers `renew` persists what it
+   * obtained *before* this loop decides whether to accept it, so a replacement the holder
+   * refuses as not-newer leaves the older — still valid — certificate on disk until the
+   * next cycle overwrites it. It heals itself, and the window it is wrong in is bounded by
+   * the retry floor, which is cheaper than threading acceptance back into the exchange.
    */
   readonly renewed: (certificate: NodeCertificate) => void | Promise<void>
   /** Injected so a test can drive this without waiting. Defaults to the real clock. */
@@ -95,7 +132,7 @@ export function startCertificateRenewal(options: CertificateRenewalOptions): () 
     if (stopped) return
     timer = setTimeout(() => {
       void attempt()
-    }, delayMs)
+    }, renewalDelayMs(delayMs))
     // Node only, and guarded rather than assumed: a pending timer must not be what keeps
     // a process alive after everything else has finished.
     timer.unref?.()

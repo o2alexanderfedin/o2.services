@@ -125,7 +125,12 @@ export { DhtProviderAnnouncer, ObservingBlockstore } from './dht-provider-announ
 // carries is what proves the claim. See the module header for why a DHT cannot simply be
 // asked "who is a seed".
 // AUTH-04 renewal — the loop both tiers run so a certificate outlives its first issue.
-export { RENEWAL_RETRY_FLOOR_MS, startCertificateRenewal } from './certificate-renewal.ts'
+export {
+  MAX_TIMER_MS,
+  RENEWAL_RETRY_FLOOR_MS,
+  renewalDelayMs,
+  startCertificateRenewal,
+} from './certificate-renewal.ts'
 export type { CertificateRenewalOptions } from './certificate-renewal.ts'
 
 export {
