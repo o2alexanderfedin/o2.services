@@ -41,7 +41,17 @@ const NODE_MEASUREMENT = {
    * **Carried forward unchanged, and therefore still dated 2026-08-18:** every other span,
    * `load`, `loadAtEnd`, `loadPeak`, `wallClockMs`, `sumOfReportedSpansMs`,
    * `crossCheckedFiles`, `crossCheckDisagreed`, `hookShadowCandidates`,
-   * `hookShadowDisagreed`, `unitTests`, `unitWallClockMs`.
+   * `hookShadowDisagreed`, `unitWallClockMs`.
+   *
+   * **Confirmed independently, which is the part worth keeping.** `npm run test:unit`
+   * — the one command this table actually governs, since `SLOW_NODE_SPECS` is subtracted
+   * only under `O2_UNIT_ONLY=1` — selected exactly **124** files and passed 2232 tests.
+   * That number was written here before the run and matched it, so `unitFiles` and the
+   * three new exclusions are checked against behaviour rather than arithmetic.
+   * `unitTests` is updated to the count it reported; `unitWallClockMs` is **not**, because
+   * that run took 90.43 s of wall clock against the 7.98 s recorded here — the same load
+   * that stopped the full re-measure, and a figure that would say more about the host than
+   * about the suite.
    *
    * **Why the full procedure was not run, which is a measurement rather than an excuse.**
    * It was started twice. The second attempt was stopped after `uptime` on this host read a
@@ -243,7 +253,7 @@ const NODE_MEASUREMENT = {
    * number that turns on less than half of it is reading the host's weather.
    */
   unitFiles: 124,
-  unitTests: 2171,
+  unitTests: 2232,
   unitWallClockMs: 7_980,
 } as const
 
