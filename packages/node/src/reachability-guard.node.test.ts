@@ -562,7 +562,12 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // has no runtime caller and the concrete change that would give it one, so the register
       // and not this number is what holds it: a different unreachable export cannot take its
       // place under the same bound.
-    ).toBeLessThanOrEqual(69)
+      // 2026-08-23: 69 -> 71. Two rows, `core/keyCommitment` and `core/honoursKeyCommitment`,
+      // both named in `OPEN_FINDINGS` with the reason a reader can check — a signed format
+      // whose field had to land before certificates circulate, and whose users are a phase
+      // nobody has scoped. Raised by exactly the two rows added, so the ceiling still cannot
+      // absorb a third arrival silently.
+    ).toBeLessThanOrEqual(71)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
@@ -1313,6 +1318,40 @@ interface OpenFinding {
  * written down, and symbol #25 arrives red and named instead of arriving under a bound.
  */
 const OPEN_FINDINGS: readonly OpenFinding[] = [
+  {
+    key: 'core/keyCommitment',
+    declaredIn: 'packages/core/src/enrollment.ts',
+    // `unreachable-only`, and the graph is what said so — this row claimed `none` first, on
+    // the reasoning that nothing rotates a key so nothing can call it. The walk corrected it:
+    // `honoursKeyCommitment` calls this to recompute the hash it compares against, and that
+    // caller is itself unreachable. The distinction is the one this field exists for — a
+    // stranded caller already exists here, so closing this row is wiring rather than writing.
+    callers: 'unreachable-only',
+    reason:
+      'AUTH-05 pre-rotation, added 2026-08-23 by owner ruling. A certificate may name the ' +
+      'key its node will move to next, so a rotation carries trust across instead of ' +
+      'presenting a stranger. NOTHING ROTATES YET, and that is the whole reason this is ' +
+      'here rather than wired: the field sits inside the issuer signature, so adding it ' +
+      'later means changing a signed format with certificates in circulation, and the ' +
+      'owner took it now precisely to avoid that. The format half IS reached — `payloadOf` ' +
+      'spreads the field on every issuance and `enrol` carries it from the request, both ' +
+      'plant-proofed in `key-rotation.test.ts`. What has no caller is the pair a rotating ' +
+      'node would use. The nameable wiring that closes it: a node factory option for the ' +
+      'next key plus a re-enrolment under it, which is a phase nobody has scoped and which ' +
+      'must not be invented under cover of an export.',
+  },
+  {
+    key: 'core/honoursKeyCommitment',
+    declaredIn: 'packages/core/src/enrollment.ts',
+    callers: 'none',
+    reason:
+      'The verify half of the row above, and it is listed separately rather than folded in ' +
+      'because the two close on different days: `keyCommitment` is wired by whatever first ' +
+      'rotates a key, and this one by whatever first VERIFIES a rotation — `PeerVerifier`, ' +
+      'which today re-asks a peer whose certificate expired and has no notion of a peer ' +
+      'whose key changed. Exported as a pair because one is useless without the other, and ' +
+      'a barrel offering only the commitment would invite a caller to compare hex by hand.',
+  },
   {
     key: 'core/signNameDelegation',
     declaredIn: 'packages/core/src/naming.ts',

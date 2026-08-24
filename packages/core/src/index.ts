@@ -398,6 +398,10 @@ export {
   ENROLLMENT_CHALLENGE_TTL_MS,
   EnrollmentAuthority,
   challengeAnswerBytes,
+  // AUTH-05 pre-rotation: the commitment a certificate carries, and the check that a
+  // later certificate honoured it. Exported as a pair — one is useless without the other.
+  honoursKeyCommitment,
+  keyCommitment,
   possessionChallenge,
   msUntilRenewalDue,
   requestEnrollment,
