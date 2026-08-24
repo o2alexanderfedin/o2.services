@@ -562,8 +562,13 @@ describe('the signature check applies to most of the ledger, not to a corner of 
       // `expected [ 'core/Subject' ] to deeply equal []` can only be rendered by a
       // declaration in that one file reaching a barrel, and it exists in no source file, so
       // `test-title` would also have been a false declaration.
+      // `CL1` left this list on 2026-08-24 with the entry itself. It planted a barrel export
+      // from `cert-lifecycle.ts`, and that module was deleted by owner ruling — one certificate
+      // system, not two — so the plant would now be a compile error rather than the reading it
+      // recorded. The retirement is written in place in `mutation-ledger.ts`, where the entry
+      // was, rather than dropped: a ledger entry that vanishes on a refactor is what the drift
+      // check exists to make impossible, and the same holds for its name here.
       [
-        'CL1',
         'E1', 'E2',
         'K7',
         'L1', 'L2', 'L3', 'L4', 'L5',

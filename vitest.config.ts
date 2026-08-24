@@ -141,8 +141,18 @@ const NODE_MEASUREMENT = {
    * argument is that a guard cheap to satisfy by widening is a guard that will be widened
    * again.
    */
-  files: 204,
-  tests: 3018,
+  // 2026-08-24: 204 → 203 files, 3018 → 2990 tests. `packages/core/src/cert-lifecycle.test.ts`
+  // and its browser twin left the tree with the module they specified — owner ruling, one
+  // certificate system rather than two. The node project loses exactly that one file and its
+  // 28 cases, counted from `git show` on the deleted file rather than by subtraction from a
+  // later run, so the arithmetic here is a reading of what went and not of what is left.
+  //
+  // `unitFiles` and `unitTests` are UNCHANGED, and the reason is worth stating rather than
+  // looking like an oversight: that spec was in `SLOW_NODE_SPECS`, so `test:unit` never ran
+  // it. The row leaving the table lowers `EXCLUDED.length` by one at the same moment `files`
+  // drops by one, and `unitFiles = files − EXCLUDED.length` holds at 124 on both sides.
+  files: 203,
+  tests: 2990,
   /**
    * Sum of the per-file costs the table below records, every one of them taken in the same
    * run by the same instrument.
@@ -155,7 +165,7 @@ const NODE_MEASUREMENT = {
    * inequality in that direction on purpose: a sum that did not cover the listed rows would
    * mean the table and this field came from different events.
    */
-  sumOfFileSpansMs: 2_173_324,
+  sumOfFileSpansMs: 2_168_815,
   /**
    * What `--reporter=json` alone said the same run summed to, i.e. the same 197 files with
    * every span left at the value the case-stamp instrument gave it.
@@ -606,7 +616,6 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/node/src/node-records.node.test.ts', 5_111],
   ['tools/aot/cross-machine.node.test.ts', 4_991],
   ['packages/node/src/sovereign-aggregation.node.test.ts', 4_752],
-  ['packages/core/src/cert-lifecycle.test.ts', 4_509],
   ['packages/node/src/checkpoint-agents.node.test.ts', 4_470],
   ['packages/node/src/trust-anchors.node.test.ts', 4_436],
   ['tools/aot/docker-gate.node.test.ts', 4_322],
