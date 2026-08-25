@@ -11,20 +11,30 @@
  * declares `"types": ["node"]` for the whole tree and Workers' globals contradict Node's in
  * several places (`caches`, `crypto`, `WebSocket`).
  *
- * The cost of declaring it here instead is stated rather than hidden: **structural
- * compatibility with the real `DurableObjectStorage` is reasoned, not compiled.** Nothing
- * in this repository proves a real `DurableObjectState['storage']` is assignable to the
- * interface below, because there is no real declaration present to check it against. The
- * reasoning is that each real member is *wider* than the one declared here — the real `get`
- * is `get<T>(key, options?): Promise<T | undefined>`, and instantiating `T` at its
- * `unknown` constraint gives exactly `Promise<unknown>`; the real `put` and `list` are
- * generic and optioned in the same way; the real `delete` is overloaded and one overload
- * matches. A signature with extra optional parameters is assignable to one with fewer.
+ * ## Compatibility with the real declaration is MEASURED, not argued
  *
- * **The check that would settle it** is `@cloudflare/workers-types` installed and one
- * `const _: DurableObjectStorage = realState.storage` line. That is a dependency decision
- * for whoever wires the Durable Object itself (Phase 29 criteria 2 and 7), not for the
- * storage binding, and it is recorded as the known-weak seam of this file.
+ * This block read *"reasoned, not compiled"* until 2026-08-25, when the probe that would
+ * settle it was actually run — **by the adversary review of this package, not by this
+ * file's author**, and it is recorded with that attribution because a measurement nobody
+ * here took is not this file's to claim. `@cloudflare/workers-types@5.20260825.1` was
+ * installed in a scratchpad and a probe compiled under this repository's own flags:
+ *
+ * ```
+ * const asLocal: DurableObjectStorage = state.storage   // real DurableObjectState
+ * new DoDatastore(state.storage)
+ *                                                       EXIT=0
+ * ```
+ *
+ * Anti-vacuity was confirmed in the same probe — it errors `TS2322` when the target type is
+ * wrong and `TS2741` against an interface carrying an extra member — so the real
+ * declaration genuinely resolved rather than the check passing over nothing.
+ *
+ * **Assignability is version-relative.** That result binds `5.20260825.1` and nothing else.
+ * Whoever installs the package for real — the Durable Object class itself, Phase 29
+ * criteria 2 and 7 — should keep a `const _: DurableObjectStorage = state.storage` line in
+ * the tree so the next version that widens a signature fails a compile instead of a deploy.
+ * That is the reason this interface stays here rather than being deleted in favour of the
+ * dependency: it is one line to check and a whole platform to import.
  *
  * ## Deliberately narrower than the platform
  *

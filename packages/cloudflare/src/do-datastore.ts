@@ -4,6 +4,27 @@ import type { KeyQuery, Pair, Query } from 'interface-datastore'
 import type { DurableObjectStorage } from './durable-object-storage.d.ts'
 
 /**
+ * The key namespaces {@link DoDatastore.put} refuses, as one named source.
+ *
+ * A `const` object with a derived union rather than a TypeScript `enum`, by owner ruling on
+ * 2026-08-25 and following the shape `packages/node/src/state-frontmatter.node.test.ts`
+ * adopted in commit `6178155`: this tree holds 108 string-literal union types and zero
+ * enums, and an enum would fuse our identifier with the wire string.
+ *
+ * `Object.values` is why this is an object and not two loose constants — the completeness
+ * case in the spec asserts the whole set, and a set written out twice is a set that drifts.
+ */
+export const REFUSED_NAMESPACE = {
+  /** Where `@libp2p/kad-dht` keeps both records and provider entries. */
+  dhtDatastore: '/dht/',
+  /** This fabric's own DHT keyspace prefix. */
+  fabricKeyspace: '/o2/',
+} as const
+
+/** One of {@link REFUSED_NAMESPACE}'s values. */
+export type RefusedNamespace = (typeof REFUSED_NAMESPACE)[keyof typeof REFUSED_NAMESPACE]
+
+/**
  * A libp2p datastore backed by Durable Object storage — Phase 29 criterion 3.
  *
  * ## Why this is hand-written, and why it is not `datastore-level`
@@ -50,11 +71,54 @@ import type { DurableObjectStorage } from './durable-object-storage.d.ts'
  * would spell them exactly this way. Refusing a prefix nothing legitimate uses costs
  * nothing.
  *
- * What is admitted is everything else, and specifically the three prefixes libp2p's own
- * identity machinery writes, likewise read out of the installed packages:
+ * ### The classifier normalises, because a prefix test on the raw name did not hold
+ *
+ * This class shipped on 2026-08-25 testing `key.toString().startsWith('/dht/')`, and that
+ * **let a doubled slash through its own front door**. `Key.clean()` prepends a leading
+ * slash and strips trailing ones; it does *not* collapse runs. Measured:
+ * `new Key('//dht/record/x').toString()` is `'//dht/record/x'` unchanged, so
+ * `store.put(new Key('//dht/record/x'), …)` resolved and wrote. The gap was not "a writer
+ * with direct storage access" — it was `DoDatastore.put` itself, reached by the very
+ * careless-or-hostile caller the `/o2/` refusal exists for.
+ *
+ * So {@link refusedPrefixFor} classifies a **normalised** name: slash runs collapsed,
+ * trailing slashes stripped, lower-cased. Three separate spelling classes, each closed for
+ * its own reason and each with a spec case:
+ *
+ * - **collapse** — a run of slashes denotes the same namespace to a human and a different
+ *   string to the store. Note which half was the escape, measured by plant on 2026-08-25:
+ *   with the normalisation removed, `//dht/record/x` was **admitted** and
+ *   `/dht//record/x` was still refused, because a raw `startsWith('/dht/')` matches an
+ *   interior run and not a leading one. The collapse is written for both anyway — the
+ *   asymmetry is an accident of the prefix's shape, not a property worth relying on
+ * - **lower-case** — `/DHT/record/x` likewise. `toLowerCase()` is locale-independent in JS,
+ *   and nothing legitimate begins with any case variant of these two namespaces
+ * - **segment boundary** — the test is `` `${normalised}/`.startsWith(prefix) ``, so bare
+ *   `/dht` and `/o2` are refused while `/dht2/x` and `/dhtx` are admitted. A plain
+ *   `startsWith` on the un-suffixed name admitted the bare forms
+ *
+ * The normalisation is **classification-only**: the stored name is always `key.toString()`,
+ * untouched. And the residual is stated rather than implied — this closes the spelling
+ * variants a caller produces by carelessness. It is not a security boundary. A writer who
+ * reaches Durable Object storage directly bypasses this class entirely, and no
+ * normalisation here changes that.
+ *
+ * ### What is admitted
+ *
+ * Everything else, and specifically the five prefixes libp2p's own identity machinery
+ * writes. Each is cited where it was read, because this enumeration was **wrong** until
+ * 2026-08-25 — it listed three and a sweep of every `datastore.put` call site in the
+ * installed packages found five. Like `/dht` above, each is checked to be the default *this
+ * assembly actually runs on*: `certificateDatastoreKey` is an `init` override in both
+ * certificate packages (`auto-tls.js:55`, `transport.js:114`) and appears nowhere in
+ * `packages/*​/src` (grepped 2026-08-25).
  *
  * - `/pkcs8/<name>` and `/info/<name>` — `@libp2p/keychain/dist/src/keychain.js:14-15`
  * - `/peers/<cid-base32>` — `@libp2p/peer-store/dist/src/utils/peer-id-to-datastore-key.js`
+ * - `/libp2p/auto-tls/certificate` —
+ *   `@ipshipyard/libp2p-auto-tls/dist/src/constants.js:12`, written at `auto-tls.js:189`
+ * - `/libp2p/webrtc-direct/certificate` — `@libp2p/webrtc/dist/src/constants.js:80`,
+ *   written at `private-to-public/transport.js:195`
  *
  * The consult that measured a deployed object holding a persisted identity is the reason
  * this matters at all: three consecutive calls to a plain Worker returned **three different
@@ -66,10 +130,58 @@ import type { DurableObjectStorage } from './durable-object-storage.d.ts'
  * choice. `FsDatastore.get`'s docblock records the same finding from the other side
  * (`packages/node/src/fs-datastore.ts:71-84`): a caller written as `store.put(k, v).catch(…)`
  * never enters its handler when the call throws before returning. `put` is therefore
- * `async`, so both the refusal and the success are promises and the two cannot differ. The
- * batch path inherits this for free — `BaseDatastore.batch()` funnels through `putMany` to
- * `put` (`datastore-core/dist/src/base.js`), which is how the keychain writes
- * (`keychain.js:206`), and the spec asserts it rather than assuming it.
+ * `async`, so both the refusal and the success are promises and the two cannot differ.
+ *
+ * ### The batch path reaches the guard, and is NOT atomic — a recorded gap, not a fix
+ *
+ * `BaseDatastore.batch()` is inherited unchanged. Every `batch.put` funnels through
+ * `putMany` to {@link put} (`datastore-core/dist/src/base.js:48-53`), so the refusal does
+ * cover it — which matters, because the keychain writes this way
+ * (`@libp2p/keychain/dist/src/keychain.js:204-207,238-241`).
+ *
+ * **What it does not give is all-or-nothing.** `commit()` awaits `putMany` sequentially and
+ * then `deleteMany`, so a refusal part-way through leaves the earlier operations applied.
+ * Measured 2026-08-25:
+ *
+ * ```
+ * batch: put /pkcs8/self, put /info/self, put /dht/record/…
+ *   commit() rejects — storage.size === 2, both identity keys written
+ * batch: put /dht/record/x, delete /peers/stale
+ *   commit() rejects — /peers/stale still present
+ * ```
+ *
+ * This is **latent today**, not a live tear: the only batching caller is the keychain, and
+ * it batches `/pkcs8/` plus `/info/`, both admitted, so no mixed batch is ever built. It is
+ * recorded here and pinned by two characterisation cases in the spec rather than repaired,
+ * because the repair belongs one layer up. Real Durable Object storage offers
+ * `storage.transaction()`, whose callback rolls back wholesale on a throw; wiring it means
+ * overriding `batch()` against a `DurableObjectTransaction`, which arrives with the Durable
+ * Object class in Phase 29 criteria 2 and 7. **The rejected alternative** was a
+ * validate-every-key-then-write pass inside this class: it would close the refusal-shaped
+ * tear and leave the general one (a storage error mid-batch) open, while presenting to a
+ * reader as atomicity. A gap that looks closed is worse than one that is written down.
+ *
+ * ## One key, one answer — the invariant `has`, `get` and `query` all satisfy
+ *
+ * **`has(k)` is `true` ⟺ `get(k)` resolves ⟺ `k` appears in `queryKeys({})`.**
+ *
+ * Stated because it did not hold. Until 2026-08-25 `has` was the one path that did not
+ * check the value's type, so a foreign value under `/peers/foreign` produced `has → true`,
+ * `get → StoredValueNotBytesError`, `queryKeys → []`: three different answers about one
+ * key, and a caller doing `has`-then-`get` — peer-store exposes both — crashed on a key
+ * `has` had promised was there.
+ *
+ * A foreign value now gives `false` / a named throw / omitted, and the biconditional holds,
+ * because `get` *not resolving* is what it requires. `get` keeps the diagnostic throw rather
+ * than faking a miss: an operator reading a crash log wants to know the key was occupied by
+ * something else.
+ *
+ * The second half of the invariant is {@link _all}'s round-trip skip. `Key`'s constructor
+ * normalises, so a stored name of `/peers/trailing/` would come back from `list` as
+ * `Key('/peers/trailing')` — a key `get` misses, because the stored name still carries the
+ * slash. Such names are skipped. **`has` and `get` need no round-trip check of their own**
+ * and must not grow one for symmetry: a caller cannot *name* a non-round-tripping key
+ * through this API, because `Key` normalised it before this class ever saw it.
  *
  * ## The divergences from `FsDatastore`, each because the reason for the original is absent
  *
@@ -90,7 +202,10 @@ import type { DurableObjectStorage } from './durable-object-storage.d.ts'
  * structured-cloning a typed array serialises the *whole* underlying `ArrayBuffer`, not the
  * view. A caller handing in a 3-byte `subarray` of a 1 MiB buffer — which is exactly what
  * length-prefixed libp2p decoding produces — would otherwise store 1 MiB. `new Uint8Array(val)`
- * is a copy into a buffer of `val.length`.
+ * is a copy into a buffer of `val.length`. Note what this copy does *not* buy: isolation
+ * from a caller that mutates its array afterwards is supplied by the platform's
+ * serialise-on-write and holds with or without it. The size is the only falsifiable
+ * consequence, and the spec says so where it asserts it.
  *
  * **`get` copies on the way out.** DO storage keeps a read/write cache in the isolate, so
  * two `get`s of one key can hand back the same object; a caller that mutated it would be
@@ -122,12 +237,26 @@ import type { DurableObjectStorage } from './durable-object-storage.d.ts'
  * before, and because the values this store actually holds — a PKCS#8 key, a peer record —
  * are three orders of magnitude below it.
  *
- * ## Listing is unbounded, and the guard is what makes that safe
+ * ## Listing is unbounded, and what actually bounds the population
  *
- * {@link _all} lists without a `limit`. That is only defensible because of the refusal
- * above: the admitted key set is the identity plus a peer store, which is dozens of small
- * values. Should the guard ever be relaxed without a bound landing beside it, this method
- * becomes the second defect rather than the first.
+ * {@link _all} lists without a `limit`. This paragraph claimed until 2026-08-25 that the
+ * admitted set is *"dozens of small values"*, and the consult it cites four paragraphs
+ * above contradicts that by an order of magnitude: §18 measured **599 peers dialling one
+ * Durable Object at once**, all landing on one instance, with the ceiling found being the
+ * test rig rather than Cloudflare. The peer store is the growing component and it grows
+ * with fan-in.
+ *
+ * What bounds it is churn, not size. `@libp2p/peer-store` expires **lazily**: a peer older
+ * than `MAX_PEER_AGE` (`21_600_000` ms = 6 h) or an address older than `MAX_ADDRESS_AGE`
+ * (`3_600_000` ms = 1 h) is deleted at the moment it is read
+ * (`@libp2p/peer-store/dist/src/constants.js:1-2`, `store.js:166,179`). So the population is
+ * six hours of peer churn in small values — hundreds to low thousands, not dozens, and not
+ * unbounded.
+ *
+ * That is a magnitude to size a listing against; it is not what the refusal is for. The
+ * class the refusal keeps out is the one with **no expiry at all** on this tier until Phase
+ * 31's sweep lands. Should the guard ever be relaxed without a bound arriving beside it,
+ * this method becomes the second defect rather than the first.
  */
 export class DoDatastore extends BaseDatastore {
   readonly #storage: DurableObjectStorage
@@ -138,24 +267,59 @@ export class DoDatastore extends BaseDatastore {
   }
 
   /**
-   * The key prefixes {@link put} refuses.
+   * The key namespaces {@link put} refuses, in declaration order.
    *
-   * Derived in this class's docblock from the installed `@libp2p/kad-dht@16.4.0` and from
-   * `packages/libp2p/src/dht-record-index.ts:65`. Exported so a caller can report *why* a
-   * write was refused; the spec deliberately does **not** read it, and writes the literal
-   * prefixes out instead, so that changing this array cannot move the assertions with it.
+   * Derived from {@link REFUSED_NAMESPACE} rather than written out a second time. The spec
+   * deliberately does **not** build its inputs from this array — it writes the prefixes out
+   * as literals and asserts this array equals a literal — so that emptying or truncating it
+   * reddens the spec instead of moving it.
    */
-  static readonly refusedKeyPrefixes: readonly string[] = ['/dht/', '/o2/']
+  static readonly refusedKeyPrefixes: readonly RefusedNamespace[] = Object.values(REFUSED_NAMESPACE)
 
   /**
-   * The prefix of `key`, if it is one this store refuses. `undefined` means admitted.
+   * The name a key is **classified** under. Never the name it is stored under.
+   *
+   * See the class doc for what each of the three normalisations closes and what the
+   * measurement was that made them necessary.
+   */
+  static #classificationNameFor(key: Key): string {
+    return key
+      .toString()
+      .replace(/\/+/g, '/')
+      .replace(/\/+$/, '')
+      .toLowerCase()
+  }
+
+  /**
+   * The namespace of `key`, if it is one this store refuses. `undefined` means admitted.
    *
    * A separate method rather than an inline test so the spec can ask the question without
    * performing a write, and so the refusal and the classification cannot drift apart.
    */
-  static refusedPrefixFor(key: Key): string | undefined {
-    const name = key.toString()
+  static refusedPrefixFor(key: Key): RefusedNamespace | undefined {
+    // The trailing `/` is what makes this a segment test rather than a character test: bare
+    // `/dht` becomes `/dht/` and is refused, while `/dht2/x` and `/dhtx` stay admitted.
+    const name = `${DoDatastore.#classificationNameFor(key)}/`
     return DoDatastore.refusedKeyPrefixes.find((prefix) => name.startsWith(prefix))
+  }
+
+  /**
+   * The `Key` a stored name denotes, or `undefined` if it is not a name this store wrote.
+   *
+   * `Key`'s constructor normalises, so a stored `/peers/trailing/` would come back as
+   * `Key('/peers/trailing')` — a key `get` misses, because the stored name still carries the
+   * slash. Yielding it would hand a caller a key this store cannot resolve, which is the
+   * half of the one-key-one-answer invariant `_all` owns. Skipped rather than thrown on, for
+   * `FsDatastore._all`'s reason: a name this store did not write must not make the whole
+   * store unreadable.
+   */
+  static #keyForStoredName(name: string): Key | undefined {
+    try {
+      const key = new Key(name)
+      return key.toString() === name ? key : undefined
+    } catch {
+      return undefined
+    }
   }
 
   /**
@@ -194,7 +358,10 @@ export class DoDatastore extends BaseDatastore {
   }
 
   override async has(key: Key): Promise<boolean> {
-    return (await this.#storage.get(key.toString())) !== undefined
+    // The `instanceof` test is not defensive duplication of `get`. Without it this method is
+    // the one path that answers differently from the other two — see the invariant in the
+    // class doc, and the `has`-then-`get` crash that made it necessary.
+    return (await this.#storage.get(key.toString())) instanceof Uint8Array
   }
 
   override async delete(key: Key): Promise<void> {
@@ -219,23 +386,32 @@ export class DoDatastore extends BaseDatastore {
     return prefix === undefined ? this.#storage.list() : this.#storage.list({ prefix })
   }
 
-  override async *_all(q: Query): AsyncGenerator<Pair> {
-    for (const [name, value] of await this.#list(q.prefix)) {
+  /**
+   * The one place that decides what this store contains.
+   *
+   * `_all` and `_allKeys` both read it, so their agreement is structural rather than a
+   * property two separate loops have to keep. `_allKeys` pays for a value copy it discards;
+   * that is the price of the two never disagreeing, and it is a memcpy on values this store
+   * holds a few hundred bytes of. The shape is `FsDatastore.#pairs`'s, for the same reason.
+   */
+  async *#pairs(prefix: string | undefined): AsyncGenerator<Pair> {
+    for (const [name, value] of await this.#list(prefix)) {
+      const key = DoDatastore.#keyForStoredName(name)
+      if (key === undefined) continue
       // Skipped rather than thrown on, for `FsDatastore._all`'s reason: a query is a read of
       // what is here, and one foreign value must not make the whole store unreadable. `get`
       // throws on the same value because there the caller named that key.
       if (!(value instanceof Uint8Array)) continue
-      yield { key: new Key(name), value: new Uint8Array(value) }
+      yield { key, value: new Uint8Array(value) }
     }
   }
 
+  override async *_all(q: Query): AsyncGenerator<Pair> {
+    yield* this.#pairs(q.prefix)
+  }
+
   override async *_allKeys(q: KeyQuery): AsyncGenerator<Key> {
-    for (const [name, value] of await this.#list(q.prefix)) {
-      // The same skip as `_all`, so the two agree on what the store contains. A key whose
-      // value `_all` will not yield is not a key this store holds.
-      if (!(value instanceof Uint8Array)) continue
-      yield new Key(name)
-    }
+    for await (const pair of this.#pairs(q.prefix)) yield pair.key
   }
 }
 
@@ -246,21 +422,21 @@ export class DoDatastore extends BaseDatastore {
  * two errors answer to different authorities. `NotFoundError` has to match what libp2p
  * branches on, so it copies the library's convention exactly. This refusal is **this
  * repository's own outcome**, nothing outside recognises it, and a caller that wants to
- * distinguish it should be able to do so with `instanceof` and to read *which* prefix
+ * distinguish it should be able to do so with `instanceof` and to read *which* namespace
  * matched without parsing a message.
  */
 export class RecordShapedKeyRefusedError extends Error {
   override readonly name: string = 'RecordShapedKeyRefusedError'
   readonly code: string = 'ERR_O2_RECORD_SHAPED_KEY_REFUSED'
-  /** The rejected key, as `Key.toString()` spells it. */
+  /** The rejected key, as `Key.toString()` spells it — not the normalised classification name. */
   readonly key: string
-  /** Which entry of {@link DoDatastore.refusedKeyPrefixes} matched. */
-  readonly matchedPrefix: string
+  /** Which entry of {@link REFUSED_NAMESPACE} matched. */
+  readonly matchedPrefix: RefusedNamespace
 
-  constructor(key: string, matchedPrefix: string) {
+  constructor(key: string, matchedPrefix: RefusedNamespace) {
     super(
       `refusing to store a record-shaped key until the Phase 31 expiry sweep lands beside ` +
-        `it: ${key} begins with ${matchedPrefix}`,
+        `it: ${key} normalises into ${matchedPrefix}`,
     )
     this.key = key
     this.matchedPrefix = matchedPrefix
@@ -272,7 +448,9 @@ export class RecordShapedKeyRefusedError extends Error {
  *
  * Reachable because a Durable Object's storage is a single namespace shared with whatever
  * else the object keeps there. Named so that a caller can tell it apart from a miss: the
- * key exists, and what it holds is not this store's.
+ * key exists, and what it holds is not this store's. `has` answers `false` for the same key
+ * — see the one-key-one-answer invariant in {@link DoDatastore}'s docblock for why those
+ * two are consistent rather than contradictory.
  */
 export class StoredValueNotBytesError extends Error {
   override readonly name: string = 'StoredValueNotBytesError'
