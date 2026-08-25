@@ -66,10 +66,22 @@ ingredient was never hardware; it was something to give them access to.
 - **A multi-region always-on tier.** `bootstrap-eu` / `-us` / `-apac` on Durable Objects,
   one identity per object — sharding is addressing, not provisioning. Multi-region from the
   start so the WebRTC failure rate is not smeared by everyone signalling through one city
-- **Record expiry before persistence.** `@libp2p/kad-dht@16.4.0` never expires provider
-  records, which is harmless only while nothing persists; object storage persists by
-  definition. An alarm sweep plus a read-time check — the first bounds storage, the second
-  bounds correctness, and they are not alternatives
+- **Record expiry ported to an alarm, not built from scratch. CORRECTED 2026-08-25, and the
+  correction is a repeat.** This bullet first read *"`@libp2p/kad-dht@16.4.0` never expires
+  provider records"* — which is **the fourth wrong answer in a row about the same number**,
+  after 48 hours, 24 hours, and never. `RFC-0003-RESPONSE-04` §8 had already recorded the
+  first three and corrected them; this milestone reproduced the third without reading it.
+  What is true: the *store* ignores `providers.provideValidity` and `cleanupInterval`, which
+  are declared and unread — but `reprovide.validity` is honoured, and **this project already
+  sets it**. `providerRecordPolicy` (`packages/libp2p/src/constants.ts:316`) derives sweep
+  interval and republish threshold from one validity of **one hour**, and both tiers pass it
+  (`fabric-node.ts:2154`, `browser-node.ts:1539`), proven across two processes by
+  `packages/node/src/provider-expiry.node.test.ts` (NET-06). **So the requirement is
+  smaller and sharper than it looked**: the existing policy is driven by a `setInterval`,
+  which will not fire on workerd because `Date.now()` does not advance without I/O, so the
+  work is to drive the same policy from a Durable Object alarm — and to add the sweep the
+  `/o2/<nodeKey>` value records still lack. The read-time half is already satisfied by
+  `verifyCapabilityRecord`'s `expiresAt` check through `DhtRecordIndex`
 - **Persistence as a datastore.** Durable Object storage behind `interface-datastore`, after
   which certificate and verdict caching is worth having
 - **A correct inbound listener.** `direction: 'inbound'`, a remote address derived from
