@@ -298,17 +298,20 @@ that is already in the stack. That is the strongest form of the idea.
 verifies the hash itself; a lying gateway is detected by construction. No new root, no new
 anchor, nothing added to the seven artefact types in RESPONSE-04.
 
-**Three things must be measured before this is a decision, not an idea.**
+**Two of the three unknowns are now measured. The answer is: possible, with a pool.**
 
-1. **The six-simultaneous-outbound-connection limit.** Documented, unmeasured. A Kademlia
-   walk fans out to ten or twenty peers at once; bitswap more. If the cap is real and per
-   invocation, an iterative DHT lookup does not fit in one request and the design must
-   serialise or shard across objects. **This single number decides whether the routing half
-   is possible at all**, and it is the first thing to measure.
-2. **Whether a connection survives hibernation** (see below). A gateway that must redial
-   Amino on every request pays the handshake each time.
-3. **Block storage.** DO values top out at 4 MiB (§4), which fits IPFS blocks comfortably,
-   but a block *store* wants R2 — and the API credential returns `403` on R2 today.
+1. **The outbound ceiling — measured, §11.** It is not "six simultaneous"; forty sockets were
+   held open at once. It is **50 subrequests per invocation, cumulative**, and closing a
+   socket does not give the budget back. Crucially, **traffic on an already-open socket is
+   free** — 200 round-trips on one connection cost nothing. So a cold fan-out wider than 50
+   dials does not fit in one invocation, and a warm object with a connection pool is not
+   bound at all. The routing half is possible; it just may not be stateless.
+2. **Connection survival — measured, §13 and §18, and the answer is conditional.** An idle
+   libp2p connection was gone after six minutes while the object itself was untouched. A
+   hibernatable socket carrying no libp2p survived fifteen. A gateway therefore either pays
+   keep-alive or is written against the hibernation API.
+3. **Block storage — still unmeasured.** DO values top out at 4 MiB (§4), which fits IPFS
+   blocks comfortably, but a block *store* wants R2, and the API credential returns `403`.
 
 **What to resist.** "Gateway" invites scope: a full public-IPFS bridge with bitswap, pinning
 and a trustless gateway endpoint is a product, not a component. The part that pays for itself
@@ -332,14 +335,170 @@ one guard whose consequence is legal and permanent rather than technical.
 
 ---
 
+## 11. The outbound ceiling is 50 per invocation, cumulative — not "six simultaneous"
+
+| requested simultaneously | opened at the same instant |
+|---|---|
+| 6 / 10 / 20 / 40 | 6 / 10 / 20 / **40** |
+| 80 | 50, then refused |
+
+Ten sockets per round, opened *and closed*, twelve rounds: `totalOpened: 50`, then
+`Too many subrequests by single Worker invocation`. **Closing does not return budget**, and
+`fetch` draws on the same pool — 50 succeeded, 60 gave 50 and the same refusal. A Durable
+Object gets the identical 50, and a second call to the same object gets a **fresh** 50, so
+the budget is per invocation rather than per object lifetime.
+
+**Reuse is free**: 200 round-trips on one open socket, 360 ms, no refusal. The cap counts
+*new connections only*.
+
+## 12. Inbound TCP is unavailable here, twice over
+
+Cloudflare has published a `connect(socket)` handler for raw inbound TCP. A deploy accepted
+such a handler without complaint, which proves nothing — unknown exports are ignored. The
+ingress side is blocked twice: the feature is **private beta** entered by application form,
+and it routes through **Spectrum**, which needs a zone. `GET /zones` returns `success: true`
+with an empty list: this account has no domain at all.
+
+So §9's WSS listener is not a workaround for a missing feature. It is the only inbound path
+available, and it works.
+
+## 13. An idle libp2p connection does not survive six minutes. The object does.
+
+```json
+{"step":"dialed",      "status":"open"}
+{"step":"after-quiet", "quietMs":360000, "connStatus":"aborted", "connections":0}
+{"step":"object-after","samePeerId":true, "sameCtor":true}
+```
+
+`sameCtor: true` is the important half — the constructor timestamp did not move, so the
+object was never restarted and its identity never went anywhere. What died was the idle
+socket. Compare §18.
+
+## 14. A Durable Object works as a Circuit Relay v2 server
+
+`@libp2p/circuit-relay-v2`'s README says a relay server "will not work in browsers"
+(`README.md:46`). A Worker is not a browser, and `dist/src/server/index.js` imports nothing
+node-specific — all twelve imports are pure libp2p packages.
+
+```json
+{"relay-protocols-advertised":["/ipfs/id/1.0.0","/ipfs/ping/1.0.0","/libp2p/circuit/relay/0.2.0/hop"]}
+{"A-reservation":["/dns4/<host>/tcp/443/tls/ws/p2p/<relay>/p2p-circuit/p2p/<A>"]}
+{"B-dialed-A-through-cloudflare-relay":{"ok":true,"ms":1285.3,"isA":true,"pingMs":54}}
+```
+
+Peer **A** reserved a slot on the object; peer **B** reached A **only through it**, verified
+A's PeerId, and pinged in 54 ms. **This is the role the browser tier cannot do without** — a
+publicly reachable Circuit Relay v2 for the WebRTC SDP handshake — on a host that needs no
+certificate of its own.
+
+**The relay must declare an address.** With `addresses: { listen: [] }` every reservation
+came back empty: the server had no address to hand a client. Adding
+`announce: ['/dns4/<host>/tcp/443/tls/ws']` fixed it — the same declare-don't-bind shape
+already used where a host has no non-RFC1918 interface.
+
+## 15. One missing field made a connection that upgraded and then carried nothing
+
+`webSocketToMaConn()` takes a `direction`, and `@libp2p/websockets`' listener passes
+`direction: 'inbound'` (`dist/src/listener.js:147`). Omitting it defaults to outbound, both
+ends negotiate yamux as clients, and every stream is refused with
+`InvalidParametersError: Both endpoints are clients`
+(`@chainsafe/libp2p-yamux/dist/src/muxer.js:356`).
+
+**The failure presents nowhere near its cause.** The dial succeeds, Noise completes, yamux
+negotiates — then identify silently returns nothing, the peer store stays empty, relay
+discovery finds no relays, and the reservation comes back empty. Two readings were
+misattributed to the platform before the message was traced: a `ping-failed` in the
+hibernation run, and "the relay does not advertise hop" — which it had been advertising all
+along.
+
+## 16. The relay's limits: data enforced at 128 KiB **bidirectional**, duration not observed
+
+`CLAUDE.md` states `DURATION_LIMIT` 2 minutes and `DATA_LIMIT` 128 KiB as constraints on the
+fabric. Measured against the Durable Object relay, configured with a `reservations` object
+carrying no explicit limits:
+
+**Duration — not observed.** The relayed connection held **206 s** through ten pings with no
+cut, against a 120 s default. Reproduced on a second independent run (204 s).
+`conn.limits` came back `{}`.
+
+**Data — enforced, and it counts both ways.** Sweeping the chunk size separates a byte limit
+from a framing artifact, and the cut lands on the same byte every time:
+
+| chunk | writes | sent | echoed back | cut at |
+|---|---|---|---|---|
+| 4 KiB | 16 | 65536 | 61440 | **65536** |
+| 16 KiB | 4 | 65536 | 49152 | **65536** |
+| 64 KiB | 1 | 65536 | 0 | **65536** |
+
+65536 is not the default. **The sum of both directions is**: bytes out, plus bytes back, plus
+the reply in flight when the stream died, gives `65536 + 65536 = 131072` in every row —
+`DATA_LIMIT` exactly. The relay enforced it while advertising no limits at all.
+
+**Consequence, and it is the kind of number a design gets wrong once:** a symmetric
+request/response protocol over a relayed connection gets **64 KiB each way, not 128**.
+
+The asymmetry — data enforced, duration not observed at 1.7× its default — is recorded as
+measured and **not explained**. Both halves reproduced.
+
+**An earlier data reading was withdrawn.** A first attempt reported a cut at 16 KiB. A local
+control over the memory transport then *hung*, and hardening it produced the cause: the
+handler had been written `({ stream }) => …`, the v2 shape, while v3 passes
+`(stream, connection)` (`@libp2p/interface/dist/src/stream-handler.d.ts:5`). With that fixed
+the control echoes 131072 bytes clean. The 16 KiB figure meant nothing and would have read as
+a platform limit stricter than documented.
+
+## 17. A Cloudflare WebSocket has no `bufferedAmount`, so backpressure is silently off
+
+`webSocketToMaConn` reads `websocket.bufferedAmount` to decide whether it may send more.
+Measured on the real object, the property is not merely unset — it is **absent from the
+prototype**, which carries only
+`accept, send, close, serializeAttachment, deserializeAttachment, readyState, url, protocol,
+extensions, binaryType`.
+
+An adapter must supply something, and supplying `0` reports "always room to send", disabling
+libp2p's backpressure entirely. Acceptable for a signaling path; **a production listener
+needs a real answer, and Cloudflare does not provide one.**
+
+## 18. Hibernatable and non-hibernatable idle sockets behave differently
+
+| acceptance | idle | outcome |
+|---|---|---|
+| `state.acceptWebSocket(server)` (hibernatable) | **15 min** | never closed |
+| `server.accept()`, carrying libp2p | 6 min | connection `aborted` |
+
+`webSocketToMaConn` needs a live in-memory object and event handlers, so it cannot use the
+hibernation API as written — and that is precisely the socket that died. The object survived
+both.
+
+**This is the open design question for the bootstrap role, and it now has a shape rather than
+a shrug**: either keep-alive traffic holds a non-hibernatable socket open indefinitely
+(unmeasured), or an adapter is written against the hibernation API so an idle peer costs
+nothing. The 15-minute reading says the second path exists.
+
+---
+
+## Disclosure
+
+Public hosting is public disclosure; the EPO and China have no grace period, and
+`packages/node/src/disclosure-gate.node.test.ts` enforces the *absence* of any deploy
+workflow or `deploy` script precisely so that publishing cannot become a consequence of a
+push. Nothing here touched that: the probes lived outside the repository, carried no project
+source, and were deployed by hand and deleted by exact name.
+
+**Any real Cloudflare deployment stays a separately-triggered human act.** No
+`wrangler.toml`, no `deploy` script and no workflow may enter this repository as a
+convenience — this is the one guard whose consequence is legal and permanent rather than
+technical.
+
+---
+
 ## Still unmeasured
 
-- **Six-outbound-connection limit** — decides the gateway question above.
-- **Hibernation across a real idle window.** Every reading above was taken against a warm
-  object. Whether a libp2p connection survives eviction and rehydration is the question that
-  separates "an always-reachable bootstrap node" from "a node that is reachable while awake",
-  and it is not yet answered.
-- **Inbound TCP.** Cloudflare has published that Workers gained it; if true, a plain
-  `/ip4/…/tcp/…` listener replaces the WSS adapter of §9 entirely.
-- **Containers and R2** — the API credential returns `403` on both, so the execution tier and block
-  storage are both unmeasured. Per §1's ruling the execution tier may not be wanted at all.
+- **Whether keep-alive holds a non-hibernatable socket open indefinitely** — the remaining
+  half of §18, and the one that decides whether the bootstrap role is free or expensive.
+- **A hibernation-aware listener.** §18 says the path exists; nothing has been written
+  against it.
+- **Why the duration limit did not apply while the data limit did** (§16). Both readings
+  reproduced; neither is explained.
+- **Containers and R2** — the API credential returns `403` on both. Per §1's ruling the
+  execution tier may not be wanted at all, but R2 is wanted for blocks regardless.
