@@ -99,7 +99,7 @@ risks masking the next gap instead of surfacing it.
   block (`"exports": { "Bootstrap": { "type": "durable-object", "storage": "sqlite" } }`)
   rather than the legacy `[[migrations]] new_sqlite_classes = [...]` array. The legacy
   migrations array still works for existing classes; the `exports` shape is what
-  current docs present for new ones. **This project's `bootstrap-eu/-us/-apac`
+  current docs present for new ones. **This project's `bootstrap-us/-eu/-sam`
   objects are new — use the `exports` shape, not legacy migrations.**
 - **Alarms need no wrangler config entry at all.** There is no `[[alarms]]` block or
   binding to declare — the entire surface is `ctx.storage.setAlarm(timestamp)` plus an
@@ -112,7 +112,7 @@ risks masking the next gap instead of surfacing it.
   are no-ops for placement). Valid values, verified against current docs: `wnam`,
   `enam`, `sam`, `weur`, `eeur`, `apac`, `apac-ne`, `apac-se`, `oc`, `afr`, `me`. This
   is a best-effort hint, not a guarantee — matches the multi-region decision in
-  `PROJECT.md` (`bootstrap-eu`/`-us`/`-apac`), but the actual siting should be
+  `PROJECT.md` (`bootstrap-us`/`-eu`/`-sam`), but the actual siting should be
   confirmed once deployed rather than assumed from the hint string alone.
 - **`jurisdiction`** — a different axis from `locationHint` (data-residency
   restriction, not placement preference): `env.NAMESPACE.jurisdiction("eu").newUniqueId()`,

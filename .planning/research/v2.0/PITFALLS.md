@@ -125,7 +125,7 @@ ceiling.** The alert is worth lowering from $10 and is not worth mistaking for a
 2. **The set of object names must be closed and short.** `idFromName()` creates an object for
    any name it is given, so a name derived from anything a visitor controls lets a public
    cohort — or one person in it — create unbounded objects, each with its own storage and its
-   own alarm. `bootstrap-eu` / `-us` / `-apac` is the whole namespace. This is a design
+   own alarm. `bootstrap-us` / `bootstrap-eu` / `bootstrap-sam` is the whole namespace as of the owner's 2026-08-25 decision, and it is expected to grow by adding names rather than by widening the rule. This is a design
    constraint, not an operational habit, and it belongs in the requirement rather than in a
    runbook.
 
