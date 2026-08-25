@@ -811,7 +811,19 @@ code, not the reports. -->
 - [x] **DEMO-03**: The demo is deployable to static hosting with no server-side
       process beyond the backbone relay
 - [x] **DEMO-04**: Public deployment is an explicitly triggered action, never an
-      automatic consequence of a phase completing
+      automatic consequence of a phase completing.
+      **REPURPOSED by owner ruling 2026-08-25 — the mechanism stands, the reason changed.**
+      The row was written to prevent an irreversible legal event: publishing forfeits EPO and
+      China patent rights permanently, so a deploy could not be allowed to fall out of a phase
+      completing. **That reason is spent twice over** — the repository has been public since
+      2026-07-26, and the owner ruled open source on 2026-08-24. The original wording is
+      unchanged above because the sentence is still true; what is retired is only its
+      *rationale*, and the replacement is narrower and cheaper to check: **deploying a paid
+      tier does not happen by itself.** In a milestone whose whole point is to add a
+      Cloudflare deploy, that is a live guard rather than a historical one — Cloudflare has no
+      hard spending ceiling, so an accidental deploy has no floor under it. Do NOT read this as
+      a disclosure gate: raising disclosure as a reason to hesitate has already been wrong once
+      in this project and is settled. See `HOST-11`, and open question 6 below, now closed.
 
 ### Native → WASM AOT (Part I)
 
@@ -1595,15 +1607,22 @@ Recorded, not answered. Each names what would settle it and which rows move when
    actual recruitment link from a real Telegram message on both iOS and Android before
    recruiting begins — cheap to check, expensive to get wrong at cohort scale. **Changes:**
    `RUN-06`, and `RUN-01`'s gate.
-6. **`DEMO-04`'s guard still passes, but its stated rationale is spent.** The guard
+6. **`DEMO-04`'s guard — SETTLED 2026-08-25 by owner ruling; kept here rather than deleted,
+   because a question that was open is part of the record.** It read: the guard
    (`packages/node/src/disclosure-gate.node.test.ts`) forbids a deploy workflow in order to
-   prevent an irreversible legal event — and that event is now the plan, because the project is
-   open source. **Retire it, repurpose it as an ordinary "no accidental deploys" rule, or keep
-   it as written is an open decision, not a rule.** `ARCHITECTURE.md` §7 already treats
-   *building* `packages/cloudflare/`'s source as distinct from *deploying* it under the guard's
-   own logic, and recommends keeping deployment a manual, separately-triggered act however this
-   resolves. **Settled by:** an owner ruling. **Changes:** `DEMO-04` itself, and the phrasing of
-   `HOST-11`.
+   prevent an irreversible legal event, and that event is now the plan, so retire / repurpose /
+   keep was an open decision. **The ruling is repurpose.** The mechanism stays; its rationale is
+   rewritten from *disclosure is irreversible* to *deploying a paid tier does not happen by
+   itself*. `ARCHITECTURE.md` §7's distinction survives the change intact — *building*
+   `packages/cloudflare/`'s source stays distinct from *deploying* it, and deployment stays a
+   manual, separately-triggered act. **Changed:** `DEMO-04`'s row above and `HOST-11`.
+
+**A second ruling of the same date, recorded here because it changes what Phase 29 can close.**
+Autonomous execution may do everything in Phase 29 **except touch Cloudflare**: the package,
+the datastore, the four guards and the build test that settles open question 1 all proceed
+without an account. **Criteria 1 and 2 — the billing alert and the first deploy — stay open and
+must be reported open.** A phase report that ticks either on work done locally has widened what
+counts as passing, which is the one thing this ledger exists to prevent.
 
 ---
 
