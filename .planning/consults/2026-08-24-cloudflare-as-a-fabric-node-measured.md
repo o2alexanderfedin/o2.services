@@ -300,13 +300,13 @@ anchor, nothing added to the seven artefact types in RESPONSE-04.
 
 **Two of the three unknowns are now measured. The answer is: possible, with a pool.**
 
-1. **The outbound ceiling — measured, §11.** It is not "six simultaneous"; forty sockets were
+1. **The outbound ceiling — measured, §10.** It is not "six simultaneous"; forty sockets were
    held open at once. It is **50 subrequests per invocation, cumulative**, and closing a
    socket does not give the budget back. Crucially, **traffic on an already-open socket is
    free** — 200 round-trips on one connection cost nothing. So a cold fan-out wider than 50
    dials does not fit in one invocation, and a warm object with a connection pool is not
    bound at all. The routing half is possible; it just may not be stateless.
-2. **Connection survival — measured, §13 and §18, and the answer is conditional.** An idle
+2. **Connection survival — measured, §12 and §17, and the answer is conditional.** An idle
    libp2p connection was gone after six minutes while the object itself was untouched. A
    hibernatable socket carrying no libp2p survived fifteen. A gateway therefore either pays
    keep-alive or is written against the hibernation API.
@@ -319,23 +319,7 @@ immediately is **routing for the fabric's own keyspace plus artifact fetch over 
 URL** — and note that the artifact half loses its main prize on this tier, because §1 removed
 `instantiateStreaming` and with it the V8 code cache. Scope it to routing first.
 
----
-
-## Disclosure
-
-Public hosting is public disclosure; the EPO and China have no grace period, and
-`packages/node/src/disclosure-gate.node.test.ts` enforces the *absence* of any deploy
-workflow or `deploy` script precisely so that publishing cannot become a consequence of a
-push. Nothing in this investigation touched that: the probes lived outside the repository,
-carried no project source, and were deployed by hand and deleted.
-
-**Any real Cloudflare deployment stays a separately-triggered human act.** No `wrangler.toml`,
-no `deploy` script and no workflow may enter this repository as a convenience — that is the
-one guard whose consequence is legal and permanent rather than technical.
-
----
-
-## 11. The outbound ceiling is 50 per invocation, cumulative — not "six simultaneous"
+## 10. The outbound ceiling is 50 per invocation, cumulative — not "six simultaneous"
 
 | requested simultaneously | opened at the same instant |
 |---|---|
@@ -351,7 +335,7 @@ the budget is per invocation rather than per object lifetime.
 **Reuse is free**: 200 round-trips on one open socket, 360 ms, no refusal. The cap counts
 *new connections only*.
 
-## 12. Inbound TCP is unavailable here, twice over
+## 11. Inbound TCP is unavailable here, twice over
 
 Cloudflare has published a `connect(socket)` handler for raw inbound TCP. A deploy accepted
 such a handler without complaint, which proves nothing — unknown exports are ignored. The
@@ -362,7 +346,7 @@ with an empty list: this account has no domain at all.
 So §9's WSS listener is not a workaround for a missing feature. It is the only inbound path
 available, and it works.
 
-## 13. An idle libp2p connection does not survive six minutes. The object does.
+## 12. An idle libp2p connection does not survive six minutes. The object does.
 
 ```json
 {"step":"dialed",      "status":"open"}
@@ -372,9 +356,9 @@ available, and it works.
 
 `sameCtor: true` is the important half — the constructor timestamp did not move, so the
 object was never restarted and its identity never went anywhere. What died was the idle
-socket. Compare §18.
+socket. Compare §17.
 
-## 14. A Durable Object works as a Circuit Relay v2 server
+## 13. A Durable Object works as a Circuit Relay v2 server
 
 `@libp2p/circuit-relay-v2`'s README says a relay server "will not work in browsers"
 (`README.md:46`). A Worker is not a browser, and `dist/src/server/index.js` imports nothing
@@ -396,7 +380,7 @@ came back empty: the server had no address to hand a client. Adding
 `announce: ['/dns4/<host>/tcp/443/tls/ws']` fixed it — the same declare-don't-bind shape
 already used where a host has no non-RFC1918 interface.
 
-## 15. One missing field made a connection that upgraded and then carried nothing
+## 14. One missing field made a connection that upgraded and then carried nothing
 
 `webSocketToMaConn()` takes a `direction`, and `@libp2p/websockets`' listener passes
 `direction: 'inbound'` (`dist/src/listener.js:147`). Omitting it defaults to outbound, both
@@ -411,7 +395,7 @@ misattributed to the platform before the message was traced: a `ping-failed` in 
 hibernation run, and "the relay does not advertise hop" — which it had been advertising all
 along.
 
-## 16. The relay's limits: data enforced at 128 KiB **bidirectional**, duration not observed
+## 15. The relay's limits: data enforced at 128 KiB **bidirectional**, duration not observed
 
 `CLAUDE.md` states `DURATION_LIMIT` 2 minutes and `DATA_LIMIT` 128 KiB as constraints on the
 fabric. Measured against the Durable Object relay, configured with a `reservations` object
@@ -447,7 +431,7 @@ handler had been written `({ stream }) => …`, the v2 shape, while v3 passes
 the control echoes 131072 bytes clean. The 16 KiB figure meant nothing and would have read as
 a platform limit stricter than documented.
 
-## 17. A Cloudflare WebSocket has no `bufferedAmount`, so backpressure is silently off
+## 16. A Cloudflare WebSocket has no `bufferedAmount`, so backpressure is silently off
 
 `webSocketToMaConn` reads `websocket.bufferedAmount` to decide whether it may send more.
 Measured on the real object, the property is not merely unset — it is **absent from the
@@ -459,7 +443,7 @@ An adapter must supply something, and supplying `0` reports "always room to send
 libp2p's backpressure entirely. Acceptable for a signaling path; **a production listener
 needs a real answer, and Cloudflare does not provide one.**
 
-## 18. Hibernatable and non-hibernatable idle sockets behave differently
+## 17. Hibernatable and non-hibernatable idle sockets behave differently
 
 | acceptance | idle | outcome |
 |---|---|---|
@@ -474,6 +458,96 @@ both.
 a shrug**: either keep-alive traffic holds a non-hibernatable socket open indefinitely
 (unmeasured), or an adapter is written against the hibernation API so an idle peer costs
 nothing. The 15-minute reading says the second path exists.
+
+---
+
+## 18. A Durable Object is already "one node" — and it held 599 peers
+
+**Asked by the owner, 2026-08-24:** if state lives in the table, can every Cloudflare node be
+treated as just a connection into one seed/bootstrap node?
+
+**Yes, and Cloudflare's addressing already implements it.** `idFromName('bootstrap-1')`
+resolves to a single global instance. §13's relay result is the proof, and it was not designed
+to be one: peer A's reservation lives in the relay's **in-memory** store, and peer B — a
+separate process on a separate connection — dialled through it successfully. Two independent
+connections saw one piece of memory, so they reached one instance.
+
+Confirmed again by fan-in. Every client reported the same remote PeerId, and the object's
+constructor timestamp never moved:
+
+| peers dialled at once | landed | object saw | ms | same instance |
+|---|---|---|---|---|
+| 20 | 20 | 20 | 618 | yes |
+| 60 | 60 | 60 | 1125 | yes |
+| 150 | 150 | 150 | 2021 | yes |
+| 300 | 300 | 300 | 4191 | yes |
+| 600 | **599** | 599 | 6637 | yes |
+
+The single failure at 600 was a client-side dial timeout on the test machine. **The ceiling
+found is the test rig, not Cloudflare** — cost grew at roughly 11 ms per connection and the
+curve never bent.
+
+## 19. The listener must report the real client address, or the node throttles the world to 5/s
+
+Before the fan-in worked at all it returned an erratic 3/3, 2/5, 5/8, 0/12 — then a stubborn
+5 whatever N was. Two suspects, eliminated in order rather than guessed at.
+
+**Suspect A, eliminated by measurement, and it was mine:** every inbound upgrade did a
+read-modify-write of one storage key, serialising twelve concurrent handshakes inside the
+upgrade path. Removing it turned 5/5 into a clean pass and left 12 and 20 pinned at five.
+
+**Suspect B, the actual cause:** `INBOUND_CONNECTION_THRESHOLD = 5`
+(`libp2p/dist/src/connection-manager/constants.defaults.js:29`) is libp2p's own defence, and
+it is **per host per second** — `connection from %a refused - inboundConnectionThreshold
+exceeded by host %s` (`connection-manager/index.js:399`).
+
+The listener passed `remoteAddr: multiaddr('/ip4/127.0.0.1/tcp/443/tls/ws')` for every inbound
+connection, so **libp2p saw the entire internet as one host** and rate-limited the node as a
+whole to five connections per second. Cloudflare supplies the real address in
+`CF-Connecting-IP`; deriving the multiaddr from it turned 5/40 into 300/300.
+
+**This is the most consequential defect found in the listener**, and it is invisible in any
+small test: with one or two peers everything works, and the node then silently refuses to
+scale. It belongs beside `direction: 'inbound'` (§14) as a required field, not a detail.
+
+*(The fan-in readings above additionally raise `inboundConnectionThreshold` so that the
+platform's ceiling is what shows, rather than libp2p's defence firing on a single test host.
+That is a **measurement setting and not a recommendation**: in production the defence is
+wanted, and with a correct `remoteAddr` it applies per client instead of globally.)*
+
+## 20. What "millions of nodes" does to this shape
+
+Not measured — reasoned from what was, and marked as such.
+
+**Sharding is addressing, not provisioning.** `idFromName()` maps a name to an instance, so a
+fleet of bootstrap peers is a set of names (`bootstrap-0…N`) rather than a set of servers.
+Each name is a distinct object with its own storage and therefore its own identity — which is
+what a DHT wants anyway: many peers spread across the keyspace rather than one peer holding
+all of it.
+
+**One identity across many instances is the thing that does not work**, and §13 shows why:
+the relay's reservation store is in-memory and per-instance, so a dial arriving at the wrong
+instance finds nothing. The rule is therefore **one identity per object**; many objects are
+many peers, and the fabric already understands that shape.
+
+**What binds first, in order:**
+
+1. **The cost of held sockets.** A non-hibernatable socket keeps the object resident, and
+   billing, for as long as it is open (§17). At millions of peers this — not capability — is
+   the limit. The fix is a listener written against the hibernation API, which §17 shows is
+   available and against which nothing has yet been written.
+2. **Geography.** An object lives in one datacenter. One global bootstrap is one physical
+   point; worldwide coverage means regional shards, which means more identities — cheap,
+   given the rule above.
+3. **New connections per second, not messages.** Traffic on an open socket is free (§10) and
+   is not a request. In a browser fabric it is **tab churn** that turns into request rate.
+4. **Storage is not the constraint.** 10 GB per object against ~1 KB records is ten million
+   records per object.
+
+**And the role that matters at scale is the relay, not the bootstrap.** Bootstrap is needed
+once, at cold start, and a peer that has learned others stops needing it. A relay is needed
+**per session**, for every browser-to-browser WebRTC handshake. §13 is therefore the more
+valuable of the two results.
 
 ---
 
@@ -495,10 +569,14 @@ technical.
 ## Still unmeasured
 
 - **Whether keep-alive holds a non-hibernatable socket open indefinitely** — the remaining
-  half of §18, and the one that decides whether the bootstrap role is free or expensive.
-- **A hibernation-aware listener.** §18 says the path exists; nothing has been written
+  half of §17, and the one that decides whether the bootstrap role is free or expensive.
+- **A hibernation-aware listener.** §17 says the path exists; nothing has been written
   against it.
-- **Why the duration limit did not apply while the data limit did** (§16). Both readings
+- **Why the duration limit did not apply while the data limit did** (§15). Both readings
   reproduced; neither is explained.
 - **Containers and R2** — the API credential returns `403` on both. Per §1's ruling the
   execution tier may not be wanted at all, but R2 is wanted for blocks regardless.
+- **The connection ceiling of one object.** 599 was the test rig's limit, not Cloudflare's.
+- **Record expiry as a sweep.** The owner's remaining requirement is expiration, and §5 shows
+  the mechanism exists and is exact — an alarm fired 1 ms late and survived eviction. A sweep
+  over `storage.list({ prefix })` rescheduling itself is the shape; it is not yet written.
