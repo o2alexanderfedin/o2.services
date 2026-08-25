@@ -4,6 +4,64 @@ milestone: v1.1
 milestone_name: Wire What Was Built
 status: milestone_complete
 stopped_at: >-
+  CURRENT AS OF 2026-08-24. v1.1 is closed at 15/15 and the figures below still hold; what
+  follows is the work done since, on `feature/dht-registration-and-discovery`, which is 31
+  commits ahead of `develop` and not yet merged.
+
+
+  **This file's frontmatter was found wrong and is restored.** An orphaned working-tree write —
+  from a process the 2026-08-24 reboot ended, and machine-shaped rather than hand-written — had
+  replaced the reconciliation block below with the one line "context exhaustion at 100%
+  (2026-08-23)", set `status` back to `verifying`, moved `total_phases` to 29, and zeroed
+  `completed_phases`, `total_plans`, `completed_plans` and `percent` for a milestone this same
+  file records as 15/15 with 103 plans. It left the 2 200-line body alone: 235 lines out, 60 in.
+  **Said precisely because the first description of it here was wrong** — "cut from 2 397 lines
+  to 17" — which was read off the frontmatter preview and inferred rather than measured; the
+  working copy was 2 222 lines. It is preserved outside the repo rather than merged in, and the
+  figures below are the measured ones.
+
+
+  **AUTH-04 — a certificate now outlives its first issue.** Nothing renewed one: it was
+  obtained once at start and the only route to another was a restart, so a process outliving
+  its certificate kept running while every peer demoted it. Three snapshots had to stop being
+  snapshots — `SelfRecordIndex`, `RecordPublisher` and each tier's `certificate` field — and
+  all three now read one `CertificateHolder`. Renewal begins at two-thirds, deliberately not
+  aliased to `lease.ts`, and deliberately stays true after expiry, where `shouldRenew` goes
+  false. The renewal timer is clamped to 2^31-1 ms, because `setTimeout` overflows to one
+  millisecond rather than saturating.
+
+
+  **Owner rulings taken 2026-08-24, all three implemented.** Certificate lifetime 30 days to
+  **1 hour**, reversing the 2026-08-02 correction recorded in `enrollment.ts`'s own header —
+  which drags `DEFAULT_MAX_PER_WINDOW` 32 to 64, because that number was sized on "a returning
+  visitor spends nothing in 719 hours of 720" and an hourly certificate inverts it. A change of
+  trust anchors is now a **consent event**, with a fourth `ConsentGap` kind. And a certificate
+  can announce the key its node will rotate to (`nextKeyCommitment`), as a hash inside the
+  issuer's signature — the format lands now because the alternative is changing a signed format
+  with certificates in circulation.
+
+
+  **One certificate system, not two.** `cert-lifecycle.ts` — 775 lines, tested, imported by
+  nothing — was deleted by owner ruling, closing what CRYPTO-03 had explicitly left open. Its
+  delegation half duplicated `capability.ts`, its identity half `enrollment.ts`, its
+  crypto-backend selection was already merged into `ed25519-backend.ts` by Phase 28, and its
+  revocation half is refused by standing ruling.
+
+
+  **DATA-08 — a node with a durable directory now keeps its libp2p state**, and the diagnosis
+  that had blocked it for a week was falsified rather than confirmed: ten sound eliminations had
+  been assembled into one false claim ("any asynchronous datastore hangs enrolment"), and an
+  async in-memory store enrols fine in four different shapes. Peers verified before a restart are
+  no longer re-asked, and the cache cannot widen what is accepted because a cached certificate
+  takes the same `#accept` a fresh one does.
+
+
+  **Suite at HEAD:** node 208/208 files and 3 032 tests at `(user+sys)/real` 1.36; browser
+  315/315 and 5 286 tests; e2e last read 38/38 and 235 tests. The `tools/aot` Docker gates fail
+  as a group below a CPU ratio of about 1.0 and pass individually — a property of this host under
+  contention, measured across five full runs, not a defect in them.
+
+
   RECONCILED 2026-08-20, AND THE HEADLINE BELOW IS THE ONE THING THAT WAS WRONG. **THE COUNT IS 15
   OF 15, NOT 12.** All three carried phases closed on 2026-08-18, each by a dated amendment to its
   own verification file rather than by a rewrite: 20 at 7/7 (criterion 7 closed at `ce97bc8`), 21
@@ -223,8 +281,8 @@ stopped_at: >-
   demo-pi.e2e.test.ts IS A KNOWN FLAKE - green, red, green on identical code, cause not found.
   AOTW-06's 27/27 NOTE IS UNREPRODUCED: two prose sentences from one commit, no patch, no log, and
   third_party/elfconv pristine at its pinned commit.
-last_updated: "2026-08-20T09:20:00.000Z"
-last_activity: 2026-08-20
+last_updated: "2026-08-24T17:45:00.000Z"
+last_activity: 2026-08-24
 progress:
   total_phases: 15
   completed_phases: 15
