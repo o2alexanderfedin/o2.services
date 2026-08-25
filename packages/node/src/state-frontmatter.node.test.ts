@@ -106,6 +106,42 @@ const SOURCE = readFileSync(STATE, 'utf8')
 const FRONTMATTER = frontmatterOf(SOURCE)
 const FIELDS = topLevelFields(FRONTMATTER)
 
+/**
+ * The frontmatter keys, as one source rather than as literals repeated per assertion.
+ *
+ * **These are not this project's vocabulary and must never be renamed here.** They are the
+ * wire names an external writer stamps on `.planning/STATE.md` — the `get-shit-done` workflow
+ * toolkit that supplies the `/gsd-*` commands, which writes `gsd_state_version` at
+ * `~/.claude/get-shit-done/bin/lib/state.cjs:931` as its own schema-version stamp. This guard
+ * READS that contract to check the file still parses; renaming a value here would not rename
+ * anything on disk, it would only stop the guard describing the file it guards.
+ *
+ * So the split is deliberate: **our names on the left, their wire strings on the right.** A
+ * TypeScript `enum` would fuse the two and put a foreign tool's branding into this
+ * repository's type system as a first-class identifier. A `const` object also matches the
+ * incumbent pattern — this tree holds 108 string-literal union types and, before this line,
+ * zero enums.
+ *
+ * `Object.values` is why this is an object rather than eight separate constants: the
+ * completeness case below asserts the WHOLE set, and a list written out a second time is a
+ * list that can drift from the first.
+ */
+const GSD_FRONTMATTER_KEY = {
+  schemaVersion: 'gsd_state_version',
+  milestone: 'milestone',
+  milestoneName: 'milestone_name',
+  status: 'status',
+  stoppedAt: 'stopped_at',
+  lastUpdated: 'last_updated',
+  lastActivity: 'last_activity',
+  progress: 'progress',
+} as const
+
+type GsdFrontmatterKey = (typeof GSD_FRONTMATTER_KEY)[keyof typeof GSD_FRONTMATTER_KEY]
+
+/** Every key above, in declaration order. The completeness case reads this, not a copy of it. */
+const REQUIRED_KEYS: readonly GsdFrontmatterKey[] = Object.values(GSD_FRONTMATTER_KEY)
+
 describe('.planning/STATE.md frontmatter stays parseable', () => {
   it('is a block this guard can actually see — otherwise everything below is vacuous', () => {
     // Without this, a frontmatter that failed to match would silently produce zero
@@ -113,8 +149,8 @@ describe('.planning/STATE.md frontmatter stays parseable', () => {
     // guard this repository keeps finding, so it is checked first.
     expect(FRONTMATTER.length).toBeGreaterThan(100)
     expect(FIELDS.length).toBeGreaterThanOrEqual(6)
-    expect(FIELDS.map((field) => field.key)).toContain('stopped_at')
-    expect(FIELDS.map((field) => field.key)).toContain('progress')
+    expect(FIELDS.map((field) => field.key)).toContain(GSD_FRONTMATTER_KEY.stoppedAt)
+    expect(FIELDS.map((field) => field.key)).toContain(GSD_FRONTMATTER_KEY.progress)
   })
 
   it('has no plain scalar carrying a `": "`, which is what broke it', () => {
@@ -182,17 +218,9 @@ describe('.planning/STATE.md frontmatter stays parseable', () => {
     // Cheap, and it is the half a structural check would otherwise miss: the block can be
     // perfectly well-formed YAML and have had a field dropped by one of the three writers.
     const keys = FIELDS.map((field) => field.key)
-    expect(keys).toEqual(
-      expect.arrayContaining([
-        'gsd_state_version',
-        'milestone',
-        'milestone_name',
-        'status',
-        'stopped_at',
-        'last_updated',
-        'last_activity',
-        'progress',
-      ]),
-    )
+    // Anti-vacuity before the assertion that matters: `arrayContaining([])` is satisfied by
+    // anything, so an empty or truncated constant would make this case pass over nothing.
+    expect(REQUIRED_KEYS.length).toBe(8)
+    expect(keys).toEqual(expect.arrayContaining([...REQUIRED_KEYS]))
   })
 })
