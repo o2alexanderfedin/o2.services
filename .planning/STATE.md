@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Open the Doors
 status: planning
-last_updated: "2026-08-25T06:54:13.004Z"
+last_updated: "2026-08-25T09:39:00.000Z"
 last_activity: 2026-08-25
 progress:
   total_phases: 0
@@ -2365,6 +2365,31 @@ Items acknowledged and carried forward from previous milestone close:
 | *(none)* | | | |
 
 ## Session Continuity
+
+Last session: 2026-08-25T09:39:00Z — **resumed via `/gsd-resume-work`; nothing was in flight,
+no interrupted agent, no `.continue-here` under any phase directory.**
+
+Verified on resume rather than quoted — and this matters, because the handoff was wrong about
+it: `develop` `d895308` = `origin/develop`, `main` `159d3c9` = `origin/main`, tree clean, one
+worktree, 0 pending todos. **`HANDOFF.json` recorded `head: 71a638e` and its resume block said
+`feature/milestone-v2.0-open-the-doors` was "not merged yet"; both were stale.** The merge
+happened during the pause itself, *after* those lines were written —
+`git merge-base --is-ancestor feature/milestone-v2.0-open-the-doors main` succeeds. Corrected in
+place in both `HANDOFF.json` and `.continue-here.md`, with the wrong reading struck through
+rather than deleted. **This is the same failure the 2026-08-20 entry below generalises**: an
+artifact written at the moment work is declared finished gets written while the last of it is
+still landing. A pause handoff is now the fourth kind of file to fail that way.
+
+**`HANDOFF.json` was deliberately NOT deleted on this resume**, which departs from both the
+workflow's rule and the 2026-08-20 precedent. Reason: resumption is not complete — steps 9, 10
+and 11 of `/gsd-new-milestone` have not run, and the handoff's `blocking_constraints` govern
+them. It is corrected, not stale. Delete it when step 11 commits.
+
+Stopped at (2026-08-25, in progress): the research synthesizer was dispatched against
+`.planning/research/v2.0/{STACK,FEATURES,ARCHITECTURE,PITFALLS}.md` writing
+`.planning/research/v2.0/SUMMARY.md` — **the `v2.0/` path is load-bearing**; the five files
+directly under `.planning/research/` are v1's and `CLAUDE.md` cites `STACK.md:113` by line.
+Then step 9 (REQ-IDs), step 10 (roadmap, **phases from 29**), step 11 (commit).
 
 Last session: 2026-08-20T09:20:00.000Z — **resumed via `/gsd-resume-work`, nothing was in flight.**
 Resume file: `.planning/.continue-here.md`. `.planning/HANDOFF.json` was consumed and deleted on
