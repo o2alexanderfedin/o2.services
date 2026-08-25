@@ -4,8 +4,16 @@
 `.planning/` is written for people who already know the vocabulary. This file is not. If you
 are new here and want to know what is unfinished and why, read only this.
 
-Three things are open. **None of them is unfinished code.** Each one is waiting on a decision
-or an action that only the project's owner can take.
+Three things are open **in this file's original sense** — the sense of a mechanism that is
+built and waiting on a person. **None of those three is unfinished code.** Each is waiting on
+a decision or an action that only the project's owner can take.
+
+> **AMENDED 2026-08-24 — this file was incomplete, and the sentence above was the incomplete
+> part.** Four *requirements* also stand unmet, and unlike the three below, one of them
+> genuinely is unfinished work. They were listed nowhere except as four rows among ninety-five
+> in `.planning/REQUIREMENTS.md`, visible only to a reader who checked which ones did not say
+> "Done". Section 4 adds them. The full working is in
+> `.planning/milestones/v1.2-CARRIED.md`.
 
 ---
 
@@ -179,8 +187,52 @@ is not evidence of a hang here. Only total elapsed time is.
 
 ---
 
+## 4. Four things the project promised itself and has not delivered
+
+The three above are *mechanisms waiting on a person*. These four are **requirements** — things
+the project wrote down as goals and has not met. Ninety-one of ninety-five are met; these are
+the rest.
+
+**Three of them are waiting for somewhere to run.** The code exists and, in two cases, has
+already been measured — just not in the place that would count.
+
+- **A relay the public can reach.** Getting an automatic HTTPS certificate works: it was
+  watched ordering, receiving, installing and re-using one, with a real handshake validating
+  it. But that was against a certificate authority running on this machine. A real one needs a
+  machine the internet can reach, and this project has decided that going public is a decision
+  taken on purpose rather than by drifting into it — because publishing forfeits patent rights
+  in Europe and China permanently.
+- **A benchmark across two computers.** Right now every measurement runs on one. The harness
+  already asks each participant which machine it is on and believes the answer rather than
+  assuming — that part was fixed. What is missing is somebody running it on two.
+- **A translation that is identical on two computers.** Same shape: identical on one machine,
+  repeatedly, in separate processes. Never compared across two.
+
+**These three have carried the word "descoped" since July, and that word is misleading.** It
+reads as "impossible here". It is not: this project has *already* produced a two-machine result
+— an iPhone and a laptop, genuinely separate, talking directly. The second machine exists and
+has been used. Two of these three are waiting on someone doing the run, not on hardware nobody
+has.
+
+**The fourth is unfinished work, and it is large.** Compiling the binary translator to run
+inside the sandbox was tried and **measured to fail**: 21 of its 27 parts do not compile for
+the target. The cause is a logging library that has branches for Windows, Linux, Android,
+macOS, the BSDs and Emscripten — and none for this target. Before any of it is reachable, a
+compiler has to be built from source that does not exist on this machine. That is a multi-day
+job whose first result is a compiler, not a feature.
+
+**It is reported as a failure rather than reworded**, which is this project's habit and worth
+keeping: a measured "no" is more useful than a softened "in progress".
+
+---
+
 ## Why these are not simply "finish them"
 
-Each one is blocked on something no automated process can supply: a design decision the owner
-already made and recorded, a security switch macOS reserves for a human, and an event that may
-never recur. Marking them done would not finish them — it would only make the record wrong.
+Each of the first three is blocked on something no automated process can supply: a design
+decision the owner already made and recorded, a security switch macOS reserves for a human, and
+an event that may never recur. Marking them done would not finish them — it would only make the
+record wrong.
+
+**Section 4 is different, and the difference is the point of adding it.** Those four are not
+blocked on anything unobtainable. Three need a place to run and one needs a build. They are
+work, and they are what a next milestone would be made of.
