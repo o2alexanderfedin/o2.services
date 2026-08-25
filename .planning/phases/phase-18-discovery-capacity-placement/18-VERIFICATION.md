@@ -41,11 +41,21 @@ re_verification_2:
        `bench-reduce.node.test.ts`s call-site requirement, which carries its own planted-absence case."
     - "F-3 — closed by commit 3d6806b. The recorded 60000 ms diagnosis was that file's own
        testTimeout; the real cause was a retry bounded in count and unbounded in time. Bound is now comparative."
+    - "F-2 — closed 2026-08-25 by commit 1e7248d, dispositioned here on 2026-08-25 by a second
+       /gsd-audit-fix pass. The blocker this entry named — the file is shared and three verifiers
+       are active — had lifted. 139 unique `path:line` citations in REQUIREMENTS.md were resolved
+       against the tree: 60 repaired, 75 still landing on their subject, 4 deliberately-preserved
+       wrong readings given a dated note. The repair is the one ROADMAP.md had already adopted —
+       cited by symbol, not by line — so the numbers below were not re-pointed, they were retired
+       as a class. Seven rows were reported and NOT edited because repairing the citation would
+       have moved a measured claim; those are carried as their own finding, not as this one."
+    # F-2's `findings_open` entry, retained verbatim as the record of what was open and why —
+    # the closure above is what supersedes it, not a rewrite of it:
+    #   - "F-2 — WORSE, not closed. 46 resolvable `file:line` citations in REQUIREMENTS.md; 28 land on a
+    #      blank line, a bare delimiter or a comment body, and 5 more on code that is not the construction
+    #      the row names (offsets 51/138/226, so no blanket fix). Every underlying claim re-derived TRUE by
+    #      symbol. Documentary only. Not edited — the file is shared and three verifiers are active."
   findings_open:
-    - "F-2 — WORSE, not closed. 46 resolvable `file:line` citations in REQUIREMENTS.md; 28 land on a
-       blank line, a bare delimiter or a comment body, and 5 more on code that is not the construction
-       the row names (offsets 51/138/226, so no blanket fix). Every underlying claim re-derived TRUE by
-       symbol. Documentary only. Not edited — the file is shared and three verifiers are active."
     - "20-04 must-have 2 — `the re-pick does not erase the first executor's named refusal` is
        unreachable while `VerificationResult`s `agreed` arm declares no `failures` field. Phase 20's to settle;
        it does not reduce criterion 2b, which asks for the refusal and the re-pick, not for both in one ShardResult."
@@ -896,6 +906,12 @@ half understates it: that file names **neither `rpcAdmission` nor `admit:` anywh
 SCHED-02's runnable-entry-point leg rested on nothing at all rather than on a weak pin.
 `discover-arm.node.test.ts`'s docblock records the same measurement.
 
+**F-2 — ledger citations that outran the tree: CLOSED 2026-08-25** by commit `1e7248d`, not by
+anything in Phase 18. **The paragraphs below are retained exactly as written on 2026-08-04** —
+they are the reading that motivated the repair, and the closure is recorded after them rather
+than by rewriting them. Read the note under this section's end before quoting any coordinate
+below as current.
+
 **F-2 — ledger citations that outran the tree: STILL OPEN, and worse.** At phase close STATE.md
 recorded *23 of ~45*. Re-measured today against `.planning/REQUIREMENTS.md`: **46 resolvable
 `file:line` citations, of which 28 land on a blank line, a bare delimiter, or a comment body**,
@@ -923,6 +939,27 @@ recorded response (ROADMAP: *"CITED BY SYMBOL, NOT BY LINE … a line number is 
 reference into a file that keeps changing, and it rots silently while reading like evidence"*)
 is the right one and has not yet been applied to `REQUIREMENTS.md`. Reported, not edited — that
 file is shared and three other verifiers are active.
+
+**CLOSURE — 2026-08-25, commit `1e7248d`.** The last sentence above is what changed: the file was
+no longer shared, so the response this report called *"the right one"* was applied. 139 unique
+`path:line` citations were resolved against the tree — 60 repaired by anchoring on a declaration,
+a call site or a quoted sentence; 75 still landed on their subject and were left alone; 4 name a
+subject that has left the tree and carry a dated note instead of a new coordinate. **The counts
+above are not the counts of the repair, and neither supersedes the other**: this report measured
+46 *resolvable* citations on 2026-08-04 within its own scope, the repair examined 139 unique ones
+across the whole file three weeks later. Nothing here was re-derived from the other.
+
+**What the closure did NOT do.** No checkbox, requirement id or verdict line moved — verified on
+the staged diff, not asserted. And **seven rows were reported and deliberately left unedited**,
+because repairing their citation would have moved a *measured claim* rather than a coordinate:
+`AUTH-04`, `CHURN-03`, `CHURN-04`, `MR-02`, `MR-06`, `NET-06` and the passage arguing for symbols,
+which had drifted itself. Those are stale **claims**, a different and larger repair than this one,
+and they are carried as their own finding rather than folded into this closure.
+
+**The disposition itself was the finding.** This entry read `STILL OPEN` for a day after the work
+that closed it, because the closing commit wrote into the *destination* (`REQUIREMENTS.md`) and
+not into the file that raised the finding. A re-parse of the audit sources would therefore have
+re-derived F-2 as open indefinitely. Recorded because the loop, not the citation, is the defect.
 
 **F-3 — `tools/aot/lift.node.test.ts` contradicting `deferred-items.md` item 2: CLOSED**, by
 `3d6806b` *("a retry bounded by a count is not bounded, when an attempt costs a budget")*. The
