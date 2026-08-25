@@ -1,0 +1,46 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-08-25T04:16:25Z",
+  "phase": null,
+  "phase_name": "no phase in flight — milestone v1.1 closed and audited",
+  "phase_dir": null,
+  "plan": null,
+  "task": null,
+  "total_tasks": null,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": 1, "name": "AUTH-04 certificate renewal, both tiers", "status": "done", "commit": "3fa2832"},
+    {"id": 2, "name": "Renewal timer clamped against setTimeout overflow", "status": "done", "commit": "5d7eeb6"},
+    {"id": 3, "name": "Certificate lifetime 30d -> 1h, per-user budget 32 -> 64", "status": "done", "commit": "7fd2517"},
+    {"id": 4, "name": "Anchor change is a consent event", "status": "done", "commit": "3e95beb"},
+    {"id": 5, "name": "nextKeyCommitment pre-rotation", "status": "done", "commit": "916841a"},
+    {"id": 6, "name": "DATA-08 durable libp2p datastore", "status": "done", "commit": "d358dcc"},
+    {"id": 7, "name": "W4 peer-certificate cache as a hint", "status": "done", "commit": "fbfa8c9"},
+    {"id": 8, "name": "One certificate system — cert-lifecycle.ts deleted", "status": "done", "commit": "a96096b"},
+    {"id": 9, "name": "v1.2 carry register for the four unmet requirements", "status": "done", "commit": "1d04a31"},
+    {"id": 10, "name": "v1.1 milestone audit, second pass — passed", "status": "done", "commit": "d20bfeb"}
+  ],
+  "remaining_tasks": [
+    {"id": 11, "name": "Owner decision: declare v1.2 via /gsd-new-milestone", "status": "not_started"},
+    {"id": 12, "name": "AOTW-06 — build a wasm32-wasi LLVM, add a __wasi__ branch to glog", "status": "not_started"},
+    {"id": 13, "name": "BENCH-06 + AOT-03 — one two-machine run closes both", "status": "not_started"},
+    {"id": 14, "name": "NET-03 — public relay; a disclosure decision before a hosting one", "status": "not_started"}
+  ],
+  "blockers": [
+    {"description": "NET-03 needs a publicly reachable host; publishing forfeits EPO and China patent rights permanently", "type": "human_action", "workaround": "mechanism proven against a loopback CA (local-acme.ts)"},
+    {"description": "browser-project-33-minute-run — a 33-minute browser collection that never reproduced; both hypotheses dead by measurement", "type": "technical", "workaround": "none; no agent-executable arm left"}
+  ],
+  "human_actions_pending": [
+    {"action": "Decide v1.2 scope", "context": "four requirements carried, registered in .planning/milestones/v1.2-CARRIED.md", "blocking": false},
+    {"action": "Decide whether the relay is hosted publicly", "context": "NET-03; irreversible on patent rights", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "Certificate lifetime 30 days -> 1 hour", "rationale": "expiry is the only revocation this fabric has; reverses the 2026-08-02 correction, and drags DEFAULT_MAX_PER_WINDOW 32 -> 64 because that number was sized on a 30-day reuse assumption", "phase": null},
+    {"decision": "A change of trust anchors re-asks for consent", "rationale": "agreeing to run code from one publisher is not agreeing to run it from another", "phase": null},
+    {"decision": "nextKeyCommitment lands now though nothing rotates yet", "rationale": "the alternative is changing a signed format with certificates in circulation", "phase": null},
+    {"decision": "cert-lifecycle.ts deleted rather than wired", "rationale": "one certificate system, not two; delegation duplicated capability.ts, identity duplicated enrollment.ts, revocation is refused by standing ruling", "phase": null}
+  ],
+  "uncommitted_files": [],
+  "next_action": "Read .planning/milestones/v1.2-CARRIED.md, then either /gsd-new-milestone to scope v1.2 or start AOTW-06 — the only carried item needing neither a second machine nor a hosting decision.",
+  "context_notes": "Everything is committed, merged feature -> develop -> main, and pushed. main and develop point at one tree. Suites green at HEAD: node 208/208 (3032 tests), browser 315/315 (5286), e2e 38/38 (235). The v1.1 audit's second pass scores passed: 50/50 requirements, 15/15 phases, 15/15 wiring, 5/5 flows, 0 blockers. Nothing is in flight — this is a clean stopping point, paused on context (71%), not on a problem."
+}
