@@ -38,7 +38,7 @@ Where I propose new structure rather than report existing structure, it is marke
                               NEW, v2.0 ───────────────────────────────► │
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  packages/cloudflare  (PROPOSED — see §1)                                │
-│  Durable Object per region: bootstrap-eu / bootstrap-us / bootstrap-apac │
+│  Durable Object per region: bootstrap-us / bootstrap-eu / bootstrap-sam │
 │  roles at once: Circuit Relay v2 server + seed/bootstrap peer + DHT      │
 │  value-record store with expiry. Does NOT advertise execution [RULED §1]│
 └─────────────────────────────────────────────────────────────────────────┘
@@ -292,7 +292,7 @@ the answer clear, though.
 **[RULED §2]**, proven both accidentally (the relay's in-memory reservation store was visible
 to two independent connections, **[MEASURED §7]**/§18) and directly (fan-in to 599 of 600
 simultaneous peers, same PeerId, unmoved constructor timestamp — **[MEASURED §18]**). So
-**sharding is addressing, not provisioning**: `bootstrap-eu` / `bootstrap-us` / `bootstrap-apac`
+**sharding is addressing, not provisioning**: `bootstrap-us` / `bootstrap-eu` / `bootstrap-sam`
 are three distinct Ed25519 identities, each persisted in that object's own DO storage exactly
 as `FabricNode`'s node key is persisted today (`loadOrCreateSeed`, `packages/node/src/fabric-node.ts:1947`)
 — the DO-storage equivalent, not the `node:fs` one.
@@ -518,7 +518,7 @@ consult's own methodology of never trusting `wrangler dev`:**
    evict, re-read from a new instance) since no local emulator reproduces eviction-and-alarm
    survival credibly.
 8. **Multi-region bootstrap Worker** (§4) — depends on 6+7 existing at least once (a single
-   region proves the shape) before multiplying identities to `bootstrap-eu`/`-us`/`-apac`.
+   region proves the shape) before multiplying identities to `bootstrap-us`/`-eu`/`-sam`.
    Verify region selection against `request.cf` fields, which only a real deployed Worker
    receives.
 9. **The public cohort run itself** (PROJECT.md's "target features," last) — depends on
