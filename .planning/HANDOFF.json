@@ -31,7 +31,7 @@
     {"description": "browser-project-33-minute-run — a 33-minute browser collection that never reproduced; both hypotheses dead by measurement", "type": "technical", "workaround": "none; no agent-executable arm left"}
   ],
   "human_actions_pending": [
-    {"action": "Decide v1.2 scope", "context": "four requirements carried, registered in .planning/milestones/v1.2-CARRIED.md", "blocking": false},
+    {"action": "Decide v1.2 scope", "context": "four requirements carried, registered in .planning/milestones/v2.0-CARRIED.md", "blocking": false},
     {"action": "Decide whether the relay is hosted publicly", "context": "NET-03; irreversible on patent rights", "blocking": false}
   ],
   "decisions": [
@@ -41,6 +41,6 @@
     {"decision": "cert-lifecycle.ts deleted rather than wired", "rationale": "one certificate system, not two; delegation duplicated capability.ts, identity duplicated enrollment.ts, revocation is refused by standing ruling", "phase": null}
   ],
   "uncommitted_files": [],
-  "next_action": "Read .planning/milestones/v1.2-CARRIED.md, then either /gsd-new-milestone to scope v1.2 or start AOTW-06 — the only carried item needing neither a second machine nor a hosting decision.",
+  "next_action": "Read .planning/milestones/v2.0-CARRIED.md, then either /gsd-new-milestone to scope v1.2 or start AOTW-06 — the only carried item needing neither a second machine nor a hosting decision.",
   "context_notes": "Everything is committed, merged feature -> develop -> main, and pushed. main and develop point at one tree. Suites green at HEAD: node 208/208 (3032 tests), browser 315/315 (5286), e2e 38/38 (235). The v1.1 audit's second pass scores passed: 50/50 requirements, 15/15 phases, 15/15 wiring, 5/5 flows, 0 blockers. Nothing is in flight — this is a clean stopping point, paused on context (71%), not on a problem."
 }

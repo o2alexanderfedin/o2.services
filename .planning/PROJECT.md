@@ -46,57 +46,53 @@ decryption, so a backbone node running a sovereign task would see plaintext —
 reintroducing exactly the exposure sovereignty prevents. Without a TEE (v2),
 execution-eligible replicas are the owner's own devices only.
 
-## Current Milestone: v1.1 Wire What Was Built
+## Current Milestone: v2.0 Open the Doors
 
-**Goal:** Every requirement the v1.0 audit reclassified as *Built, not wired* becomes
-reachable from a runnable entry point — or is descoped with the reason recorded.
+**Goal:** The fabric becomes reachable by real people on the real internet, and the first
+genuine scaling curve is taken on hundreds of independently-owned devices across several
+continents.
 
-**Why this milestone exists.** v1.0 executed all ten phases and the audit found that
-**36 of 68 requirements marked Done have no production call path.** Phases 4, 5, 6 and
-7 — sovereignty, tree-reduce, discovery/enrollment, churn — are genuinely implemented,
-genuinely tested, and reached by nothing a person can run. `runResilient`,
-`EgressGuard`, `composeQuorum`, `discoverExecutors`, `executeReduce`,
-`requestEnrollment`, `signName`, `verifyChain` and `translationCid` each appear only as
-their own definition, a barrel re-export, or a prose comment.
-
-**The structural cause is one shape.** `serveAgent` declares six optional hooks with
-silent defaults — `authorize`→allow, `index`/`reservations`→empty, `capacity`→accept.
-A default indistinguishable from the feature working is not a default, it is a hole,
-and it is why no test failed. `ledger` is supplied nowhere at all, in production or in
-a single test.
+**Why this milestone exists.** Everything so far was measured on one machine — loopback, the
+memory transport, Playwright contexts. Those establish shape and they cannot establish the
+project's headline claim, which is about *independently-owned* nodes. Two things changed on
+2026-08-24 and between them they remove the reason that claim stayed unmeasured. First, a
+**Cloudflare Durable Object was measured doing three jobs at once**: a dialable libp2p peer
+over WSS with a persisted identity, a working Circuit Relay v2 server, and a record store
+with exact expiry — the roles a browser mesh structurally cannot supply itself. Second, the
+owner has **a few hundred willing testers across countries and continents**, so the missing
+ingredient was never hardware; it was something to give them access to.
 
 **Target features:**
-- `serveAgent`'s hooks stop defaulting silently — an omission becomes a recorded decision
-- A dispatched task carries a capability chain, and the serving node verifies it before
-  `WebAssembly.instantiate` — today neither end exists
-- `JobSpec`/`Task` carry an owner label and the real job path consults the sovereignty
-  gate, replacing unconditional round-robin
-- Both nodes wrap their transport in `EgressGuard`, so the egress manifest is complete
-  by construction rather than only in a test
-- One job path, not two — `runResilient`'s lease/speculation/coverage machinery either
-  becomes the entry point or merges into `submitJob`
-- Discovery, enrollment and quorum composition run on the real dispatch path
-- `translationCid` is called by the lift pipeline and the CLI emits the CID; a
-  production node can construct a `WasiExecutor`
-- **A reachability guard** — a test that fails when an exported capability has no path
-  from an entry point. The audit found this class; no test could have
+- **A multi-region always-on tier.** `bootstrap-eu` / `-us` / `-apac` on Durable Objects,
+  one identity per object — sharding is addressing, not provisioning. Multi-region from the
+  start so the WebRTC failure rate is not smeared by everyone signalling through one city
+- **Record expiry before persistence.** `@libp2p/kad-dht@16.4.0` never expires provider
+  records, which is harmless only while nothing persists; object storage persists by
+  definition. An alarm sweep plus a read-time check — the first bounds storage, the second
+  bounds correctness, and they are not alternatives
+- **Persistence as a datastore.** Durable Object storage behind `interface-datastore`, after
+  which certificate and verdict caching is worth having
+- **A correct inbound listener.** `direction: 'inbound'`, a remote address derived from
+  `CF-Connecting-IP`, an answer for the absent `bufferedAmount`, and a socket written against
+  the hibernation API. Each of the first two was measured producing a node that looks healthy
+  and silently refuses to work or to scale
+- **Two fallback rungs below WebRTC** — TURN, then a relayed connection, with the relay's
+  measured 64 KiB-each-way ceiling stated where a design would otherwise assume 128
+- **Entry conditions for a public cohort** — consent before a single CPU cycle, an always-on
+  indicator, a stop control that provably drops CPU to zero, a kill switch that needs no
+  redeploy, and telemetry that turns volunteers into measurements rather than anecdotes
+- **The public run itself**, and the numbers only it can produce: the real scaling curve, the
+  WebRTC failure rate by country and network class, and the diurnal churn curve
 
-**Explicitly not in v1.1:** NET-03 (needs a publicly reachable host), BENCH-06 and
-AOT-03 (both rewritten 2026-07-28 to what one host establishes — see the residual below),
-AOT-05 (a measured negative with two controls — reported unmet rather than reworded).
+**Carried in from v1.1, all four:** `BENCH-06` (becomes the run's headline experiment),
+`NET-03` (closed by a route it was not designed for — TLS terminated at the edge, so the
+certificate requirement does not arise), `AOT-03` and `AOTW-06` (a parallel track with a
+different skill surface; neither is helped by the new tier, because both need execution and
+execution is exactly what a Worker refuses).
 
-**Residual, recorded rather than blocking (owner ruling, 2026-07-28).** Same machine —
-different browsers and/or different browser contexts, and different OS processes — is now
-the project's testing standard **everywhere**, so *"a second machine"* is no longer a
-blocker on any of the project's own criteria and has been struck from the blocker lists.
-What it was blocking does not disappear with it: **cross-machine reproducibility and
-distinct-machine benchmarking are unverified by choice, and closing either would need
-hardware this project does not have.** The ruling was made with the argument that one host
-cannot establish those two already on the table. Descoped is not satisfied — neither
-BENCH-06 nor AOT-03 may be reported as having demonstrated anything across machines, the
-same-machine benchmark label stays required and derived from the recorded inventory, and
-`CROSS_MACHINE_BLIND_SPOT` stays attached to every lifted artifact because Phase 10 showed
-it is structural rather than configurational.
+**Not gated on disclosure.** The repository has been public since 2026-07-26 and the owner
+ruled on 2026-08-24 that the project is **open source, with monetization for commercial use
+added later**. The public run is therefore an ordinary phase.
 
 ## Requirements
 
@@ -201,17 +197,27 @@ a signed commercial agreement. Both licenses are unreviewed drafts.
   Protobuf bytes are never hashed
 - **Hosting**: GitHub Pages serves static files only and runs no server-side
   process — it can host the client but not a relay or bootstrap node
-- **Disclosure**: Public hosting is public disclosure. EPO and China have no
-  patent grace period. **The repository was made public on 2026-07-26, so those rights
-  are already forfeit for what was disclosed then; the US provisional window is
-  running.** Deployment
-  must be a separately-triggered gate, not an automatic consequence of a phase
-  completing
+- **Disclosure**: ~~Public hosting is public disclosure, and deployment must be a
+  separately-triggered gate.~~ **RETIRED as a constraint 2026-08-24 — the project is open
+  source.** The reasoning is kept because it explains why the guard exists: public hosting
+  is disclosure, EPO and China have no grace period, and the repository was made public on
+  2026-07-26, so those rights were already forfeit for what was disclosed then. The owner
+  has now ruled open source with monetization for commercial use added later, which settles
+  it outright rather than trading it away. **`DEMO-04`'s guard
+  (`packages/node/src/disclosure-gate.node.test.ts`) still passes and still forbids a deploy
+  workflow — but its stated rationale is now spent, so whether it is retired, repurposed as
+  an ordinary "no accidental deploys" rule, or kept as written is an open decision and not a
+  constraint**
 - **Platform**: `elfconv` requires AArch64, statically-linked, unstripped binaries
   and is a C++/LLVM/Remill toolchain — a build-time dependency producing `.wasm`,
   not a TypeScript component
 - **Contributions**: None accepted; sole authorship preserves the commercial
-  license track
+  license track. **Revisited and settled 2026-08-24 under the open-source ruling.** The
+  question raised was that monetising commercial use later means relicensing, relicensing
+  requires owning every line, and open source without a CLA erodes that one merged pull
+  request at a time. **The owner ruled to rely on the civilized world rather than build CLA
+  machinery** — so no CLA is planned, and the row above stands as written. Recorded so the
+  absence reads as a decision rather than an oversight, and so nobody re-opens it
 
 ## Key Decisions
 
@@ -236,6 +242,11 @@ a signed commercial agreement. Both licenses are unreviewed drafts.
 | **v1.0 not archived** (owner decision, 2026-07-27) | The audit returned `gaps_found`. Archiving would file 36 unwired requirements under a completed milestone. The live bug was fixed, the ledger corrected to an honest 32/72, and full integration scoped as v1.1 instead | — Done |
 | **Ed25519 verification: `crypto.subtle` first, libsodium as the fallback** (owner ruling, 2026-08-09) | `@noble/curves` costs **1.348 ms** per verify — **99.23%** of a chain link, measured against the real `payloadOf` shape; everything else in `verifyChain` (dag-cbor encode, two `fromHex`, four compares) is **0.77% combined**. Native `crypto.subtle` Ed25519 is **0.0393 ms** in chromium, 0.08 firefox, 0.11 webkit — up to **37×**. But `crypto.subtle` is **entirely undefined outside a secure context**, measured `undefined` in all three engines at `http://10.144.82.249:8799`, which is exactly the LAN origin `bin/seed.ts` prints and QR-encodes for the multi-device demo. libsodium is WASM, needs no secure context, and runs **0.0887 ms** — 15.2× noble. **Taken against the standing recommendation**, which was `subtle → noble`: noble is already a transitive dependency of `@chainsafe/libp2p-noise` at **zero marginal bundle cost**, while libsodium is **314.9 KB gzip** against a whole-demo bundle of 168.93 KB — 1.9× the app — and buys ~10 ms per chain verification on the one tier that pays it, off the per-task path. The owner ruled libsodium anyway; the cost is mitigated by lazy `import()` behind the capability check, so no secure-context tier fetches it | Not started — Phase 25 |
 | **The backend is reached through an adapter: a synchronous `verify` behind an asynchronous one-time `init`** (owner ruling, 2026-08-09 — second ruling, same day) | Asked whether Phase 25 should perform the async migration, ship the backend unwired, or convert only the mechanical call sites, the owner ruled *"ideally, we should use an adapter pattern."* The migration was **priced first**, as the earlier ruling required: **9 production call sites** (6 mechanical, 3 near-mechanical) plus one structural obstacle — `PeerVerifier.verifiedPeers` is a **synchronous getter** feeding the block-fetch path (`RpcBlockSource`/`FetchingBlockstore`) and cannot go async without an interface redesign. **The adapter dissolves that rather than deferring it.** Measured by execution, Node v25.9.0: `noble.verify` and libsodium's `crypto_sign_verify_detached` both return a **`boolean`**, not a Promise — libsodium's only asynchronous part is WASM instantiation, which happens **once** at `await sodium.ready`. So a port shaped `{ init(): Promise<void>; verify(...): boolean }` has **two** conforming implementations; `verifyChain` stays synchronous and no call site changes. **The consequence is stated, not buried: `crypto.subtle` cannot implement the sync port** — `subtle.verify` returns a Promise and JavaScript cannot await one synchronously (`Atomics.wait` needs cross-origin isolation, which GitHub Pages cannot supply). So the **sync** trust path runs on libsodium-or-noble, and subtle serves only the **already-async** call sites, through a separate port. This **scopes** the first ruling rather than reversing it: *"subtle first"* still holds wherever subtle can be called at all. Wanting subtle on the sync path too reopens the 9-site migration and the `PeerVerifier` redesign | Not started — Phase 25 |
+| **Open source, with monetization for commercial use added later** (owner ruling, 2026-08-24) | Settles the disclosure question outright rather than trading it away — and it was already half-settled, since the repository has been public since 2026-07-26. Two consequences are recorded rather than assumed. **DEMO-04's guard keeps working but loses its stated reason**: it forbids a deploy workflow to prevent an irreversible legal event, and that event is now the plan, so the guard is either retired, repurposed as an ordinary no-accidental-deploys rule, or kept — an open decision. **And the "no outside contributions" row became load-bearing in a way it was not**: relicensing for commercial use requires owning every line, so it either stands or becomes a CLA. Raised, and **ruled the same day — rely on the civilized world, no CLA machinery**, so the no-contributions row stands as written | — Done |
+| **A Cloudflare Durable Object is one node, and identity is one per object** (owner ruling, 2026-08-24) | `idFromName()` resolves to a single global instance, so a Durable Object *is* a peer rather than a fleet pretending to be one — proved twice, first accidentally (a relay reservation lives in memory and two independent connections saw it) and then directly (600 peers dialled at once, 599 landing on one instance with an unmoved constructor timestamp; the ceiling found was the test machine). The converse is ruled out on evidence: one identity across instances cannot work while the reservation store is per-instance. Sharding is therefore addressing — `bootstrap-0…N` — not provisioning. Full working: `.planning/consults/2026-08-24-owner-ruling-cloudflare-node-shape.md` | — Done |
+| **A Cloudflare-hosted node does not advertise execution** (owner ruling, 2026-08-24) | Runtime WASM compilation is refused on every entry point in a deployed Worker and Durable Object — an embedder flag, the same one that disables `eval`, not a quota — and `WebAssembly.instantiateStreaming` does not exist there at all. Rather than treat that as a blocker, the node simply omits the capability: the published record is already `NodeRecords = { certificate, capabilities }`, so the scheduler never learns that Cloudflare exists. **This closes the compute leg by choice rather than deferring it**, and it takes Containers off the critical path. One consequence carries separately: the absent `instantiateStreaming` removes the V8 code-cache path from anything hosted in a Worker | — Done |
+| **Multi-region relay from the start** (owner decision, 2026-08-24) | A Durable Object lives in one datacenter, so a single relay routes every tester's signalling through one city. The latency penalty is paid once per pair, because the relay drops out after the WebRTC handshake — but the **failure-rate data would be smeared**, and cross-continent NAT failure is precisely what the cohort exists to measure. Capacity is not the reason: one object held 599 connections. Sharding is free under the identity ruling above | — Pending |
+| **TURN and a relayed connection, as two fallback rungs** (owner decision, 2026-08-24) | There is no TURN in the stack, and a pair behind symmetric NAT simply fails — which across continents is where failures concentrate. The relayed fallback below it is real but bounded: measured, the relay enforces its data limit **bidirectionally**, so a symmetric protocol gets **64 KiB each way, not 128**. A pair that falls all the way through can exchange control and not work. Both rungs are wanted, and the second one's ceiling is written down where a design would otherwise assume twice the room | — Pending |
 
 ## Evolution
 

@@ -13,7 +13,7 @@ a decision or an action that only the project's owner can take.
 > genuinely is unfinished work. They were listed nowhere except as four rows among ninety-five
 > in `.planning/REQUIREMENTS.md`, visible only to a reader who checked which ones did not say
 > "Done". Section 4 adds them. The full working is in
-> `.planning/milestones/v1.2-CARRIED.md`.
+> `.planning/milestones/v2.0-CARRIED.md`.
 
 ---
 
