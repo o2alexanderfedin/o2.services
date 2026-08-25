@@ -601,8 +601,38 @@ export async function discoverExecutors(
     excluded.push({ reason, detail: describe(reason) })
   }
 
-  for (const nodeKey of providers) {
-    const records = await index.recordsFor(nodeKey)
+  // ## The lookups are concurrent, and that is a bound rather than a speed-up
+  //
+  // This loop read `await index.recordsFor(nodeKey)` **inside** the iteration until
+  // 2026-08-23, so the cost of a lookup was `providers × per-lookup`. That was free while
+  // the only index asked directly-connected peers, and it stopped being free the moment a
+  // DHT answered: `DHT_QUERY_TIMEOUT_MS` is 5 000 and `CANDIDATES_DEADLINE_MS` is also
+  // 5 000, so **two** providers whose records the DHT does not hold spend the whole page
+  // budget before the second one has been asked.
+  //
+  // That is not a prediction. `attestation-ui.e2e.test.ts`'s SCHED-01 case went red the
+  // first time provider announcement put a second, recordless provider in front of the
+  // page, with `no answer inside 5000ms` — and the risk was named and declined in
+  // `REQUIREMENTS.md`'s NET-06 row on exactly these three numbers before it landed.
+  //
+  // The providers are independent — nothing in the loop below reads another provider's
+  // record — so asking them together makes the worst case one lookup rather than N.
+  //
+  // **The output is unchanged, deliberately.** The verification loop still runs in sorted
+  // provider order over the resolved values, so `executors` and `excluded` come out in the
+  // same order as before; only the waiting is shared. A rejection is re-thrown at the
+  // *earliest provider index* that produced one rather than at whichever rejected first in
+  // time, because that is what the sequential loop did and a caller catching it should not
+  // learn about a different provider than it used to.
+  const settled = await Promise.allSettled(providers.map((nodeKey) => index.recordsFor(nodeKey)))
+  const firstRejection = settled.find((outcome) => outcome.status === 'rejected')
+  if (firstRejection !== undefined && firstRejection.status === 'rejected') {
+    throw firstRejection.reason
+  }
+
+  for (const [position, nodeKey] of providers.entries()) {
+    const outcome = settled[position]
+    const records = outcome?.status === 'fulfilled' ? outcome.value : undefined
     if (records === undefined) {
       exclude({ kind: 'no-records', nodeKey })
       continue
@@ -782,8 +812,24 @@ export interface SelfRecordIndexOptions {
    * doc's second section for why that would turn a question into a fetch.
    */
   readonly store: Blockstore
-  /** This node's own signed records, or `'holds-no-records'` if it has none. */
-  readonly records: NodeRecords | 'holds-no-records'
+  /**
+   * This node's own signed records, or `'holds-no-records'` if it has none — as a value,
+   * or as a thunk asked again on every lookup.
+   *
+   * **The thunk arm exists for the reason the class doc already gives about `withhold`**,
+   * and the sentence there transfers word for word: *"A snapshot resolved in the
+   * constructor would advertise a block that became sovereign a second later."* A
+   * certificate is the same shape of fact. It expires on its own clock, and a node that
+   * renews one — `shouldRenewCertificate` in `enrollment.ts` — swaps the record the
+   * moment the new certificate lands. Held as a value, this index would go on answering
+   * with the expired one until the process restarted, and every reader running
+   * `verifyCertificate` would discard the node while the node itself believed it was
+   * enrolled.
+   *
+   * A plain value is still accepted, and is still right for anything whose records
+   * genuinely cannot change under it — a fixture, or a tier with no renewal loop.
+   */
+  readonly records: NodeRecords | 'holds-no-records' | (() => NodeRecords | 'holds-no-records')
   /**
    * Says a CID must not be advertised even though this node holds it, or
    * `'advertises-everything-it-holds'`.
@@ -866,7 +912,7 @@ export interface SelfRecordIndexOptions {
 export class SelfRecordIndex implements RecordIndex {
   readonly #nodeKey: PublicKeyHex
   readonly #store: Blockstore
-  readonly #records: NodeRecords | 'holds-no-records'
+  readonly #records: SelfRecordIndexOptions['records']
   readonly #withhold: SelfRecordIndexOptions['withhold']
 
   constructor(options: SelfRecordIndexOptions) {
@@ -893,6 +939,10 @@ export class SelfRecordIndex implements RecordIndex {
 
   async recordsFor(nodeKey: PublicKeyHex): Promise<NodeRecords | undefined> {
     if (nodeKey !== this.#nodeKey) return undefined
-    return this.#records === 'holds-no-records' ? undefined : this.#records
+    // Asked again on every lookup, exactly as `withhold` is and for the same reason. A
+    // thunk resolved once in the constructor would be the snapshot this arm exists to
+    // avoid, and it is planted and caught in `discovery.test.ts`.
+    const held = typeof this.#records === 'function' ? this.#records() : this.#records
+    return held === 'holds-no-records' ? undefined : held
   }
 }

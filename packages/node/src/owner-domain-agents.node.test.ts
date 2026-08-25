@@ -448,6 +448,7 @@ function candidateOptions(fixture: Fixture) {
     // so a peer that has not cleared verification does not get to contribute one. This is
     // `discover-candidates.ts`'s own recommendation.
     peers: () => fixture.requestor.verifiedPeers,
+    index: 'asks-connected-peers-only' as const,
     trustedIssuers: new Set([fixture.providerKey]),
     now: () => Date.now(),
     peerIdFor: peerIdForNodeKey,

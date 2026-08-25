@@ -33,10 +33,17 @@ export {
   RELAY_DURATION_LIMIT_MS,
   RELAY_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATION_TTL_MS,
+  RELAY_RESERVATION_TARGET,
   WEBRTC_MAX_BUFFERED_BYTES,
   WEBRTC_MAX_MESSAGE_BYTES,
   WIRE_CHUNK_BYTES,
 } from './constants.ts'
+
+// NET-06 — how long the keyspace remembers who holds a block, stated rather than inherited.
+// The constant's docblock carries the reading that makes it necessary: `kad-dht` splits
+// provider lifetime across two modules, and the one that looks authoritative is inert.
+export { PROVIDER_RECORD_VALIDITY_MS, providerRecordPolicy } from './constants.ts'
+export type { ProviderRecordPolicy } from './constants.ts'
 
 // AUTH-02 / AUTH-04 — who a relay admits, stated by the operator and read by nothing yet.
 //
@@ -67,7 +74,8 @@ export type { RelayAdmission } from './relay-admission.ts'
 // is named by three `mutation-ledger.ts` rows and by `AUTH-02`'s witness list — so the
 // constant has to be reachable by package specifier or the retry-floor cases cannot see it.
 export { DEFAULT_VERDICT_RETRY_FLOOR_MS, PeerVerifier } from './peer-verifier.ts'
-export type { PeerFailure, PeerVerdict, PeerVerifierOptions } from './peer-verifier.ts'
+export type { PeerFailure, PeerVerdict, CertificateCache,
+  PeerVerifierOptions } from './peer-verifier.ts'
 
 // AUTH-01 — one on-device seed, read in two namespaces.
 export {
@@ -101,8 +109,41 @@ export type {
 // only the holder of that key's secret can put a record there, enforced by every storer.
 export {
   O2_RECORD_NAMESPACE,
+  RecordPublisher,
   RecordRefused,
+  o2RecordSelector,
   o2RecordValidator,
   publishRecords,
 } from './dht-registration.ts'
-export type { PublishOutcome, RecordRefusal } from './dht-registration.ts'
+export type { PeerArrivals, PublishOutcome, RecordRefusal } from './dht-registration.ts'
+
+// Provider announcement — the half that lets `findProviders` answer anything at all.
+// It deliberately does not announce inside `put`; that module's header carries the
+// measured ordering in `submit.ts` which makes the obvious place a side channel.
+export { DhtProviderAnnouncer, ObservingBlockstore } from './dht-provider-announcer.ts'
+
+// NET-05 — a relay announces itself under a well-known key, and the certificate it already
+// carries is what proves the claim. See the module header for why a DHT cannot simply be
+// asked "who is a seed".
+// AUTH-04 renewal — the loop both tiers run so a certificate outlives its first issue.
+export {
+  MAX_TIMER_MS,
+  RENEWAL_RETRY_FLOOR_MS,
+  renewalDelayMs,
+  startCertificateRenewal,
+} from './certificate-renewal.ts'
+export type { CertificateRenewalOptions } from './certificate-renewal.ts'
+
+export {
+  MAX_RELAY_CANDIDATES,
+  RELAY_SERVICE_KEY,
+  discoverRelays,
+  relayServiceCid,
+  topUpRelays,
+} from './relay-service.ts'
+export type { RelayDiscoveryOptions, RelayTopUpOptions } from './relay-service.ts'
+export type {
+  ProviderAnnouncerOptions,
+  SweepOutcome,
+  WithholdingPredicate,
+} from './dht-provider-announcer.ts'

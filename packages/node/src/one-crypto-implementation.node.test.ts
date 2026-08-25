@@ -134,10 +134,22 @@ describe('the corpus is the real tree', () => {
     expect(CORPUS.length, `production corpus was ${CORPUS.length} files`).toBeGreaterThan(100)
   })
 
-  it('contains the three files the two blocks below make claims about', () => {
+  /**
+   * Anti-vacuity: an absence-shaped claim about a file the walk never reached is satisfied for
+   * the wrong reason, so the files the blocks below name must be shown to be in the corpus.
+   *
+   * > **2026-08-24 — two files, not three.** `packages/core/src/cert-lifecycle.ts` was deleted
+   * > by owner ruling (one certificate system, not two), so there is no file to require. The
+   * > blocks below still *mention* it in their recorded readings, and those are left standing:
+   * > they are measurements of a tree that existed on the day they were taken, and rewriting
+   * > them would make a past reading claim something it never measured.
+   */
+  it('contains the files the two blocks below make claims about', () => {
     expect(CORPUS_PATHS).toContain('packages/core/src/ed25519-backend.ts')
-    expect(CORPUS_PATHS).toContain('packages/core/src/cert-lifecycle.ts')
     expect(CORPUS_PATHS).toContain('tools/aot/cli.ts')
+    // And the deleted one really is gone, so a resurrection is reported here rather than
+    // quietly widening the block below.
+    expect(CORPUS_PATHS).not.toContain('packages/core/src/cert-lifecycle.ts')
   })
 
   it('excludes this file and every other spec, so the fixtures below are not scanned', () => {

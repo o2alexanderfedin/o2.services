@@ -84,16 +84,20 @@ import { circuitRelayServer, circuitRelayTransport } from '@libp2p/circuit-relay
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { http } from '@libp2p/http'
 import { identify, identifyPush } from '@libp2p/identify'
-import { kadDHT } from '@libp2p/kad-dht'
+import { kadDHT, passthroughMapper } from '@libp2p/kad-dht'
 import { keychain } from '@libp2p/keychain'
 import { ping } from '@libp2p/ping'
 import { tcp } from '@libp2p/tcp'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
 import type { TLSCertificate } from '@libp2p/interface'
+import { join as nodePathJoin } from 'node:path'
 import type { Datastore } from 'interface-datastore'
+import { DatastoreCertificateCache } from './certificate-cache.ts'
+import { FsDatastore } from './fs-datastore.ts'
 import { AbiExecutor, WasiExecutor } from '@o2/aot'
 import {
+  CertificateHolder,
   DEFAULT_ISSUANCE_WINDOW_MS,
   DEFAULT_MAX_CONCURRENT_TASKS,
   DutyCycleGovernor,
@@ -121,6 +125,7 @@ import type {
   Executor,
   IssuanceBudget,
   NodeCertificate,
+  NodeRecords,
   NodeSovereignty,
   PublicKeyHex,
   RecordIndex,
@@ -148,6 +153,7 @@ import {
 } from '@o2/net'
 import type { EnrolOutcome } from '@o2/net'
 import { createLibp2p } from 'libp2p'
+import { peerIdFromString } from '@libp2p/peer-id'
 import type { Libp2p, PeerId } from '@libp2p/interface'
 import { FsBlockstore } from './fs-blockstore.ts'
 import { FsIssuance } from './fs-issuance.ts'
@@ -156,7 +162,10 @@ import type { SovereignCids } from '@o2/net'
 import {
   LIBP2P_INBOUND_CONNECTION_THRESHOLD,
   DHT_QUERY_TIMEOUT_MS,
+  DhtProviderAnnouncer,
   DhtRecordIndex,
+  ObservingBlockstore,
+  RecordPublisher,
   LIBP2P_MAX_CONNECTIONS,
   LIBP2P_MAX_INCOMING_PENDING_CONNECTIONS,
   Libp2pTransport,
@@ -166,6 +175,8 @@ import {
   RELAY_DURATION_LIMIT_MS,
   O2_MAX_RESERVATIONS,
   RELAY_MAX_RESERVATIONS,
+  RELAY_RESERVATION_TARGET,
+  startCertificateRenewal,
   RELAY_MAX_RESERVATION_TTL_MS,
   PeerVerifier,
   admitsAnyPeer,
@@ -173,11 +184,16 @@ import {
   generateSeed,
   identityFromSeed,
   nodeKeyForPeerId,
+  o2RecordSelector,
   o2RecordValidator,
+  discoverRelays,
   peerIdForNodeKey,
-  publishRecords,
+  providerRecordPolicy,
+  relayServiceCid,
+  topUpRelays,
 } from '@o2/libp2p'
-import type { NodeIdentity, PeerVerdict, RelayAdmission } from '@o2/libp2p'
+import type { NodeIdentity, PeerVerdict, RelayAdmission, SweepOutcome } from '@o2/libp2p'
+import type { KadDHT } from '@libp2p/kad-dht'
 import {
   IDENTITY_FILE,
   PROVIDER_FILE,
@@ -232,6 +248,29 @@ export interface FabricNodeOptions {
    * business choosing.
    */
   readonly datastore?: Datastore
+  /**
+   * How long this node keeps another node's provider record before sweeping it. **1 hour
+   * by default** — {@link PROVIDER_RECORD_VALIDITY_MS}.
+   *
+   * One number rather than three: `providerRecordPolicy` derives the sweep interval and
+   * the republish threshold from it, so the staleness bound stays `1.25 ×` this value.
+   * Raise it for a deployment of long-lived server nodes, which pay a republish walk per
+   * block per cycle and gain nothing from forgetting quickly; lower it where the peer set
+   * churns and a record that outlives its provider costs a dial timeout on the read path.
+   */
+  readonly providerRecordValidityMs?: number
+  /**
+   * How long the renewal loop waits before asking again after a refused or unreachable
+   * exchange — AUTH-04. Defaults to `RENEWAL_RETRY_FLOOR_MS`.
+   *
+   * Exists as an option for the reason `maxQueuedSendsPerPeer` does: a test has to be able
+   * to reach the retry path inside a run rather than in five minutes. Production leaves it
+   * alone, and there is deliberately **no** option for the *fraction* —
+   * `CERTIFICATE_RENEW_AT` is fabric-wide, because a tier renewing on a different one
+   * would have a different reachability window with nothing in a certificate recording
+   * which one produced it.
+   */
+  readonly renewalRetryFloorMs?: number
   /**
    * Directory backing the persistent blockstore.
    *
@@ -1139,6 +1178,20 @@ async function resolveCertificate(parts: {
   blockstoreDir?: string
   canRelay: boolean
   relayPeerIds: readonly string[]
+  /**
+   * Whether a persisted certificate may satisfy this call — AUTH-04.
+   *
+   * `'may-reuse-a-persisted-certificate'` is the start path: a stored, unexpired
+   * certificate means the provider is not contacted at all (decision 11). A **renewal**
+   * must pass `'must-obtain-a-fresh-certificate'`, because the persisted file is the very
+   * certificate it is trying to replace — reusing it would make the loop a no-op that
+   * looks like it is working, which is the worst of the available failures.
+   *
+   * A named literal rather than a boolean for the reason the rest of this file gives for
+   * every other one: at the call site `'must-obtain-a-fresh-certificate'` says what it
+   * does and `true` does not.
+   */
+  reuse: 'may-reuse-a-persisted-certificate' | 'must-obtain-a-fresh-certificate'
 }): Promise<NodeCertificate | null> {
   const { enrollment, identity, rpc, libp2p, blockstoreDir, canRelay, relayPeerIds } = parts
 
@@ -1163,7 +1216,7 @@ async function resolveCertificate(parts: {
   // is specified to fail on (`.planning/ROADMAP.md`, section `### Phase 22: Reachability
   // Guard`, criterion 1 — cited by section because the roadmap's line numbers move as
   // phases are inserted). If this line ever goes, that export goes with it.
-  if (blockstoreDir !== undefined) {
+  if (blockstoreDir !== undefined && parts.reuse === 'may-reuse-a-persisted-certificate') {
     const loaded = await loadCertificate(blockstoreDir)
     if (
       loaded !== null &&
@@ -1303,8 +1356,41 @@ async function resolveCertificate(parts: {
  * at exactly the moment it stops being verifiable — the answer somebody would otherwise
  * have to invent.
  */
-function ownRecords(
+/**
+ * This node's records as they stand right now, rebuilt from whatever certificate it holds.
+ *
+ * Split out of {@link ownRecords} so that **one** function computes this and three readers
+ * share it: the index a peer's `records` request is answered from, the DHT registration
+ * that republishes it, and the node's own accessor. Before renewal existed the three could
+ * safely be given the same value once; a certificate that changes under them makes that a
+ * defect, and three call sites each rebuilding it would be three chances to disagree.
+ *
+ * Rebuilt rather than cached because `publishCapabilities` signs the window it is given:
+ * a renewed certificate carries a new one, and a capability record still signed over the
+ * old window would expire while the certificate beside it was valid.
+ */
+function recordsFrom(
   certificate: NodeCertificate | null,
+  identity: NodeIdentity,
+  canExecuteSovereign: boolean,
+): NodeRecords | 'holds-no-records' {
+  if (certificate === null) return 'holds-no-records'
+  return {
+    certificate,
+    capabilities: publishCapabilities(identity.seed, {
+      features: [],
+      sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
+      issuedAt: certificate.issuedAt,
+      expiresAt: certificate.expiresAt,
+      // Stated, not omitted — see `fabric-node.ts`'s `ownRecords` doc. A record
+      // with none signs the payload it signed before the seam existed.
+      extensions: [],
+    }),
+  }
+}
+
+function ownRecords(
+  holder: CertificateHolder,
   identity: NodeIdentity,
   canExecuteSovereign: boolean,
   store: Blockstore,
@@ -1313,21 +1399,10 @@ function ownRecords(
   return new SelfRecordIndex({
     nodeKey: identity.nodeKey,
     store,
-    records:
-      certificate === null
-        ? 'holds-no-records'
-        : {
-            certificate,
-            capabilities: publishCapabilities(identity.seed, {
-              features: [],
-              sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
-              issuedAt: certificate.issuedAt,
-              expiresAt: certificate.expiresAt,
-              // Stated, not omitted — see `fabric-node.ts`'s `ownRecords` doc. A record
-              // with none signs the payload it signed before the seam existed.
-              extensions: [],
-            }),
-          },
+    // A thunk, not a value — AUTH-04 renewal. `SelfRecordIndexOptions.records` carries the
+    // argument in full; the short form is that this node's certificate changes under this
+    // index while it is running, and a snapshot would go on serving the expired one.
+    records: () => recordsFrom(holder.current, identity, canExecuteSovereign),
     withhold,
   })
 }
@@ -1487,6 +1562,16 @@ export class FabricNode {
    * be one kind-check away from behaving differently on the answer.
    */
   readonly store: Blockstore
+  /**
+   * This node's Kademlia handle, typed — SCHED-01 / NET-06.
+   *
+   * `libp2p` above is exposed as the widened `Libp2p`, whose `services` is an open map, so
+   * a caller reaching through it holds `unknown` and can do nothing with it that does not
+   * involve an assertion. Naming the service here is what lets a caller — or a case — build
+   * a second index over the same keyspace, which is how *"the DHT carried this answer"* is
+   * told apart from *"the RPC fallback did"*.
+   */
+  readonly dht: KadDHT
   readonly executor: Executor
   /**
    * This node's execution admission control — SCHED-06.
@@ -1519,7 +1604,7 @@ export class FabricNode {
    * relays on exactly the same terms as one without. Until 17-04 lands, nobody can fetch
    * it, which is a deliberate one-plan gap rather than a resting state.
    */
-  readonly certificate: NodeCertificate | null
+  readonly #certificates: CertificateHolder
   /**
    * The instrument {@link executorPeakInFlight} reads.
    *
@@ -1575,6 +1660,8 @@ export class FabricNode {
   readonly #verifier: PeerVerifier
   /** See {@link registrationRefusal}. Mutable because it is written once, after start. */
   #registrationRefusal: string | undefined
+  readonly #publisher: RecordPublisher | null
+  readonly #announcer: DhtProviderAnnouncer
   /**
    * BROW-02 — what this node has been told about how starting went, including its own row.
    *
@@ -1607,6 +1694,9 @@ export class FabricNode {
     blockstore: FetchingBlockstore
     recordIndex: RecordIndex
     store: Blockstore
+    dht: KadDHT
+    publisher: RecordPublisher | null
+    announcer: DhtProviderAnnouncer
     executor: GovernedExecutor
     counter: CountingExecutor
     governor: DutyCycleGovernor
@@ -1618,7 +1708,7 @@ export class FabricNode {
     maxConnections: number
     identity: NodeIdentity
     authority: EnrollmentAuthority | null
-    certificate: NodeCertificate | null
+    certificates: CertificateHolder
     verifier: PeerVerifier
     relayFailures: readonly RelayDialFailure[]
     sovereignCids: SovereignCids | 'forgets-sovereignty-between-jobs'
@@ -1631,6 +1721,9 @@ export class FabricNode {
     this.egress = parts.egress
     this.blockstore = parts.blockstore
     this.recordIndex = parts.recordIndex
+    this.dht = parts.dht
+    this.#publisher = parts.publisher
+    this.#announcer = parts.announcer
     this.store = parts.store
     this.executor = parts.executor
     this.#counter = parts.counter
@@ -1643,7 +1736,7 @@ export class FabricNode {
     this.#maxConnections = parts.maxConnections
     this.#identity = parts.identity
     this.#authority = parts.authority
-    this.certificate = parts.certificate
+    this.#certificates = parts.certificates
     this.#verifier = parts.verifier
     this.#admissionLog = parts.admissionLog
     this.#relayFailures = parts.relayFailures
@@ -1828,10 +1921,18 @@ export class FabricNode {
     options: FabricNodeOptions,
     undo: (() => Promise<void> | void)[],
   ): Promise<FabricNode> {
-    const store: Blockstore =
+    // SCHED-01 — the local-only tier, wrapped so the provider announcer learns what this
+    // node comes to hold. **It announces nothing here**, and cannot: `libp2p.services.dht`
+    // does not exist until `createLibp2p` below, which needs the identity that is read
+    // beside these very blocks. `observeWith` is called once the DHT exists and replays
+    // whatever was put in between, so nothing put during start is unaccounted for. See
+    // `dht-provider-announcer.ts`'s header for why the moment a block arrives is the one
+    // moment a node must not advertise it.
+    const store = new ObservingBlockstore(
       options.blockstoreDir === undefined
         ? new MemoryBlockstore()
-        : await FsBlockstore.open(options.blockstoreDir)
+        : await FsBlockstore.open(options.blockstoreDir),
+    )
 
     // AUTH-01 — resolved **here**, and the position is forced rather than chosen:
     // `createLibp2p` below needs the key, so identity resolution has to precede it.
@@ -1910,13 +2011,52 @@ export class FabricNode {
       },
     })
 
+    // DATA-08 — **what survives a restart**, and it now does by default.
+    //
+    // A libp2p datastore holds the peer store, the keychain and the DHT's own records.
+    // Left unset, libp2p supplies an in-memory one, so every restart threw away the peers
+    // this node had met and the WebRTC-Direct certificate its published multiaddr is
+    // derived from — which makes a *restart* invalidate addresses other peers are still
+    // holding.
+    //
+    // A node given a durable directory gets a durable datastore inside it, on the same
+    // reasoning `.identity.key` and the certificate already live there: a node told where
+    // to keep things keeps them. A node with **no** directory gets libp2p's in-memory
+    // default, which is the honest behaviour and not a fallback. An explicitly supplied
+    // `datastore` still wins.
+    //
+    // Bound to a name rather than spread inline because W4's certificate cache writes into
+    // **this same store**: two constructions would be two stores over one directory, and
+    // the second would be the one nothing could read.
+    const libp2pDatastore: Datastore | undefined =
+      options.datastore ??
+      (options.blockstoreDir === undefined
+        ? undefined
+        : new FsDatastore(nodePathJoin(options.blockstoreDir, '.datastore')))
+
     const libp2p = await createLibp2p({
       // AUTH-01. Without this line libp2p mints a fresh ephemeral key on every start, so
       // a node has no identity that outlives its process and no certificate could refer
       // to it — which is exactly what every start did before this phase.
       privateKey: identity.privateKey,
       ...(gate === undefined ? {} : { connectionGater: { denyInboundRelayReservation: gate } }),
-      ...(options.datastore === undefined ? {} : { datastore: options.datastore }),
+      // DATA-08 — **what survives a restart**, and it now does by default.
+      //
+      // A libp2p datastore holds the peer store, the keychain and the DHT's own records.
+      // Left unset, libp2p supplies an in-memory one, so every restart threw away the
+      // peers this node had met, the WebRTC-Direct certificate its published multiaddr is
+      // derived from, and any Let's Encrypt material — the last of which makes a
+      // *restart* invalidate addresses other peers are still holding.
+      //
+      // So a node given a durable directory gets a durable datastore inside it, on the
+      // same reasoning `.identity.key` and the certificate already live there: a node
+      // that was told where to keep things keeps them. A node with **no** directory is
+      // told it has nowhere durable to write, by the absence of the option, and gets
+      // libp2p's in-memory default — which is the honest behaviour and not a fallback.
+      //
+      // An explicitly supplied `datastore` still wins, so a caller with its own store or a
+      // test that wants memory says so.
+      ...(libp2pDatastore === undefined ? {} : { datastore: libp2pDatastore }),
       addresses: {
         listen,
         // Absent rather than empty when unset, and the reason is *not* that an empty array
@@ -1978,13 +2118,52 @@ export class FabricNode {
         // answer and does not claim to.
         dht: kadDHT({
           protocol: O2_KAD_PROTOCOL,
+          // **`peerInfoMapper`, and leaving it unset made the whole keyspace inert.**
+          // Measured 2026-08-23 on two nodes on loopback: both promote to `server`, both
+          // advertise `/o2/kad/1.0.0`, identify completes and each holds the other as a
+          // peer — and a `put` yields **no events at all** while `getClosestPeers` never
+          // returns. The routing tables were empty. `kad-dht` defaults
+          // `peerInfoMapper` to `removePrivateAddressesMapper` (`src/kad-dht.ts:179`), and
+          // `onPeerConnect` drops any peer left with zero addresses after mapping
+          // (`:403-406`), so **every peer whose only address is private was silently never
+          // added.**
+          //
+          // That default is correct for Amino, whose whole point is a public network, and
+          // wrong for this one. `/o2/kad/1.0.0` is a *private* keyspace whose membership is
+          // decided by a certificate, not by address class: its peers are on loopback in
+          // tests, on a LAN in the multi-machine demo, and behind a relay in every browser
+          // tab. `removePublicAddressesMapper` — kad-dht's own suggestion for a LAN DHT —
+          // would be the same mistake mirrored. `passthroughMapper` is what says the fabric
+          // decides who is in it.
+          //
+          // What this does **not** do is admit anybody: `relay-admission.ts` and the
+          // certificate gate are unchanged, and a peer that reaches a routing table still
+          // has to verify to be dispatched to.
+          peerInfoMapper: passthroughMapper,
           clientMode: !canRelay,
+          // NET-06 — provider-record lifetime, stated for the same reason `clientMode` is.
+          //
+          // Left unset the fabric inherits 48 h / 1 h / 24 h, which are sited against a
+          // long-running IPFS daemon. `providerRecordPolicy` derives all three from one
+          // number so the staleness bound stays `1.25 × validity` rather than becoming an
+          // accident between three independently-chosen figures. The reading that makes
+          // this necessary — that `providers.provideValidity` is declared, spread in, and
+          // read by nothing, while the honoured knob lives in `reprovide` — is in the
+          // constant's own docblock, because this project drew the wrong conclusion from
+          // it twice.
+          reprovide: providerRecordPolicy(options.providerRecordValidityMs),
           // Mandatory, not optional: kad-dht dispatches a validator on the key's
           // namespace and `put` throws `No validator available for key type "o2"`
           // without one. It is also the gate that makes `/o2/<nodeKey>` ownable — see
           // `o2RecordValidator`'s own doc for what a disinterested storer can and
           // cannot check.
           validators: { [O2_RECORD_NAMESPACE]: o2RecordValidator(() => Date.now()) },
+          // Registering `validators` without `selectors` makes a keyspace that accepts
+          // every write and errors on every read — `bestRecord` throws
+          // `MissingSelectorError` when the namespace is unknown, and `DhtRecordIndex`'s
+          // own catch turns that into a silent *"the DHT holds nothing"*. Measured
+          // 2026-08-23; see `o2RecordSelector` for the rule and for how it presented.
+          selectors: { [O2_RECORD_NAMESPACE]: o2RecordSelector },
         }),
         // NET-03. Three services rather than one, because AutoTLS is an orchestrator over
         // capabilities libp2p does not install by default:
@@ -2235,6 +2414,17 @@ export class FabricNode {
     // reason — the owner's 2026-08-02 correction rules certificate lifetimes out of the
     // cost argument entirely, so a knob here would invite exactly the tuning it forbids.
     //
+    // **AMENDED 2026-08-23.** That correction was reversed by the owner and the default is
+    // now one hour, not thirty days — `DEFAULT_CERTIFICATE_LIFETIME_MS`, with the trade
+    // recorded at `enrollment.ts`'s header. **The conclusion here is unchanged and the
+    // reason for it is stronger, not weaker.** There is still no node-factory knob, because
+    // the lifetime is now this fabric's entire revocation window: a deployment that could
+    // quietly lengthen it per node would be lengthening how long a compromised node stays
+    // accepted, one process at a time, with nothing in any certificate saying which
+    // setting produced it. A provider that genuinely needs a different lifetime constructs
+    // its own `EnrollmentAuthority`, where the number is an ordinary option and the
+    // decision is visible.
+    //
     // **AUTH-04, and this is the line that turns the mechanism on in production.** Both
     // required options carried a named sentinel for one wave; both now carry the real
     // thing.
@@ -2291,7 +2481,15 @@ export class FabricNode {
       ...(options.blockstoreDir === undefined ? {} : { blockstoreDir: options.blockstoreDir }),
       canRelay,
       relayPeerIds,
+      reuse: 'may-reuse-a-persisted-certificate',
     })
+
+    // AUTH-04 renewal — the single cell everything downstream reads this node's
+    // certificate through. `resolveCertificate` runs once, on the start path; the loop
+    // armed below writes here, and the index, the publisher and `node.certificate` all
+    // see the write because none of them holds its own copy. `CertificateHolder`'s doc
+    // says why that is a type and not a reassigned local.
+    const certificates = new CertificateHolder(certificate)
 
     // DATA-05 — the tap and the local-only tier that says which payloads are sovereign,
     // bound **once** and handed to both readers below. Two object literals saying the same
@@ -2326,7 +2524,7 @@ export class FabricNode {
     // test. Holding an invariant between two branches means asking one question twice, not
     // writing the question down twice.
     const records = ownRecords(
-      certificate,
+      certificates,
       identity,
       sovereignty.canExecuteSovereign,
       store,
@@ -2348,6 +2546,17 @@ export class FabricNode {
       rpc,
       peers: () => transport.peers,
       trustedIssuers: new Set(options.trustedIssuers ?? []),
+      // W4 — a peer verified before this process started does not have to be asked again.
+      //
+      // **A hint and never a decision**: `PeerVerifier` runs a cached certificate through
+      // the same `#accept` a fresh one takes, against the issuers pinned now and the clock
+      // now, so this cannot widen what is accepted. Safe because revocation here is
+      // non-renewal on the certificate's own clock rather than a list — verification
+      // reaches nothing, so a remembered copy can never be more acceptable than a fresh
+      // one. In a fabric with an online status check the same line would be a hole.
+      ...(libp2pDatastore === undefined
+        ? {}
+        : { certificates: new DatastoreCertificateCache(libp2pDatastore) }),
     })
 
     // Blocks this node lacks are pulled from whichever peers are connected **and
@@ -2392,12 +2601,16 @@ export class FabricNode {
         verifyCertificate(found.certificate, pinnedIssuers, Date.now()).ok &&
         verifyCapabilityRecord(found.capabilities, Date.now()),
       timeoutMs: DHT_QUERY_TIMEOUT_MS,
+      // A requestor is not its own candidate — see `DhtRecordIndexOptions.self`.
+      self: identity.nodeKey,
       // Without this a lookup yields a node key libp2p holds no address for, and the
       // candidate is undialable — a successful discovery that cannot be acted on.
       addresses: (info) => {
         void libp2p.peerStore.merge(info.id, { multiaddrs: info.multiaddrs }).catch(() => {})
       },
     })
+
+
 
     // The node's own peer id is its executor id, so a disagreement names the
     // machine that produced the dissenting result.
@@ -2605,6 +2818,67 @@ export class FabricNode {
     // `FabricNodeOptions.startReporting`.
     const startLedger = ownStartLedger(ownStartOutcome(OWN_START_FAMILY), options.startReporting)
 
+    // ── SCHED-01 / NET-06 — the two halves that make the DHT something this node USES ──
+    //
+    // Constructed here, before the node, so both are readable off it; started below, once
+    // there is a node for a refusal to be recorded against.
+
+    // Registration. This node puts its own signed records into the fabric's keyspace under
+    // its own key, so a peer that has never met it can still find out what it can run.
+    //
+    // **Published from the same object that serves them.** `records` is the
+    // `SelfRecordIndex` handed to `serveAgent`, so what goes into the DHT and what this
+    // node answers over RPC cannot come to disagree — there is one source, read twice.
+    //
+    // A node holding no certificate has nothing to register: there is no signed statement
+    // of who it is, so there is no record for the keyspace to be about. It still serves.
+    // **A thunk, so a renewal is republished rather than merely held.** A value record in
+    // the keyspace outlives the certificate inside it by a wide margin, so a node that
+    // renewed without republishing would advertise the expired certificate until something
+    // else wrote — and every reader running `verifyCertificate` would discard it in the
+    // meantime. `RecordPublisher`'s constructor doc carries the full argument.
+    //
+    // A node holding no certificate has nothing to register: there is no signed statement
+    // of who it is, so there is no record for the keyspace to be about. It still serves.
+    // That is now decided per publish rather than once, because a node can acquire a
+    // certificate it did not start with.
+    const publisher =
+      certificate === null
+        ? null
+        : new RecordPublisher(libp2p.services.dht, () => {
+            const held = recordsFrom(
+              certificates.current,
+              identity,
+              sovereignty.canExecuteSovereign,
+            )
+            return held === 'holds-no-records' ? undefined : held
+          })
+
+    // Provider announcement — owner ruling of 2026-08-23.
+    //
+    // `DhtRecordIndex.providers` unions what `findProviders` answers with what the RPC
+    // index answers, and nothing in this repository had ever called `dht.provide` — so the
+    // first half of that union was empty by construction and the DHT could only ever
+    // restate what this node already knew from the peers it was connected to.
+    //
+    // **The predicate is the value the serving index was given, not a second construction
+    // of the same idea.** `withholdingFrom`'s own docblock says why: holding an invariant
+    // between two branches means asking one question twice, not writing the question down
+    // twice — and a provider record is read by strangers and outlives the query that made
+    // it, so it is where a second, agreeing-today copy would cost the most.
+    const announcer = new DhtProviderAnnouncer({
+      dht: libp2p.services.dht,
+      withhold: withholdingFrom(egressDisposition),
+    })
+    store.observeWith((cid) => {
+      announcer.observe(cid)
+      // Peer arrival covers the blocks a node already holds; this covers the peers it
+      // already has. A requestor connects and *then* stores its module and inputs, so
+      // without this every block it holds would be stored after its last arrival and
+      // never announced. Collapsed to one sweep per turn — see `sweepSoon`.
+      announcer.sweepSoon()
+    })
+
     const node = new FabricNode({
       libp2p,
       transport,
@@ -2613,6 +2887,9 @@ export class FabricNode {
       blockstore,
       recordIndex,
       store,
+      dht: libp2p.services.dht,
+      publisher,
+      announcer,
       executor,
       counter,
       governor,
@@ -2624,7 +2901,7 @@ export class FabricNode {
       maxConnections,
       identity,
       authority,
-      certificate,
+      certificates,
       verifier,
       relayFailures,
       sovereignCids,
@@ -2774,29 +3051,169 @@ export class FabricNode {
       attest: attestor,
     })
 
-    // SCHED-01 / NET-06 — registration. This node puts its own signed records into the
-    // fabric's keyspace under its own key, so a peer that has never met it can still find
-    // out what it can run.
+    // Started here, and the trigger is start **and every peer arrival** rather than start
+    // alone.
     //
-    // **Published from the same object that serves them.** `records` is the
-    // `SelfRecordIndex` handed to `serveAgent` above, so what goes into the DHT and what
-    // this node answers over RPC cannot come to disagree — there is one source, read twice.
+    // **Publishing once registered nothing, and the comment this replaces called that an
+    // acceptable start.** It is not. A put against an empty routing table does not merely
+    // time out, it *succeeds*: `kad-dht` writes the record to the local datastore before it
+    // walks to the closest peers (`content-fetching/index.ts:149-158`), so the one-shot
+    // reported success, reached nobody, and left the record in the only place that already
+    // had it. Every `dht.get` from every other node therefore missed and `DhtRecordIndex`
+    // degraded to its RPC fallback — silently, and always.
     //
-    // **Not awaited, and failure is not fatal.** At this line `createLibp2p` has started
-    // but no peer has necessarily connected, so the routing table may well be empty and the
-    // put will time out. That is a normal start, not a broken one: the node still serves
-    // records over RPC to anyone who asks it directly, which is exactly what it did before
-    // this line existed. `publishRecords` returns its refusal rather than throwing for the
-    // same reason — a node whose DHT is not reachable yet is a working node.
-    // A node holding no certificate has nothing to register: there is no signed statement
-    // of who it is, so there is no record for the keyspace to be about. It still serves.
-    if (certificate !== null) {
-      const own = await records.recordsFor(certificate.nodeKey)
-      if (own !== undefined) {
-        void publishRecords(libp2p.services.dht, own).then((outcome) => {
-          if (outcome.kind === 'refused') node.noteRegistrationRefused(outcome.reason)
+    // `peer:identify` rather than `peer:connect`: kad-dht populates its routing table
+    // through a topology registered on the DHT protocol, and a topology fires once identify
+    // has said which protocols the peer speaks. A put on `peer:connect` walks a table the
+    // arriving peer is not in yet. The announcer sweeps on the same signal for the same
+    // reason — an announcement is a walk of that same table. Nothing here is timed.
+    //
+    // Not awaited, and failure is not fatal: `publishRecords` returns its refusal rather
+    // than throwing, because a node whose DHT is not reachable yet is a working node that
+    // still answers records over RPC to anyone who asks it directly.
+    const onPeerArrival = (listener: () => void): (() => void) => {
+      const onIdentify = (): void => {
+        listener()
+      }
+      libp2p.addEventListener('peer:identify', onIdentify)
+      return () => {
+        libp2p.removeEventListener('peer:identify', onIdentify)
+      }
+    }
+    if (publisher !== null) {
+      undo.push(() => {
+        publisher.stop()
+      })
+      void publisher.start(onPeerArrival).then((outcome) => {
+        if (outcome.kind === 'refused') node.noteRegistrationRefused(outcome.reason)
+      })
+    }
+
+    // AUTH-04 — **keeping the certificate alive**, which until this line nothing did.
+    //
+    // A certificate was obtained once, on the start path, and the only route to another
+    // was a restart. A process that outlived its certificate went on running while every
+    // peer's `PeerVerifier` demoted it and every relay's admission gate stopped admitting
+    // it — a node that believes it is enrolled and is refused by the whole fabric. That is
+    // a defect at the current thirty-day lifetime, not only at a shortened one.
+    //
+    // **The republish is not an extra.** A registration value record is held far longer
+    // than a certificate is valid, so renewing without republishing leaves the keyspace
+    // advertising the expired certificate — and a reader running `verifyCertificate`
+    // discards the node exactly as if it had never renewed. The publisher reads through
+    // the same holder, so `publish()` here writes the new one.
+    //
+    // Armed only for a node that holds a certificate: one that was never told to enrol has
+    // nothing to renew, which is a stated configuration rather than a state to recover
+    // from.
+    if (options.enrollment !== undefined) {
+      const stopRenewing = startCertificateRenewal({
+        holder: certificates,
+        renew: async () =>
+          resolveCertificate({
+            enrollment: options.enrollment,
+            identity,
+            rpc,
+            libp2p,
+            ...(options.blockstoreDir === undefined ? {} : { blockstoreDir: options.blockstoreDir }),
+            canRelay,
+            relayPeerIds,
+            // The persisted file is the certificate this call is replacing. Reusing it
+            // would make renewal a no-op that reports success.
+            reuse: 'must-obtain-a-fresh-certificate',
+          }),
+        renewed: async () => {
+          // `resolveCertificate` already wrote the file; what is left is the keyspace.
+          if (publisher !== null) await publisher.publish()
+        },
+        ...(options.renewalRetryFloorMs === undefined
+          ? {}
+          : { retryFloorMs: options.renewalRetryFloorMs }),
+      })
+      undo.push(stopRenewing)
+    }
+
+    const stopSweeping = onPeerArrival(() => {
+      void announcer.sweep()
+    })
+    undo.push(stopSweeping)
+
+    // NET-05 — the two halves of relay discovery, joined here and nowhere else.
+    //
+    // A node that binds a listening socket is the one whose certificate says `'seed'`
+    // (`discoverability: canRelay ? 'seed' : 'via-relay'` above), so `canRelay` decides
+    // which half this process performs. There is no third case and no option: a node
+    // either offers the service or looks for it.
+    //
+    // **Announcing.** One `provide` of the well-known key. It is not repeated on a timer
+    // because it does not have to be — kad-dht's reprovider republishes a node's *own*
+    // provider records within `threshold` of expiry and exempts them from the sweep, which
+    // is the one place its `isSelf` branch is what keeps a record alive. Not awaited and not fatal: a
+    // relay whose keyspace is not reachable yet is a working relay, and everything that
+    // reaches it by configured address is untouched.
+    //
+    // **Looking.** Bounded by `RELAY_RESERVATION_TARGET`, which is a divisor on the
+    // fabric's own capacity rather than a preference — that constant carries the
+    // arithmetic. Re-run on peer arrival for the same reason registration is: the first
+    // attempt happens against a routing table that may still be empty, and a relay this
+    // node could use may only become findable once a third node has joined.
+    if (canRelay) {
+      // **Re-announced on peer arrival, and a one-shot here was written first and was
+      // wrong in exactly the way registration was.** `provide` walks to the closest peers;
+      // at start there are none, so the walk either blocks until the first peer arrives or
+      // completes against whoever was there then — and every node that joins afterwards
+      // never hears it. Measured: with a single start-time announcement,
+      // `relay-discovery.node.test.ts` timed out at 40 s having found nothing.
+      //
+      // kad-dht's reprovider does republish a node's own provider records, but on its own
+      // clock — a quarter of `PROVIDER_RECORD_VALIDITY_MS`, so fifteen minutes. That is a
+      // durability mechanism, not a joining one.
+      let announcing: Promise<void> | null = null
+      const announceRelayService = (): void => {
+        if (announcing !== null) return
+        announcing = (async () => {
+          try {
+            for await (const _event of libp2p.services.dht.provide(await relayServiceCid())) {
+              // Events are progress. `provide` reports success by not throwing.
+            }
+          } catch {
+            // A relay that could not announce is still a relay to everyone holding its
+            // address. Counted nowhere on purpose: there is no reading this would support
+            // that `registrationPeers` does not already give.
+          } finally {
+            announcing = null
+          }
+        })()
+      }
+      announceRelayService()
+      const stopAnnouncing = onPeerArrival(announceRelayService)
+      undo.push(stopAnnouncing)
+    } else {
+      const topUp = async (): Promise<void> => {
+        await topUpRelays({
+          target: RELAY_RESERVATION_TARGET,
+          // An approximation, and stated as one: a relay may publish more than one circuit
+          // address for this node, so this can over-count and stop early. Over-counting
+          // spends fewer slots than the target rather than more, which is the safe
+          // direction for a number whose whole purpose is to be a ceiling.
+          reserved: () =>
+            libp2p.getMultiaddrs().filter((ma) => ma.toString().includes('/p2p-circuit')).length,
+          discover: () => discoverRelays({ index: recordIndex, self: identity.nodeKey }),
+          connect: async (nodeKey) => {
+            const spelling = peerIdForNodeKey(nodeKey)
+            if (spelling === null) return
+            const peerId = peerIdFromString(spelling)
+            // Connecting is what reserves — the `/p2p-circuit` listen entry is what turns
+            // a connection into a reservation, and it is already in `listen` above.
+            await libp2p.dial(peerId)
+          },
         })
       }
+      void topUp()
+      const stopTopUp = onPeerArrival(() => {
+        void topUp()
+      })
+      undo.push(stopTopUp)
     }
 
     return node
@@ -2831,9 +3248,67 @@ export class FabricNode {
     return this.#registrationRefusal
   }
 
+  /**
+   * This node's provider-signed certificate, or `null` when it holds none — AUTH-01.
+   *
+   * `null` means this node was **never told to enrol**, which is a stated configuration
+   * and not a failure. It does not mean enrollment was attempted and did not work: a node
+   * told to enrol and unable to never reaches this accessor at all, because it does not
+   * start. Those two are different events and only one of them produces an object.
+   *
+   * Public because a certificate is a public signed statement — every peer is meant to be
+   * able to read and verify it, and it is served through the `index` hook. Holding one is
+   * not a capability: a node with a certificate executes tasks, holds blocks and relays on
+   * exactly the same terms as one without.
+   *
+   * **A getter rather than a field, since AUTH-04 renewal.** The certificate a running
+   * node holds changes: the renewal loop replaces it about two-thirds of the way through
+   * its life. A caller that read a field once would hold a certificate this node has
+   * stopped presenting to peers, which is the same snapshot defect `SelfRecordIndex` and
+   * `RecordPublisher` each carried until the same change.
+   */
+  get certificate(): NodeCertificate | null {
+    return this.#certificates.current
+  }
+
   /** Recorded by the start path's publish; see {@link registrationRefusal}. */
   noteRegistrationRefused(reason: string): void {
     this.#registrationRefusal = reason
+  }
+
+  /**
+   * How many peers stored this node's records at its most recent publish — SCHED-01.
+   *
+   * **Zero is not a failure and is not an error, and reading it as one is the trap this
+   * getter exists to remove.** `kad-dht` writes a record to the local datastore before it
+   * walks to the closest peers, so a publish against an empty routing table succeeds and
+   * reaches nobody. Zero therefore means *registered with itself and nobody else* — a real
+   * state, and the one every node is in until its first peer arrives. A node that has met
+   * peers and still reads zero is the reading worth acting on.
+   *
+   * Zero for a node holding no certificate too, which has nothing to publish at all;
+   * {@link FabricNode.registrationRefusal} is what tells the two apart.
+   */
+  get registrationPeers(): number {
+    return this.#publisher?.peers ?? 0
+  }
+
+  /** How many of this node's blocks are currently advertised in the keyspace — SCHED-01. */
+  get announcedBlocks(): number {
+    return this.#announcer.announcedCount
+  }
+
+  /**
+   * Announce the blocks this node holds and retract the ones it may no longer advertise.
+   *
+   * Runs on its own whenever a peer arrives, which is when there is a routing table worth
+   * walking. Exposed because a caller that has just stored blocks and wants them findable
+   * *now* would otherwise be waiting on somebody else's connection — and because a sweep
+   * is the only thing that retracts, so a caller that has just made data sovereign has a
+   * way to say so without waiting either.
+   */
+  async announceHeldBlocks(): Promise<SweepOutcome> {
+    return this.#announcer.sweep()
   }
 
   /**

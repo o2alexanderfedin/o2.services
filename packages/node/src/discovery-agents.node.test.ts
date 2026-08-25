@@ -346,6 +346,7 @@ function candidateOptions(fixture: Fixture, peers: () => readonly string[]) {
   return {
     rpc: fixture.requestor.rpc,
     peers,
+    index: 'asks-connected-peers-only' as const,
     trustedIssuers: new Set([fixture.p.issuerKey as string]),
     now: () => Date.now(),
     peerIdFor: peerIdForNodeKey,
@@ -831,6 +832,7 @@ describe('criterion 2, bounded — a fabric with no free node, and the control t
       {
         rpc: requestor.rpc,
         peers: () => requestor.transport.peers,
+        index: 'asks-connected-peers-only',
         trustedIssuers: new Set([fixture.p.issuerKey as string, fixture.p2.issuerKey as string]),
         now: () => Date.now(),
         peerIdFor: peerIdForNodeKey,

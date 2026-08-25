@@ -2297,6 +2297,11 @@ if (sovereignOwners.length > 0) {
       {
         rpc: node.rpc,
         peers: () => node.verifiedPeers,
+        // NET-06 / SCHED-01 — the composed asking index this node already builds, rather
+        // than the bare `RpcRecordIndex` this helper used to construct for itself. It
+        // reaches the DHT first and falls back to the peers below, so a records lookup is
+        // no longer bounded by whom this process happens to be connected to.
+        index: node.recordIndex,
         trustedIssuers,
         now: () => Date.now(),
         peerIdFor: peerIdForNodeKey,

@@ -381,15 +381,32 @@ export {
   // and NOT a defence, which is why it is exported: a test that wants to witness the
   // refusal has to be able to name the number, and a reader who takes it for anti-abuse
   // is the failure mode its own doc warns about.
+  // The renewal half of AUTH-04. Exported because both platform tiers run the loop and
+  // neither may hand-roll the arithmetic: a tier that renewed on a different fraction
+  // would be a tier with a different reachability window, and nothing in a certificate
+  // says which one produced it. `CERTIFICATE_RENEW_AT` is exported for the same reason
+  // `DEFAULT_MAX_PER_WINDOW` is — a test that witnesses the timing has to name it.
+  CERTIFICATE_RENEW_AT,
+  // The revocation window, because expiry is the only revocation this fabric has.
+  DEFAULT_CERTIFICATE_LIFETIME_MS,
+  // The single cell a renewing node's certificate lives in. Exported because both tiers
+  // construct one and `@o2/libp2p`'s renewal loop writes through it.
+  CertificateHolder,
   DEFAULT_MAX_PER_WINDOW,
   // How long a minted enrolment challenge stays spendable, and the number a
   // `stale-challenge` refusal carries so the joiner it refused knows the window it missed.
   ENROLLMENT_CHALLENGE_TTL_MS,
   EnrollmentAuthority,
   challengeAnswerBytes,
+  // AUTH-05 pre-rotation: the commitment a certificate carries, and the check that a
+  // later certificate honoured it. Exported as a pair — one is useless without the other.
+  honoursKeyCommitment,
+  keyCommitment,
   possessionChallenge,
+  msUntilRenewalDue,
   requestEnrollment,
   resolveReplicaSets,
+  shouldRenewCertificate,
   // The WebCrypto arm of `UserSigner`: turns a non-extractable `CryptoKey` pair into the
   // thing `requestEnrollment` asks for, so a visitor's owner key can be one the page that
   // rendered it cannot read. Both platform tiers call this when their `enrollment` option

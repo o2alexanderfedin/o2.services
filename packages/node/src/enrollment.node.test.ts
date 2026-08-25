@@ -218,13 +218,17 @@ async function stopAgentNow(agent: Agent): Promise<void> {
  * 17-CONTEXT.md decision 9's third row, and what every node in this repository did before
  * this phase. Verification is `certificate-verification.node.test.ts`'s subject.
  */
-async function startClient(name: string): Promise<FabricNode> {
+/**
+ * `rpcTimeoutMs` is a parameter because one case needs far more of it than the rest — see
+ * the burst case's own note. Ten seconds is the file's default and every other case takes it.
+ */
+async function startClient(name: string, rpcTimeoutMs = 10_000): Promise<FabricNode> {
   const node = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
     startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, name),
     listen: ['/ip4/127.0.0.1/tcp/0'],
-    rpcTimeoutMs: 10_000,
+    rpcTimeoutMs,
     trustAnchors: 'runs-unsigned-artifacts',
   })
   nodes.push(node)
@@ -488,8 +492,59 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
    * won, nor on how many did.
    */
   it('refuses past the threshold the refusal states, under one user key', async () => {
-    const provider = await spawnAgent('burst-provider', ['--issues-certificates', '--max-issued-per-window', '64'])
-    const client = await startClient('burst-client')
+    // **The aggregate budget must not be able to bind, or this case cannot tell which bound
+    // produced the refusal it reads.** It was the literal `'64'` until 2026-08-23, chosen
+    // when the per-user default was 32 and comfortably clear of it. W9 doubled the per-user
+    // default to 64, so the two became the same number — and this case is about the per-user
+    // one, which its own title says.
+    //
+    // It would still pass. `EnrollmentAuthority.enrol` checks the per-user window strictly
+    // before the aggregate, deliberately and with the reason recorded there, so a tie goes
+    // to `rate-limited` every time. That determinism is what makes this a weakness rather
+    // than a bug: the case would go green while measuring a coincidence, and the day
+    // somebody reorders those two checks — a change that file's own comment invites a
+    // reader to consider — it would fail for a reason nothing here would explain.
+    //
+    // **This is NOT the explanation for the one failure that prompted the change.** That
+    // hypothesis was written here and then killed by reading the check order; the failure
+    // is recorded as unexplained in the commit rather than given a story that fits.
+    //
+    // Derived from the per-user default rather than written down, for the reason the
+    // population below already gives: a fixed literal beside a moving default does not fail
+    // loudly, it goes green and stops measuring.
+    const aggregate = String(DEFAULT_MAX_PER_WINDOW * 4)
+    const provider = await spawnAgent('burst-provider', [
+      '--issues-certificates',
+      '--max-issued-per-window',
+      aggregate,
+    ])
+    // **Sixty seconds, against this file's ten-second default, and the number is sized
+    // against CONTENTION rather than against the exchange.** That distinction is the whole
+    // of what was measured, and the obvious arithmetic story is wrong.
+    //
+    // The burst is `DEFAULT_MAX_PER_WINDOW + 3`, so it doubled when W9 doubled that
+    // default: 35 exchanges became 67, and each enrolment is **two** round trips (mint a
+    // nonce, then spend it), so 70 requests became 134 through one connection that NET-09
+    // gates at `MAX_CONCURRENT_STREAMS_PER_PEER` = 8.
+    //
+    // That looks like it should mean the exchange outgrew a ten-second budget. **It does
+    // not.** Run alone on an idle host, all 67 exchanges reach an issuance decision inside a
+    // **900 ms** per-request budget; the floor is somewhere under that, because 200 ms
+    // reddens the assertion below with every one of the 67 named. So ten seconds is roughly
+    // an order of magnitude more than the exchange itself needs.
+    //
+    // What it is not enough for is the exchange **inside a full-suite run**, where 197 files
+    // share eight workers. Two such runs measured `accepted + refused` = 60 against 67 —
+    // seven requests that got no issuance decision at all — while the same case passed
+    // alone every time. The second of those runs had `(user+sys)/real` of 3.51, so this is
+    // not a starved host in the way `late-combine.node.test.ts` diagnoses; it is one file's
+    // latency inside a parallel suite, and doubling the burst doubled its exposure to it.
+    //
+    // Recorded at length because this failure was written down as **unexplained** on
+    // 2026-08-23, after a race hypothesis was drafted and then killed by reading the check
+    // order. The second explanation drafted here — the arithmetic one above — was killed the
+    // same way, by planting a 900 ms budget and watching it pass.
+    const client = await startClient('burst-client', 60_000)
     await client.dial(provider.multiaddrs[0] as string)
 
     // Reproducible node seeds: a failure names which request it was. The population is
@@ -516,6 +571,18 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
       (o): o is Extract<EnrolOutcome, { kind: 'refused' }> => !o.ok && o.kind === 'refused',
     )
 
+    // **Named, not just counted.** This read `toBe(DEFAULT_MAX_PER_WINDOW + 3)` alone and
+    // failed with `expected 60 to be 67`, which says a number is wrong and nothing about
+    // which requests went missing or why. An outcome that is neither an acceptance nor a
+    // refusal is a request that never reached an issuance decision — a transport failure —
+    // and that is a different finding from a provider mis-counting its own window.
+    const undecided = outcomes.filter((o) => !o.ok && o.kind !== 'refused')
+    expect(
+      undecided.map((o) => `${o.kind}: ${o.reason}`),
+      'these requests never reached an issuance decision. That is the transport giving up, ' +
+        'not the provider refusing — raise the client budget or shrink the burst, and do not ' +
+        'widen the count below to absorb them',
+    ).toEqual([])
     expect(accepted.length + refused.length).toBe(DEFAULT_MAX_PER_WINDOW + 3)
     expect(refused.length).toBeGreaterThan(0)
 
@@ -524,7 +591,13 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
     // a specific number onto the wire, and reading it back out of the constant alone would
     // prove only that this file and that file agree — and it is pinned to the shipped
     // default on the line below so the two cannot drift apart in either direction.
-    expect(first).toMatchObject({ kind: 'rate-limited', limit: 32, windowMs: 3_600_000 })
+    //
+    // **64 since 2026-08-23**, and not because this bound was re-sized. What moved is what
+    // it is measured against: `DEFAULT_CERTIFICATE_LIFETIME_MS` went from 30 days to 1 hour,
+    // so a node now spends an issuance in every window instead of one in 720, and the worst
+    // ordinary case became the tab restore plus every already-enrolled node of the same
+    // owner renewing inside it.
+    expect(first).toMatchObject({ kind: 'rate-limited', limit: 64, windowMs: 3_600_000 })
     expect(
       first?.kind === 'rate-limited' ? first.limit : null,
       'the number crossing the wire and the shipped default are one number',

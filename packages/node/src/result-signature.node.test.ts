@@ -399,6 +399,7 @@ describe('VER-08/09/10 — a result signed in one process verifies in another', 
       {
         rpc: requestor.rpc,
         peers: () => requestor.verifiedPeers,
+        index: 'asks-connected-peers-only',
         trustedIssuers: new Set([providerKey]),
         now: () => Date.now(),
         peerIdFor: peerIdForNodeKey,

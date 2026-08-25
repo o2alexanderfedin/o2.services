@@ -588,6 +588,7 @@ async function discoverForShards(fixture: Fixture): Promise<Candidates> {
         // `verifiedPeers` and not `transport.peers`: a provider list steers where work
         // goes, so a peer that has not cleared verification does not contribute one.
         peers: () => fixture.requestor.verifiedPeers,
+        index: 'asks-connected-peers-only',
         trustedIssuers: new Set([fixture.providerKey]),
         now: () => Date.now(),
         peerIdFor: peerIdForNodeKey,

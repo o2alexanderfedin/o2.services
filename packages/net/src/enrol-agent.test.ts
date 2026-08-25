@@ -238,7 +238,15 @@ describe('AUTH-04 — the limit holds, and states itself', () => {
     // `DEFAULT_MAX_PER_WINDOW`: this bound stops no attacker — the case immediately below
     // measures that — so it is sized never to refuse an honest owner, and 5 refused a
     // twenty-tab session restore on a fresh profile.
-    expect(first.refusal).toMatchObject({ kind: 'rate-limited', limit: 32, windowMs: 3_600_000 })
+    //
+    // **64 since 2026-08-23**, and the reason is not a re-sizing of this bound but a change
+    // to what it is measured against. `DEFAULT_CERTIFICATE_LIFETIME_MS` went from 30 days
+    // to 1 hour, which inverts the sentence the old number rested on — *"a returning
+    // visitor spends nothing in 719 hours of 720"*. At a one-hour lifetime a node spends an
+    // issuance in every window, so the worst ordinary case is the tab restore PLUS every
+    // already-enrolled node of the same owner renewing in the same hour. Doubling keeps the
+    // headroom ratio the 32 was chosen for.
+    expect(first.refusal).toMatchObject({ kind: 'rate-limited', limit: 64, windowMs: 3_600_000 })
     expect(first.refusal.limit, 'the wire number and the shipped default are one number').toBe(
       DEFAULT_MAX_PER_WINDOW,
     )

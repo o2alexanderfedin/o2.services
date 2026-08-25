@@ -1556,6 +1556,12 @@ async function realFabric(
           // goes, so a peer that has not cleared verification does not get to contribute
           // one. This is `discover-candidates.ts`'s own recommendation.
           peers: () => requestor.verifiedPeers,
+          // Stated rather than defaulted, and the statement is about this rig rather than
+          // about discovery. `requestor` here is a hand-assembled endpoint over the memory
+          // network — an `EgressGuard` and an `RpcEndpoint`, not a `FabricNode` — so there is
+          // no `recordIndex` to hand over and no DHT in the rig to answer one. The two
+          // production callers (`bin/agent.ts`, `demo/main.ts`) pass their composed index.
+          index: 'asks-connected-peers-only',
           trustedIssuers: new Set(provider?.issuerKey == null ? [] : [provider.issuerKey]),
           now: () => Date.now(),
           peerIdFor: peerIdForNodeKey,

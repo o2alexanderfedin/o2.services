@@ -562,7 +562,12 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // has no runtime caller and the concrete change that would give it one, so the register
       // and not this number is what holds it: a different unreachable export cannot take its
       // place under the same bound.
-    ).toBeLessThanOrEqual(69)
+      // 2026-08-23: 69 -> 71. Two rows, `core/keyCommitment` and `core/honoursKeyCommitment`,
+      // both named in `OPEN_FINDINGS` with the reason a reader can check — a signed format
+      // whose field had to land before certificates circulate, and whose users are a phase
+      // nobody has scoped. Raised by exactly the two rows added, so the ceiling still cannot
+      // absorb a third arrival silently.
+    ).toBeLessThanOrEqual(71)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
@@ -1259,6 +1264,14 @@ interface OpenFinding {
  * 2026-08-11, not the +12 that had been projected** — and holds them out until an owner decides
  * otherwise.
  *
+ * > **RETIRED 2026-08-24 — the owner decided, and the answer was neither.** `cert-lifecycle.ts`
+ * > was deleted rather than wired: its delegation half duplicated `capability.ts`, its identity
+ * > half duplicated `enrollment.ts`, its crypto-backend selection had already been merged into
+ * > `ed25519-backend.ts` by Phase 28, and its revocation half is refused by standing ruling. The
+ * > paragraph above is preserved because the **+7** it records is a real reading of a real tree
+ * > and is the evidence that moving them here was never free — which is part of why they went
+ * > instead. No count in this file changed: they were never in this population.
+ *
  * ## Lowered 29 → 27, measured 2026-08-14 — WIRING, and the second such lowering here
  *
  * `net/reduceSovereignJob` and `core/withCoverage` both leave the open population, and they leave
@@ -1313,6 +1326,40 @@ interface OpenFinding {
  * written down, and symbol #25 arrives red and named instead of arriving under a bound.
  */
 const OPEN_FINDINGS: readonly OpenFinding[] = [
+  {
+    key: 'core/keyCommitment',
+    declaredIn: 'packages/core/src/enrollment.ts',
+    // `unreachable-only`, and the graph is what said so — this row claimed `none` first, on
+    // the reasoning that nothing rotates a key so nothing can call it. The walk corrected it:
+    // `honoursKeyCommitment` calls this to recompute the hash it compares against, and that
+    // caller is itself unreachable. The distinction is the one this field exists for — a
+    // stranded caller already exists here, so closing this row is wiring rather than writing.
+    callers: 'unreachable-only',
+    reason:
+      'AUTH-05 pre-rotation, added 2026-08-23 by owner ruling. A certificate may name the ' +
+      'key its node will move to next, so a rotation carries trust across instead of ' +
+      'presenting a stranger. NOTHING ROTATES YET, and that is the whole reason this is ' +
+      'here rather than wired: the field sits inside the issuer signature, so adding it ' +
+      'later means changing a signed format with certificates in circulation, and the ' +
+      'owner took it now precisely to avoid that. The format half IS reached — `payloadOf` ' +
+      'spreads the field on every issuance and `enrol` carries it from the request, both ' +
+      'plant-proofed in `key-rotation.test.ts`. What has no caller is the pair a rotating ' +
+      'node would use. The nameable wiring that closes it: a node factory option for the ' +
+      'next key plus a re-enrolment under it, which is a phase nobody has scoped and which ' +
+      'must not be invented under cover of an export.',
+  },
+  {
+    key: 'core/honoursKeyCommitment',
+    declaredIn: 'packages/core/src/enrollment.ts',
+    callers: 'none',
+    reason:
+      'The verify half of the row above, and it is listed separately rather than folded in ' +
+      'because the two close on different days: `keyCommitment` is wired by whatever first ' +
+      'rotates a key, and this one by whatever first VERIFIES a rotation — `PeerVerifier`, ' +
+      'which today re-asks a peer whose certificate expired and has no notion of a peer ' +
+      'whose key changed. Exported as a pair because one is useless without the other, and ' +
+      'a barrel offering only the commitment would invite a caller to compare hex by hand.',
+  },
   {
     key: 'core/signNameDelegation',
     declaredIn: 'packages/core/src/naming.ts',
@@ -1785,15 +1832,32 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
  * reading is the failure mode this file's `global-object-hop` case exists to refuse. The count
  * is held still instead, which is what stops a 28th arriving unnoticed.
  */
-const ORPHAN_MODULE_CEILING = 29
+// 2026-08-24: 29 → 28, lowered by exactly one and named. `packages/core/src/cert-lifecycle.ts`
+// left the tree by owner ruling — see `UNCOUNTED_MODULE` below. Lowered rather than left
+// slack, because slack is what lets a 29th arrive unnoticed, which is the whole point of
+// holding this number still.
+const ORPHAN_MODULE_CEILING = 28
 
 /**
- * The certificate-lifecycle module, by path — CRYPTO-03's whole subject.
+ * A production module that reaches **no barrel at all**, named by path.
  *
- * It is here rather than in the open-findings list because it reaches **no barrel at all**, and
- * the guard above walks barrel exports. That is the blind spot this block closes.
+ * It is here rather than in the open-findings list because the guard above walks barrel
+ * exports, and a module that publishes to none is outside that guard's jurisdiction
+ * entirely. This block closes that blind spot, and it needs a **specimen** to prove the
+ * detector can see one.
+ *
+ * > **2026-08-24 — the specimen changed, the need did not.** This was
+ * > `packages/core/src/cert-lifecycle.ts`, CRYPTO-03's whole subject, until the owner ruled
+ * > that module out of the tree (*"we might wanna unify that"* — one certificate system, not
+ * > two) and it was deleted. Deleting a specimen removes the example, never the property, so
+ * > this points at another module of **the same shape**: real production code, no production
+ * > importer, nothing on any barrel. `wasm-probes.ts` builds probe modules and detects no
+ * > engine features, which `fabric-node.ts`'s `ownRecords` docblock already records — so it
+ * > is uncounted for the same reason cert-lifecycle was, and is not test machinery, a demo
+ * > surface or a build tool, all of which are volatile in this list for reasons that have
+ * > nothing to do with wiring.
  */
-const CERT_LIFECYCLE = 'packages/core/src/cert-lifecycle.ts'
+const UNCOUNTED_MODULE = 'packages/browser/src/wasm-probes.ts'
 
 /** A module that is in the corpus, is not an entry point, and that nothing else imports. */
 function orphanModules(built: CallGraph): string[] {
@@ -1812,12 +1876,15 @@ describe('CRYPTO-03 — a module that reaches no barrel is counted, not invisibl
   /**
    * **The guard above cannot see this module, and that is the defect — not an omission here.**
    *
-   * `unreachableExports` walks *barrel exports*. `cert-lifecycle.ts` publishes nothing to
-   * `@o2/core`'s barrel, so its 775 lines, four facades and three factories are outside that
-   * guard's jurisdiction entirely: every case in this file passes with the module present and
-   * passes with it deleted. That is a strictly worse position than an uncalled barrel export,
-   * which at least gets counted — and `.planning/REQUIREMENTS.md`'s CRYPTO-03 names it exactly
-   * so: *"real-but-uncounted code"*.
+   * `unreachableExports` walks *barrel exports*. A module that publishes nothing to
+   * `@o2/core`'s barrel is outside that guard's jurisdiction entirely: every case in this file
+   * passes with such a module present and passes with it deleted. That is a strictly worse
+   * position than an uncalled barrel export, which at least gets counted — and
+   * `.planning/REQUIREMENTS.md`'s CRYPTO-03 names it exactly so: *"real-but-uncounted code"*.
+   *
+   * The module that made this block exist — `cert-lifecycle.ts`, 775 lines, four facades and
+   * three factories — was deleted on 2026-08-24 by owner ruling. The block stayed, because
+   * what it measures is the blind spot and not that one module.
    *
    * The predicate is import-based rather than reachability-based on purpose. Reachability from
    * {@link ENTRY_POINTS} answers 33 on this tree and cascades — one unimported module drags its
@@ -1825,17 +1892,18 @@ describe('CRYPTO-03 — a module that reaches no barrel is counted, not invisibl
    * *"Nothing imports it"* is local, and it is the property that makes a module uncounted.
    *
    * **The graph's file set is production-only** — measured 2026-08-11 as 157 files, of which
-   * zero match `.test.`, so no spec's import of `cert-lifecycle.ts` can rescue it here. Its one
-   * importer in the repository *is* a spec, which is precisely why it reads orphan.
+   * zero match `.test.`, so a spec's import of the named module cannot rescue it here. A module
+   * whose only importer is a spec reads orphan, which is the intended reading.
    */
-  it('names cert-lifecycle.ts among the modules nothing imports', () => {
+  it('names an unimported production module among the modules nothing imports', () => {
     const orphans = orphanModules(graph())
     expect(
       orphans,
-      'CRYPTO-03: the certificate-lifecycle facades are ledgered here because they reach no ' +
-        'barrel. If this module gains a production importer, that is wiring landing — delete ' +
-        'this expectation and re-decide the row rather than editing around it.',
-    ).toContain(CERT_LIFECYCLE)
+      'CRYPTO-03: a module that reaches no barrel is ledgered here, because the guard above ' +
+        'cannot see it. If this module gains a production importer, that is wiring landing — ' +
+        'repoint this expectation at another module of the same shape and say so, rather than ' +
+        'editing around it. The specimen is replaceable; the property is not.',
+    ).toContain(UNCOUNTED_MODULE)
     expect(
       orphans.length,
       `${orphans.length} production modules have no production importer, against a ceiling of ` +
@@ -1846,8 +1914,10 @@ describe('CRYPTO-03 — a module that reaches no barrel is counted, not invisibl
   it('is a predicate that separates, not one that matches everything', () => {
     // Anti-vacuity, and it is the whole case. A predicate that returned every file would satisfy
     // the `toContain` above perfectly while measuring nothing at all. `capability.ts` is imported
-    // by `enrollment.ts` and by the barrel; `ed25519-backend.ts` is imported by `cert-lifecycle.ts`
-    // and by the barrel. Both must stay out, and the population must stay well under the corpus.
+    // by `enrollment.ts` and by the barrel; `ed25519-backend.ts` is imported by `enrollment.ts`
+    // (`subtleKeyPairSigner`) and by the barrel — it was `cert-lifecycle.ts` and the barrel until
+    // 2026-08-24, and the reading is unchanged because the second importer was always the one
+    // doing the work. Both must stay out, and the population must stay well under the corpus.
     //
     // **Watched red, 2026-08-11, not reasoned about.** `!imported.has(file)` was planted to
     // `file !== ''` — the predicate that matches everything — and this case failed with
@@ -1893,13 +1963,24 @@ describe('CRYPTO-03 — a module that reaches no barrel is counted, not invisibl
    * jurisdiction — the same arithmetic that made `x509.ts`'s five new exports move the count by
    * two.
    */
-  it('holds the certificate-lifecycle facades off the barrel, at a measured price', () => {
+  it('reads the uncounted module through a second, independent instrument', () => {
+    // **Two instruments on one module, and that is the point of keeping this case.** The block
+    // above reads the *import graph*: nothing imports it. This reads the *classified export
+    // corpus*: it declares nothing that reaches a barrel. The two answers must agree — a module
+    // that published to a barrel would be imported by that barrel and would stop reading orphan
+    // — so a defect in either instrument shows up as a disagreement rather than as a silence.
+    //
+    // > **2026-08-24 — repointed with the block above.** This read `cert-lifecycle.ts` and
+    // > carried the price of moving its seven facades onto the barrel: **+7 unreachable callable
+    // > exports (71 → 78) and +7 open findings (29 → 36)**, re-measured 2026-08-13. That reading
+    // > is preserved here rather than deleted, because it is what made "wiring it" a cost rather
+    // > than a tidy-up — and the owner's ruling to delete the module instead was taken with that
+    // > number on the record.
     expect(
-      barrelExportsDeclaredIn(CERT_LIFECYCLE).map((one) => `${one.barrel}/${one.name}`).sort(),
-      'the certificate-lifecycle facades are on a barrel. Re-measured 2026-08-13, that costs +7 ' +
-        'unreachable callable exports (71 → 78) and +7 open findings (29 → 36), and it takes an ' +
-        'owner non-decision by side effect. Both ceilings must move with it, and the reason goes ' +
-        'in REQUIREMENTS.md CRYPTO-03 rather than here.',
+      barrelExportsDeclaredIn(UNCOUNTED_MODULE).map((one) => `${one.barrel}/${one.name}`).sort(),
+      'the uncounted module now declares a barrel export, so the two instruments disagree: the ' +
+        'import graph still reads it as orphan. Either wiring landed and this block should be ' +
+        're-decided, or one of the two instruments is wrong. Do not edit around the disagreement.',
     ).toEqual([])
 
     // The other half, and without it the case above is satisfiable by a broken path match. The

@@ -1,0 +1,591 @@
+# RFC-0003 Response 04 — The certificate inventory, and the tree audited against Response 01
+
+**Date: 2026-08-23.** Every reading below was taken against this tree on that date, by
+reading the file named beside it. Where a number in an earlier document disagrees, the
+disagreement is recorded rather than smoothed over.
+
+## How to read this
+
+Response 01 asked two questions — where a trust anchor comes from, and how revocation
+stays fresh — and answered them with nineteen numbered recommendations. It also opened with
+a §0 inventory of *"what this repository already has"*. This document does three things
+that §0 does not:
+
+1. **Enumerates every certificate-shaped artefact the system has.** §0 lists surfaces; it
+   does not present the set as a set, and the set has grown since.
+2. **Audits the tree against Response 01's own recommendations**, one row per
+   recommendation, measured rather than recalled.
+3. **Records what was learned about the DHT this week**, because two of Response 01's
+   assumptions about it are now false, and because one library's public options are
+   declared, threaded into a constructor, and read by nothing — which cost this project
+   three wrong answers before a test settled it (§8).
+
+A fourth section carries the **work register**, so that "implement everything" has an
+enumerable referent rather than being a mood.
+
+---
+
+## §1. The complete inventory — seven artefacts, plus an eighth of different nature
+
+Response 01 draws one distinction the RFC did not: **two independent pinning mechanisms,
+pinning different sets for different decisions.** That distinction is real and load-bearing,
+and it is the top of this list rather than a footnote in it. What follows is the whole set.
+
+| # | Artefact | Where | What it decides | State today |
+|---|---|---|---|---|
+| 1 | **Root policy anchor** (CR) | compiled into the bundle | which publisher this deployment believes | Present. Supplied at construction and **immutable** — no rotation, no re-pin, no runtime revocation |
+| 2 | **`trustAnchors`** | `packages/core/src/naming.ts` | who may sign **name records** — artefact provenance | Present, **required, no default**. Type `readonly PublicKeyHex[] \| 'runs-unsigned-artifacts'`. Enforced by `SignedNameResolver` + `guardModuleProvenance` |
+| 3 | **`trustedIssuers`** | `packages/core/src/enrollment.ts` | who may sign **node certificates** — admission and peer selection | Present but **optional**. Enforced by `verifyCertificate` + `PeerVerifier` + `relayAdmissionGate` |
+| 4 | **`NodeCertificate`**, native envelope | `packages/core/src/enrollment.ts:190` | that a node is who it says, and how it is reachable | Present. Lifetime **1 hour** since 2026-08-23 — see §10 W9. It also now carries an optional `nextKeyCommitment` (W13) |
+| 5 | **The same statement as DER X.509 v3** | `enrollment.ts:233`, `x509.ts` | interoperability with X.509 tooling | Present and **wired on the trust path, fail-closed** |
+| 6 | **Capability delegation chains** | `packages/core/src/capability.ts` | what a holder may do, and what it may pass on | Present |
+| 7 | **Signed `NameRecord`** | `packages/core/src/naming.ts` | which bytes a name resolves to | Present, with monotonic-version rollback refusal |
+| 8 | **Infrastructure TLS** — Let's Encrypt cert, WebRTC-Direct certhash key | libp2p keychain | whether a browser can dial this node at all | Present in code; **not persisted** — see §2 |
+
+### The asymmetry between 2 and 3, which is the single most important line in this table
+
+In RFC terms 2 and 3 are the descendants of two different management certificates —
+`CM-Code` and `CM-Node` — under one CR, and `fabric-node.ts` states it plainly: *"They pin
+different sets."* The codebase implemented §3.2's separation of management roles before the
+RFC described it.
+
+But the two are not symmetric, and the asymmetry is a live fail-open:
+
+- **`trustAnchors` cannot be empty.** The opt-out is a **named literal**,
+  `'runs-unsigned-artifacts'`, and `module-provenance.ts` states the rule: *"There is no
+  exempt case […] a module is vouched for or it does not run."* Emptiness is not
+  expressible, so nobody can disable artefact provenance by forgetting a field.
+- **`trustedIssuers` can be empty, and empty means the verifier does nothing.** A node
+  constructed without it admits every peer. The difference between the two is not stylistic;
+  it is the difference between an opt-out somebody had to type and an opt-out somebody could
+  reach by omission.
+
+### The two fields in the node certificate that this document exists partly to surface
+
+`NodeCertificate` is `{nodeKey, userKey, operatorId, discoverability, relayIds, issuedAt,
+expiresAt, issuer, signature}`. Two of those are usually skipped in summaries and are the
+foundation of §9:
+
+- **`discoverability`** (`enrollment.ts:176-180`) is `'seed' | 'via-relay'`. `'seed'` means
+  *"dialable directly; usable as a bootstrap entry point."*
+- **`relayIds`** (`:204`) names the relays through which a `'via-relay'` node is reachable.
+
+**Both are signed by the issuer.** The fabric therefore already possesses an
+offline-verifiable statement of which nodes are relays — see §9 for why nothing reads it.
+
+---
+
+## §2. Caching is safe by construction — and the one artefact where it is not
+
+The reason all of 1–7 may be cached without ceremony is a decision already recorded in the
+code, not a new argument:
+
+> `enrollment.ts`: *"Revocation is **non-renewal on the certificate's own clock**, not a
+> list."*
+> `result-attestation.ts`: *"There is no revocation list here and there must not be one."*
+
+Verification is therefore **entirely offline**. A cached certificate is checked by the same
+code, against the same pinned issuers, as one fetched a second ago; and it stops being
+accepted by itself, at its own `expiresAt`, with nobody needing to be reachable for that to
+happen. Caching cannot make a stale credential look fresh, because freshness is a property
+the credential carries.
+
+That is a strong property and it is worth stating positively: **this system can verify its
+peers with the network down.**
+
+### The exception, and it is type 8
+
+Type 8 is not a claim about a peer; it is the material from which **this node's own address**
+is derived. The WebRTC-Direct certhash key determines the multiaddr other nodes have written
+down. Rotating it on a timer therefore does not refresh anything — it silently invalidates
+every published record that names this node, on a schedule.
+
+So for type 8 the correct policy is **persistence without rotation**, plus removal of
+orphaned entries. Let's Encrypt certificates within the same store are the opposite case:
+they expire and are renewed by their own machinery, and want no policy at all.
+
+**Nothing persists any of this today.** `FabricNodeOptions.datastore` exists, is typed as
+libp2p's `Datastore`, and **zero production callers pass it** — checked across
+`packages/node/src/bin`, `packages/browser/src` and `packages/browser/demo`, where the
+identifier does not appear. libp2p's keychain reads and writes `components.datastore`
+(`node_modules/@libp2p/keychain/src/keychain.ts:174,241`), so with no datastore supplied the
+address key is regenerated at every start.
+
+---
+
+## §3. Audit — Response 01 §2.10, revocation and freshness
+
+Twelve recommendations. Ten are code; two are RFC text. Measured 2026-08-23.
+
+| # | Recommendation | In the tree | Reading |
+|---|---|:---:|---|
+| 1 | Certificate lifetime 30 d → **1 h** | **No** | `enrollment.ts:929` — `options.certificateLifetimeMs ?? 30 * 24 * 3_600_000` |
+| 2 | State the enforcement-grain rule | n/a | RFC text |
+| 3 | **Stapling** — the checked party carries its status | **No** | No status object exists. The three occurrences of "stapl" are prose: `enrollment.ts:1265`, `net/src/enrol-client.ts:107`, `node/src/mutation-ledger.ts:3564` |
+| 4 | Fail-posture split **by operation**, three named values | **No** | None of `refuses-without-fresh-status`, `proceeds-on-unexpired-credential`, `refuses-always` occurs anywhere under `packages/*/src/` |
+| 5 | `MAX_STATUS_AGE` = 5 min | **No** | Zero occurrences |
+| 6 | `CM-Status` as a distinct, and the only online, key | **No** | Zero occurrences |
+| 7 | Status object shaped like `NameRecord` | **No** | Follows from 3 |
+| 8 | Storage-free rollback floor — a status older than the certificate it evaluates is refused | **No** | Follows from 3 |
+| 9 | A **`revoked`** member of `CertificateFailure` | **No** | `enrollment.ts:1194` — `untrusted-issuer \| bad-signature \| expired \| not-yet-valid \| x509-not-hex` (plus the X.509 profile refusal). `revoked` occurs nowhere outside `cert-lifecycle.ts` |
+| 10 | Record the clock assumption; carry the relay's time in the §9 challenge | **No** | `possessionChallenge` (`enrollment.ts:277`) encodes `{purpose, nodeKey, userKey}` and, in the module's own words, *"nothing else — no nonce"*; `:29` calls the challenge *"deliberately still static"*, freshness carried by a separate minted-challenge lifetime |
+| 11 | **Re-ask a settled acceptance once its certificate has expired** | **YES** | `packages/libp2p/src/peer-verifier.ts:591` — `if (settled.certificate.expiresAt > now) return settled`, otherwise the verdict is demoted and re-asked |
+| 12 | Record that revocation is non-renewal | n/a | RFC text |
+
+**Score: one of ten.**
+
+The one that landed is not the least of them. §2.10 item 11 says of itself that without it
+*"every other recommendation here reaches the admission path and not the selection path, and
+the headline number is the connection lifetime rather than the certificate lifetime."* So the
+precondition for the rest of the list is in place; the rest of the list is not.
+
+**What the nine missing items are, stated as one thing rather than nine:** there is today no
+way to withdraw trust from a node except to wait for its certificate to expire, and that wait
+is thirty days.
+
+### Done since Response 01 was written, and therefore absent from its inventory
+
+The **X.509 form is wired on the trust path, fail-closed**: `checkX509Form` in
+`enrollment.ts` calls `decodeX509Certificate` and `describeX509Failure`, and the refusal
+kinds it introduced are visible in `CertificateFailure` above. `cert-lifecycle.ts:110-112`
+records that an earlier claim of *"shipped decode-only and deliberately unwired"* is now
+false about the tree. Response 01 predates this and does not know about it.
+
+---
+
+## §4. Audit — Response 01 §1.8, trust anchoring
+
+Seven recommendations. Four are RFC text edits (rename the concept, add the provenance
+table, forbid TOFU, move certificate transparency between sections). Three are code.
+
+| # | Recommendation | In the tree | Reading |
+|---|---|:---:|---|
+| 4 | **Anchor change is a consent event** — an `anchoredTo` field plus a fourth `ConsentGap` kind | **No** | `anchoredTo` has zero occurrences. `ConsentGap` (`packages/browser/src/consent.ts:63`) still has exactly three kinds: `never-asked \| unreadable \| terms-changed` |
+| 5 | Precedence across channels: a supplied anchor **replaces** rather than joins | **YES**, Node tier | `bin/agent.ts`, `bin/seed.ts` — `values['trust-anchor'] ?? [KERNEL_TRUST_ANCHOR]`. `packages/browser/demo/main.ts` follows the same rule |
+| 6 | Pre-rotation — a `nextKeyCommitment` field | **No** | Zero occurrences |
+
+The second half of recommendation 5 — *refusal within the set, never pick* — was not found
+and is **not claimed either way here**; `naming.ts` refuses on several grounds but no
+multi-anchor disagreement branch was located. It is carried in the work register as a thing
+to determine rather than as a gap asserted.
+
+---
+
+## §5. The contradiction — two revocation designs live in one package
+
+This must be stated rather than reconciled quietly, because a reader of either half alone
+will come away with the wrong model.
+
+- `enrollment.ts` and `result-attestation.ts` say revocation **is not a list** and that
+  there must not be one.
+> **The contradiction below was dissolved rather than settled, 2026-08-24.** One of the two
+> designs left the tree: `cert-lifecycle.ts` was deleted, so the only revocation design in
+> `@o2/core` is now the one `enrollment.ts` and `result-attestation.ts` state — non-renewal
+> on the certificate's own clock, and no list. The paragraph is kept because a reader who
+> finds either of those two sentences needs to know that the disagreement was real, was
+> named, and was closed by removing a design and not by softening a sentence.
+
+- `cert-lifecycle.ts` declared `RevocationReason` (`'key-compromise' | 'superseded' |
+  'ceased-operation'`), `RevocationStatus`, `Revocation`, and a `DirectoryPort` with
+  `publishRevocation` and `revocationStatus`.
+
+These are not two halves of one design. They are two designs.
+
+**Response 01 §2.10 item 12 settles it**, and the settlement favours the code: revocation
+**is** non-renewal, and the stapled status object of item 3 is an *addition* to expiry — the
+checked party carrying a short-lived signed statement about itself — not a list anybody
+queries. §2.4's whole point is that the relay holds fresh status, not the joining node, which
+is what breaks the circularity of *"you need a relay to get status and status to get a
+relay."*
+
+**Therefore, recorded as the resolution:** of `DirectoryPort`'s four methods, `publish` and
+`fetch` are adopted; `publishRevocation` and `revocationStatus` stay unwired, **and the
+reason is this section** rather than an oversight to be tidied up by a later reader.
+
+---
+
+## §6. `cert-lifecycle.ts` — complete, tested, connected to nothing, and now deleted
+
+> **RESOLVED 2026-08-24 by owner ruling — *"we might wanna unify that"*.** One certificate
+> system, not two, and the form of the unification is deletion because merging was empty:
+> the delegation half duplicated `capability.ts`, the identity half duplicated
+> `enrollment.ts`, the crypto-backend selection had already been merged into
+> `ed25519-backend.ts` by Phase 28, and the revocation half is refused by standing ruling.
+>
+> **What follows is preserved as the reading that produced the decision**, not rewritten as
+> though the module were still here. It is the record of what a 775-line tested module with
+> no consumer actually contained, and the argument that it should be wired is preserved
+> alongside the price that argument never paid — see §10 W7 and `REQUIREMENTS.md` CRYPTO-03,
+> which had left this open as an owner call in as many words.
+>
+> Everything named below lives in git at `0c49c42`.
+
+
+`packages/core/src/index.ts:513` records it: *"`cert-lifecycle.ts` is imported by nothing in
+the production corpus — measured, and it is one of 27 such modules."* The state is held
+deliberately, as an owner non-decision guarded by a check
+(`packages/node/src/mutation-ledger.ts:3595`), not by accident.
+
+Two of its declarations matter to everything else in this document:
+
+- **`DirectoryPort`** (`cert-lifecycle.ts:333`) is `publish(cert)` / `fetch(ref)` /
+  `publishRevocation(r)` / `revocationStatus(ref)`. The first two are **a description of a
+  DHT**. The module was written against an abstract "there is a directory somewhere"; there
+  now is one.
+- **`Action`** (`:172`) is `'execute' | 'read' | 'delegate' | 'relay' | 'issue'`. The
+  capability vocabulary already contains **`relay`** — the fourth sense of "provider" in §9,
+  expressed as an authority rather than as an announcement.
+
+---
+
+## §7. What the DHT can and cannot do — measured, because two prior assumptions were wrong
+
+### It does not forward messages
+
+Kademlia as implemented here is **iterative**. The querying node dials each peer itself
+(`node_modules/@libp2p/kad-dht/src/network.ts:180` —
+`connectionManager.openStream(to, this.protocol, options)`), and when a peer answers with
+closer peers, the querying node queries **those** directly
+(`query/query-path.ts:205`). No intermediate node relays a request onward.
+
+Consequence: a browser cannot carry another browser's queries. The DHT is not a
+message-forwarding fabric.
+
+### A browser cannot be a relay, and relays do not chain
+
+- `node_modules/@libp2p/circuit-relay-v2/README.md:46`: the relay server *"will not work in
+  browsers."*
+- Chaining is refused by the protocol implementation, twice, with `PERMISSION_DENIED`:
+  `handleReserve` refuses a reservation whose connection arrived over a circuit
+  (`server/index.ts:164-167`, `Circuit.exactMatch`), and `handleConnect` refuses to relay
+  onward for a connection that arrived over a circuit (`:259-262`, `Circuit.matches`).
+
+So a chain of pages A→В→Г→Д→Б is impossible for two independent reasons, and the second
+would hold even if the first were fixed.
+
+### Only the dialed side needs a reservation
+
+`handleConnect` checks the reservation of the **destination**
+(`server/index.ts:284-287`, `this.reservationStore.get(dstPeer)`). A node that only
+initiates — a pure requestor — occupies no slot on any relay.
+
+This changes the capacity arithmetic. With `O2_MAX_RESERVATIONS` = 64 per relay
+(`packages/libp2p/src/constants.ts:64`; the library default is 15), the 64 slots bound the
+number of simultaneous **executors** reachable through that relay, not the number of
+participants. Reservation TTL is 2 h (`:104`); a relayed connection is capped at 2 minutes
+(`:22`) and 128 KiB (`:25`), which is the arithmetic reason a relay is an introduction
+channel and cannot be a data path.
+
+### What a DHT record *can* do that a relay does: be a rendezvous
+
+A record is a mailbox. A writes under a key derived from Б; Б reads. **Neither dials the
+other.** Applied to introduction, this removes the reservation requirement from the two
+endpoints — after the exchange, WebRTC is symmetric and nobody listens.
+
+**It does not remove dialability; it concentrates it.** Both parties must reach whoever
+holds that part of the keyspace. If the closest nodes to that key are browser tabs, reaching
+them is again a relay problem. Which nodes hold which part of the keyspace is therefore the
+open parameter, and it is a parameter rather than a physical constraint.
+
+One implementation cost, stated so the idea is not oversold: `@libp2p/webrtc` wires its
+offer/answer exchange to circuit-relay. Introduction over records is **a transport of our
+own**, not a configuration.
+
+---
+
+## §8. Provider-record lifetime — three wrong answers, then a measurement
+
+This section originally asserted that provider records never expire. **That was the third
+wrong answer in a row about the same number, and it is corrected here by measurement rather
+than by a fourth reading.**
+
+### What is true, and is what produced the wrong conclusion
+
+`@libp2p/kad-dht@16.4.0` splits provider-record lifetime across two modules. The one that
+looks authoritative is inert:
+
+- `src/providers.ts` — the store — takes an init of exactly `logPrefix` and
+  `datastorePrefix`. The class body reads no validity and runs no cleanup.
+- `getProviders` (`:57`) returns every entry under the key prefix **with no date
+  comparison**. Reads are not filtered.
+- The public options type *declares* `providers.provideValidity` and
+  `providers.cleanupInterval` (`src/index.ts:432,438`), and `kad-dht.ts:182` spreads them
+  into that constructor — where nothing reads them. **Those two options are dead.**
+
+Every sentence above is still correct. The conclusion drawn from them was not.
+
+### What was missed
+
+Expiry lives in `src/reprovider.ts`, and it runs. `kad-dht.ts`'s `start()` passes the
+reprovider to `@libp2p/interface`'s `start(...)` helper alongside the routing table and the
+network, so its timer is armed with everything else. Every `interval` it walks the same key
+prefix and:
+
+- **deletes** any entry older than `validity` whose provider is not this node;
+- **exempts its own**, deliberately — the code's own comment is *"if user node is down for
+  a while, we still persist provide intent"*;
+- **republishes** its own records that are within `threshold` of expiring.
+
+So the honoured knob is **`reprovide.validity`**, and its default is 48 hours.
+
+### The three corrections, kept rather than deleted
+
+| Said | Basis | Verdict |
+|---|---|---|
+| 48 hours | `PROVIDERS_VALIDITY` | **Right by accident** — it is the default of the honoured knob, but the reasoning pointed at the wrong module |
+| 24 hours | the `provideValidity` doc comment | Wrong — that option is dead |
+| Never expires | `providers.ts` having no cleanup | Wrong — the cleanup is in `reprovider.ts` |
+
+The pattern is one thing three times: **a reading of a type declaration presented as a
+reading of behaviour.** The correction is not a fourth reading.
+
+### What the fabric now does, and how it is known
+
+Both tiers pass an explicit `reprovide` policy, for the same reason `clientMode` is stated
+rather than inherited: an unset value makes behaviour follow a default sited against
+something else. `providerRecordPolicy` (`packages/libp2p/src/constants.ts`) derives all
+three figures from one — validity **1 hour**, sweep a quarter of it, republish at half — so
+the staleness bound stays `1.25 × validity` instead of becoming an accident between three
+independently chosen numbers. The library's own defaults, 48 h / 1 h / 24 h, are each
+reasonable and jointly republish a record at about the instant it would otherwise expire.
+
+**Measured, not argued:** `packages/node/src/provider-expiry.node.test.ts` runs two real
+nodes on loopback. The holder announces a CID; the keeper is handed the record over the
+wire by `ADD_PROVIDER`; the holder is then **stopped**, so the only possible answer is what
+the keeper still stores; and the case waits for the keeper to stop answering. Forcing the
+validity back to the library's 48 h turns it red on the sweep assertion — watched, then
+restored by the inverse of the plant with `cmp` exit 0.
+
+Two refusals were found by that case failing, and both are recorded because neither is
+visible from the type:
+
+- **`ADD_PROVIDER` ignores a provider that sends no addresses**
+  (`rpc/handlers/add-provider.ts` — *"no valid addresses for provider … Ignore"*).
+- **The key on the wire is `multihash.bytes`, decoded by `CID.decode`**, which works only
+  because a sha-256 multihash is byte-identical to a CIDv0. An identity multihash begins
+  `0x00`, is read as a version, and the whole message is refused as `Invalid CID`. The
+  first draft of the case announced into a keeper that stored nothing and reported only
+  *"the keeper was never handed the record"*.
+
+### Why the ordering against persistence still holds, on a weaker argument
+
+The original claim — persistence would turn an unbounded leak durable — is withdrawn with
+the finding behind it. What remains is smaller and still worth the ordering: with the
+library defaults a restarting node would carry 48 hours of other nodes' provider records
+forward, and with an explicit 1 hour it carries one. Setting the policy first costs
+nothing and makes the persisted footprint a number somebody chose.
+
+## §9. "Provider" means four different things, and only one of them is built
+
+The word is doing too much work. Separated:
+
+| Sense | The claim | Mechanism today |
+|---|---|---|
+| **Holds bytes and will serve them** | "I have this block, come and get it" | **Built** — `dht.provide` via `DhtProviderAnnouncer` |
+| **Holds bytes and will not serve them, but will compute over them** | sovereign, owner-pinned data | **None, and none is needed.** The scheduler never relocates a sovereign shard off its owner's node — it refuses instead. The owner *is* the requestor, so there is nobody to look it up |
+| **Holds nothing but can execute** | free capacity, supported features | **Partial** — capabilities travel inside the signed record; instantaneous free capacity does not, and should not: it ages faster than a record propagates |
+| **Provides the relay service** | "peers can be introduced through me" | **Built** (W5/W6) — announced under a well-known key, and the certificate's signed `discoverability` is what admits it |
+
+### The fourth row is buildable today out of two halves that already exist
+
+**A DHT cannot be queried by attribute.** Kademlia looks up a key; it does not scan values.
+So "give me every node whose `discoverability` is `seed`" is not a question this structure
+answers, and no amount of wiring makes it one.
+
+The mechanism that *does* fit is the one just built for blocks: **a provider announcement
+under a well-known key** meaning "I provide the relay service". And the half that makes it
+trustworthy is already signed — §1's `discoverability: 'seed'` and `relayIds`, inside a
+certificate the issuer signed and any node verifies offline. A node found under the
+well-known key therefore **proves** its claim rather than asserting it.
+
+**And the transport for that proof is already running.** The published record is
+`NodeRecords = { certificate, capabilities }` (`packages/core/src/discovery.ts:414`), and the
+certificate is the whole certificate. So the fabric's keyspace already carries relay
+information today; what is missing is an announcement under a well-known key and a reader
+that asks.
+
+That reader is also the missing input to bounded auto-reservation: a node cannot re-home onto
+a relay it has no way to learn about, which is why the two are one piece of work and not two.
+
+---
+
+## §9a. What this audit scored, and what it scores now
+
+§3 scored **1 of 10** substantive §2.10 recommendations implemented, and §4 found items 4
+and 6 of §1.8 absent. Those tables are left exactly as they were read — an audit that edits
+its own findings after acting on them is not an audit — and what changed is recorded here.
+
+| Recommendation | Then | Now |
+|---|---|---|
+| §2.10 #1 — lifetime 30 d → 1 h | not done | **done**, owner ruling; `DEFAULT_CERTIFICATE_LIFETIME_MS` |
+| §2.10 #3, 5, 6, 7, 8 — stapled status, `MAX_STATUS_AGE`, `CM-Status`, status record, rollback floor | not done | **refused as a design**, W11: the shortened lifetime is the alternative branch and carries freshness alone |
+| §2.10 #9 — `revoked` failure kind | not done | **refused**, W3: nothing can produce it under non-renewal |
+| §2.10 #11 — re-ask a settled acceptance once its certificate expired | done | unchanged |
+| §1.8 #4 — anchor change as a consent event | not done | **done**, W12 |
+| §1.8 #6 — `nextKeyCommitment` pre-rotation | not done | **done**, W13 |
+
+So of ten substantive recommendations: **four implemented, six refused as a coherent
+design** with the refusal recorded beside each. Nothing is left in the state the audit found
+worst — recommended, unimplemented, and unexplained.
+
+**One recommendation was implemented that §2.10 never made**, and it is the one that
+mattered most: certificate **renewal**. §2.10 recommends a one-hour lifetime and does not
+mention renewal at all, which means the recommendation as written would have taken every
+node off the fabric one hour after start. That gap was found by measuring, not by reading.
+
+---
+
+## §10. The work register
+
+Written so that "implement everything" has a countable referent. Rewritten **2026-08-23
+after the owner ruled on all three open decisions**, so the three-bucket shape below is the
+outcome and not the question.
+
+### Where it stands
+
+**Eleven of fourteen are done with proofs. Three are closed by the owner's design choice.
+Nothing is open.**
+
+The last two closed on the same day the register was rewritten, and the interesting one is
+W2 — see (c), which is now a record of a wrong diagnosis rather than a blocker.
+
+### (a) Done, each with a proof that was watched failing
+
+| ID | Work | Proof, and what reddened it |
+|---|---|---|
+| W1 | **Provider records expire** — `providerRecordPolicy`, both tiers (§8) | `provider-expiry.node.test.ts`: two real nodes, the holder announces, the keeper is handed the record over the wire, the holder stops, the keeper must stop answering. The fixture CID had to become sha-256 — an identity multihash begins `0x00`, is read as a CID version, and the whole `ADD_PROVIDER` is refused as `Invalid CID` |
+| W5 | **A relay announces itself as a provider** (§9) | `relay-service.test.ts`, 10 cases in node + three browser engines; `relay-discovery.node.test.ts`, three real nodes on a DHT-only index. The announcement only *narrows*: a candidate is kept when its certificate says `'seed'`, which only an issuer can mint. Written as a one-shot first, which reproduced registration's own defect and was measured as a 40 s timeout finding nothing |
+| W6 | **Bounded auto-reservation**, k = 2 | Same files. The bound is arithmetic, not taste: 64 slots per relay make k a divisor on how many nodes the fabric holds, and 1 is too few only because a node whose single relay disappears cannot be told about a replacement |
+| W8 | **Two pinned anchors do not overwrite each other's names** | `naming.test.ts`, three cases. New failure kind `authority-changed`, checked *before* the version comparison |
+| W10 | **What a one-hour certificate costs the issuer** | `issuance-rate.node.test.ts`: six joiners arriving at once are all issued to, ~28 ms each, i.e. ~10⁵ renewals an hour. Throughput is not the constraint. **A ratio was tried first and removed because it could not fail** — the calibration leg carries a whole node's start cost — and that is recorded at the assertion |
+| W14 | **Certificate renewal** — it did not exist | `certificate-renewal.test.ts` (8 cases) + `certificate-renewal-loop.test.ts` (3), node + three browser engines. See below: it was three snapshots, not a timer |
+| W9 | **Certificate lifetime 30 d → 1 h** | Owner ruling 2026-08-23, reversing the 2026-08-02 correction recorded in `enrollment.ts`'s own header. Asserted against an **actually issued certificate**, not only against the constant. `DEFAULT_MAX_PER_WINDOW` doubled with it — see the note below, which is the part that would have been missed |
+| W12 | **A change of trust anchors asks the visitor again** | `consent.test.ts`, 5 new cases, node + three engines. Fourth `ConsentGap` kind `anchor-changed`; `readConsent`'s new argument is required, so the compile error fired at every call site rather than defaulting open |
+| W13 | **A certificate can announce the key its node will rotate to** | `key-rotation.test.ts`, 9 cases, node + three engines. A hash and not the key, inside the issuer's signature, optional and byte-compatible. **Nothing rotates yet** — both exports are registered in `reachability-guard`'s `OPEN_FINDINGS` with the wiring that would close each |
+| W2 | **A node with a durable directory keeps its libp2p state** | `datastore-persistence.node.test.ts`, 6 cases. `FsDatastore` is wired by default under `<blockstoreDir>/.datastore`. See (c) for why this was recorded as blocked for a week |
+| W4 | **A peer verified before this process started is not asked again** | `certificate-cache.node.test.ts` (6) + 4 cases in `peer-verifier.node.test.ts` that hand the verifier a certificate a real store would never hold |
+
+#### W14 was three snapshots, not a timer
+
+The register previously scoped this as four surfaces. Three of them turned out to be *the
+same defect written three times*: a certificate held as a value by something that outlives
+it.
+
+- `SelfRecordIndex` held `records` as a value. **Its own docblock already made the
+  argument**, about the neighbouring field: *"A snapshot resolved in the constructor would
+  advertise a block that became sovereign a second later."* A certificate is the same shape
+  of fact.
+- `RecordPublisher` was handed `NodeRecords` at construction. A value record outlives the
+  certificate inside it, so renewing without republishing leaves the keyspace advertising
+  the expired one — and every reader running `verifyCertificate` discards the node anyway.
+- `FabricNode.certificate` and `BrowserNode.certificate` were fields.
+
+All three now read through one `CertificateHolder`, so a renewal is a single write. The
+holder refuses a replacement that is not strictly newer, so two overlapping exchanges or a
+replayed older signature cannot shorten a node's own reachability window.
+
+Two decisions worth not re-litigating. `CERTIFICATE_RENEW_AT` is two-thirds and is
+**deliberately not aliased** to `lease.ts`'s `RENEW_AT`, which holds the same number today:
+a lease renewal is a heartbeat to a scheduler already talking to this node, a certificate
+renewal is a fresh two-leg exchange with an authority that may be unreachable for hours.
+And `shouldRenewCertificate` deliberately **disagrees** with `shouldRenew` in one place — it
+stays true after expiry, because a worker whose lease lapsed lost the task and should stop,
+while a node whose issuer was down across the whole window is refused by every peer and
+cannot get back in by giving up.
+
+A defect was found in review and fixed before it shipped: `setTimeout` stores its delay in a
+signed 32-bit integer and **overflows to one millisecond** rather than saturating, so
+two-thirds of any lifetime over ~37 days would have spun the node at full CPU. The default
+is thirty days and clears it — but the span is the *issuing authority's* choice, not the
+joining node's.
+
+#### What W9 dragged with it
+
+`DEFAULT_MAX_PER_WINDOW` 32 → 64. Its sizing argument rests explicitly on *"a persisted
+certificate lives 30 days = 720 of these windows … a returning visitor spends nothing in 719
+hours of 720."* A one-hour lifetime inverts that: a node spends an issuance in **every**
+window. The worst ordinary case is no longer the ~20-tab session restore alone but that
+restore *plus* every already-enrolled node of the same owner renewing in the same hour. The
+number doubles, which keeps the 1.6× headroom the original argument chose rather than
+inventing a new ratio.
+
+**And the trade, stated where it cannot be missed:** revocation reach falls from thirty days
+to one hour, and partition tolerance falls the same way. A node whose issuer is unreachable
+for over an hour now leaves the fabric, where before it had a month. Renewal starts at
+two-thirds, so the real margin is the last twenty minutes. No measurement pays for that; it
+is the owner's call and it is recorded as one.
+
+### (b) Closed by the owner's design choice, not deferred
+
+| ID | Work | Why it is closed |
+|---|---|---|
+| W11 | **The freshness mechanism** (`CM-Status`, stapled status, `MAX_STATUS_AGE`) | The owner chose the **shortened lifetime** for W9, which is the alternative branch of this decision, not a stage before it. Freshness is carried by the certificate's own clock. So no status object, no `MAX_STATUS_AGE`, and — this is the point — **no new online key**: `CM-Status` would have been the only key that must be online, i.e. the one most likely to be compromised. Verification stays fully offline, which is what keeps every certificate in this system safe to cache (§2) |
+| W3 | **`revoked` member of `CertificateFailure`** | Follows from W11. It was the vocabulary a status mechanism needs, and there is no status mechanism. Adding it now would put a member in a union that nothing can ever produce |
+| W7 | **`DirectoryPort` publish/fetch over the DHT** | Also follows, and the reason is stronger than the register first recorded. Two facts, both read from the tree. **(1)** What such a port would adapt already exists and is wired: `RecordPublisher` publishes and `DhtRecordIndex` fetches, both on the private keyspace, and an adapter over them is a **second way to do one thing** — the rule `job-entry-points.node.test.ts` enforces by name. **(2)** More decisive, and it settled the module's fate the same day: `cert-lifecycle.ts`'s `Certificate` was a **different type from `NodeCertificate`** — `{subject, parent, grant, window, ref, signature}` against `{nodeKey, userKey, operatorId, discoverability, relayIds, …}` — with its own `Issuer`, `Verifier` and `Subject`. A DHT `DirectoryPort` would therefore put a *parallel certificate system* onto the keyspace rather than the one the fabric runs on, and would have been a module with no production importer in a repository that counts them. **The owner then removed the question rather than answering it: on 2026-08-24 `cert-lifecycle.ts` was deleted** — *"we might wanna unify that"*, one certificate system rather than two — so there is no longer a `DirectoryPort` to adapt. What the fabric publishes and fetches is `NodeRecords` through `RecordPublisher` and `DhtRecordIndex`, and that is now the only certificate transport there is. `publishRevocation`/`revocationStatus` stay unwired, and §5 is the recorded reason: revocation here is non-renewal on the certificate's own clock, and a list must not be reintroduced through a port |
+
+### (c) W2 — a week spent on a diagnosis that was wrong in a specific way
+
+Closed 2026-08-23. It is written up rather than deleted because the failure mode is one
+this repository is prone to.
+
+The note carried a claim assembled from **ten sound eliminations**: *"any datastore whose
+operations are asynchronous hangs this fabric's enrolment RPC."* Every elimination was
+real — the wiring, the library, slowness, libuv, the store being stuck, persistence in
+general. The claim they were assembled into was false.
+
+What settled it was making the suspect property a **variable** rather than a description,
+which none of the ten readings did. An in-memory store was proxied four ways and run
+against the very specs that had failed:
+
+| Arm | Result |
+|---|---|
+| Await a macrotask before every operation | enrols |
+| 5 ms and 25 ms per operation | enrols |
+| Every operation serialized behind one queue | enrols |
+| `query` yielding lazily — **the first probe missed this**, because `query` returns an async iterable and the probe tested for `then` | enrols |
+| An unmapped `ENOENT` in place of the interface's `NotFoundError` | enrols |
+
+So not asynchrony, not latency, not laziness, not serialization, not error type. The
+question narrowed from *"can this fabric take a persistent datastore"* to *"what did those
+two implementations do"*, and the cheaper answer was a store small enough to read.
+
+`FsDatastore` — synchronous `node:fs`, one flat file per key, write-then-rename, **base32
+names** because APFS is case-insensitive by default and libp2p keys carry mixed-case base58
+peer IDs, so two keys differing only in case would merge on the development machine and
+stay distinct in CI. `get` is `async` so that a miss is always a *rejected promise*: the
+interface permits a synchronous return, and a caller written as `store.get(k).catch(…)`
+never enters its handler when the call throws before returning. Found by that file's own
+miss case on its first run.
+
+**The lesson worth keeping is not about datastores.** Ten correct eliminations produced one
+wrong conclusion, and the wrong conclusion then blocked a register row for a week. An
+elimination says what a cause is *not*; only varying the suspected property says what it
+*is*.
+
+## Appendix — where each reading came from
+
+Repository files were read at the line cited. Library behaviour was read from the installed
+package under `node_modules/`, not from published documentation — which, per §8, disagrees
+with the implementation on the one point where it mattered most.
+
+| Claim | Source |
+|---|---|
+| Certificate lifetime is 30 days | `packages/core/src/enrollment.ts:929` |
+| `CertificateFailure` has no `revoked` | `packages/core/src/enrollment.ts:1194` |
+| `ConsentGap` has three kinds | `packages/browser/src/consent.ts:63` |
+| Verdicts are re-asked after certificate expiry | `packages/libp2p/src/peer-verifier.ts:591` |
+| `discoverability`, `relayIds` are signed fields | `packages/core/src/enrollment.ts:176-180`, `:204` |
+| Published record carries the whole certificate | `packages/core/src/discovery.ts:414` |
+| `cert-lifecycle.ts` has no production importer | `packages/core/src/index.ts:513` |
+| `DirectoryPort` shape; `Action` includes `relay` | `packages/core/src/cert-lifecycle.ts:333`, `:172` |
+| Keychain persists through `components.datastore` | `node_modules/@libp2p/keychain/src/keychain.ts:174,241` |
+| Kademlia dials each peer itself | `node_modules/@libp2p/kad-dht/src/network.ts:180`, `query/query-path.ts:205` |
+| The provider **store** never expires anything, and its two options are dead | `node_modules/@libp2p/kad-dht/src/providers.ts` (whole file), `src/index.ts:432,438`, `kad-dht.ts:182` |
+| Expiry is the **reprovider's**, it is started, and it exempts self | `node_modules/@libp2p/kad-dht/src/reprovider.ts` `processRecords`, started via `kad-dht.ts`'s `start(...)` |
+| `PROVIDERS_VALIDITY` is the reprovider default and also expires **value** records | `reprovider.ts:82`, `rpc/handlers/get-value.ts:132` |
+| A foreign provider record is actually swept once the fabric's validity passes | `packages/node/src/provider-expiry.node.test.ts` — two nodes on loopback, plant watched red |
+| `ADD_PROVIDER` ignores a provider with no addresses, and decodes the key as a CID | `node_modules/@libp2p/kad-dht/src/rpc/handlers/add-provider.ts` |
+| A browser cannot run the relay server | `node_modules/@libp2p/circuit-relay-v2/README.md:46` |
+| Relays do not chain | `node_modules/@libp2p/circuit-relay-v2/src/server/index.ts:164-167`, `:259-262` |
+| Only the destination needs a reservation | same file, `:284-287` |
+| Reservation and relay limits | `packages/libp2p/src/constants.ts:22,25,64,104` |

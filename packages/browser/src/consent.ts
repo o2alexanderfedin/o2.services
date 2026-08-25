@@ -32,6 +32,7 @@
  * browser globals when it is loaded cannot be imported by a Node test at all.
  */
 
+import type { BrowserNodeOptions } from './browser-node.ts'
 import { DISCLOSURE_VERSION } from './disclosure.ts'
 
 /** Where a consent record is kept. Injectable, so the rules are testable. */
@@ -47,6 +48,21 @@ export const CONSENT_KEY = 'o2:consent'
 export interface ConsentRecord {
   /** The disclosure version this consent answered. */
   readonly disclosureVersion: string
+  /**
+   * The trust anchors in force when this consent was given — DATA-04, owner ruling
+   * 2026-08-23.
+   *
+   * A canonical description rather than the array itself, so comparison is one string
+   * equality and storage holds something a person can read. {@link describeAnchors}
+   * produces it and is the only thing that may.
+   *
+   * **What this is protecting.** `trustAnchors` names who may sign the code this node
+   * will execute. A visitor who agreed to run code signed by one publisher has not agreed
+   * to run code signed by another, and until this field the swap happened in silence —
+   * the consent record could not even represent the question. Absent on records written
+   * before the field existed, which is a distinguishable state and is reported as one.
+   */
+  readonly anchoredTo?: string
   /** Epoch milliseconds. Informational — the version is what gates. */
   readonly grantedAt: number
   /** The optional extra, off unless the visitor turned it on. */
@@ -64,6 +80,57 @@ export type ConsentGap =
   | { readonly kind: 'never-asked' }
   | { readonly kind: 'unreadable'; readonly detail: string }
   | { readonly kind: 'terms-changed'; readonly answered: string; readonly current: string }
+  /**
+   * The terms are unchanged, and **who may sign the code this node runs** is not.
+   *
+   * A fourth kind rather than folding into `terms-changed`, for the reason the three
+   * above are separate at all: they are different things to tell a visitor. "The terms
+   * changed" points at a document; this points at a party, and the sentence a UI should
+   * show is not the same one.
+   *
+   * `answered` is `'unrecorded'` for a consent stored before this field existed. That is
+   * an honest answer — such a record genuinely does not say which anchors were in force —
+   * and it fails closed: the visitor is asked again, which is the correct response to not
+   * knowing what they agreed to.
+   */
+  | { readonly kind: 'anchor-changed'; readonly answered: string; readonly current: string }
+
+/**
+ * The canonical description of a trust-anchor set, for storing beside a consent.
+ *
+ * **Sorted**, because the same set supplied in a different order is the same set and a
+ * visitor must not be re-asked for a reordering. **Joined with a separator that cannot
+ * occur inside a key**, because hex keys are fixed-alphabet and a comma is not in it — so
+ * no two distinct sets can produce the same string. The opt-out keeps its own name rather
+ * than becoming an empty string, for the reason `trustAnchors` is a named literal in the
+ * first place: *"unsigned artifacts are allowed"* and *"nobody has been pinned yet"* are
+ * different statements and emptiness cannot tell them apart.
+ */
+export function describeAnchors(anchors: BrowserNodeOptions['trustAnchors']): string {
+  // **Indexed off the option rather than restating the union, and discriminated by
+  // `Array.isArray` rather than by comparing against the opt-out's name.** Both are the
+  // same requirement: `trust-anchors.node.test.ts` permits that literal in exactly two
+  // files — the two node factories, which cannot express their own option without writing
+  // it — and this is not one of them. A third file naming it would be a third place a
+  // reader could take it for a value to pass around, which is what the guard exists to
+  // stop. `import type` is erased, so indexing costs no runtime dependency.
+  if (Array.isArray(anchors)) return [...anchors].sort().join(',')
+  return UNSIGNED_ARTIFACTS_ALLOWED
+}
+
+/**
+ * What {@link describeAnchors} renders the provenance opt-out as.
+ *
+ * Deliberately **not** the opt-out's own name. This is a description written into a
+ * visitor's storage and compared against later; it is not the option, and giving it the
+ * option's spelling would invite exactly the confusion the previous paragraph refuses.
+ * It only has to be a string no anchor list can produce, and a hex list cannot contain
+ * a hyphen.
+ */
+export const UNSIGNED_ARTIFACTS_ALLOWED = 'no-anchors-pinned'
+
+/** What a consent record written before {@link describeAnchors} existed reports as. */
+export const ANCHORS_UNRECORDED = 'unrecorded'
 
 /** Module-private. Not exported, so `new GrantedConsent(...)` is unreachable outside. */
 const MINTED: unique symbol = Symbol('o2.consent.minted')
@@ -78,6 +145,8 @@ export class GrantedConsent {
   readonly disclosureVersion: string
   readonly grantedAt: number
   readonly reportingAllowed: boolean
+  /** The anchor set this consent was given under — see {@link ConsentRecord.anchoredTo}. */
+  readonly anchoredTo: string
 
   constructor(record: ConsentRecord, minted: symbol) {
     if (minted !== MINTED) {
@@ -86,6 +155,7 @@ export class GrantedConsent {
     this.disclosureVersion = record.disclosureVersion
     this.grantedAt = record.grantedAt
     this.reportingAllowed = record.reportingAllowed
+    this.anchoredTo = record.anchoredTo ?? ANCHORS_UNRECORDED
   }
 
   toRecord(): ConsentRecord {
@@ -93,6 +163,7 @@ export class GrantedConsent {
       disclosureVersion: this.disclosureVersion,
       grantedAt: this.grantedAt,
       reportingAllowed: this.reportingAllowed,
+      anchoredTo: this.anchoredTo,
     }
   }
 }
@@ -125,7 +196,19 @@ function parse(raw: string): ConsentRecord | null {
   if (typeof version !== 'string') return null
   if (typeof at !== 'number' || !Number.isFinite(at)) return null
   if (typeof reporting !== 'boolean') return null
-  return { disclosureVersion: version, grantedAt: at, reportingAllowed: reporting }
+  // **Optional on the way in, and only here.** A record written before this field existed
+  // is a real consent to a real disclosure, so refusing to parse it would report
+  // `unreadable` — "this origin's storage is broken" — for a record that is nothing of the
+  // sort. It is read as a consent whose anchor set is unknown, and `readConsent` then
+  // fails it closed with a gap that says exactly that.
+  const anchored = candidate['anchoredTo']
+  if (anchored !== undefined && typeof anchored !== 'string') return null
+  return {
+    disclosureVersion: version,
+    grantedAt: at,
+    reportingAllowed: reporting,
+    ...(anchored === undefined ? {} : { anchoredTo: anchored }),
+  }
 }
 
 /**
@@ -136,6 +219,16 @@ function parse(raw: string): ConsentRecord | null {
  */
 export function readConsent(
   store: ConsentStore,
+  /**
+   * The anchor set in force **now**, as {@link describeAnchors} renders it.
+   *
+   * Required, with no default. A default would be a fail-open: a caller that forgot to
+   * pass it would silently accept a consent given under any anchors at all, which is
+   * precisely the silence this parameter exists to end. Making it a compile error at every
+   * call site is the cheaper failure — the same call `fabric-node.ts` makes about
+   * `trustAnchors` itself having no default.
+   */
+  anchoredTo: string,
 ): { readonly ok: true; readonly consent: GrantedConsent } | { readonly ok: false; readonly gap: ConsentGap } {
   let raw: string | null
   try {
@@ -164,10 +257,25 @@ export function readConsent(
       },
     }
   }
+  // Checked **after** the disclosure version, deliberately. A visitor facing both changes
+  // at once should be told about the document first: re-consenting to new terms is the
+  // broader act, and it is the one that will carry the anchor question with it.
+  const answered = record.anchoredTo ?? ANCHORS_UNRECORDED
+  if (answered !== anchoredTo) {
+    return { ok: false, gap: { kind: 'anchor-changed', answered, current: anchoredTo } }
+  }
   return { ok: true, consent: new GrantedConsent(record, MINTED) }
 }
 
 export interface GrantOptions {
+  /**
+   * The anchor set the visitor is consenting under, as {@link describeAnchors} renders it.
+   *
+   * Required for the reason `readConsent`'s parameter is: a consent stored without it is a
+   * consent nobody can later check, and it would make every subsequent load report
+   * `anchor-changed` against `'unrecorded'`.
+   */
+  readonly anchoredTo: string
   /** The optional start-outcome report. Defaults to off — never pre-ticked. */
   readonly reportingAllowed?: boolean
   /** Injectable clock, so a test does not have to sleep to observe an ordering. */
@@ -182,11 +290,12 @@ export interface GrantOptions {
  * run because a preference could not be *remembered* would punish the most
  * privacy-conservative visitors for being privacy-conservative.
  */
-export function grantConsent(store: ConsentStore, options: GrantOptions = {}): GrantedConsent {
+export function grantConsent(store: ConsentStore, options: GrantOptions): GrantedConsent {
   const record: ConsentRecord = {
     disclosureVersion: DISCLOSURE_VERSION,
     grantedAt: (options.now ?? Date.now)(),
     reportingAllowed: options.reportingAllowed ?? false,
+    anchoredTo: options.anchoredTo,
   }
   try {
     store.write(CONSENT_KEY, JSON.stringify(record))

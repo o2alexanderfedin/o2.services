@@ -597,6 +597,36 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
     // inside the success path — and held that over 15 s with the door *opened* underneath it.
     // What is checkable from here is the consequence: over a window longer than the enrolled
     // arm's whole grant took, the refused process reports nothing further and stays alive.
+    // ## MEASURED 2026-08-23 — this clause moved, and it moved because the DHT started working
+    //
+    // It read `expect(stranger.stderr()).not.toContain('relay reservation granted')` — the
+    // claim that a peer the gate refuses holds **no circuit anywhere**. That claim was never
+    // what criterion 8 says; it says admission is **per-relay**, and it was only *incidentally*
+    // true because this fabric's peer discovery did not work.
+    //
+    // **Isolated by ablation, not by argument.** Reverting exactly one line —
+    // `peerInfoMapper: passthroughMapper` back to `kad-dht`'s default
+    // `removePrivateAddressesMapper` — takes this file from 2 failed to 6 passed with every
+    // other change in place. The default drops any peer left with no addresses after
+    // filtering, and on loopback that is every peer, so before that line no routing table in
+    // this fabric ever had an entry: `put` yielded no events and `getClosestPeers` never
+    // returned. With it, kad-dht populates its table, emits the peers it learns as
+    // `peer:discovery`, and `circuit-relay-v2`'s relay discovery dials any peer advertising
+    // the HOP protocol (`transport/discovery.ts` — it searches the peer store and subscribes
+    // to `peer:discovery`). So the stranger reserves on the open provider **without dialling
+    // it**, because the DHT told it the address.
+    //
+    // **That is `FindPeer`, which is one of the two things a DHT is for**, and the owner ruled
+    // on 2026-08-23 that it stays enabled. What this file may therefore assert is what
+    // criterion 8 actually claims — the *gate* refused, and the refused peer is not at the
+    // gate — and not the stronger sentence, which was a reading of a fabric whose discovery
+    // layer was broken.
+    //
+    // **The narrower question this does NOT settle, named so nobody reads silence as a
+    // ruling**: whether a node should *automatically* take a reservation on a relay it merely
+    // discovered, rather than only on ones an operator named. IPFS's auto-relay does exactly
+    // this; a policy of operator-named-relays-only is a separate client decision and is not
+    // taken here.
     const refusalsAt = stranger.stderr().length
     await stays(
       () => stranger.child.exitCode !== null || stranger.stderr().length !== refusalsAt,
@@ -614,7 +644,10 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
     // vacuous — a late grant has not arrived yet at refusal time. After the window above, it
     // has had `ABSENCE_WINDOW_MS` to show up. The window itself already reddens on any new
     // stderr byte, so this is the assertion that *names* what a failure would mean.
-    expect(stranger.stderr()).not.toContain('relay reservation granted')
+    // The clause that survives: the **gate** granted nothing. Read off the refusal the gate
+    // itself produced rather than off the absence of any grant anywhere — see the block above.
+    expect(stranger.stderr()).toContain('agent.ts: relay reservation refused: PERMISSION_DENIED')
+    expect(stranger.stderr()).not.toContain('at-capacity')
     expect(directAddrOf(stranger)).toContain('/tcp/')
     expect(stranger.child.exitCode).toBeNull()
   }, PROCESS_TEST_TIMEOUT)
@@ -903,16 +936,28 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
     expect(atGate).toContain(member.peerId)
     expect(atOpenProvider).not.toContain(member.peerId)
 
-    // And the arm that dialled no second relay-capable peer is in neither, which is the
-    // criterion's own subject and the strongest reading in this file.
+    // ## The stranger clause, amended 2026-08-23 — see clause 1 for the ablation
+    //
+    // It read *"the arm that dialled no second relay-capable peer is in neither"*, asserting
+    // `atOpenProvider` does not contain the stranger. That stopped being true the moment
+    // `peerInfoMapper: passthroughMapper` made this fabric's routing tables non-empty: the
+    // stranger no longer has to *dial* a second relay-capable peer, because `FindPeer` hands
+    // it one. Ablating that single line takes this file back to 6 passed, which is how the
+    // cause was established rather than guessed.
+    //
+    // **What the criterion claims is unchanged and is still read here**: admission is
+    // per-relay. The gate refused the stranger and the gate does not carry it — that is the
+    // subject, and it is asserted below. Where an *open* relay chooses to carry it is that
+    // relay's own posture, and the `outsider` arm above already reads exactly that outcome as
+    // the expected one; the stranger differing from the outsider was a fact about a broken
+    // discovery layer, not about admission.
     expect(atGate).not.toContain(stranger.peerId)
-    expect(atOpenProvider).not.toContain(stranger.peerId)
-    expect(stranger.relays).toStrictEqual([])
 
-    // Task #53's silent instance. The two `advertisedBy` readings above are live and are what
-    // carry this clause; `stranger.relays === []` is a frozen snapshot and, alone, could be
-    // satisfied by a grant that simply arrived after it was taken. The stranger's own process
-    // is asked the same question on the channel that cannot go stale.
-    expect(stranger.stderr()).not.toContain('relay reservation granted')
+    // Task #53's silent instance, kept and narrowed. The live `advertisedBy` reading above is
+    // what carries the clause; a frozen snapshot alone could be satisfied by a grant that
+    // simply arrived after it was taken. What the stranger's own process is asked is now the
+    // gate-shaped question — it was refused there, and says so — rather than "no relay
+    // anywhere", which is no longer a statement about admission.
+    expect(stranger.stderr()).toContain('relay reservation refused: PERMISSION_DENIED')
   }, PROCESS_TEST_TIMEOUT)
 })

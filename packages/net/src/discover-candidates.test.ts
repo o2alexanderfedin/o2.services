@@ -171,6 +171,7 @@ describe('SCHED-01 — a data CID and a peer list become dispatchable candidates
         {
           rpc: fabric.requestorRpc,
           peers: () => fabric.nodes.map((n) => n.peerId),
+          index: 'asks-connected-peers-only',
           trustedIssuers: fabric.trustedIssuers,
           now: () => NOW,
           peerIdFor: fabric.peerIdFor,
@@ -200,6 +201,7 @@ describe('SCHED-01 — a data CID and a peer list become dispatchable candidates
         {
           rpc: fabric.requestorRpc,
           peers: () => fabric.nodes.map((n) => n.peerId),
+          index: 'asks-connected-peers-only',
           trustedIssuers: fabric.trustedIssuers,
           now: () => NOW,
           peerIdFor: fabric.peerIdFor,
@@ -245,6 +247,7 @@ describe('SCHED-01 — a data CID and a peer list become dispatchable candidates
         {
           rpc: fabric.requestorRpc,
           peers: () => fabric.nodes.map((n) => n.peerId),
+          index: 'asks-connected-peers-only',
           trustedIssuers: fabric.trustedIssuers,
           now: () => NOW,
           // This one qualified in every way and simply names no dialable peer.
@@ -273,6 +276,7 @@ describe('SCHED-01 — a data CID and a peer list become dispatchable candidates
         {
           rpc: fabric.requestorRpc,
           peers: () => fabric.nodes.map((n) => n.peerId),
+          index: 'asks-connected-peers-only',
           trustedIssuers: fabric.trustedIssuers,
           now: () => NOW,
           peerIdFor: fabric.peerIdFor,
@@ -301,6 +305,7 @@ describe('SCHED-01 — a data CID and a peer list become dispatchable candidates
         {
           rpc: fabric.requestorRpc,
           peers: () => fabric.nodes.map((n) => n.peerId),
+          index: 'asks-connected-peers-only',
           trustedIssuers: fabric.trustedIssuers,
           now: () => NOW,
           peerIdFor: fabric.peerIdFor,
@@ -336,6 +341,7 @@ describe('AUTH-05 — the certificate that qualified a node survives into the de
         {
           rpc: fabric.requestorRpc,
           peers: () => fabric.nodes.map((n) => n.peerId),
+          index: 'asks-connected-peers-only',
           trustedIssuers: fabric.trustedIssuers,
           now: () => NOW,
           peerIdFor: fabric.peerIdFor,
@@ -393,6 +399,7 @@ describe('AUTH-05 — the certificate that qualified a node survives into the de
         {
           rpc: fabric.requestorRpc,
           peers: () => fabric.nodes.map((n) => n.peerId),
+          index: 'asks-connected-peers-only',
           trustedIssuers: fabric.trustedIssuers,
           now: () => NOW,
           peerIdFor: fabric.peerIdFor,
@@ -426,6 +433,7 @@ describe('AUTH-05 — the certificate that qualified a node survives into the de
         {
           rpc: fabric.requestorRpc,
           peers: () => fabric.nodes.map((n) => n.peerId),
+          index: 'asks-connected-peers-only',
           trustedIssuers: fabric.trustedIssuers,
           now: () => NOW,
           peerIdFor: fabric.peerIdFor,
