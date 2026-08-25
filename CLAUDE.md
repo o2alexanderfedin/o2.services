@@ -39,7 +39,20 @@ manifest and coverage report, not by a quorum.
   `transport-circuit-relay-v2/src/constants.ts`: `DURATION_LIMIT` 2 minutes,
   `DATA_LIMIT` 128 KiB, `MAX_RESERVATION_STORE_SIZE` 15 concurrent reservations.
   Protocols will not negotiate over a relayed connection unless registered with
-  `runOnLimitedConnection: true`
+  `runOnLimitedConnection: true`.
+  **AMENDED 2026-08-24 — both figures were measured against a relay this project runs,
+  and each moved in a different direction.** They are defaults *of the relay server*, so
+  an operator running the server sets them; read as facts about the fabric they are wrong
+  twice over. **`DATA_LIMIT` is stricter than it reads: it counts BOTH directions.** The
+  cut lands on byte 65536 whether written in sixteen 4 KiB chunks, four 16 KiB chunks or
+  one 64 KiB chunk — and out-plus-back-plus-the-reply-in-flight is `131072` in every case,
+  the default exactly. So **a symmetric request/response protocol gets 64 KiB each way,
+  not 128**. `DURATION_LIMIT` was **not observed at all**: a relayed connection held
+  206 s through ten pings with no cut, reproduced on a second run, with `conn.limits`
+  reporting no limits while the data limit was being enforced. The asymmetry is recorded
+  and not explained. What survives unchanged is the conclusion — the relay is a signaling
+  channel — but it survives on the 64 KiB reading rather than the 128 KiB one. Working:
+  `.planning/consults/2026-08-24-cloudflare-as-a-fabric-node-measured.md` §15
 - **WebRTC data path**: 16 KiB max message (hardcoded in js-libp2p); Chromium
   closes the channel above 256 KiB and does not reassemble Firefox's fragments.
   The browser mesh cannot carry bulk data — partials must stay small (§3.5) and
@@ -87,7 +100,7 @@ manifest and coverage report, not by a quorum.
 | `@libp2p/webrtc` → `webRTC()` | `6.0.27` | **YES (both directions)** | YES | The **only** browser↔browser transport. Requires a Circuit Relay v2 peer for SDP exchange + a STUN server for reflexive address discovery. Once connected, the relay drops out. |
 | `@libp2p/webrtc` → `webRTCDirect()` | `6.0.27` | **dial only** | **dial + listen** | Browser→server with no relay and no CA cert (certhash in the multiaddr). **This is the cheapest way to get browsers onto your backbone** — no TLS certificate, no DNS. Browsers cannot listen (no UDP port binding). |
 | `@libp2p/circuit-relay-v2` → `circuitRelayTransport()` | `4.2.9` | YES | YES | Required in the browser to dial `/p2p-circuit` addrs and to make reservations. |
-| `@libp2p/circuit-relay-v2` → `circuitRelayServer()` | `4.2.9` | **NO** | YES | Source comment: *"This will not work in browsers."* Backbone nodes only. |
+| `@libp2p/circuit-relay-v2` → `circuitRelayServer()` | `4.2.9` | **NO** | YES | Source comment: *"This will not work in browsers."* Backbone nodes only. **AMENDED 2026-08-24 — "backbone node" is wider than "Node.js host".** `dist/src/server/index.js` imports nothing node-specific; all twelve imports are pure libp2p packages, and the refusal quoted here is about a browser being undialable rather than about the code. Measured on a **Cloudflare Durable Object**, which is neither a browser nor Node: the object advertises `/libp2p/circuit/relay/0.2.0/hop`, peer A reserved a slot on it, and peer B reached A **only through it**, verified A's PeerId and pinged in 54 ms. It needs `addresses.announce` — with nothing declared the server has no address to hand a client and every reservation comes back empty. See `.planning/consults/2026-08-24-cloudflare-as-a-fabric-node-measured.md` §13 |
 | `@chainsafe/libp2p-noise` | `17.0.0` | YES | YES | **Required.** Confirmed libp2p-v3-compatible (`@libp2p/interface: ^3.0.0`). This is the canonical noise package — see the deprecation table for the trap. |
 | `@chainsafe/libp2p-yamux` | `8.0.1` | YES | YES | **Required** for TCP/WS connections. WebRTC and WebTransport bring their own muxing. Confirmed `@libp2p/interface: ^3.0.0`. |
 | `@libp2p/tls` | `3.1.6` | **NO** | YES | Optional second connection encrypter on the backbone (cheaper handshake than Noise on TCP). Node only. |
@@ -168,7 +181,7 @@ manifest and coverage report, not by a quorum.
 | **WebSockets (insecure `/ws`)** | ❌ | ❌ from an HTTPS page (mixed content) | ✅ | Only usable for `localhost` dev |
 | **WebTransport** | ❌ | ✅ dial only | ❌ **js-libp2p cannot listen** | Server must be go-/rust-libp2p. Not in Safari. Source: *"only allows dialing… requires QUIC support to land in Node JS first."* |
 | **TCP / QUIC** | ❌ | ❌ | ✅ | Backbone↔backbone only |
-| **Circuit Relay v2** | ✅ (relayed) | ✅ | ✅ (Node only as server) | **2 min / 128 KiB per connection by default** |
+| **Circuit Relay v2** | ✅ (relayed) | ✅ | ✅ (Node only as server) | **2 min / 128 KiB per connection by default** — *both figures amended 2026-08-24, see the Connectivity constraint: the data limit counts both directions (64 KiB each way) and the duration limit was not observed at 206 s. "Node only as server" is also amended — a Cloudflare Durable Object runs the server* |
 - Browser→browser is **WebRTC, and only WebRTC.** There is no alternative and no fallback.
 - Every browser peer needs at least one reachable Circuit Relay v2 server to be *dialable at all*. That server must be dialable *by the browser*, i.e. WSS or WebRTC-Direct.
 - **WebRTC-Direct is underrated here.** A backbone node listening on `/ip4/0.0.0.0/udp/PORT/webrtc-direct` is browser-dialable with no certificate, no DNS record, and no Let's Encrypt rate limits. Run it *alongside* AutoTLS WSS as a redundant entry point. Pair it with `@libp2p/keychain` so the certhash survives restarts.

@@ -129,6 +129,21 @@ certificate authority.
   DNS name, no relay — the fingerprint travels in the address itself. It is not currently one of
   the browser's transports, so this is real work rather than a setting.
 
+**A third way, added 2026-08-24, and it is measured rather than proposed: host the relay where
+TLS is already terminated.** A Cloudflare Durable Object runs `circuitRelayServer()` — peer A
+reserved a slot on it and peer B reached A only through it, verifying A's PeerId and pinging in
+54 ms, over `wss://<name>.workers.dev`. The certificate is Cloudflare's ordinary commercial one,
+so **the requirement does not arise on this path rather than being satisfied** — the same shape
+as the shell/app ruling above, one level down. No ACME, no reachable port, no router change.
+
+What it costs instead, so the choice is made with both halves visible: the relay lives in one
+datacenter, its identity must be persisted in the object's storage or it changes on every wake,
+and the listener needs two fields that are easy to omit and silent when omitted —
+`direction: 'inbound'` and a remote address derived from `CF-Connecting-IP`, without which the
+node rate-limits the entire internet as one host to five connections per second. And it remains
+gated on **disclosure**, which is the same gate as before and is not a technical one. Working:
+`.planning/consults/2026-08-24-cloudflare-as-a-fabric-node-measured.md`
+
 *(Superseded, kept for the record — the choice as it stood before the ruling:)*
 
 - **Put both on one port.** No router change, no certificate anywhere, works in all four
