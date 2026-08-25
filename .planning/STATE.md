@@ -1,308 +1,38 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Wire What Was Built
-status: milestone_complete
-stopped_at: >-
-  CURRENT AS OF 2026-08-24, AFTER THE MERGES. v1.1 is closed at 15/15 and the figures below
-  still hold; what follows is the work done since, which was on
-  `feature/dht-registration-and-discovery` and **is now merged through to `main`** by owner
-  instruction — feature into `develop` (`f874f95`), `develop` into `main` (`e75d39f`), both
-  `--no-ff` so the history says which branch carried what.
-
-
-  **All three branches point at one tree, `50599689`, and it is the tree the suites below were
-  run on.** That is asserted rather than assumed: the hashes were compared after each merge.
-  Merging `develop` into the feature branch first changed **no file at all** — those twelve
-  commits were merge commits of material already present at the branch point — so the
-  confirmation taken before the merges is a confirmation of exactly what landed.
-
-
-  **94 commits are unpushed on both `main` and `develop`.** Pushing was not done: it is an
-  action outward and was not asked for.
-
-
-  **This file's frontmatter was found wrong and is restored.** An orphaned working-tree write —
-  from a process the 2026-08-24 reboot ended, and machine-shaped rather than hand-written — had
-  replaced the reconciliation block below with the one line "context exhaustion at 100%
-  (2026-08-23)", set `status` back to `verifying`, moved `total_phases` to 29, and zeroed
-  `completed_phases`, `total_plans`, `completed_plans` and `percent` for a milestone this same
-  file records as 15/15 with 103 plans. It left the 2 200-line body alone: 235 lines out, 60 in.
-  **Said precisely because the first description of it here was wrong** — "cut from 2 397 lines
-  to 17" — which was read off the frontmatter preview and inferred rather than measured; the
-  working copy was 2 222 lines. It is preserved outside the repo rather than merged in, and the
-  figures below are the measured ones.
-
-
-  **AUTH-04 — a certificate now outlives its first issue.** Nothing renewed one: it was
-  obtained once at start and the only route to another was a restart, so a process outliving
-  its certificate kept running while every peer demoted it. Three snapshots had to stop being
-  snapshots — `SelfRecordIndex`, `RecordPublisher` and each tier's `certificate` field — and
-  all three now read one `CertificateHolder`. Renewal begins at two-thirds, deliberately not
-  aliased to `lease.ts`, and deliberately stays true after expiry, where `shouldRenew` goes
-  false. The renewal timer is clamped to 2^31-1 ms, because `setTimeout` overflows to one
-  millisecond rather than saturating.
-
-
-  **Owner rulings taken 2026-08-24, all three implemented.** Certificate lifetime 30 days to
-  **1 hour**, reversing the 2026-08-02 correction recorded in `enrollment.ts`'s own header —
-  which drags `DEFAULT_MAX_PER_WINDOW` 32 to 64, because that number was sized on "a returning
-  visitor spends nothing in 719 hours of 720" and an hourly certificate inverts it. A change of
-  trust anchors is now a **consent event**, with a fourth `ConsentGap` kind. And a certificate
-  can announce the key its node will rotate to (`nextKeyCommitment`), as a hash inside the
-  issuer's signature — the format lands now because the alternative is changing a signed format
-  with certificates in circulation.
-
-
-  **One certificate system, not two.** `cert-lifecycle.ts` — 775 lines, tested, imported by
-  nothing — was deleted by owner ruling, closing what CRYPTO-03 had explicitly left open. Its
-  delegation half duplicated `capability.ts`, its identity half `enrollment.ts`, its
-  crypto-backend selection was already merged into `ed25519-backend.ts` by Phase 28, and its
-  revocation half is refused by standing ruling.
-
-
-  **DATA-08 — a node with a durable directory now keeps its libp2p state**, and the diagnosis
-  that had blocked it for a week was falsified rather than confirmed: ten sound eliminations had
-  been assembled into one false claim ("any asynchronous datastore hangs enrolment"), and an
-  async in-memory store enrols fine in four different shapes. Peers verified before a restart are
-  no longer re-asked, and the cache cannot widen what is accepted because a cached certificate
-  takes the same `#accept` a fresh one does.
-
-
-  **Suite at HEAD:** node 208/208 files and 3 032 tests at `(user+sys)/real` 1.36; browser
-  315/315 and 5 286 tests; e2e 38/38 files and 235 tests, all three read at this tree. The `tools/aot` Docker gates fail
-  as a group below a CPU ratio of about 1.0 and pass individually — a property of this host under
-  contention, measured across five full runs, not a defect in them.
-
-
-  RECONCILED 2026-08-20, AND THE HEADLINE BELOW IS THE ONE THING THAT WAS WRONG. **THE COUNT IS 15
-  OF 15, NOT 12.** All three carried phases closed on 2026-08-18, each by a dated amendment to its
-  own verification file rather than by a rewrite: 20 at 7/7 (criterion 7 closed at `ce97bc8`), 21
-  at 3/3 (criterion 2's re-tag clause measured), 22 at 3/3 (criterion 1's residue measured to zero
-  rather than subtracted). v1.1 "Wire What Was Built" is CLOSED at 15/15 phases and 50/50
-  requirements — merged `2c720b9`, milestone merge `af8828f`, corroborated independently at
-  `.planning/COVERAGE-BASELINE.md:38` on 2026-08-19. **`.planning/milestones/v1.1-SHIPPED.md` IS
-  STALE ON THE SAME POINT and is amended today**: it was archived 2026-08-18 while those three
-  closures were still landing, so it records "12 of 15", "40 of 50" and the sentence "15 of 15 was
-  never reachable" — which the tree falsified within hours of it being written. **`total_plans: 103`
-  BELOW IS CORRECT AND WAS WRONGLY CALLED STALE**: it is scoped to the milestone's own phases (11,
-  12, 13, 13.1, 14-24) and those hold exactly 103 plans, counted 2026-08-20. A prior handoff
-  compared it against 141, which is the repository-wide count of SUMMARY files — a different
-  population, and the reason to say which population a count is over. *(CORRECTED 2026-08-22 —
-  141 is the count of SUMMARY files under `.planning/phases/`, not the repository-wide count.
-  Repository-wide is 143: `git ls-files | grep -cE 'SUMMARY\.md$'` returns 143 and
-  `find .planning/phases -name '*SUMMARY.md' | wc -l` returns 141, the two outliers being
-  `.planning/research/SUMMARY.md` and `.planning/quick/20260806-o2-vs-peers-study/SUMMARY.md`.
-  Both figures were the same at `e84537c`, the commit that wrote this sentence, so 141 was never
-  the repository-wide count on the day it was asserted. The substantive point stands — 103 and
-  141 are different populations — and only the label on the 141 population was wrong, in the very
-  clause arguing that a count must name its population.)* NOTHING IS IN FLIGHT. Work
-  since the milestone close is verification and hygiene, all merged. The open items are owner
-  decisions, listed under Pending Todos, and none of them blocks anything. FIELD CHANGES MADE BY
-  THIS RECONCILIATION, RECORDED HERE RATHER THAN AS TRAILING COMMENTS ON THE FIELDS THEMSELVES —
-  a plain YAML scalar cannot carry " #" without the rest of the line becoming a comment, and
-  `state-frontmatter.node.test.ts` caught exactly that on `status` after the first draft did it:
-  `status` executing -> milestone_complete; `completed_phases` 12 -> 15; `percent` 80 -> 100;
-  `total_plans` UNCHANGED at 103 and correct.
-  ----- EVERYTHING BELOW THIS LINE IS THE ACCUMULATED HISTORY OF THE MILESTONE AS IT RAN. It is
-  kept verbatim rather than rewritten, because it records how each phase actually closed. Read its
-  first sentence as superseded by the paragraph above and the rest as still accurate. -----
-  THE COUNT IS 12 OF 15. PHASE 17 CLOSED 2026-08-07 AT 3/3 by a fourth dated amendment, and it
-  closed the way RULING A intends: not by a rewrite, and not by transcribing another phase's
-  verdict, but by re-running the exact plant that had declined it and watching it redden. The
-  2026-08-06 pass had declined criterion 3 for one measured reason - neutralising the
-  certificate-to-peer binding in fabric-node.ts's relayAdmissionGate stayed GREEN across 8 files
-  and 5 runs, so nothing in the repository would have noticed if the binding stopped. Commit
-  8719029 built the missing door test, ledgered M68. THE RE-RUN IS THE PART THAT MATTERS:
-  fabric-node.ts's sha256 before planting was d6688f73, IDENTICAL to the digest the declining
-  verifier recorded, so the different result cannot be a different file. PLANTED_P1_EXIT=1, the
-  door returning false where true denies - it ADMITTED a peer holding somebody else's
-  certificate. AND THE BOTH-WAYS PROOF HELD, which is what stops the green being vacuous:
-  planting peer-verifier.ts instead left relay-admission green IN FULL while reddening
-  peer-verifier's own borrowed-certificate row, so the new case observes the DOOR and not the
-  SELECTOR, which is the distinction the decline turned on. TWO LIMITS SIT AT THE VERDICT RATHER
-  THAN IN A FOOTNOTE - the borrowed case is measured at the PREDICATE over MemoryNetwork rather
-  than at a live reservation, so the close rests on a conjunction with the file's live-relay
-  arms; and this is a BOUND PLUS DEVALUATION, not a graduated price, so a reader taking costly
-  to require a rising per-identity price gets the 2026-08-01 answer and that reading is
-  ESCALATED rather than settled. THE THREE STILL UNCOUNTED ARE 20 (6/7), 21 (2/3) AND 22 - and
-  AS OF 2026-08-08 ALL THREE ARE VERIFIED RATHER THAN PENDING: 22 EXECUTED AND SCORED 2/3 at
-  fee26c2, 4 plans and 4 summaries, ITS CRITERION 1 DECLINED BECAUSE THE GUARD DOES NOT PASS
-  CLEAN. This field read "22 (planned, 4 plans, 0 summaries, runs last)" until then. THE V1.1
-  MILESTONE AUDIT HAS RUN and the open work is its gap list, NOT A PHASE: 17 findings, 9 CLOSED,
-  G1 (a closed seed is unjoinable by the demo page) the blocker. FOUR OWNER RULINGS WERE TAKEN 2026-08-07 AND THREE
-  ARE ALREADY EXECUTED. RULING 1, THE READING OF THE FABRIC in criterion 8: NARROW - a fabric
-  this repository can be deployed and operated as, with an admission posture stated on every
-  relay-capable door, NOT the default argv. The wider reading was available and would have
-  returned criterion 8 to PARTIAL and Phase 19 with it, at a cost of 19 + 3 argv sites made
-  refuse-to-start; the owner declined it. So 24 stays 1/1, 19 stays 5/5, and the MET keeps its
-  stated bound: the default posture of bin/agent.ts, bin/seed.ts and bin/bench.ts is OPEN AND
-  MUST BE, with reservation-exhaustion arm A a live behavioural guard on it, and the
-  load-bearing ground is that both option types make relayAdmission required with no default so
-  the API cannot express silence - only argv has a default. RULING 5, bin/bench.ts's
-  orphan-leash exemption: DELETED, and the exemption's own why had read NO VALID GROUND.
-  bin/bench.ts now calls armOrphanLeash and EXEMPT is empty. The stop is a bare exit and that is
-  complete rather than lazy - this driver holds no module-scoped node to stop, and its agent
-  children do not leak because bench-fabric.ts spawns every one with stdio[0] as pipe precisely
-  so fd 0 is the child's own leash, so when the driver leaves those pipes close and each child's
-  leash fires. Watched red first: the call deleted, PLANTED_EXIT=1 naming bench.ts by name,
-  restored by surgical inverse with shasum back to 4fe2d782. STATED LIMIT: the mkdtemp
-  directories are not removed on that path. RULING 4, vitest.config.ts's 923 ms row for a spec
-  that measures 20.8-21.2 s: RE-SITED to 21 197, which is option A of the two the 2026-08-06
-  pass laid out and declined to choose between. The row crossed SLOW_CUTOFF_MS, so the
-  correction is also an EXCLUSION - relay-admission.node.test.ts leaves the pre-commit fast
-  loop, and with it the only admission coverage that loop still had. Three derived figures moved
-  and each was OBSERVED rather than derived: sumOfFileSpansMs 1 465 924 to 1 486 198 (exactly 21
-  197 minus 923, a correction and not an addition), unitFiles 111 to 110, unitTests 1716 to
-  1685, unitWallClockMs 25 950 to 24 590, on a green npm run test:unit at exit 0. THE
-  DECOMPOSITION WAS MEASURED AFTER A FIRST DRAFT ASSERTED IT FROM THE SUBTRACTION - the net is
-  minus 31 but the file alone is 38 passed, so the file leaving is minus 38 and the remaining
-  plus 7 arrived in files that stayed; the plus 7 is carried as a stated residual rather than
-  absorbed. RULING 3, X.509: ADOPT STANDS, filed as PHASE 25 in ROADMAP.md rather than left in a
-  review document, because a ruling that lives only in a doc is a ruling nobody executes. It is
-  NOT scheduled into v1.1 - v1.1 is Wire What Was Built and this builds something new. ONE OF
-  ITS SEVEN OBLIGATIONS WAS ALREADY DELIVERED and the review's claim about it is FALSE: the
-  praxis review says verifyChain currently has no depth bound at all and takes its length from
-  the wire, but capability.ts:127 defines MAX_CHAIN_DEPTH = 8 and :190 enforces it BEFORE any
-  signature work, with its companion hazard closed at :255 by a reduce rather than a Math.min
-  spread. A dated correction is appended to the praxis review rather than edited into it. THE
-  OTHER SIX ATTACH TO A PARSER THAT DOES NOT EXIST - no pkijs, asn1js, node-forge or @peculiar
-  anywhere in the manifests, and certificates today are Ed25519 over @noble/curves, not DER -
-  which is the argument for specifying them before it arrives and is why this is a phase rather
-  than a patch. AOT-06 IS ANSWERED AND THE ANSWER IS A LOCATED NEGATIVE. elfconv cannot lift
-  x86-64 today, and the gap is NOT instruction semantics - Remill has had amd64 for years, CI
-  publishes an :amd64 image, the --arch flag accepts it and the ELF loader classifies it. The
-  gap is that lifter/TraceManager.cpp finds main by matching LITERAL AARCH64 ENCODINGS on a
-  fixed 4-byte stride with no amd64 branch, then calls elfconv_runtime_error. Measured twice,
-  gcc and clang-16, two entry points, both LIFT_EXIT=134 SIGABRT with no bitcode and no wasm -
-  but THE VERDICT IS CARRIED BY THE SOURCE RATHER THAN BY THE RUNS, which matters because the
-  amd64 image runs emulated on this arm64 host and a byte pattern that cannot match cannot match
-  on any host. The previous session's exit 0 with no artifact is explained too: elfconv.sh's
-  target case has NO DEFAULT BRANCH, so an unhandled TARGET returns 0 having produced nothing.
-  Two hypotheses were REFUTED rather than argued - a missing LLVM dynamic library (ldd resolves
-  libLLVM-16.so.1 with zero not-found, and the abort is elfconv's own thrown runtime_error,
-  which a loader failure could not produce) and the compiler (the clang control aborts
-  identically). Fixing it means WRITING amd64 entry-point discovery, upstream or as a patch
-  carried in the submodule: tractable, not small, and upstream has not done it - main is one
-  commit ahead of the pinned 5319dd8 and that commit is a dependabot action bump. ELFCONV IS NOW
-  A SUBMODULE at third_party/elfconv, pinned to the commit both cached images report, so every
-  file:line above is readable with no Docker at all. That required teaching the disclosure gate
-  what a submodule is: the submodule ships .github/workflows, DEMO-04 forbids a workflow file
-  existing at all, and the exemption is DERIVED FROM GIT'S INDEX (160000 gitlink entries) rather
-  than written down, because a hand-maintained list is the population defect this repo has hit
-  four times. Two plants watched red. The unmeasured part is named: that GitHub never executes a
-  submodule's workflows is a claim about a platform, and proving it needs a push. NEXT IS PHASE
-  22, then the v1.1 milestone audit. TWO ITEMS STAY WITH THE OWNER out of the Phase 17 close and
-  neither is a criterion-3 gap: the AUTH-02 browser-pinning leg, carried unresolved since
-  2026-08-05, and the graduated-cost reading of costly. THIS BLOCK PREVIOUSLY SAID 10 OF 15
-  while the handoff said 11 and Session Continuity said 8 - three counts in one file, none of
-  them right, which is the defect this milestone keeps finding in its own bookkeeping and found
-  here again. AS OF 2026-08-13 THE PHASE COUNTS ABOVE ARE UNCHANGED AND THE WORK HAS MOVED
-  OFF PHASES ENTIRELY - the v1.1 audit's gap list and the requirements ledger are what is
-  open, and the ledger stands at 79 OF 102 with 23 rows unchecked, verified by counting the
-  boxes in REQUIREMENTS.md rather than read off any tool. The 2026-08-12 session closed ZERO
-  rows across 62 commits and that is the accurate headline: it was instrument, correction and
-  design. Its own findings are in .planning/.continue-here.md and the one that governs what
-  happens next is that THREE SCENARIOS AND SIX LEDGER ROWS ARE BLOCKED ON ONE MISSING THING -
-  nothing a person can run issues a browser tab a certificate, so certificate stays null,
-  trustedIssuers stays empty, and discoverExecutors excludes every provider. Two independent
-  analyses reached that from opposite directions, one over rows and one over scenarios. THE
-  2026-08-13 SESSION CLOSED NO ROW AND THE LEDGER STAYS AT 79 OF 102, correctly - it was defect
-  repair and instrument repair. SIX DEFECTS FIXED, of which two matter beyond their size. FIRST,
-  A PROVIDER COULD RETURN A CERTIFICATE ABOUT SOMEBODY ELSE and both tiers persisted it unread,
-  while both ALREADY re-check what they load on reload - one sentence describes both ends and
-  only one was guarded. Fixed at enrolOverRpc, which is the one place holding both the request
-  and the answer and is shared by both tiers; it reads NO CLOCK deliberately, because
-  verifyCertificate refuses not-yet-valid on a strict issuedAt > now and a machine one second
-  slow would have had an honest certificate refused, fatally on the browser tier. SECOND, THE
-  UNWIRED COUNT WAS OVER-STATING THE GAP BY SIX AND NOTHING WAS WIRED TO CORRECT IT: 72/36 became
-  71/29 by teaching the call graph three kinds of edge it could not see. core/executeVerified -
-  the fabric's N-VERSION COMPARISON, running on EVERY shard dispatch from submit.ts:2971 - read
-  as dead code because its caller is a const-arrow and classify only accepted Function|Class|
-  Method. Four more are reached through the Executor port so the edge lands on ports.ts#execute,
-  one through a proxy trap, and core/describeStartReport is called TWICE INSIDE AN ENTRY POINT
-  through await-import destructuring with zero in-edges. THE BEST DECISION WAS A REFUSAL: the
-  port-member repair was available as a graph edge and was measured rather than argued - the
-  candidate rule reaches demo/estimatePi, the over-connection anchor that must stay red, because
-  demo/main.ts builds its api object at module scope. A rule shaped to preserve a canary is not a
-  principle, so dispositions with per-symbol machine-checked mechanisms were taken instead.
-  OVER-CONNECTION IS THE DANGEROUS DIRECTION HERE AND IT FAILS SILENTLY - every count just gets
-  smaller and reads as progress. THE VISITOR-ENROLMENT FEATURE IS NOT BUILT: three design rounds,
-  each returned FIX-FIRST by three independent adversarial reviews at 7, 6 and 10 blocking
-  defects, every spot-checked citation holding. The diagnosis is scope growth rather than bad
-  review, and ratification was the first piece of the decomposition. STATE.MD WAS CORRUPTED AGAIN
-  BY THE PAUSE-WORK WRITER overnight - writer seven, a repeat of writer two, progress zeroed and
-  the stopped_at block deleted, sitting UNSTAGED where nobody would see it; caught by git status
-  on resume and reverted. This block was written BY HAND for that reason.
-
-  SESSION OF 2026-08-14: 81 OF 102, UP FROM 79 - MR-02 AND VER-10 BOTH CLOSED, and the
-  Built-not-wired marker bucket is now EMPTY, which is the marker this milestone existed to
-  empty. Unwired capabilities 72/36 -> 66/24. Eight feature commits, all merged and pushed.
-  THE MOST REUSABLE FINDING IS A TEST FOR EVIDENCE: a reading that would be identical if the
-  mechanism never ran is not evidence of the mechanism. It appeared THREE TIMES this session -
-  VER-04's `independent (replicas 2, operators 2)`, which classifyAttestation computes from who
-  answered and signed and which prints identically on a fabric where the quorum gate never ran;
-  the comparison case in attestation-ui.e2e.test.ts, whose three screens made "claimed a
-  strength" and "was the solo run" COEXTENSIVE so its loop could not tell the two rules apart;
-  and VER-03's shared-relay line, which is derived from certificates rather than from the
-  composer and is STILL LIVE - do not close VER-03 on it. THE SECOND PATTERN IS PROSE BLOCKERS
-  NOBODY CHECKED AGAINST THE GUARD: three were retracted, each having stood for weeks. The
-  sovereign arm never needed two owners, it needed two CONTRIBUTIONS which one owner supplies;
-  a second owner could not move any published number because eligibleNodes returns every node
-  for a public request; and memoryConsentStore's claim that a storage-denied page used it was
-  false while that page was REFUSING VISITORS. Two of the three were the difference between
-  "owner decision" and "wiring". TWO USER-FACING DEFECTS FIXED: the demo page told visitors
-  their key was "generated in this tab" for twelve days after identity became persistent, and a
-  private-browsing visitor could press Allow and then be refused on Start. THE FLAG RULING NOW
-  GATES FOUR ROWS and its cost is measured rather than argued: VER-04's entire proposed change
-  landed in 705a716 and the box did not move, while VER-10 - same night, same kind of work, on
-  a surface with no flag - closed. AOT: glog was never the wall; a 2-line __wasi__ branch plus
-  ~7 lines fixing elfconv's own bugs gets 27/27 translation units compiling, and the real cost
-  is the LLVM cross-build, still unmeasured.
-
-  EVENING OF 2026-08-14: 88 OF 102, UP FROM 81 - VER-03, VER-04, AOT-05, MR-03, MR-05, MR-07 and
-  WIRE-02 all close, and THREE OF THEM CLOSED WITH NO NEW PRODUCTION CODE, which is the reusable
-  finding: the mechanism already existed and the evidence was pointed at the wrong thing. MR-07's
-  row says a duplicate is discarded BECAUSE IT CARRIES THE SAME CID while its cross-process reading
-  exercised rpc.ts's pending-entry check, which discards because a TIMEOUT deleted the entry,
-  independent of the CID entirely; re-sited and planted red, removing the CID-keyed collapse turns
-  two AGREEING live replicas into a disagreement across eight processes WHILE EVERY RPC RESOLVES.
-  MR-05 was already true of its own sentence and machinery was nearly built for a requirement that
-  did not ask for it. AN OWNER RULING REMOVED THAT WORK and is recorded at
-  .planning/consults/2026-08-14-owner-ruling-sovereign-threat-model.md: sovereign data is processed
-  AT REST, the requestor IS the data owner so there is no interest in faking a result about one's
-  own data, and a bad storage node has a blast radius of one owner's own data - so MR-05's
-  rendezvous check was defending against the data owner attacking their own job. THE BOUNDARY IS
-  RECORDED TOO: PROJECT.md:31 keeps cross-owner aggregation verified and the public path keeps
-  N-version redundancy plus commit-reveal. VER-03 CLOSED BY REPAIRING THE RULE RATHER THAN THE
-  FIXTURE - relayIds names relays by libp2p PEER ID while a quorum member is keyed by nodeKey, two
-  spellings of one node that never compare equal, so when the relay every other member depended on
-  was ITSELF a member no comparison in quorum.ts could see it; QuorumRules.peerIdOf closes it and
-  provably collapses to the old function when absent. THE PLANNED REMEDY FOR VER-03 WAS REFUTED
-  BEFORE IT WAS BUILT: qualifying the demo pool by block advertisement would have gone permanently
-  solo, because the input block is created inside submitJob AFTER the pool is chosen. AOT-05's
-  PUBLISHED NEGATIVE IS REFUTED - the fixture's functions had no call instruction so nothing tiered
-  up, and its trace-name list never fired on this path, so two claimed independent observations
-  were one observation and a constant. Its residual is settled to --wasm-caching-timeout-ms,
-  ISOLATED rather than inferred, and A RIVAL THAT FIT EVERY ROW OF THE TABLE WAS FALSIFIED: the
-  committed shape sits 0.9% over --wasm-caching-hard-threshold, and raising that threshold left the
-  figure byte-identical. WIRE-02 replaces a population ceiling with a 24-row per-symbol register
-  held in both directions. AUTH-02 GAINED ITS CAPABILITY AND DID NOT TICK - no production call site
-  can supply an issuer because the demo has no visitor enrolment, which is a product decision
-  declined on main.ts's own standing objection. TWO GUARDS CAUGHT ORCHESTRATOR ERRORS: WIRE-02 is a
-  new ID and not in the 72, and three now-Done rows were still in WITHOUT_A_CHECKABLE_CLAIM.
-  demo-pi.e2e.test.ts IS A KNOWN FLAKE - green, red, green on identical code, cause not found.
-  AOTW-06's 27/27 NOTE IS UNREPRODUCED: two prose sentences from one commit, no patch, no log, and
-  third_party/elfconv pristine at its pinned commit.
-last_updated: "2026-08-24T20:30:00.000Z"
-last_activity: 2026-08-24
+milestone: v2.0
+milestone_name: Open the Doors
+status: planning
+last_updated: "2026-08-25T06:54:13.004Z"
+last_activity: 2026-08-25
 progress:
-  total_phases: 15
-  completed_phases: 15
-  total_plans: 103
-  completed_plans: 103
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
+
+<!--
+**v2.0 header, added 2026-08-25**
+
+Counters were reset for v2.0 "Open the Doors" on 2026-08-25, so the progress narrative below
+describes **v1.1** and no longer describes the frontmatter. It is kept in full rather than
+replaced, because it is not only accounting: it carries findings that took work to establish
+and **one owner decision that is still open** — the `stopped_at` YAML corruption at the very
+end, marked *"Not taken autonomously."* An earlier edit in this session replaced this whole
+block with a short note and would have destroyed both. Restored verbatim.
+
+**Phase numbering continues from 29.** The 28 directories under `.planning/phases/` are
+v1.1's and are deliberately NOT cleared. `/gsd-new-milestone` offers to clear them, and the
+offer exists only to stop new `01-*` directories colliding with old ones when numbering
+restarts — which it is not doing here. Clearing would have deleted every plan, summary and
+verification of v1.1 with no archive, since v1.1 was never closed through
+`/gsd-complete-milestone` (`latest_completed_milestone` is null). Two rows of
+`REQUIREMENTS.md` cite those paths directly, and the milestone audit reads them.
+
+**What follows is the v1.1 record, unchanged**
+-->
 
 <!--
 progress counts the v1.1 milestone only: phases 11, 12, 13, 13.1, 14-24. **Fifteen** of
@@ -617,7 +347,6 @@ risk to weigh against it is any consumer that line-greps `^stopped_at:` for its 
 rather than parsing. **Not taken autonomously.**
 -->
 
-
 # Project State
 
 ## Project Reference
@@ -707,6 +436,1244 @@ half is covered by the same boundary rather than deferred to Phase 20 as the 202
 ruling anticipated.
 
 ## Current Position
+
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-08-25 — Milestone v2.0 started
+
+### v1.0 carried forward, unarchived
+
+```
+Checkboxes  v1 section    45 of 72 ticked · 27 open
+            v1.1 section   9 of 10 ticked ·  1 open (WIRE-02)
+            whole file    54 of 82
+Markers     76 traceability rows: 48 Done · 22 Partial · 1 Built, not wired
+            (MR-02) · 5 neither — AOT-03, BENCH-06, NET-03, VER-02, WIRE-02
+v1.1        9 of 50 requirements closed  (numerator NOT recomputed — see below)
+Historical  v1.0 closed at 112 test files / 1673 tests; 122 / 1775 on 2026-07-28
+```
+
+**Recounted on disk 2026-08-06, and every field of the previous block was stale.** It
+read *"35 / 72 wired · 27 built-not-wired · 6 partial · 4 open"* and *"Whole file 40 of 82
+ticked (35 in the v1 section + 5 in v1.1's)"*. Measured: **45** ticked in the v1 section,
+**9** in v1.1's, **54** whole-file; and on the traceability rows, built-not-wired is down
+to **1** while Partial is up to **22**. `REQUIREMENTS.md`'s own header already said
+*"45 of 72 are `[x]`"* — so **the ledger was current and this summary of it was not**,
+which is the same shape as the progress table that said "Not started" for seven finished
+phases. A file that summarises another file needs an owner too.
+
+**The old line merged two populations and that is why it drifted unnoticed.** *"35 / 72"*
+counts **checkboxes in the v1 section**; *"27 built-not-wired · 6 partial"* counts
+**markers on traceability rows**, a different set with a different denominator (76 rows
+against 82 requirements — six requirements carry no row). They are split above so the next
+reader cannot re-merge them.
+
+**`v1.1 9 of 50` was deliberately NOT recomputed.** Its numerator's definition is contested
+*inside this same file*: the paragraph above says the four IDs 13.1 closed are among the ten
+new ones and so "do not move this numerator", while WIRE-01 — also a new ID — is counted in
+it. Recomputing under a guessed definition would replace a stale number with a wrong one.
+This needs the definition settled first, and that is an owner's call, not a recount.
+
+**The 27 and the 6 moved together and the ticked counts did not.** Phase 15 took AUTH-03
+off *Built, not wired* and onto **Partial** without closing it: its serving half is wired
+and verified, its requestor half has zero production callers. A requirement can leave
+"built, not wired" without arriving at "done", and the ledger has to be able to say so —
+otherwise the only way to record progress is to overstate it.
+
+The 27 reconciles with the audit's 36: eight have been wired since — DATA-03, DATA-04,
+DATA-05, DATA-06, DATA-07 and DATA-09 in Phase 12, then DET-03 and DATA-08 in Phase 14 —
+and one, AUTH-03, moved to Partial in Phase 15.
+Count them from the **traceability table** rows (`^| ID |` … `**Built, not wired**`),
+which is the only place that marker lives; a whole-file grep also catches the legend and
+one line of prose and overcounts by two.
+
+**Ticking a requirement is three edits, not one.** Phase 14's verification found this:
+the checkbox, the traceability row's *Built, not wired* marker, and the section header's
+own count all have to move together, and ticking alone leaves the ledger disagreeing with
+itself. There is a fourth: `packages/node/src/acceptance-traceability.node.test.ts` pins
+specific ids in specific states, and 13.1's verification broke it by closing SCHED-06
+while that spot-check still asserted it open — **`develop` was red from that commit until
+it was caught by an unrelated executor.** Run that file after any ledger edit.
+
+**Two denominators, and confusing them is the trap.** REQUIREMENTS.md's own header reads
+*"35 of 72 are `[x]`"* — that is the **v1 section alone** (35 ticked + 37 not = 72) and it
+is correct as written, not stale. v1.1 then minted 10 further IDs in its own sections
+(WIRE-01…04, SCHED-06, NET-08, NET-09, NET-10, DATA-10, BENCH-07), of which five are now
+ticked: WIRE-01, plus SCHED-06, NET-08, NET-09 and NET-10 from 13.1's verification.
+DATA-10 is the one 13.1 left open. So the whole-file count is **40 of 82** and neither
+number contradicts the other. Recount with the section ranges, never with a whole-file grep.
+
+**v1.1's scope is 50, not 44.** Forty existing IDs to be wired, plus those 10 new ones.
+The line said 44 because it was written when only WIRE-01…04 existed; SCHED-06, NET-08,
+NET-09, NET-10 and DATA-10 were minted on 2026-07-28 with Phase 13.1 and BENCH-07 with
+Phase 23. **The numerator is 9:** DATA-03, DATA-04, DATA-05, DATA-06, DATA-07 and DATA-09
+from the existing forty (Phase 12), DET-03 and DATA-08 (Phase 14), plus WIRE-01. The four
+that 13.1's verification closed are among the 10 new IDs, not the forty, so they raise the
+whole-file count without moving this numerator.
+
+**Read `.planning/v1.0-MILESTONE-AUDIT.md` before planning.** It carries `file:line` for
+every claim. v1.0 was deliberately **not archived** — its audit returned `gaps_found`,
+and filing 36 unwired requirements under a completed milestone would have made the
+ledger say something untrue. The phase directories for 2–10 are intact for the same
+reason.
+
+The 36 are not undone work. Sovereignty labelling, tree-reduce, discovery, enrollment,
+quorum composition, capability chains and the whole churn coordinator are implemented,
+exported and covered by their own specs — and nothing a person can run calls any of
+them. Verified symbol by symbol: `runResilient`, `EgressGuard`, `translationCid`,
+`composeQuorum`, `discoverExecutors`, `executeReduce`, `requestEnrollment`, `signName`
+and `verifyChain` each appear only as their own definition, a barrel re-export, or a
+prose comment.
+
+**The structural cause is one shape, and it is v1.1's first target.** `serveAgent`
+declares six optional hooks with silent defaults — `authorize`→allow, `index` and
+`reservations`→empty, `capacity`→accept. `ledger` is supplied nowhere at all, in
+production or in one test. A hook whose default is indistinguishable from the feature
+working is why no test failed.
+
+**One of the 36 was a live bug and is already fixed.** Static-host rendezvous answered
+`[]` forever — `FabricNode.reservedPeerIds` held the right data and `serveAgent` was
+never given it — with the signature `{asked: true, dialed: [], failed: []}`: nothing
+attempted, nothing failed, no error. `rendezvous-wire.node.test.ts` starts three real
+nodes and requires two to find each other with nothing supplied by the harness.
+
+### Where Phase 10 landed
+
+**The finding is the exit code.** A pipeline trusting elfconv's `0` would cache an
+artifact that aborts at runtime under a name asserting it is clean. Two greps —
+abort call sites and recovered addresses — must agree before the count is called
+evidence, because a single grep that stopped matching would report zero and look
+like good news.
+
+**A real artifact was pointed at the executor for the first time**, and every
+execution-side test before it used hand-written fixtures written from the same
+understanding as the executor. The ABI held exactly: 23 WASI imports, `_start` and
+`memory`, every import answered. And it turned up something fixtures could not — a
+`printf("hello\n")` imports **`clock_time_get` and `poll_oneoff`**, because glibc's
+stdio pulls them in whether the program asks or not. Pinning the clock is
+load-bearing on the very first task anyone runs.
+
+**The V8 code cache does not happen.** At 4.8 MB, `application/wasm`, query-free CID
+URL, `compileStreaming`, hot enough to tier up: no WASM code-cache entry across three
+visits, while the same profile grows a 2 MB *JavaScript* cache and a
+`--v8-cache-options=none` calibration reads the identical 72B. Reported unmet rather
+than reworded — a criterion that can only be reported as met is not a measurement.
+
+**A recorded project assumption was wrong.** `CLAUDE.md` said elfconv needs
+unstripped binaries. It does not: `.eh_frame` is enough, via libdwarf. Corrected in
+`CLAUDE.md` and the roadmap.
+
+**Two reviewer findings outlived the phase and were real.** A file carrying raw NUL
+bytes had silently left the vocabulary guard's jurisdiction — an exemption with no
+entry, which the guard's own planted violations could not detect because they scan
+synthetic content rather than the tree. And `PINNED_WASI_FUNCTIONS` was checked only
+for *identity*, which a replacement returning the wrong value satisfies exactly.
+Both fixed; 8 mutations planted, 8 caught.
+
+### Where Phase 9 landed
+
+**Consent is a value, not a check.** `GrantedConsent` is minted only by
+`grantConsent`, and `start` takes one as a parameter — a caller without one does not
+fail a check, it fails to compile. No test-only bypass: the e2e harnesses consent
+for the same reason a visitor clicks the button.
+
+**Nothing touches the network before consent either.** Criterion 3 names CPU; the
+owner's decision went further, because "we spent no cycles" is not an answer to "you
+told a third party I was here". Proved by watching every request the tab makes.
+
+**Stopping had to become real before it could be claimed.** `WasmExecutor` ran on
+the main thread, where a synchronous `run()` cannot be interrupted — so "one click
+drops CPU to zero" meant "zero once the current task finishes". Tasks now run in a
+Worker; Stop calls `terminate()`. The probe that proves it is a bare `loop br 0`.
+
+**A guard caught the exact trap it was written for.** Replacing `terminate()` with
+a cooperative flag left every test green *except one* — the one that messages the
+thread directly, past the executor, and requires silence. Rejecting the pending
+promises makes a stop look instant while the thread keeps burning; resolving the
+caller and killing the worker are two different acts.
+
+**Ordering is what makes cubes worth having.** The colouring search first walled at
+n = 205 and no parallelism moved it: assigning values in increasing order means a
+cube fixes the *least* constrained numbers — 1 and 2 appear in no triple at all — so
+cubing split the work without splitting the difficulty. Ordering by constraint
+degree moves the wall with cube count: 1 cube → 300, 8 → 500, 256 → 600.
+
+**Chromium throttles timers hard in a tab that is not in front** — measured, a
+400 ms poll produced one tick per second. Anything the always-visible surface
+depends on is pushed, never polled. This bit twice in one phase.
+
+Numbers: 6 mutations planted, 6 caught. `verifyColouring` re-derives 484 triples at
+n = 600 and accepts in under a millisecond, trusting no node.
+
+### Where Phase 8 landed
+
+**The ordering was the requirement.** `BENCHMARK-METHODOLOGY.md` went in before any
+harness existed — checkable in `git log`. Three pre-registered predictions all held: the
+node axis would be sub-linear (it was flat), the COST crossover would be embarrassing
+(none, ~570×), and the fixture bias would dominate (it did).
+
+**The headline caveat is what the numbers cannot show.** Every node in both curves runs
+in one OS process on one event loop, so no parallel speedup is measurable at all. The
+flat makespan is the consequence of that, not a finding about scaling. The scaling claim
+is therefore **unmeasured** — which is neither disproved nor supported.
+
+**The incomplete-run rule paid for itself immediately.** The first full run reported
+19/19 incomplete at every memory rung rather than a suspiciously fast success: the memory
+workers could not fetch shard inputs. A harness that averaged failures in would have
+published a beautiful fictional curve.
+
+**A misnamed field, caught before publication.** `JobResult.grossNodeSeconds` named a
+quantity that was *bytes across the guest ABI*, not seconds — deterministic, which is
+right for a cost metric, and off by a factor nobody could guess if published as time.
+Renamed to `grossFuel`/`usefulFuel`; the driver measures real node-seconds itself.
+
+**Two ladder rungs published as excluded, not dropped.** Real transport at 8 and 16 nodes
+dies on `INBOUND_CONNECTION_THRESHOLD = 5` per host — the limit Phase 3 already found.
+A rung that vanishes between plan and results is indistinguishable from one removed for
+being inconvenient.
+
+Numbers: connectivity tax **8–10×**; no COST crossover; decomposition native 0.002ms →
+WASM in-process 0.61ms → distributed 1.3ms, so most of the gap is the ABI on a trivial
+fixture rather than the fabric.
+
+### Where Phase 7 landed
+
+A job survives its machines — and its submitter — vanishing mid-flight. A lease is a
+deadline, not a lock, so "never orphaned leases" needs no cleanup code and resume is the
+same path as start. Then an adversarial review found five defects and refuted none, the
+worst being that speculation could change the answer: breaking on the first arrival meant
+a losing copy was never compared, so timing alone could pick between two different CIDs.
+The test guarding it was vacuous. All fixed and mutation-tested.
+
+### Where Phase 3 stands
+
+Two browser tabs, and separately an iPhone running Safari and a laptop running Chromium,
+complete a 4-shard 2×-redundant job over a **direct WebRTC** connection with the relay
+carrying only SDP. Remaining: real AutoTLS, which needs a publicly reachable host.
+
+## Performance Metrics
+
+**This section is a partial record and must not be read as a velocity figure.** The
+per-plan rows below are appended by the executor, and only 8 of the 17 executed plans
+ever got one: Phase 13's plans 04-07 and all five of Phase 13.1's are missing. The
+template header that used to sit here read *"Total plans completed: 0"* directly above
+eight rows of real data, with the By-Phase table left as placeholder dashes — replaced
+2026-07-31 with what the rows actually say.
+
+**Logged: 8 plans, 247 min, 4.1 hours, mean 31 min/plan.** The mean is not meaningful —
+the spread is 7 min to 100 min, and this project's own benchmark methodology records
+that straggler-dominated distributions have meaningless means.
+
+| Phase | Plans logged | Total | Median | Range |
+|-------|--------------|-------|--------|-------|
+| 11 | 1 of 1 | 13min | 13min | — |
+| 12 | 4 of 4 | 190min | 35min | 20-100min |
+| 13 | 3 of 7 | 44min | 12min | 7-25min |
+| 13.1 | 0 of 5 | — | — | — |
+
+*Rows appended after each plan completion:*
+
+| Phase 11 P01 | 13min | 3 tasks | 13 files |
+| Phase 12 P01 | 25min | 2 tasks | 17 files |
+| Phase 12 P02 | 20min | 2 tasks | 4 files |
+| Phase 12 P04 | 100min | 2 tasks | 8 files |
+| Phase 12 P03 | 45min | 1 tasks | 2 files |
+| Phase 13 P01 | 12min | 2 tasks | 5 files |
+| Phase 13 P02 | 7min | 2 tasks | 2 files |
+| Phase 13 P03 | 25min | 2 tasks | 1 files |
+| Phase 18 P03 | 25min | 2 tasks | 5 files |
+| Phase 25 P04 | 8min | 3 tasks | 8 files |
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- **Phase 27 added 2026-08-08** — *The Demo UI, Driven by the Real Fabric.* Filed by owner
+  instruction after a UI mockup covering all four workloads was imported to
+  `docs/design/mockups/o2-fabric-demo/`. **Corrected by hand 2026-08-10; the original clause is
+  kept because it is what a reader greps.** It said the phase *"Closes the demo half of
+  MR-03…MR-07, whose ledger rows already name the gap, and audit finding G4."* **Both halves of
+  that are now false, and it was written as an intention before the phase ran.** What the phase
+  actually did: **MR-03…MR-07 all five stay `[ ]` Partial** — the demo's aggregation workload is
+  π and it does merge through `reduceJob` behind a run control, but colouring's `answerOf` scan
+  stays a scan on purpose (first-found-wins has nothing to aggregate), so the clause was amended
+  per row rather than closed, and whether `MR-03` alone may tick is an open owner decision in
+  `27-OPEN-ITEMS.md`. **G4 closed one of its two halves** — the `runJob` half is closed
+  (`#byo-form`'s submit handler calls `window.o2.runJob`, driven on four arms by
+  `packages/node/src/demo-byo.e2e.test.ts`), the primes half is restated with a measured reason
+  and stays open, which is why the audit now carries G4 as a split row. The per-row truth is in
+  `ROADMAP.md`'s Phase 27 Requirements line; this entry is the roadmap-evolution note and was
+  simply never revisited after the phase reported. **This file is otherwise stale about Phase 27
+  and is corrected by hand for a measured reason**: seven `gsd-sdk query state.*` verbs were
+  measured to corrupt `STATE.md` while reporting success (`27-OPEN-ITEMS.md` section 9), so no
+  state verb is run against it. Not scheduled into v1.1, whose span is phases
+  11-22 — the same treatment phases 23-26 have.
+  **Numbering was corrected by hand and the reason is worth keeping**: `gsd-sdk query phase.add`
+  returned **25**, because it takes the next number from the phase *directories* (highest
+  `phase-24`) rather than from ROADMAP.md (highest `Phase 26`). Phases 25 and 26 are filed as
+  roadmap entries with no directory, so the SDK produced a duplicate `### Phase 25` and placed
+  it inside the requirement-coverage section. Any future `phase.add` on this repository will do
+  the same until every roadmap phase has a directory — check the heading it writes.
+
+### Decisions
+
+Decisions are logged in PROJECT.md Key Decisions table.
+Recent decisions affecting current work:
+
+- Verification compares the SAME module run on two nodes, byte for byte. Not multiple implementations of the same computation — cross-implementation verification is explicitly out of scope.
+- There is no static determinism analysis. Divergence is detected by the comparison, not predicted ahead of it. The admission gate was built and then deleted; do not reintroduce it. The import object is the sandbox — WebAssembly.instantiate refuses any import the host does not supply.
+- The verification claim is split (C3, decided): redundant execution on public/shared data and on the aggregation tree; sovereign maps run redundantly within the owner's own node set when two or more are live, and are owner-attested otherwise.
+- Relay decision inverted by evidence: own backbone relay primary (AutoTLS + webRTCDirect), public infra opportunistic only. Browsers structurally cannot dial the majority of public libp2p nodes.
+- Ordering is load-bearing: sovereignty before placement, tree-reduce before placement, artifact signing at content-addressing time (not at elfconv time), coordinator checkpointing in the churn phase, governor + benchmark instrumentation in the kernel phase.
+- **A remote executor is just an `Executor` (Phase 2).** `submitJob` takes `Executor[]` and cannot tell where one runs, so the network arrived without a kernel change. Any future "distributed" feature should first be checked against this: if it can be an adapter behind an existing port, it must be.
+- **Packages split on the portability line, not the feature line (Phase 2).** `@o2/net` is portable and its tests run in Node *and* Chromium; `@o2/node` holds everything a browser cannot do. `purity.node.test.ts` enforces it — no `node:`/`libp2p`/`@chainsafe` import may appear in a portable package.
+- **`Transport` stays a one-way datagram port (Phase 2).** Request/response correlation lives in `@o2/net` instead, because a datagram shape is the smallest thing an in-process table, a libp2p stream, and a relayed WebRTC channel can all implement.
+- **All nodes have equal functionality (owner decision, 2026-07-26, restated twice).**
+  There is no tier, no class, no lesser node. Every node executes tasks, holds blocks,
+  serves records, hosts reduce combines, and takes quorum slots on identical terms.
+  **The only difference is discovery**: a browser cannot bind a listening socket, so it
+  cannot act as a seed a newcomer dials cold — it must be found through a relay that
+  can. That is narrower than "reachability", which was the previous wording and was
+  still wrong: once connected, the peers are indistinguishable. Proven in Phase 3, where
+  an iPhone was dialled at its `/p2p-circuit/webrtc` address and ran half of a
+  2×-redundant job. "Client-mode-only DHT" and "browsers are leaves" were inherited
+  assumptions, both reversed. Background-tab throttling is a lease-duration problem, not
+  a capability one. **If a decision keys on node kind, it is wrong** — the only
+  legitimate use is shared-dependency analysis over the discovery graph.
+
+- **Liveness changes who computes and when, never what the answer is (Phase 7).** The
+  invariant every churn mechanism rests on. True because a result is a pure function of
+  (module, input, partition) and content-addressed, so a re-dispatch recomputes
+  byte-identical output and every recovery action is at worst wasted work. Re-check this
+  first if any of the churn code changes.
+
+- **A lease is a deadline, not a lock (Phase 7).** Nobody releases it and no keeper
+  notices the coordinator left, so "never orphaned leases" needs no cleanup code. A lock
+  would have required the holder-liveness protocol the deadline replaces.
+
+- **A node failure and a task failure warrant opposite policies (Phase 7).** Collapsing
+  both into `null` makes the 30%-node-loss criterion unachievable — three unlucky dead
+  picks retire a good shard. Node failures retry until the pool is exhausted; task
+  failures stop after three independent nodes fail the same work.
+
+- **Re-dispatch must exclude tried nodes before placement (Phase 7).** Placement is
+  deterministic by design, so a retry otherwise re-derives the identical dead choice.
+  Narrowing the input is safe — the sovereignty gate still runs inside `placeWithOffers`.
+
+- **Pre-registration is an ordering, not a document (Phase 8).** The methodology commit
+  contains no harness and no number, so `git log` proves the analysis was not chosen
+  after seeing the data. Predicting the disappointing results in advance is what stops
+  a flat curve being spun as a surprise.
+
+- **A fast failure is not a fast run (Phase 8).** Excluding incomplete runs from
+  makespan statistics is what turned a silent 19/19 failure into a visible bug instead
+  of a beautiful fictional curve.
+
+- **A unit in a field name is a claim (Phase 8).** `grossNodeSeconds` held bytes. The
+  ratio was fine, the absolute number would have been published wrong by a factor
+  nobody could guess. Rename rather than document — a comment does not travel with the
+  number into a report.
+
+- **Publish excluded configurations with the reason (Phase 8).** A rung that vanishes
+  between the plan and the results is indistinguishable, to a reader, from one removed
+  because its number was inconvenient.
+
+- **A fake that is faster than the real thing cannot see a timing bug (Phase 7).** The
+  worst two churn defects — a hang, and a losing copy never compared — were both
+  invisible to a suite whose dispatch resolved on a microtask. The integration test with
+  real RPC found the OOM spin; the rest needed code read specifically for what the tests
+  could not reach.
+
+- **Speculation must not become a vote (Phase 7).** Returning the first arrival and
+  discarding the other copy unexamined lets timing choose between two different answers.
+  The winner may return immediately, but the loser has to be *compared* — after every
+  shard settles, which costs nothing — and a copy that never answers is `uncompared`,
+  never "agreed".
+
+- **A documented bound is not an enforced one (Phase 7).** The coordinator's header
+  promised silence gets a bounded wait while the code never read `expiresAt`. Grep for
+  the mechanism whenever a comment states a guarantee.
+
+- **Never race a timer that provably cannot act (Phase 7).** The straggler watchdog
+  re-wrapped every pending promise per iteration and kept polling after speculation
+  became impossible; against real I/O that is unbounded allocation, not a slow loop.
+  Fake-dispatch tests cannot show this class of bug.
+
+- **Discovery is an intersection, and each part is worthless alone (Phase 6).** Who
+  holds the block, who the node is, and what it can run come from three independent
+  sources — content routing, a provider-signed certificate, a node-signed capability
+  record. The self-signed record looks like theatre until you see what it is bolted to;
+  a test mints a valid one for an uncertified key and shows it buys nothing. Splitting
+  it lets a node re-sign locally when its engine changes.
+
+- **Every exclusion is named (Phase 6).** Silent filtering leaves a requestor unable to
+  tell a dead network from a wrong clock from a module nobody can run.
+
+- **The power-of-d sample is derived, not drawn (Phase 6).** Rendezvous ranking on the
+  shard id instead of `random()`: same load result, but two requestors racing on one
+  shard converge, re-placement re-derives the same candidates, the tail is already the
+  re-pick list, and a decision can be replayed from its inputs.
+
+- **Load is a hint; the offer is the authority (Phase 6).** `LocalCapacity` takes no
+  ports and makes no calls, so "local information only" is a property of the type. A
+  refusal is not an error path — it is how a stale guess becomes a correct decision.
+
+- **A probe needs its own deadline (Phase 6).** An unreachable node cost a full RPC
+  timeout before the re-pick, destroying the saving power-of-d exists to buy. Offers
+  carry a 2s deadline and silence is a *stated* refusal. Only the wired-up test could
+  find this — a unit test's admission callback returns immediately.
+
+- **Attestation strength is derived, never declared (Phase 6).** owner-attested /
+  owner-domain / independent, computed from certificates. Owner-domain and independent
+  both show two replicas, so the count cannot distinguish them and the label must travel
+  with the result.
+
+- **Derive topology, never agree on it (Phase 5).** The reduce tree is a pure function
+  of sorted partial CIDs, so every participant computes the same one with zero
+  messages — no leader election, no consensus, nothing to lose. Assignment is HRW, and
+  the ranking *is* the fallback list. Repair is recompute from CIDs, not state
+  transfer; a late duplicate dedupes into nothing.
+
+- **Associativity is the reduce contract; commutativity is not (Phase 5).** An earlier
+  comment claimed both were required and justified it wrongly — a probe showed an
+  order-dependent reducer breaks nothing, because grouping is canonical. The
+  bit-identical single-node reference test is what enforces associativity.
+
+- **Sovereignty is structural, never a preference (Phase 4).** `planPlacement` narrows
+  to the owner's nodes *before* load is consulted; there is no branch that widens it.
+  A sovereign shard with nowhere to run stalls. Verified by adding the forbidden
+  relax-under-pressure branch and watching four tests fail.
+
+- **Authorisation runs before execution, and the test proves the ordering (Phase 4).**
+  A node that executes and *then* refuses has already read the data, so the test
+  asserts the executor was never called, not merely that the reply said "unauthorized".
+
+- **Integrity is not provenance (Phase 4).** A CID proves bytes match a hash; it says
+  nothing about who published them. Nothing executes a bare CID — names resolve through
+  signed records from anchors pinned at construction, and the resolver has no method to
+  learn a new one.
+
+- **A blockstore adapter must not alias its input or its storage (Phase 3).** Found
+  by the conformance suite in `MemoryBlockstore`; the persistent adapters copy, so an
+  aliasing in-memory adapter made kernel tests pass on semantics no real backend has.
+
+- **Conformance vectors are hardcoded literals, never computed (Phase 3).** A
+  computed expectation only proves an implementation agrees with itself.
+
+- **The kernel must never need `crypto.subtle` (Phase 3).** A LAN origin
+  (`http://10.144.82.249:5173`, `http://laptop.local:5173`) is *not* a secure context,
+  so WebCrypto is absent. `multiformats/hashes/sha2` uses it, which silently broke every
+  CID on any non-localhost page — while the node still *started*, so it failed at the
+  first block rather than at join. Hashing is now `@noble/hashes`, pure JS. The
+  import-scanning purity tests cannot catch this class of bug; a dedicated browser test
+  removes `crypto.subtle` and requires the hashing path to survive.
+
+- **A browser cannot do mDNS (Phase 3).** No API, any browser. LAN discovery is
+  therefore: one URL (preferably the machine's existing `.local` Bonjour name, which
+  iOS resolves natively and which survives DHCP churn), after which the page fetches
+  `/bootstrap.json` from *its own origin* and is told to dial the same host it already
+  reached. Nothing hardcoded, nothing guessed from network interfaces.
+
+- **A relay's browser capacity is capped by inbound limits, not reservations (Phase 3).**
+  `INBOUND_CONNECTION_THRESHOLD` is 5 **per host** and
+  `MAX_INCOMING_PENDING_CONNECTIONS` is 10 — both below the 15 reservation default.
+  Per-host matters in production too: every volunteer behind one NAT shares the budget.
+  Exceeding either kills the noise handshake and looks like a network fault.
+
+- **A duty cycle must serialize to mean anything (Phase 3).** Shards dispatch
+  concurrently, so per-task yielding lets every yield resolve at once and the cap is
+  bypassed. `GovernedExecutor` serializes while throttled, and only while throttled.
+
+- **A relayed circuit cannot carry a job (Phase 3).** The relay is a signalling
+  channel; the data path is WebRTC. A test that runs a job over `/p2p-circuit` is
+  testing an unsupported configuration.
+
+- **Packages form three tiers (Phase 3).** `core`/`net` portable — no platform *and no
+  libp2p*; `libp2p`/`browser` dual-target — libp2p but no `node:`; `node` anything.
+  Enforced by `purity.node.test.ts`.
+
+- **Wire framing is uniform across transports (Phase 2).** One stream per message, completion signalled by the sender closing its write end — so no length prefix and no framing state machine. Chunked at 16 KiB with `runOnLimitedConnection: true` even on TCP, so the same path survives relaying in Phase 3.
+- Part I (elfconv AOT) sequenced last and run as a parallel track; it must not block the capacity-scaling thesis.
+
+- **Consent is a value, not a check (Phase 9).** `GrantedConsent` is minted only by
+  `grantConsent` and `start` takes one, so "check consent before starting" is not a
+  rule anyone has to remember. The obvious `if (hasConsent())` is exactly the shape
+  that has failed twice here — a documented bound nothing enforced.
+
+- **A stop that resolves the caller is not a stop (Phase 9).** Rejecting pending
+  promises makes termination look instant while the thread keeps burning. Only a
+  test that messages the thread directly, past the executor, can tell them apart.
+
+- **Cooperative stopping cannot exist for WASM (Phase 9).** A synchronous `run()`
+  admits no flag, no duty cycle and no governor. Off-main-thread execution is not an
+  optimisation here, it is the requirement.
+
+- **A metric must publish its own blind spot (Phase 9).** A node that cannot reach a
+  peer cannot report that it cannot reach a peer, so the reported population is never
+  the visited one — and that gap *is* the cliff being measured.
+
+- **Overlapping views are merged by maximum, never by sum (Phase 9).** Asking eight
+  peers for the same population and adding would multiply every sample size by eight
+  while leaving the percentages unchanged: a correct-looking rate over a fictional n.
+
+- **Chromium throttles timers in a background tab (Phase 9).** Measured: 400 ms poll,
+  one tick per second. Anything a visible surface depends on must be pushed.
+
+- **A cube must fix the *constrained* variables (Phase 9).** Splitting on the first k
+  values split the work without splitting the difficulty, because the lowest values
+  are the least constrained. Ordering by constraint degree is what makes more nodes
+  reach further rather than merely reach faster.
+
+- **`exhausted` and `budget` must stay different answers (Phase 9).** One is a proof,
+  the other is a shortage of compute. Conflating them turns a limit into a false
+  mathematical claim.
+
+- **"Was not run" is not "works" (Phase 9).** DEMO-01's multi-machine half was about
+  to be closed by reasoning from Phase 3's transport proof. Running it found two
+  real defects instead — one of which every multi-tab test had structurally been
+  unable to catch, because they all dial from the harness.
+
+- **Assert what is on screen, not what the attribute says (Phase 9).** An id rule
+  setting `display` outranks the browser's own `[hidden]`, so `getAttribute` was
+  right while the element was visible. `isVisible`, always.
+
+- [Phase 11]: A hook's absence is a value the call site writes (named sentinel literal), never an omission the type system tolerates — same shape as Phase 9's GrantedConsent. — AgentOptions's six hooks moved from optional to required unions with sentinel literals, closing the hole where an omitted hook silently defaulted to allow/empty/accept and made no fact recordable.
+- [Phase 12]: not-enough-executors retired; a shard below requested redundancy is placed at what is available and marked degraded on ShardResult/JobResult instead of failing the whole job
+- [Phase 12]: submitJob's placement now runs entirely through sovereignty.ts's planPlacement/eligibleNodes, correlating Executor to NodeDescriptor by nodeId; no other code path in submit.ts selects a node
+- [Phase 12]: guardSovereignty is a pure Executor adapter (no Executor/AgentOptions port change), mirroring GovernedExecutor's shape
+- [Phase 12]: Added a DATA-09 replica-holder test beyond the plan's four (Rule 2): a canExecuteSovereign:false node whose data genuinely exists in the shared blockstore is still excluded from execution, proving the refusal is about clearance, not missing data
+- [Phase 12]: parseRequest refuses an exec request with no label; Task.label stays optional in-process, only the wire boundary enforces it — Correction 2: an absent label reaching guardSovereignty is a no-op, trusting whoever dispatched the task not to omit the field the refusal depends on
+- [Phase 12]: guardSovereignty wired into both fabric-node.ts and browser-node.ts production constructors, defaulting to cleared-for-nobody — Correction 1: guardSovereignty had zero production callers before this plan, the exact built-not-wired shape the v1.0 audit exists to catch
+- [Phase 12]: Plan 12-03 (skipped by the orchestrator in Wave 2/3) closes the exact gap the Phase 12 verification pass found: submitJob's sovereignty-pinned placement is now proven across three real bin/agent.ts operating-system processes, not only in-process. bin/agent.ts gained --owner-id/--can-execute-sovereign CLI flags (a pass-through of the existing FabricNodeOptions.sovereignty option) so a spawned process can be cleared for its own owner; the required widen-under-pressure mutation failed as expected (insufficient, not agreed) and revealed a second, independent defense already holding: the mutated process's own guardSovereignty wrap refused the wrongly-widened dispatch.
+- [Phase 13]: registerSovereignInputs composed outside guardSovereignty, not inside — registering a task guardSovereignty is about to refuse is harmless, keeps composition order identical at both Plan 13-02 call sites
+- [Phase 13]: submitJobWithEgress delta-slices EgressGuard.manifest.entries before/after submitJob rather than calling reset(), so job-scoped manifests compose with concurrent reads instead of discarding shared history
+- [Phase 13]: egress is a new field on FabricNode/BrowserNode, not a type change to transport — EgressGuard lacks .stop()/.peers that existing callers (including packages/browser/demo/main.ts) depend on
+- [Phase 13]: Both node factories now compose registerSovereignInputs(guardSovereignty(inner, sovereignty), {blockstore: store, guard: egress}) identically — the sovereignty default is resolved exactly once per start() call, feeding both the guard's ownerId and the clearance check
+- [Phase 13]: Sovereign test fixtures must be pre-seeded onto the executing node's local-only store before dispatch, not just onto the requestor's store -- registerSovereignInputs reads only the local tier and silently skips registration otherwise, which would make a falsification test pass vacuously
+- [Phase 13]: Mutation 2 (removing the EgressGuard transport wrap) breaks all four production-wiring tests, not only the one the plan named -- reported as observed rather than narrowed to fit the plan's prediction
+
+- **[Phase 13.1] A reservation with no release is a leak, so the reservation moved to the
+  branch that has one.** `LocalCapacity.offer` reserved a slot that nothing on the wire ever
+  redeemed — a liveness probe would have leaked one slot per peer per call — so the `offer`
+  branch became `LocalCapacity.would`, which reserves nothing, and the slot is now taken in
+  the `exec` branch before the `try` and released in a `finally` that covers success, a
+  failed outcome, a throw, and the `authorize` refusal that never calls the executor at all.
+
+- **[Phase 13.1] That deliberately removed cross-shard over-commit protection, and it is
+  Phase 18's to rebuild.** `placeWithOffers` rebuilds `pool` per request, so the reserving
+  offer branch was the only thing bounding placement *across* shards. `planWithOffers` +
+  `rpcAdmission` will now put all N shards of a job on one node with `maxConcurrent: 1`.
+  `packages/net/src/discovery.test.ts` pins this as a recorded consequence — four shards on
+  one 1-slot node, zero refusals — and **that test is expected to turn red when Phase 18
+  closes criterion 2c.** Do not "fix" it before then. The two candidate mechanisms, both
+  protocol changes, are in `agent.ts`'s own comment.
+
+- **[Phase 13.1] A cap applied after the loop has already paid for the allocation it
+  exists to prevent.** `readMessage` accumulated every peer-sent chunk and then allocated
+  their sum, both peer-driven and neither bounded; the check now sits *inside* the
+  `for await`, immediately after the byte count grows, and calls `stream.abort()`. That
+  placement is the whole content of NET-08 — a 64 MiB frame was accepted over the real
+  transport before it.
+
+- **[Phase 13.1] `'sender'` is a third `DispatchOutcome.kind`, because a connection the
+  sender tore down is not a failure of the receiver.** Produced only from a
+  `SendRefused`; `coordinator.ts`'s single policy read is unchanged and its fall-through
+  carries a comment saying it is a decision rather than an omission.
+
+- **[Phase 13.1] A pre-scan is the same check, earlier — not a weaker one.** `EgressGuard`
+  gained `violationIn(frame)` (pure query, records nothing) and `refuse(to, frame)`
+  (records on a hit only). Scanning a reply *body* suffices because `contains` is a
+  contiguous-run search and dag-cbor encodes a byte string as a header plus raw bytes, so
+  the payload is the same contiguous run once nested. `refuse` records only on a hit
+  because it may be asked about a frame never offered to the exit; recording clean answers
+  would count every reply twice.
+
+- **[Phase 13.1] The pre-change capture was planted, watched, and restored by `cp` with
+  `cmp` exit 0 — no `git` write command.** The proof the restore was byte-exact is that
+  `git status --porcelain` afterwards listed only the new untracked test file. Worth
+  copying: on a shared working tree a `git checkout --` to "restore" is how another
+  session's work gets destroyed.
+
+- **[Phase 13.1 — CORRECTED 2026-08-01] The hook is `AgentOptions.capacity`; `admission`
+  is the instrument.** This line used to read *"the hook is named `admission`, not
+  `capacity`"* and that is wrong — `agent.ts:171` declares
+  `readonly capacity: LocalCapacity | 'accepts-every-offer'`, and `admission` is the
+  local holding what `capacity.offer()` returns, plus `FabricNode.admission` as the
+  high-water instrument. `fabric-node.ts:365` explains why the two names differ.
+  **A second error rode along with it:** `LocalCapacity.offer` *does* reserve
+  (`placement.ts:372-378`). What reserves nothing is `serveAgent`'s **`offer` request
+  branch**, via `would`. Both errors were propagated into a Phase 16 executor's brief
+  verbatim; following them literally would have renamed the wrong symbol. A note that
+  compresses two names into one sentence is how that happens.
+
+- **[Phase 14] A guard wrapped at every construction site, not at one resolution point.**
+  The plan opened by correcting its own earlier draft: **three** `Executor` implementations
+  independently turn `task.moduleCid` into bytes — `core/src/executor/wasm.ts`,
+  `browser/src/worker-executor.ts` and `aot/src/wasi-executor.ts` — so "one resolution
+  point" was false and the guarantee `guardModuleProvenance` carries is composition at
+  every site instead.
+
+- **[Phase 14] A census that counts call sites cannot tell a composed guard from a
+  decorative one.** Deleting `provenance(...)` from `browser-node.ts` turns two tab
+  refusals red while `trust-anchors.node.test.ts` stays **20/20**, because
+  `guardModuleProvenance(` is still textually present, just applied to nothing. Recorded
+  as M28. This is the same shape as the disclosure gate's pattern that matched nothing and
+  read green — a text census answers "is it mentioned", never "is it wired".
+
+- **[Phase 14] `trustAnchors` is required and typed `readonly PublicKeyHex[] |
+  'runs-unsigned-artifacts'`**, on both `FabricNodeOptions` and `BrowserNodeOptions` —
+  Phase 11's sentinel convention. `TabApi` deliberately exposes **no opt-out at all**:
+  there is no value a page or a Playwright harness can pass through `window.o2` that
+  yields a tab resolving bare CIDs. All 22 uses of the opt-out are inside `*.test.ts`;
+  `bin/agent.ts` has no off-switch.
+
+- **[Phase 14] "Built, not wired" has a measurable signature, and it was measured in both
+  directions.** Before the phase, emptying both demo trust-anchor sets changed nothing
+  across fifteen e2e tests. After it, the same plant takes the colouring job down.
+  Recorded as M29 — the one ledger entry that pins a *change* rather than a guard.
+
+- **[Phase 14] A `not.toContain` never observed as a `toContain` is a silence, not a
+  reading.** Criterion 2's "before `WebAssembly.instantiate`" rests on two instruments —
+  an in-process call counter and a cross-process blockstore-directory census — and the
+  verification required each to have been seen taking **both** values. The cross-process
+  one is upstream of instantiation: the block never reached the agent's disk.
+
+- **[Phase 14] Corrections do not propagate between sibling plans.** 14-03 corrected six
+  wrong `file:line` facts in its own plan; 14-05's plan, written earlier, then restated
+  one of those same corrections verbatim. A correction living in a SUMMARY reaches nobody.
+  Feed each wave the prior wave's corrections explicitly, and verify every citation before
+  relying on it.
+
+- **[Phase 15] Plan citations drift far worse than anyone assumed: 41 wrong `file:line`
+  references across four plans** (6, 9, 14, 12). These plans were written weeks before
+  they ran. Two were wrong rather than merely stale, and both would have shipped a false
+  statement into source: `purity.node.test.ts:167-174` does **not** keep the `Executor`
+  port narrow (it is the "no dependency edge from `@o2/core` to any adapter" test, and the
+  string `Executor` appears nowhere in it), and **no test in this repository asserts the
+  `Executor` port carries no chain**. Assume every citation in an unexecuted plan is stale.
+
+- **[Phase 15] A wave field can lie where `depends_on` cannot.** Phase 15's four plans all
+  declared `wave: 1`, which would have launched four agents into a chain where 15-03 needs
+  01 and 02 and 15-04 needs all three. Derive waves from `depends_on` and from
+  `files_modified` overlap, never from the `wave` field alone — 15-01 and 15-02 also both
+  write `packages/net/src/index.ts`.
+
+- **[Phase 15] "It cannot be tested" survived four plans and was false.** Every plan
+  repeated that `BrowserNode.start` "needs a real `indexedDB` and a relay to dial, so it
+  runs in neither vitest project", and the browser tier's authorizer went unproven because
+  of it — a scrambling mutation left 345 browser tests green. The true statement is
+  narrower: the **`browser`** project cannot host it, because a Circuit Relay v2 server
+  cannot run inside a browser; the **`e2e`** project can, and `two-tabs.e2e.test.ts`
+  already did. 15-05 closed it there, and needed no relay at all — a relay exists to let
+  two browsers exchange SDP, and there is one browser in that test. **Six shipped comments
+  carried the false claim, one of them sitting directly on the authorize hook.**
+
+- **[Phase 15] A refusal that names the wrong thing is a defect even when the job
+  correctly fails.** M30's mutated tab still refuses — at a different precedence step,
+  naming the owner *key* where the owner *id* belongs. Any assertion of the form "the job
+  failed" passes against it. Assert the refusal **text**. The same trap caught 15-03: a
+  node with no `sovereignty` option resolves to `ownerId: ''` and falls through to a
+  different `unauthorized` refusal naming the same peer.
+
+- **[Phase 16] A fabric cheaper than the real thing cannot observe a gate keyed on the
+  real thing's configuration.** `agent.ts` refused every combine on any node holding a
+  real `Authorizer`, and both node classes install one — so combine never worked in
+  production, from the moment the branch was written. Plan 16-02 could not see it because
+  every in-process fabric it tested builds `serveAgent({...SENTINELS})`, and the sentinel
+  is exactly what the branch keyed on. **Two plans hit it independently** (16-03 from
+  spawned processes, 16-04 from the benchmark) and **neither took the cheap way through**:
+  16-03 refused to change an auth path outside its scope, 16-04 refused to pass the
+  sentinel to `FabricNode` to make a benchmark row appear. Sibling of the Phase 15 lesson
+  and a stronger form of it.
+
+- **[Phase 16] The gate's premise was true when written and one phase later was not.**
+  Its comment read *"Every production call site passes the sentinel today, so this is a
+  no-op now."* Phase 15 installed real authorizers and falsified it silently. **A comment
+  asserting a fact about every call site is a claim with an expiry date**; if it matters,
+  a test must hold it, because nothing else will notice when it stops being true.
+
+- **[Phase 16] Routing combine through the `Authorizer` made a security property worse,
+  and that was measured rather than argued.** The old refusal had incidentally bounded
+  combine fetches to zero on any real node. Removing it widened the residue to every
+  node — and `authorizeCapability` admits every combine, because the frame carries no
+  sovereignty label and no node exposes an `authorize` option. Owner ruling: bound it at
+  the `capacity` hook, because combine partials are outputs of public map tasks and
+  therefore public by construction — **there is nothing to authorize; the exposure is CPU
+  and transfer, which is a capacity question.** Closed in 16-06.
+
+- **[Phase 16] The read count, not the reason string, is what proves a bound's placement.**
+  16-06 planted its cap *below* the fetch loop: both refusal-text assertions stayed green
+  while reads went 0 → 2. The reply is byte-identical in both placements. Same shape as
+  NET-08 — *a cap applied after a loop has already paid for the allocation it prevents.*
+
+- **[Phase 16] A mutation entry can be caught in substance and still be wrong.** The full
+  run found `M2b` catching its defect while its recorded signature says *"four sentinels"*
+  where the test says *"three"* — drifted in Phase 15 and unnoticed since. The cheap guard
+  checks that `find` still matches; it does not check that `signature` still does.
+
+- **[Phase 15] Naming a defect is not fixing it (owner ruling, 2026-07-31).** Plan 15-04
+  amended Phase 15's goal down to the truth — correct — and then proposed accepting
+  AUTH-03's requestor half as entry-point-unreachable. Declined. Recording a built-not-wired
+  adapter in three places is not the same as wiring it; it went to Phase 23 criterion 5,
+  where `bin/bench.ts` is already being rewritten and the most contended file in the
+  repository is fought once rather than twice.
+
+- **[Phase 25-04]: Ed25519 dual-port adapter (noble/libsodium sync, subtle/libsodium
+  async) shipped complete and tested but unwired — verifyChain/verifyCertificate
+  wiring deferred to a future phase pending a bootstrap-ordering decision across three
+  runtime entry points.**
+
+### Pending Todos
+
+**⚠ OPEN DEFECT NEEDING A DECISION — `PeerVerifier` settles a verdict once and never
+revisits it (found by 17-06, 2026-08-01, deliberately not fixed).** *(CLOSED — SUPERSEDED
+2026-08-22. The ruling was taken and executed on 2026-08-14 at `e1088ce`, and the shape it took
+is none of the three candidates listed below exactly: re-ask on read, bounded by `FINAL` plus a
+retry floor. `verifiedPeers`
+(`packages/libp2p/src/peer-verifier.ts:469-473`) calls `#refresh` for every connected peer on
+every read; `#refresh` (`:517-541`) re-issues `verify` for a peer with no settled verdict and
+for any standing refusal whose kind falls outside `FINAL` (`:260-269` — `unreachable`,
+`no-records` and `expired` are all outside it), bounded only by `DEFAULT_VERDICT_RETRY_FLOOR_MS`
+at 5,000 ms (`:286`, `:400`). `#demoteIfExpired` covers the other direction, dropping an
+acceptance the instant its certificate's `expiresAt` passes. The getter is read per fetch on
+both tiers — `fabric-node.ts:2366,2381` and `browser-node.ts:1543,1598` — so a node that enrols
+after a peer connected to it is taken back within one floor interval rather than excluded
+permanently. Measured at `packages/node/src/peer-verifier.node.test.ts:670-815`, "a peer that
+enrols after connecting stops being excluded". The paragraphs below are kept because they record
+the observation and the three candidate fixes the decision chose between.)*
+
+`PeerVerifier` decides a peer's verdict on `peer:connect` and never asks again. **So a node
+that enrols *after* a peer has already connected to it is permanently excluded by that
+peer.** Observed directly, not inferred: an enrolled tab holding a valid certificate sat at
+`'not asked yet'` for 20 s. It is **not browser-specific** — `FabricNode` also dials its
+provider before `serveAgent` is up, so the same window exists on the Node tier.
+
+Held under Rule 4 because every candidate fix changes how often a node re-asks its peers
+across the whole fabric — re-ask on a timer, re-ask on a records-changed push, or re-ask on
+first refusal. That is a fabric-wide behaviour decision, not a bug fix, and it interacts
+with Phase 18's discovery work. **Decide before Phase 18 plans, because 18 owns the dial
+path this defect lives on.**
+
+**Also from 17-06, and it corrects 17-04:** `PeerVerifier` should **not** move to
+`@o2/libp2p`. 17-04's portability half was right (no Node-only imports) and its
+"one-file fix" half was wrong — `@o2/libp2p` does not depend on `@o2/net`, which
+`PeerVerifier` imports four symbols from, so it is six files. Left in place for the stronger
+reason: no browser consumer exists, and **an export with no traced call path is exactly what
+Phase 22's guard fails on.**
+
+*(SUPERSEDED 2026-08-22 — `PeerVerifier` did move, on 2026-08-14 at `e1088ce`, as AUTH-02's
+browser-pinning leg. It lives at `packages/libp2p/src/peer-verifier.ts` and is exported from the
+`@o2/libp2p` barrel at `packages/libp2p/src/index.ts:69`, deliberately not re-exported from
+`@o2/node`; the move is recorded at `packages/node/src/index.ts:32`. **Both grounds above were
+false by the time it landed.** `@o2/libp2p` does depend on `@o2/net` —
+`packages/libp2p/package.json:16` declares `"@o2/net": "*"`, an edge the file's own docblock names at
+`peer-verifier.ts:154-157` as the first of "the two prices... both were paid, not avoided". And a browser consumer does exist: `packages/browser/src/browser-node.ts`
+imports `PeerVerifier` at `:76` and calls `PeerVerifier.start({...})` at `:1525`, which is the
+traced call path Phase 22's guard wanted and the wiring the move existed for. Of this
+paragraph's factual clauses only one survives — the module does import four symbols from
+`@o2/net` (`RpcFailure`, `encodeRequest`, `parseResponse`, and the type `RpcEndpoint`, at
+`peer-verifier.ts:192-193`). `@o2/net` itself remains an impossible destination:
+`packages/node/src/purity.node.test.ts:94` forbids `/^@libp2p\//` across the `PORTABLE` set
+(`:45`, which includes `net`).)*
+
+**Scheduled work carried out of 13.1's and 14's verifications (2026-07-31):**
+
+- **DATA-10's at-rest half — owner-scheduled, not deferred.** A node still serves a raw
+  sovereign block once the job that registered it has ended: `submit-with-egress.ts:155`
+  takes the registration and a `finally` releases it. Close it at a boundary the node owns
+  — a per-node set of sovereign CIDs that outlives the job — rather than at one entry
+  point. The second half, that bare `submitJob` registers nothing at all, folds into
+  **Phase 20**, where `submitJob` becomes the single job path and the fix lands at one
+  boundary instead of two. `sovereignty-placement.node.test.ts` currently drives a real
+  spawned-agent sovereign scenario through bare `submitJob` and **passes because the gap
+  is real**. *(CLOSED 2026-08-02 — SUPERSEDED 2026-08-22. Both halves landed at the one
+  boundary this ruling asked for, and neither went to Phase 20. The durable per-node set is
+  `FsSovereignCids.open(options.blockstoreDir)` (`packages/node/src/fabric-node.ts:2311`, class
+  at `packages/node/src/sovereign-cids.ts:41`; `IdbSovereignCids.open` at
+  `packages/browser/src/browser-node.ts:1575`), handed to `egressDisposition` and read by CID
+  before any payload scan at `packages/net/src/agent.ts:1171-1177` and
+  `packages/net/src/sovereign-egress.ts:205` — so the refusal outlives both the job and the
+  process, measured at `packages/node/src/sovereign-at-rest.node.test.ts:176`, "still refuses
+  after the process that recorded it is gone". Bare `submitJob` registers at its own
+  blockstore-put (`packages/core/src/job/submit.ts:2668-2672`), which covers every caller that
+  supplies the set rather than only the guarded wrapper; production callers do supply it
+  (`packages/node/src/bin/agent.ts:2397-2402`, `packages/browser/demo/main.ts:2392`). What
+  survives is narrower than the bullet above: a node built with no `blockstoreDir` takes the
+  named opt-out `'forgets-sovereignty-between-jobs'` and does still serve after the job, by
+  design rather than by omission, and `sovereignty-placement.node.test.ts` does still call bare
+  `submitJob` without the set — but it asserts placement and never asserted egress, so it was
+  never the standing evidence the last sentence made it. Ledgered `[x]` at
+  `.planning/REQUIREMENTS.md:1116` and **Done** in the traceability row at `:1393`; see this
+  file's own DATA-10 paragraph under Current focus.)*
+
+- **Two load-sensitive bounds, same family.** `churn.test.ts`'s 30%-killed case failed once
+  at load 17.5-59.4 and passed 3/3 in isolation; `transport-bounds.node.test.ts`'s
+  retained-bytes bound failed twice at load ~12.4 and passed at 8.72 and 7.70. Both are
+  wall-clock bounds inside otherwise deterministic tests — a bound that reads host
+  contention as a defect. Recorded in `phase-14-.../deferred-items.md`.
+
+- **Closed on 2026-07-31, listed so it is not re-found:** the `stopAgent` hookTimeout
+  inversion in `two-process`, `sovereignty-placement` and `egress-refusal` — a 10 s
+  SIGKILL fallback inside Vitest's 10 s default `hookTimeout`, so the fallback could never
+  fire and a wedged agent reported an anonymous timeout naming no step.
+
+**Two open owner decisions**, both deferred with the measurement they were waiting for now
+in hand.
+
+1. **The `lift.node.test.ts` integration timeout.** `INTEGRATION_TIMEOUT_MS` is 15 min and
+   wraps 45 min of internal budget (a 5 min compile plus 2 × 20 min `DEFAULT_TIMEOUT_MS`) —
+   the outer clock is the smaller one, so the inner budgets can never fire. A real lift is
+   now measured at **152.7-304.3 s**, a 2× swing with load, so any fixed budget must be
+   sized against the top of that range and not the middle. An earlier attempt to set it to
+   300 s turned six tests red and was reverted.
+
+2. **The benchmark's row-order confound.** Load drifted 29→49 during a run, so no
+   inter-row difference under ~20% is claimed. Fixing it needs interleaved rows rather
+   than blocks, or a quiet host.
+
+Four smaller follow-ups recorded during the 22-bug round, none load-bearing:
+`SpeculationLedger.discarded` has zero readers; `submit.test.ts:79-206` duplicates
+`verify.test.ts`; the `agreed` outcome carries no `failures` field *(CLOSED 2026-08-05 at
+`0e045f5` — SUPERSEDED 2026-08-22. It does carry one: `failures: readonly { nodeId: string;
+reason: string }[]` is declared on the `'agreed'` arm at `packages/core/src/job/verify.ts:187`
+and returned by `executeVerified` at `:269`, the same array the `disagreed` and `insufficient`
+arms return, computed once at `:226`. The field's own docblock at `:157-186` records the fix —
+"on the agreed arm too, and that is the whole of the fix" — and every other `agreed`
+construction site carries it: `commit-reveal.ts:469`, `submit.ts:1577` (`failures: []`, with a
+comment explaining the measured zero) and `submit.ts:1721`.
+Listed so it is not re-found.)*; and
+`classifyStartFailure` can only ever return `other` for an unreachable relay.
+
+### Blockers/Concerns
+
+**Three items are owner-blocked and unaffected by the 2026-07-28 testing-standard ruling:**
+the US provisional patent deadline (below), a hosted relay with real AutoTLS (NET-03,
+Phase 3 criterion 2), and GitHub Pages serving the pre-Phase-9 bundle (below). *"A second
+machine"* used to be a fourth. It is not a blocker any more — it has been struck, and its
+residual is recorded immediately below rather than dropped.
+
+- **What the lifted-vs-native benchmark costs Phase 21 (measured 2026-07-31).** Timing
+  `wasi.start()` alone, on a 32 MiB memory-and-ALU workload that all three routes agree on
+  (checksum `9584708361817009923`): native 58.78 ms, direct-compiled WASM 65.19 ms (1.11×),
+  elfconv-lifted WASM 122.81 ms (**2.09×** native, 1.88× direct). That is the emulation
+  tax, and it is the honest number to plan AOT-04 against.
+
+- **The ~43 ms startup floor cannot be cached away, and this was tested rather than
+  assumed.** On a trivial subject the lifted `_start` alone is 42.83 ms and
+  instantiate+start is 42.65 ms — indistinguishable, so the entire floor executes *inside*
+  the guest, in elfconv's emulated machine-state init, and is re-paid per task. Compile
+  (~4 ms, and V8 compiles lazily) and instantiate (~1.8 ms) are not where it lives. Direct
+  WASM's `_start` for the same program is 0.03 ms, ~1400× less. Content addressing fully
+  solves distributing the 5.40 MiB artifact — which is 5.40 MiB whether the program does
+  nothing or 128 MiB of traffic — but the floor stays, and under N-version execution it is
+  paid per replica, which puts a floor on useful shard size. AOT-05 independently recorded
+  V8's WASM code cache as NOT OBSERVED, so that route is closed twice over.
+
+- **Residual of the same-machine testing standard (owner ruling, 2026-07-28) — recorded,
+  not blocking.** Same machine, different browsers and/or different browser contexts and
+  different OS processes, is the project's testing standard everywhere. So no criterion of
+  this project's own is waiting on a second machine. The residual is that
+  **cross-machine reproducibility (AOT-03) and distinct-machine benchmarking (BENCH-06)
+  are unverified by choice**, and closing either would need hardware the project does not
+  have. Both requirements were rewritten to what one host genuinely establishes; **neither
+  descoped half may be reported as demonstrated.** `CROSS_MACHINE_BLIND_SPOT` stays on
+  every lifted artifact — Phase 10 showed it is structural, not configurational — and the
+  same-machine benchmark label stays required and derived from the recorded inventory.
+
+- **Relay hosting investigated 2026-07-28 — Cloudflare cannot carry the relay, and the reason
+  is structural.** Confirmed verbatim from Cloudflare's docs: *"it is not possible to make an
+  inbound TCP connection to your Worker"*, and no Cloudflare compute product exposes UDP (which
+  independently rules out WebRTC-Direct). The codebase already refuses the deployment on its own
+  terms — `canRelay` (`fabric-node.ts:289`) is false without a non-circuit listen address, so
+  `circuitRelayServer()` is never added and the reservation limit is 0.
+
+  - **Correction to the first pass, which was wrong:** Cloudflare **Containers** are *not* ruled
+    out by transport. A container is a real Linux process on a real port and
+    `@libp2p/websockets`' Node listener runs unmodified; the `browser`-condition stub that kills
+    workerd does not apply. Containers fail on **lifecycle** instead — no minimum uptime
+    guarantee and irregular restarts against a 2-hour reservation TTL (`constants.ts:68`), and a
+    relay can never re-dial a browser to recover. Cost was also wrong in both directions: wall-
+    minutes are not vCPU-minutes (a `lite` instance is 1/16 vCPU), and the Durable Object figure
+    double-counted — 331,776 GB-s is *inside* the 400,000 included, so ~$0 marginal duration.
+
+  - **Recommendation:** a small always-on host with a public IP and arbitrary port binding.
+    **But the sizing must carry a full node, not a relay daemon** — `fabric-node.ts:394-396`
+    records that no construction path yields a node which will not compute, and `bin/seed.ts:45`
+    says the seed executes tasks, serves blocks *and* relays. A relay-only budget reintroduces
+    the class that was deleted, which the module comment notes already *"survived three rounds
+    of renaming."*
+
+  - **Two defects found incidentally, both fixed 2026-07-28.** The disclosure gate's wrangler
+    pattern missed `wrangler pages deploy` — the command someone would actually type — and
+    nothing noticed because every test asserted *absence*, so a pattern matching nothing read
+    green. Each pattern now carries the commands it must catch and must ignore, asserted
+    directly. Separately: `stun:stun.cloudflare.com:3478` is **already** in `@libp2p/webrtc`'s
+    `DEFAULT_ICE_SERVERS` and in use, so "add Cloudflare STUN" is a no-op — and pinning to it
+    alone would cut four independent STUN operators to one.
+
+  - **Unverified, worth chasing upstream:** `@libp2p/circuit-relay-v2` appears to write
+    `defaultDurationLimit` in milliseconds into a protobuf field the spec defines in seconds, so
+    a dialer computes 33.3 hours where the server enforces 120 s.
+
+- **Disclosure gate: CROSSED on 2026-07-26.** The repository was made public by explicit
+  owner decision, after being told that EPO and China have no patent grace period and
+  that the loss is permanent. **EPO and China patent rights for everything disclosed as
+  of that date are forfeit.** Do not plan around recovering them. A US provisional
+  remains possible for 12 months from first disclosure under §102(b)(1), and that
+  window is now running — it is the only patent option left, and it is time-limited.
+
+- **GitHub Pages is serving the pre-Phase-9 bundle.** It was deployed by hand on
+  2026-07-26 and has *not* been redeployed since; the consent gate, the running bar,
+  the colouring job and the policy page are in the repository but not on that URL.
+  Redeploying is a human action by design (DEMO-04) — run `npm run build:demo` and
+  publish `packages/browser/dist/` deliberately.
+
+- **GitHub Pages is live** at <https://o2alexanderfedin.github.io/o2.services/>, served
+  from the `gh-pages` branch, deployed **by hand** on 2026-07-26. Verified against the
+  real URL: loads with zero page errors, correctly reports that no relay is reachable
+  with Start disabled, `crossOriginIsolated` false (BROW-05 holding in production), and
+  the kernel computes a CID byte-identical to local. It cannot join a peer until a
+  public `wss://` relay exists — an HTTPS page cannot dial `ws://`, and Pages runs no
+  server process.
+
+- **DEMO-04 still holds, and is now enforced.** No deploy workflow file may exist in
+  the repository at all — absent, not disabled — and no `package.json` script may
+  publish. `disclosure-gate.node.test.ts` asserts both, checks for workflow files by
+  *content* so relocation does not evade it, and is mutation-proved by planting one
+  in two places. `build:demo` builds and publishes nothing.
+
+- **Version traps (C5): resolved in Phase 2.** js-libp2p 3.x installed with exact pins; none of the four trap packages are present. Two duplicate resolutions were found and fixed with npm `overrides` — `multiformats` had both 14.0.5 and 13.4.2 (a v13/v14 `CID instanceof` boundary), and an invalid `uint8arrays@5.1.1` was hoisted above the 6.1.1 libp2p v3 needs. **`npm install` alone kept the stale tree; a clean re-resolution was required.** `constants.node.test.ts` now asserts one copy of each plus every relay/transport limit.
+- **Doc correction:** the relay constants are named `DEFAULT_DURATION_LIMIT`, `DEFAULT_DATA_LIMIT`, `DEFAULT_MAX_RESERVATION_STORE_SIZE` — `DEFAULT_`-prefixed, unlike what PROJECT.md and STACK.md record. Values are as documented (2 min / 128 KiB / 15 / 2 h).
+- **Node 23.11.0 is the host runtime and is not LTS.** Outside vitest's declared range (`^20 || ^22 || >=24`), so every install prints `EBADENGINE`, and `packages/node/src/bin/agent.ts` depends on Node's experimental native type stripping. Everything passes today. `STACK.md` specifies Node 24 LTS — switching the toolchain is a human action, deliberately not taken autonomously.
+- **Open decisions carried into planning:** aegir vs. vitest for the three-target test discipline (Phase 2); WASM fuel metering has no maintained JS-side tool (Phase 1/2); Safari + WebRTC-Direct is unverified with a WSS-only fallback branch (Phase 4).
+
+### v1.1 `stopped_at`, preserved at the v2.0 switch (2026-08-25)
+
+The milestone switch also clears the frontmatter's `stopped_at`, which is right — it records
+where the *previous* milestone stopped. It was 290 lines, and rather than check line by line
+which of it `.planning/HANDOFF.json` and `.continue-here.md` already carry, it is kept whole.
+Sampling found four passages from it that appear nowhere else.
+
+<details>
+<summary>v1.1 stopped_at, verbatim</summary>
+
+  CURRENT AS OF 2026-08-24, AFTER THE MERGES. v1.1 is closed at 15/15 and the figures below
+  still hold; what follows is the work done since, which was on
+  `feature/dht-registration-and-discovery` and **is now merged through to `main`** by owner
+  instruction — feature into `develop` (`f874f95`), `develop` into `main` (`e75d39f`), both
+  `--no-ff` so the history says which branch carried what.
+
+
+  **All three branches point at one tree, `50599689`, and it is the tree the suites below were
+  run on.** That is asserted rather than assumed: the hashes were compared after each merge.
+  Merging `develop` into the feature branch first changed **no file at all** — those twelve
+  commits were merge commits of material already present at the branch point — so the
+  confirmation taken before the merges is a confirmation of exactly what landed.
+
+
+  **94 commits are unpushed on both `main` and `develop`.** Pushing was not done: it is an
+  action outward and was not asked for.
+
+
+  **This file's frontmatter was found wrong and is restored.** An orphaned working-tree write —
+  from a process the 2026-08-24 reboot ended, and machine-shaped rather than hand-written — had
+  replaced the reconciliation block below with the one line "context exhaustion at 100%
+  (2026-08-23)", set `status` back to `verifying`, moved `total_phases` to 29, and zeroed
+  `completed_phases`, `total_plans`, `completed_plans` and `percent` for a milestone this same
+  file records as 15/15 with 103 plans. It left the 2 200-line body alone: 235 lines out, 60 in.
+  **Said precisely because the first description of it here was wrong** — "cut from 2 397 lines
+  to 17" — which was read off the frontmatter preview and inferred rather than measured; the
+  working copy was 2 222 lines. It is preserved outside the repo rather than merged in, and the
+  figures below are the measured ones.
+
+
+  **AUTH-04 — a certificate now outlives its first issue.** Nothing renewed one: it was
+  obtained once at start and the only route to another was a restart, so a process outliving
+  its certificate kept running while every peer demoted it. Three snapshots had to stop being
+  snapshots — `SelfRecordIndex`, `RecordPublisher` and each tier's `certificate` field — and
+  all three now read one `CertificateHolder`. Renewal begins at two-thirds, deliberately not
+  aliased to `lease.ts`, and deliberately stays true after expiry, where `shouldRenew` goes
+  false. The renewal timer is clamped to 2^31-1 ms, because `setTimeout` overflows to one
+  millisecond rather than saturating.
+
+
+  **Owner rulings taken 2026-08-24, all three implemented.** Certificate lifetime 30 days to
+  **1 hour**, reversing the 2026-08-02 correction recorded in `enrollment.ts`'s own header —
+  which drags `DEFAULT_MAX_PER_WINDOW` 32 to 64, because that number was sized on "a returning
+  visitor spends nothing in 719 hours of 720" and an hourly certificate inverts it. A change of
+  trust anchors is now a **consent event**, with a fourth `ConsentGap` kind. And a certificate
+  can announce the key its node will rotate to (`nextKeyCommitment`), as a hash inside the
+  issuer's signature — the format lands now because the alternative is changing a signed format
+  with certificates in circulation.
+
+
+  **One certificate system, not two.** `cert-lifecycle.ts` — 775 lines, tested, imported by
+  nothing — was deleted by owner ruling, closing what CRYPTO-03 had explicitly left open. Its
+  delegation half duplicated `capability.ts`, its identity half `enrollment.ts`, its
+  crypto-backend selection was already merged into `ed25519-backend.ts` by Phase 28, and its
+  revocation half is refused by standing ruling.
+
+
+  **DATA-08 — a node with a durable directory now keeps its libp2p state**, and the diagnosis
+  that had blocked it for a week was falsified rather than confirmed: ten sound eliminations had
+  been assembled into one false claim ("any asynchronous datastore hangs enrolment"), and an
+  async in-memory store enrols fine in four different shapes. Peers verified before a restart are
+  no longer re-asked, and the cache cannot widen what is accepted because a cached certificate
+  takes the same `#accept` a fresh one does.
+
+
+  **Suite at HEAD:** node 208/208 files and 3 032 tests at `(user+sys)/real` 1.36; browser
+  315/315 and 5 286 tests; e2e 38/38 files and 235 tests, all three read at this tree. The `tools/aot` Docker gates fail
+  as a group below a CPU ratio of about 1.0 and pass individually — a property of this host under
+  contention, measured across five full runs, not a defect in them.
+
+
+  RECONCILED 2026-08-20, AND THE HEADLINE BELOW IS THE ONE THING THAT WAS WRONG. **THE COUNT IS 15
+  OF 15, NOT 12.** All three carried phases closed on 2026-08-18, each by a dated amendment to its
+  own verification file rather than by a rewrite: 20 at 7/7 (criterion 7 closed at `ce97bc8`), 21
+  at 3/3 (criterion 2's re-tag clause measured), 22 at 3/3 (criterion 1's residue measured to zero
+  rather than subtracted). v1.1 "Wire What Was Built" is CLOSED at 15/15 phases and 50/50
+  requirements — merged `2c720b9`, milestone merge `af8828f`, corroborated independently at
+  `.planning/COVERAGE-BASELINE.md:38` on 2026-08-19. **`.planning/milestones/v1.1-SHIPPED.md` IS
+  STALE ON THE SAME POINT and is amended today**: it was archived 2026-08-18 while those three
+  closures were still landing, so it records "12 of 15", "40 of 50" and the sentence "15 of 15 was
+  never reachable" — which the tree falsified within hours of it being written. **`total_plans: 103`
+  BELOW IS CORRECT AND WAS WRONGLY CALLED STALE**: it is scoped to the milestone's own phases (11,
+  12, 13, 13.1, 14-24) and those hold exactly 103 plans, counted 2026-08-20. A prior handoff
+  compared it against 141, which is the repository-wide count of SUMMARY files — a different
+  population, and the reason to say which population a count is over. *(CORRECTED 2026-08-22 —
+  141 is the count of SUMMARY files under `.planning/phases/`, not the repository-wide count.
+  Repository-wide is 143: `git ls-files | grep -cE 'SUMMARY\.md$'` returns 143 and
+  `find .planning/phases -name '*SUMMARY.md' | wc -l` returns 141, the two outliers being
+  `.planning/research/SUMMARY.md` and `.planning/quick/20260806-o2-vs-peers-study/SUMMARY.md`.
+  Both figures were the same at `e84537c`, the commit that wrote this sentence, so 141 was never
+  the repository-wide count on the day it was asserted. The substantive point stands — 103 and
+  141 are different populations — and only the label on the 141 population was wrong, in the very
+  clause arguing that a count must name its population.)* NOTHING IS IN FLIGHT. Work
+  since the milestone close is verification and hygiene, all merged. The open items are owner
+  decisions, listed under Pending Todos, and none of them blocks anything. FIELD CHANGES MADE BY
+  THIS RECONCILIATION, RECORDED HERE RATHER THAN AS TRAILING COMMENTS ON THE FIELDS THEMSELVES —
+  a plain YAML scalar cannot carry " #" without the rest of the line becoming a comment, and
+  `state-frontmatter.node.test.ts` caught exactly that on `status` after the first draft did it:
+  `status` executing -> milestone_complete; `completed_phases` 12 -> 15; `percent` 80 -> 100;
+  `total_plans` UNCHANGED at 103 and correct.
+  ----- EVERYTHING BELOW THIS LINE IS THE ACCUMULATED HISTORY OF THE MILESTONE AS IT RAN. It is
+  kept verbatim rather than rewritten, because it records how each phase actually closed. Read its
+  first sentence as superseded by the paragraph above and the rest as still accurate. -----
+  THE COUNT IS 12 OF 15. PHASE 17 CLOSED 2026-08-07 AT 3/3 by a fourth dated amendment, and it
+  closed the way RULING A intends: not by a rewrite, and not by transcribing another phase's
+  verdict, but by re-running the exact plant that had declined it and watching it redden. The
+  2026-08-06 pass had declined criterion 3 for one measured reason - neutralising the
+  certificate-to-peer binding in fabric-node.ts's relayAdmissionGate stayed GREEN across 8 files
+  and 5 runs, so nothing in the repository would have noticed if the binding stopped. Commit
+  8719029 built the missing door test, ledgered M68. THE RE-RUN IS THE PART THAT MATTERS:
+  fabric-node.ts's sha256 before planting was d6688f73, IDENTICAL to the digest the declining
+  verifier recorded, so the different result cannot be a different file. PLANTED_P1_EXIT=1, the
+  door returning false where true denies - it ADMITTED a peer holding somebody else's
+  certificate. AND THE BOTH-WAYS PROOF HELD, which is what stops the green being vacuous:
+  planting peer-verifier.ts instead left relay-admission green IN FULL while reddening
+  peer-verifier's own borrowed-certificate row, so the new case observes the DOOR and not the
+  SELECTOR, which is the distinction the decline turned on. TWO LIMITS SIT AT THE VERDICT RATHER
+  THAN IN A FOOTNOTE - the borrowed case is measured at the PREDICATE over MemoryNetwork rather
+  than at a live reservation, so the close rests on a conjunction with the file's live-relay
+  arms; and this is a BOUND PLUS DEVALUATION, not a graduated price, so a reader taking costly
+  to require a rising per-identity price gets the 2026-08-01 answer and that reading is
+  ESCALATED rather than settled. THE THREE STILL UNCOUNTED ARE 20 (6/7), 21 (2/3) AND 22 - and
+  AS OF 2026-08-08 ALL THREE ARE VERIFIED RATHER THAN PENDING: 22 EXECUTED AND SCORED 2/3 at
+  fee26c2, 4 plans and 4 summaries, ITS CRITERION 1 DECLINED BECAUSE THE GUARD DOES NOT PASS
+  CLEAN. This field read "22 (planned, 4 plans, 0 summaries, runs last)" until then. THE V1.1
+  MILESTONE AUDIT HAS RUN and the open work is its gap list, NOT A PHASE: 17 findings, 9 CLOSED,
+  G1 (a closed seed is unjoinable by the demo page) the blocker. FOUR OWNER RULINGS WERE TAKEN 2026-08-07 AND THREE
+  ARE ALREADY EXECUTED. RULING 1, THE READING OF THE FABRIC in criterion 8: NARROW - a fabric
+  this repository can be deployed and operated as, with an admission posture stated on every
+  relay-capable door, NOT the default argv. The wider reading was available and would have
+  returned criterion 8 to PARTIAL and Phase 19 with it, at a cost of 19 + 3 argv sites made
+  refuse-to-start; the owner declined it. So 24 stays 1/1, 19 stays 5/5, and the MET keeps its
+  stated bound: the default posture of bin/agent.ts, bin/seed.ts and bin/bench.ts is OPEN AND
+  MUST BE, with reservation-exhaustion arm A a live behavioural guard on it, and the
+  load-bearing ground is that both option types make relayAdmission required with no default so
+  the API cannot express silence - only argv has a default. RULING 5, bin/bench.ts's
+  orphan-leash exemption: DELETED, and the exemption's own why had read NO VALID GROUND.
+  bin/bench.ts now calls armOrphanLeash and EXEMPT is empty. The stop is a bare exit and that is
+  complete rather than lazy - this driver holds no module-scoped node to stop, and its agent
+  children do not leak because bench-fabric.ts spawns every one with stdio[0] as pipe precisely
+  so fd 0 is the child's own leash, so when the driver leaves those pipes close and each child's
+  leash fires. Watched red first: the call deleted, PLANTED_EXIT=1 naming bench.ts by name,
+  restored by surgical inverse with shasum back to 4fe2d782. STATED LIMIT: the mkdtemp
+  directories are not removed on that path. RULING 4, vitest.config.ts's 923 ms row for a spec
+  that measures 20.8-21.2 s: RE-SITED to 21 197, which is option A of the two the 2026-08-06
+  pass laid out and declined to choose between. The row crossed SLOW_CUTOFF_MS, so the
+  correction is also an EXCLUSION - relay-admission.node.test.ts leaves the pre-commit fast
+  loop, and with it the only admission coverage that loop still had. Three derived figures moved
+  and each was OBSERVED rather than derived: sumOfFileSpansMs 1 465 924 to 1 486 198 (exactly 21
+  197 minus 923, a correction and not an addition), unitFiles 111 to 110, unitTests 1716 to
+  1685, unitWallClockMs 25 950 to 24 590, on a green npm run test:unit at exit 0. THE
+  DECOMPOSITION WAS MEASURED AFTER A FIRST DRAFT ASSERTED IT FROM THE SUBTRACTION - the net is
+  minus 31 but the file alone is 38 passed, so the file leaving is minus 38 and the remaining
+  plus 7 arrived in files that stayed; the plus 7 is carried as a stated residual rather than
+  absorbed. RULING 3, X.509: ADOPT STANDS, filed as PHASE 25 in ROADMAP.md rather than left in a
+  review document, because a ruling that lives only in a doc is a ruling nobody executes. It is
+  NOT scheduled into v1.1 - v1.1 is Wire What Was Built and this builds something new. ONE OF
+  ITS SEVEN OBLIGATIONS WAS ALREADY DELIVERED and the review's claim about it is FALSE: the
+  praxis review says verifyChain currently has no depth bound at all and takes its length from
+  the wire, but capability.ts:127 defines MAX_CHAIN_DEPTH = 8 and :190 enforces it BEFORE any
+  signature work, with its companion hazard closed at :255 by a reduce rather than a Math.min
+  spread. A dated correction is appended to the praxis review rather than edited into it. THE
+  OTHER SIX ATTACH TO A PARSER THAT DOES NOT EXIST - no pkijs, asn1js, node-forge or @peculiar
+  anywhere in the manifests, and certificates today are Ed25519 over @noble/curves, not DER -
+  which is the argument for specifying them before it arrives and is why this is a phase rather
+  than a patch. AOT-06 IS ANSWERED AND THE ANSWER IS A LOCATED NEGATIVE. elfconv cannot lift
+  x86-64 today, and the gap is NOT instruction semantics - Remill has had amd64 for years, CI
+  publishes an :amd64 image, the --arch flag accepts it and the ELF loader classifies it. The
+  gap is that lifter/TraceManager.cpp finds main by matching LITERAL AARCH64 ENCODINGS on a
+  fixed 4-byte stride with no amd64 branch, then calls elfconv_runtime_error. Measured twice,
+  gcc and clang-16, two entry points, both LIFT_EXIT=134 SIGABRT with no bitcode and no wasm -
+  but THE VERDICT IS CARRIED BY THE SOURCE RATHER THAN BY THE RUNS, which matters because the
+  amd64 image runs emulated on this arm64 host and a byte pattern that cannot match cannot match
+  on any host. The previous session's exit 0 with no artifact is explained too: elfconv.sh's
+  target case has NO DEFAULT BRANCH, so an unhandled TARGET returns 0 having produced nothing.
+  Two hypotheses were REFUTED rather than argued - a missing LLVM dynamic library (ldd resolves
+  libLLVM-16.so.1 with zero not-found, and the abort is elfconv's own thrown runtime_error,
+  which a loader failure could not produce) and the compiler (the clang control aborts
+  identically). Fixing it means WRITING amd64 entry-point discovery, upstream or as a patch
+  carried in the submodule: tractable, not small, and upstream has not done it - main is one
+  commit ahead of the pinned 5319dd8 and that commit is a dependabot action bump. ELFCONV IS NOW
+  A SUBMODULE at third_party/elfconv, pinned to the commit both cached images report, so every
+  file:line above is readable with no Docker at all. That required teaching the disclosure gate
+  what a submodule is: the submodule ships .github/workflows, DEMO-04 forbids a workflow file
+  existing at all, and the exemption is DERIVED FROM GIT'S INDEX (160000 gitlink entries) rather
+  than written down, because a hand-maintained list is the population defect this repo has hit
+  four times. Two plants watched red. The unmeasured part is named: that GitHub never executes a
+  submodule's workflows is a claim about a platform, and proving it needs a push. NEXT IS PHASE
+  22, then the v1.1 milestone audit. TWO ITEMS STAY WITH THE OWNER out of the Phase 17 close and
+  neither is a criterion-3 gap: the AUTH-02 browser-pinning leg, carried unresolved since
+  2026-08-05, and the graduated-cost reading of costly. THIS BLOCK PREVIOUSLY SAID 10 OF 15
+  while the handoff said 11 and Session Continuity said 8 - three counts in one file, none of
+  them right, which is the defect this milestone keeps finding in its own bookkeeping and found
+  here again. AS OF 2026-08-13 THE PHASE COUNTS ABOVE ARE UNCHANGED AND THE WORK HAS MOVED
+  OFF PHASES ENTIRELY - the v1.1 audit's gap list and the requirements ledger are what is
+  open, and the ledger stands at 79 OF 102 with 23 rows unchecked, verified by counting the
+  boxes in REQUIREMENTS.md rather than read off any tool. The 2026-08-12 session closed ZERO
+  rows across 62 commits and that is the accurate headline: it was instrument, correction and
+  design. Its own findings are in .planning/.continue-here.md and the one that governs what
+  happens next is that THREE SCENARIOS AND SIX LEDGER ROWS ARE BLOCKED ON ONE MISSING THING -
+  nothing a person can run issues a browser tab a certificate, so certificate stays null,
+  trustedIssuers stays empty, and discoverExecutors excludes every provider. Two independent
+  analyses reached that from opposite directions, one over rows and one over scenarios. THE
+  2026-08-13 SESSION CLOSED NO ROW AND THE LEDGER STAYS AT 79 OF 102, correctly - it was defect
+  repair and instrument repair. SIX DEFECTS FIXED, of which two matter beyond their size. FIRST,
+  A PROVIDER COULD RETURN A CERTIFICATE ABOUT SOMEBODY ELSE and both tiers persisted it unread,
+  while both ALREADY re-check what they load on reload - one sentence describes both ends and
+  only one was guarded. Fixed at enrolOverRpc, which is the one place holding both the request
+  and the answer and is shared by both tiers; it reads NO CLOCK deliberately, because
+  verifyCertificate refuses not-yet-valid on a strict issuedAt > now and a machine one second
+  slow would have had an honest certificate refused, fatally on the browser tier. SECOND, THE
+  UNWIRED COUNT WAS OVER-STATING THE GAP BY SIX AND NOTHING WAS WIRED TO CORRECT IT: 72/36 became
+  71/29 by teaching the call graph three kinds of edge it could not see. core/executeVerified -
+  the fabric's N-VERSION COMPARISON, running on EVERY shard dispatch from submit.ts:2971 - read
+  as dead code because its caller is a const-arrow and classify only accepted Function|Class|
+  Method. Four more are reached through the Executor port so the edge lands on ports.ts#execute,
+  one through a proxy trap, and core/describeStartReport is called TWICE INSIDE AN ENTRY POINT
+  through await-import destructuring with zero in-edges. THE BEST DECISION WAS A REFUSAL: the
+  port-member repair was available as a graph edge and was measured rather than argued - the
+  candidate rule reaches demo/estimatePi, the over-connection anchor that must stay red, because
+  demo/main.ts builds its api object at module scope. A rule shaped to preserve a canary is not a
+  principle, so dispositions with per-symbol machine-checked mechanisms were taken instead.
+  OVER-CONNECTION IS THE DANGEROUS DIRECTION HERE AND IT FAILS SILENTLY - every count just gets
+  smaller and reads as progress. THE VISITOR-ENROLMENT FEATURE IS NOT BUILT: three design rounds,
+  each returned FIX-FIRST by three independent adversarial reviews at 7, 6 and 10 blocking
+  defects, every spot-checked citation holding. The diagnosis is scope growth rather than bad
+  review, and ratification was the first piece of the decomposition. STATE.MD WAS CORRUPTED AGAIN
+  BY THE PAUSE-WORK WRITER overnight - writer seven, a repeat of writer two, progress zeroed and
+  the stopped_at block deleted, sitting UNSTAGED where nobody would see it; caught by git status
+  on resume and reverted. This block was written BY HAND for that reason.
+
+  SESSION OF 2026-08-14: 81 OF 102, UP FROM 79 - MR-02 AND VER-10 BOTH CLOSED, and the
+  Built-not-wired marker bucket is now EMPTY, which is the marker this milestone existed to
+  empty. Unwired capabilities 72/36 -> 66/24. Eight feature commits, all merged and pushed.
+  THE MOST REUSABLE FINDING IS A TEST FOR EVIDENCE: a reading that would be identical if the
+  mechanism never ran is not evidence of the mechanism. It appeared THREE TIMES this session -
+  VER-04's `independent (replicas 2, operators 2)`, which classifyAttestation computes from who
+  answered and signed and which prints identically on a fabric where the quorum gate never ran;
+  the comparison case in attestation-ui.e2e.test.ts, whose three screens made "claimed a
+  strength" and "was the solo run" COEXTENSIVE so its loop could not tell the two rules apart;
+  and VER-03's shared-relay line, which is derived from certificates rather than from the
+  composer and is STILL LIVE - do not close VER-03 on it. THE SECOND PATTERN IS PROSE BLOCKERS
+  NOBODY CHECKED AGAINST THE GUARD: three were retracted, each having stood for weeks. The
+  sovereign arm never needed two owners, it needed two CONTRIBUTIONS which one owner supplies;
+  a second owner could not move any published number because eligibleNodes returns every node
+  for a public request; and memoryConsentStore's claim that a storage-denied page used it was
+  false while that page was REFUSING VISITORS. Two of the three were the difference between
+  "owner decision" and "wiring". TWO USER-FACING DEFECTS FIXED: the demo page told visitors
+  their key was "generated in this tab" for twelve days after identity became persistent, and a
+  private-browsing visitor could press Allow and then be refused on Start. THE FLAG RULING NOW
+  GATES FOUR ROWS and its cost is measured rather than argued: VER-04's entire proposed change
+  landed in 705a716 and the box did not move, while VER-10 - same night, same kind of work, on
+  a surface with no flag - closed. AOT: glog was never the wall; a 2-line __wasi__ branch plus
+  ~7 lines fixing elfconv's own bugs gets 27/27 translation units compiling, and the real cost
+  is the LLVM cross-build, still unmeasured.
+
+  EVENING OF 2026-08-14: 88 OF 102, UP FROM 81 - VER-03, VER-04, AOT-05, MR-03, MR-05, MR-07 and
+  WIRE-02 all close, and THREE OF THEM CLOSED WITH NO NEW PRODUCTION CODE, which is the reusable
+  finding: the mechanism already existed and the evidence was pointed at the wrong thing. MR-07's
+  row says a duplicate is discarded BECAUSE IT CARRIES THE SAME CID while its cross-process reading
+  exercised rpc.ts's pending-entry check, which discards because a TIMEOUT deleted the entry,
+  independent of the CID entirely; re-sited and planted red, removing the CID-keyed collapse turns
+  two AGREEING live replicas into a disagreement across eight processes WHILE EVERY RPC RESOLVES.
+  MR-05 was already true of its own sentence and machinery was nearly built for a requirement that
+  did not ask for it. AN OWNER RULING REMOVED THAT WORK and is recorded at
+  .planning/consults/2026-08-14-owner-ruling-sovereign-threat-model.md: sovereign data is processed
+  AT REST, the requestor IS the data owner so there is no interest in faking a result about one's
+  own data, and a bad storage node has a blast radius of one owner's own data - so MR-05's
+  rendezvous check was defending against the data owner attacking their own job. THE BOUNDARY IS
+  RECORDED TOO: PROJECT.md:31 keeps cross-owner aggregation verified and the public path keeps
+  N-version redundancy plus commit-reveal. VER-03 CLOSED BY REPAIRING THE RULE RATHER THAN THE
+  FIXTURE - relayIds names relays by libp2p PEER ID while a quorum member is keyed by nodeKey, two
+  spellings of one node that never compare equal, so when the relay every other member depended on
+  was ITSELF a member no comparison in quorum.ts could see it; QuorumRules.peerIdOf closes it and
+  provably collapses to the old function when absent. THE PLANNED REMEDY FOR VER-03 WAS REFUTED
+  BEFORE IT WAS BUILT: qualifying the demo pool by block advertisement would have gone permanently
+  solo, because the input block is created inside submitJob AFTER the pool is chosen. AOT-05's
+  PUBLISHED NEGATIVE IS REFUTED - the fixture's functions had no call instruction so nothing tiered
+  up, and its trace-name list never fired on this path, so two claimed independent observations
+  were one observation and a constant. Its residual is settled to --wasm-caching-timeout-ms,
+  ISOLATED rather than inferred, and A RIVAL THAT FIT EVERY ROW OF THE TABLE WAS FALSIFIED: the
+  committed shape sits 0.9% over --wasm-caching-hard-threshold, and raising that threshold left the
+  figure byte-identical. WIRE-02 replaces a population ceiling with a 24-row per-symbol register
+  held in both directions. AUTH-02 GAINED ITS CAPABILITY AND DID NOT TICK - no production call site
+  can supply an issuer because the demo has no visitor enrolment, which is a product decision
+  declined on main.ts's own standing objection. TWO GUARDS CAUGHT ORCHESTRATOR ERRORS: WIRE-02 is a
+  new ID and not in the 72, and three now-Done rows were still in WITHOUT_A_CHECKABLE_CLAIM.
+  demo-pi.e2e.test.ts IS A KNOWN FLAKE - green, red, green on identical code, cause not found.
+  AOTW-06's 27/27 NOTE IS UNREPRODUCED: two prose sentences from one commit, no patch, no log, and
+  third_party/elfconv pristine at its pinned commit.
+last_updated: "2026-08-24T20:30:00.000Z"
+last_activity: 2026-08-24
+progress:
+  total_phases: 15
+  completed_phases: 15
+  total_plans: 103
+  completed_plans: 103
+  percent: 100
+
+</details>
+
+### v1.1 Current Position, preserved at the v2.0 switch (2026-08-25)
+
+`gsd-sdk query state.milestone-switch` rewrites `## Current Position` to the new-milestone
+template, which is correct — that section describes where work stands, and it no longer did.
+But the v1.1 text was 675 lines and **five sampled passages from it existed nowhere else in
+`.planning/` or `docs/`**, one of them naming three pending owner rulings. It is moved here
+rather than dropped, because Accumulated Context is the part the switch is documented to
+preserve.
+
+Read it as a record of v1.1, not as current state. Anything in it that is still live —
+the pending rulings in particular — belongs in the v2.0 requirements as an explicit row.
+
+<details>
+<summary>v1.1 Current Position, verbatim</summary>
+
 
 **THE COUNT IS 12 OF 15**, as of 2026-08-07 *(SUPERSEDED 2026-08-22 — read this as WAS, like
 the paragraph further down this section that already does. The count is 15 of 15 and v1.1 is
@@ -1381,672 +2348,7 @@ Two browser tabs, and separately an iPhone running Safari and a laptop running C
 complete a 4-shard 2×-redundant job over a **direct WebRTC** connection with the relay
 carrying only SDP. Remaining: real AutoTLS, which needs a publicly reachable host.
 
-## Performance Metrics
-
-**This section is a partial record and must not be read as a velocity figure.** The
-per-plan rows below are appended by the executor, and only 8 of the 17 executed plans
-ever got one: Phase 13's plans 04-07 and all five of Phase 13.1's are missing. The
-template header that used to sit here read *"Total plans completed: 0"* directly above
-eight rows of real data, with the By-Phase table left as placeholder dashes — replaced
-2026-07-31 with what the rows actually say.
-
-**Logged: 8 plans, 247 min, 4.1 hours, mean 31 min/plan.** The mean is not meaningful —
-the spread is 7 min to 100 min, and this project's own benchmark methodology records
-that straggler-dominated distributions have meaningless means.
-
-| Phase | Plans logged | Total | Median | Range |
-|-------|--------------|-------|--------|-------|
-| 11 | 1 of 1 | 13min | 13min | — |
-| 12 | 4 of 4 | 190min | 35min | 20-100min |
-| 13 | 3 of 7 | 44min | 12min | 7-25min |
-| 13.1 | 0 of 5 | — | — | — |
-
-*Rows appended after each plan completion:*
-
-| Phase 11 P01 | 13min | 3 tasks | 13 files |
-| Phase 12 P01 | 25min | 2 tasks | 17 files |
-| Phase 12 P02 | 20min | 2 tasks | 4 files |
-| Phase 12 P04 | 100min | 2 tasks | 8 files |
-| Phase 12 P03 | 45min | 1 tasks | 2 files |
-| Phase 13 P01 | 12min | 2 tasks | 5 files |
-| Phase 13 P02 | 7min | 2 tasks | 2 files |
-| Phase 13 P03 | 25min | 2 tasks | 1 files |
-| Phase 18 P03 | 25min | 2 tasks | 5 files |
-| Phase 25 P04 | 8min | 3 tasks | 8 files |
-
-## Accumulated Context
-
-### Roadmap Evolution
-
-- **Phase 27 added 2026-08-08** — *The Demo UI, Driven by the Real Fabric.* Filed by owner
-  instruction after a UI mockup covering all four workloads was imported to
-  `docs/design/mockups/o2-fabric-demo/`. **Corrected by hand 2026-08-10; the original clause is
-  kept because it is what a reader greps.** It said the phase *"Closes the demo half of
-  MR-03…MR-07, whose ledger rows already name the gap, and audit finding G4."* **Both halves of
-  that are now false, and it was written as an intention before the phase ran.** What the phase
-  actually did: **MR-03…MR-07 all five stay `[ ]` Partial** — the demo's aggregation workload is
-  π and it does merge through `reduceJob` behind a run control, but colouring's `answerOf` scan
-  stays a scan on purpose (first-found-wins has nothing to aggregate), so the clause was amended
-  per row rather than closed, and whether `MR-03` alone may tick is an open owner decision in
-  `27-OPEN-ITEMS.md`. **G4 closed one of its two halves** — the `runJob` half is closed
-  (`#byo-form`'s submit handler calls `window.o2.runJob`, driven on four arms by
-  `packages/node/src/demo-byo.e2e.test.ts`), the primes half is restated with a measured reason
-  and stays open, which is why the audit now carries G4 as a split row. The per-row truth is in
-  `ROADMAP.md`'s Phase 27 Requirements line; this entry is the roadmap-evolution note and was
-  simply never revisited after the phase reported. **This file is otherwise stale about Phase 27
-  and is corrected by hand for a measured reason**: seven `gsd-sdk query state.*` verbs were
-  measured to corrupt `STATE.md` while reporting success (`27-OPEN-ITEMS.md` section 9), so no
-  state verb is run against it. Not scheduled into v1.1, whose span is phases
-  11-22 — the same treatment phases 23-26 have.
-  **Numbering was corrected by hand and the reason is worth keeping**: `gsd-sdk query phase.add`
-  returned **25**, because it takes the next number from the phase *directories* (highest
-  `phase-24`) rather than from ROADMAP.md (highest `Phase 26`). Phases 25 and 26 are filed as
-  roadmap entries with no directory, so the SDK produced a duplicate `### Phase 25` and placed
-  it inside the requirement-coverage section. Any future `phase.add` on this repository will do
-  the same until every roadmap phase has a directory — check the heading it writes.
-
-### Decisions
-
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
-
-- Verification compares the SAME module run on two nodes, byte for byte. Not multiple implementations of the same computation — cross-implementation verification is explicitly out of scope.
-- There is no static determinism analysis. Divergence is detected by the comparison, not predicted ahead of it. The admission gate was built and then deleted; do not reintroduce it. The import object is the sandbox — WebAssembly.instantiate refuses any import the host does not supply.
-- The verification claim is split (C3, decided): redundant execution on public/shared data and on the aggregation tree; sovereign maps run redundantly within the owner's own node set when two or more are live, and are owner-attested otherwise.
-- Relay decision inverted by evidence: own backbone relay primary (AutoTLS + webRTCDirect), public infra opportunistic only. Browsers structurally cannot dial the majority of public libp2p nodes.
-- Ordering is load-bearing: sovereignty before placement, tree-reduce before placement, artifact signing at content-addressing time (not at elfconv time), coordinator checkpointing in the churn phase, governor + benchmark instrumentation in the kernel phase.
-- **A remote executor is just an `Executor` (Phase 2).** `submitJob` takes `Executor[]` and cannot tell where one runs, so the network arrived without a kernel change. Any future "distributed" feature should first be checked against this: if it can be an adapter behind an existing port, it must be.
-- **Packages split on the portability line, not the feature line (Phase 2).** `@o2/net` is portable and its tests run in Node *and* Chromium; `@o2/node` holds everything a browser cannot do. `purity.node.test.ts` enforces it — no `node:`/`libp2p`/`@chainsafe` import may appear in a portable package.
-- **`Transport` stays a one-way datagram port (Phase 2).** Request/response correlation lives in `@o2/net` instead, because a datagram shape is the smallest thing an in-process table, a libp2p stream, and a relayed WebRTC channel can all implement.
-- **All nodes have equal functionality (owner decision, 2026-07-26, restated twice).**
-  There is no tier, no class, no lesser node. Every node executes tasks, holds blocks,
-  serves records, hosts reduce combines, and takes quorum slots on identical terms.
-  **The only difference is discovery**: a browser cannot bind a listening socket, so it
-  cannot act as a seed a newcomer dials cold — it must be found through a relay that
-  can. That is narrower than "reachability", which was the previous wording and was
-  still wrong: once connected, the peers are indistinguishable. Proven in Phase 3, where
-  an iPhone was dialled at its `/p2p-circuit/webrtc` address and ran half of a
-  2×-redundant job. "Client-mode-only DHT" and "browsers are leaves" were inherited
-  assumptions, both reversed. Background-tab throttling is a lease-duration problem, not
-  a capability one. **If a decision keys on node kind, it is wrong** — the only
-  legitimate use is shared-dependency analysis over the discovery graph.
-
-- **Liveness changes who computes and when, never what the answer is (Phase 7).** The
-  invariant every churn mechanism rests on. True because a result is a pure function of
-  (module, input, partition) and content-addressed, so a re-dispatch recomputes
-  byte-identical output and every recovery action is at worst wasted work. Re-check this
-  first if any of the churn code changes.
-
-- **A lease is a deadline, not a lock (Phase 7).** Nobody releases it and no keeper
-  notices the coordinator left, so "never orphaned leases" needs no cleanup code. A lock
-  would have required the holder-liveness protocol the deadline replaces.
-
-- **A node failure and a task failure warrant opposite policies (Phase 7).** Collapsing
-  both into `null` makes the 30%-node-loss criterion unachievable — three unlucky dead
-  picks retire a good shard. Node failures retry until the pool is exhausted; task
-  failures stop after three independent nodes fail the same work.
-
-- **Re-dispatch must exclude tried nodes before placement (Phase 7).** Placement is
-  deterministic by design, so a retry otherwise re-derives the identical dead choice.
-  Narrowing the input is safe — the sovereignty gate still runs inside `placeWithOffers`.
-
-- **Pre-registration is an ordering, not a document (Phase 8).** The methodology commit
-  contains no harness and no number, so `git log` proves the analysis was not chosen
-  after seeing the data. Predicting the disappointing results in advance is what stops
-  a flat curve being spun as a surprise.
-
-- **A fast failure is not a fast run (Phase 8).** Excluding incomplete runs from
-  makespan statistics is what turned a silent 19/19 failure into a visible bug instead
-  of a beautiful fictional curve.
-
-- **A unit in a field name is a claim (Phase 8).** `grossNodeSeconds` held bytes. The
-  ratio was fine, the absolute number would have been published wrong by a factor
-  nobody could guess. Rename rather than document — a comment does not travel with the
-  number into a report.
-
-- **Publish excluded configurations with the reason (Phase 8).** A rung that vanishes
-  between the plan and the results is indistinguishable, to a reader, from one removed
-  because its number was inconvenient.
-
-- **A fake that is faster than the real thing cannot see a timing bug (Phase 7).** The
-  worst two churn defects — a hang, and a losing copy never compared — were both
-  invisible to a suite whose dispatch resolved on a microtask. The integration test with
-  real RPC found the OOM spin; the rest needed code read specifically for what the tests
-  could not reach.
-
-- **Speculation must not become a vote (Phase 7).** Returning the first arrival and
-  discarding the other copy unexamined lets timing choose between two different answers.
-  The winner may return immediately, but the loser has to be *compared* — after every
-  shard settles, which costs nothing — and a copy that never answers is `uncompared`,
-  never "agreed".
-
-- **A documented bound is not an enforced one (Phase 7).** The coordinator's header
-  promised silence gets a bounded wait while the code never read `expiresAt`. Grep for
-  the mechanism whenever a comment states a guarantee.
-
-- **Never race a timer that provably cannot act (Phase 7).** The straggler watchdog
-  re-wrapped every pending promise per iteration and kept polling after speculation
-  became impossible; against real I/O that is unbounded allocation, not a slow loop.
-  Fake-dispatch tests cannot show this class of bug.
-
-- **Discovery is an intersection, and each part is worthless alone (Phase 6).** Who
-  holds the block, who the node is, and what it can run come from three independent
-  sources — content routing, a provider-signed certificate, a node-signed capability
-  record. The self-signed record looks like theatre until you see what it is bolted to;
-  a test mints a valid one for an uncertified key and shows it buys nothing. Splitting
-  it lets a node re-sign locally when its engine changes.
-
-- **Every exclusion is named (Phase 6).** Silent filtering leaves a requestor unable to
-  tell a dead network from a wrong clock from a module nobody can run.
-
-- **The power-of-d sample is derived, not drawn (Phase 6).** Rendezvous ranking on the
-  shard id instead of `random()`: same load result, but two requestors racing on one
-  shard converge, re-placement re-derives the same candidates, the tail is already the
-  re-pick list, and a decision can be replayed from its inputs.
-
-- **Load is a hint; the offer is the authority (Phase 6).** `LocalCapacity` takes no
-  ports and makes no calls, so "local information only" is a property of the type. A
-  refusal is not an error path — it is how a stale guess becomes a correct decision.
-
-- **A probe needs its own deadline (Phase 6).** An unreachable node cost a full RPC
-  timeout before the re-pick, destroying the saving power-of-d exists to buy. Offers
-  carry a 2s deadline and silence is a *stated* refusal. Only the wired-up test could
-  find this — a unit test's admission callback returns immediately.
-
-- **Attestation strength is derived, never declared (Phase 6).** owner-attested /
-  owner-domain / independent, computed from certificates. Owner-domain and independent
-  both show two replicas, so the count cannot distinguish them and the label must travel
-  with the result.
-
-- **Derive topology, never agree on it (Phase 5).** The reduce tree is a pure function
-  of sorted partial CIDs, so every participant computes the same one with zero
-  messages — no leader election, no consensus, nothing to lose. Assignment is HRW, and
-  the ranking *is* the fallback list. Repair is recompute from CIDs, not state
-  transfer; a late duplicate dedupes into nothing.
-
-- **Associativity is the reduce contract; commutativity is not (Phase 5).** An earlier
-  comment claimed both were required and justified it wrongly — a probe showed an
-  order-dependent reducer breaks nothing, because grouping is canonical. The
-  bit-identical single-node reference test is what enforces associativity.
-
-- **Sovereignty is structural, never a preference (Phase 4).** `planPlacement` narrows
-  to the owner's nodes *before* load is consulted; there is no branch that widens it.
-  A sovereign shard with nowhere to run stalls. Verified by adding the forbidden
-  relax-under-pressure branch and watching four tests fail.
-
-- **Authorisation runs before execution, and the test proves the ordering (Phase 4).**
-  A node that executes and *then* refuses has already read the data, so the test
-  asserts the executor was never called, not merely that the reply said "unauthorized".
-
-- **Integrity is not provenance (Phase 4).** A CID proves bytes match a hash; it says
-  nothing about who published them. Nothing executes a bare CID — names resolve through
-  signed records from anchors pinned at construction, and the resolver has no method to
-  learn a new one.
-
-- **A blockstore adapter must not alias its input or its storage (Phase 3).** Found
-  by the conformance suite in `MemoryBlockstore`; the persistent adapters copy, so an
-  aliasing in-memory adapter made kernel tests pass on semantics no real backend has.
-
-- **Conformance vectors are hardcoded literals, never computed (Phase 3).** A
-  computed expectation only proves an implementation agrees with itself.
-
-- **The kernel must never need `crypto.subtle` (Phase 3).** A LAN origin
-  (`http://10.144.82.249:5173`, `http://laptop.local:5173`) is *not* a secure context,
-  so WebCrypto is absent. `multiformats/hashes/sha2` uses it, which silently broke every
-  CID on any non-localhost page — while the node still *started*, so it failed at the
-  first block rather than at join. Hashing is now `@noble/hashes`, pure JS. The
-  import-scanning purity tests cannot catch this class of bug; a dedicated browser test
-  removes `crypto.subtle` and requires the hashing path to survive.
-
-- **A browser cannot do mDNS (Phase 3).** No API, any browser. LAN discovery is
-  therefore: one URL (preferably the machine's existing `.local` Bonjour name, which
-  iOS resolves natively and which survives DHCP churn), after which the page fetches
-  `/bootstrap.json` from *its own origin* and is told to dial the same host it already
-  reached. Nothing hardcoded, nothing guessed from network interfaces.
-
-- **A relay's browser capacity is capped by inbound limits, not reservations (Phase 3).**
-  `INBOUND_CONNECTION_THRESHOLD` is 5 **per host** and
-  `MAX_INCOMING_PENDING_CONNECTIONS` is 10 — both below the 15 reservation default.
-  Per-host matters in production too: every volunteer behind one NAT shares the budget.
-  Exceeding either kills the noise handshake and looks like a network fault.
-
-- **A duty cycle must serialize to mean anything (Phase 3).** Shards dispatch
-  concurrently, so per-task yielding lets every yield resolve at once and the cap is
-  bypassed. `GovernedExecutor` serializes while throttled, and only while throttled.
-
-- **A relayed circuit cannot carry a job (Phase 3).** The relay is a signalling
-  channel; the data path is WebRTC. A test that runs a job over `/p2p-circuit` is
-  testing an unsupported configuration.
-
-- **Packages form three tiers (Phase 3).** `core`/`net` portable — no platform *and no
-  libp2p*; `libp2p`/`browser` dual-target — libp2p but no `node:`; `node` anything.
-  Enforced by `purity.node.test.ts`.
-
-- **Wire framing is uniform across transports (Phase 2).** One stream per message, completion signalled by the sender closing its write end — so no length prefix and no framing state machine. Chunked at 16 KiB with `runOnLimitedConnection: true` even on TCP, so the same path survives relaying in Phase 3.
-- Part I (elfconv AOT) sequenced last and run as a parallel track; it must not block the capacity-scaling thesis.
-
-- **Consent is a value, not a check (Phase 9).** `GrantedConsent` is minted only by
-  `grantConsent` and `start` takes one, so "check consent before starting" is not a
-  rule anyone has to remember. The obvious `if (hasConsent())` is exactly the shape
-  that has failed twice here — a documented bound nothing enforced.
-
-- **A stop that resolves the caller is not a stop (Phase 9).** Rejecting pending
-  promises makes termination look instant while the thread keeps burning. Only a
-  test that messages the thread directly, past the executor, can tell them apart.
-
-- **Cooperative stopping cannot exist for WASM (Phase 9).** A synchronous `run()`
-  admits no flag, no duty cycle and no governor. Off-main-thread execution is not an
-  optimisation here, it is the requirement.
-
-- **A metric must publish its own blind spot (Phase 9).** A node that cannot reach a
-  peer cannot report that it cannot reach a peer, so the reported population is never
-  the visited one — and that gap *is* the cliff being measured.
-
-- **Overlapping views are merged by maximum, never by sum (Phase 9).** Asking eight
-  peers for the same population and adding would multiply every sample size by eight
-  while leaving the percentages unchanged: a correct-looking rate over a fictional n.
-
-- **Chromium throttles timers in a background tab (Phase 9).** Measured: 400 ms poll,
-  one tick per second. Anything a visible surface depends on must be pushed.
-
-- **A cube must fix the *constrained* variables (Phase 9).** Splitting on the first k
-  values split the work without splitting the difficulty, because the lowest values
-  are the least constrained. Ordering by constraint degree is what makes more nodes
-  reach further rather than merely reach faster.
-
-- **`exhausted` and `budget` must stay different answers (Phase 9).** One is a proof,
-  the other is a shortage of compute. Conflating them turns a limit into a false
-  mathematical claim.
-
-- **"Was not run" is not "works" (Phase 9).** DEMO-01's multi-machine half was about
-  to be closed by reasoning from Phase 3's transport proof. Running it found two
-  real defects instead — one of which every multi-tab test had structurally been
-  unable to catch, because they all dial from the harness.
-
-- **Assert what is on screen, not what the attribute says (Phase 9).** An id rule
-  setting `display` outranks the browser's own `[hidden]`, so `getAttribute` was
-  right while the element was visible. `isVisible`, always.
-
-- [Phase 11]: A hook's absence is a value the call site writes (named sentinel literal), never an omission the type system tolerates — same shape as Phase 9's GrantedConsent. — AgentOptions's six hooks moved from optional to required unions with sentinel literals, closing the hole where an omitted hook silently defaulted to allow/empty/accept and made no fact recordable.
-- [Phase 12]: not-enough-executors retired; a shard below requested redundancy is placed at what is available and marked degraded on ShardResult/JobResult instead of failing the whole job
-- [Phase 12]: submitJob's placement now runs entirely through sovereignty.ts's planPlacement/eligibleNodes, correlating Executor to NodeDescriptor by nodeId; no other code path in submit.ts selects a node
-- [Phase 12]: guardSovereignty is a pure Executor adapter (no Executor/AgentOptions port change), mirroring GovernedExecutor's shape
-- [Phase 12]: Added a DATA-09 replica-holder test beyond the plan's four (Rule 2): a canExecuteSovereign:false node whose data genuinely exists in the shared blockstore is still excluded from execution, proving the refusal is about clearance, not missing data
-- [Phase 12]: parseRequest refuses an exec request with no label; Task.label stays optional in-process, only the wire boundary enforces it — Correction 2: an absent label reaching guardSovereignty is a no-op, trusting whoever dispatched the task not to omit the field the refusal depends on
-- [Phase 12]: guardSovereignty wired into both fabric-node.ts and browser-node.ts production constructors, defaulting to cleared-for-nobody — Correction 1: guardSovereignty had zero production callers before this plan, the exact built-not-wired shape the v1.0 audit exists to catch
-- [Phase 12]: Plan 12-03 (skipped by the orchestrator in Wave 2/3) closes the exact gap the Phase 12 verification pass found: submitJob's sovereignty-pinned placement is now proven across three real bin/agent.ts operating-system processes, not only in-process. bin/agent.ts gained --owner-id/--can-execute-sovereign CLI flags (a pass-through of the existing FabricNodeOptions.sovereignty option) so a spawned process can be cleared for its own owner; the required widen-under-pressure mutation failed as expected (insufficient, not agreed) and revealed a second, independent defense already holding: the mutated process's own guardSovereignty wrap refused the wrongly-widened dispatch.
-- [Phase 13]: registerSovereignInputs composed outside guardSovereignty, not inside — registering a task guardSovereignty is about to refuse is harmless, keeps composition order identical at both Plan 13-02 call sites
-- [Phase 13]: submitJobWithEgress delta-slices EgressGuard.manifest.entries before/after submitJob rather than calling reset(), so job-scoped manifests compose with concurrent reads instead of discarding shared history
-- [Phase 13]: egress is a new field on FabricNode/BrowserNode, not a type change to transport — EgressGuard lacks .stop()/.peers that existing callers (including packages/browser/demo/main.ts) depend on
-- [Phase 13]: Both node factories now compose registerSovereignInputs(guardSovereignty(inner, sovereignty), {blockstore: store, guard: egress}) identically — the sovereignty default is resolved exactly once per start() call, feeding both the guard's ownerId and the clearance check
-- [Phase 13]: Sovereign test fixtures must be pre-seeded onto the executing node's local-only store before dispatch, not just onto the requestor's store -- registerSovereignInputs reads only the local tier and silently skips registration otherwise, which would make a falsification test pass vacuously
-- [Phase 13]: Mutation 2 (removing the EgressGuard transport wrap) breaks all four production-wiring tests, not only the one the plan named -- reported as observed rather than narrowed to fit the plan's prediction
-
-- **[Phase 13.1] A reservation with no release is a leak, so the reservation moved to the
-  branch that has one.** `LocalCapacity.offer` reserved a slot that nothing on the wire ever
-  redeemed — a liveness probe would have leaked one slot per peer per call — so the `offer`
-  branch became `LocalCapacity.would`, which reserves nothing, and the slot is now taken in
-  the `exec` branch before the `try` and released in a `finally` that covers success, a
-  failed outcome, a throw, and the `authorize` refusal that never calls the executor at all.
-- **[Phase 13.1] That deliberately removed cross-shard over-commit protection, and it is
-  Phase 18's to rebuild.** `placeWithOffers` rebuilds `pool` per request, so the reserving
-  offer branch was the only thing bounding placement *across* shards. `planWithOffers` +
-  `rpcAdmission` will now put all N shards of a job on one node with `maxConcurrent: 1`.
-  `packages/net/src/discovery.test.ts` pins this as a recorded consequence — four shards on
-  one 1-slot node, zero refusals — and **that test is expected to turn red when Phase 18
-  closes criterion 2c.** Do not "fix" it before then. The two candidate mechanisms, both
-  protocol changes, are in `agent.ts`'s own comment.
-- **[Phase 13.1] A cap applied after the loop has already paid for the allocation it
-  exists to prevent.** `readMessage` accumulated every peer-sent chunk and then allocated
-  their sum, both peer-driven and neither bounded; the check now sits *inside* the
-  `for await`, immediately after the byte count grows, and calls `stream.abort()`. That
-  placement is the whole content of NET-08 — a 64 MiB frame was accepted over the real
-  transport before it.
-- **[Phase 13.1] `'sender'` is a third `DispatchOutcome.kind`, because a connection the
-  sender tore down is not a failure of the receiver.** Produced only from a
-  `SendRefused`; `coordinator.ts`'s single policy read is unchanged and its fall-through
-  carries a comment saying it is a decision rather than an omission.
-- **[Phase 13.1] A pre-scan is the same check, earlier — not a weaker one.** `EgressGuard`
-  gained `violationIn(frame)` (pure query, records nothing) and `refuse(to, frame)`
-  (records on a hit only). Scanning a reply *body* suffices because `contains` is a
-  contiguous-run search and dag-cbor encodes a byte string as a header plus raw bytes, so
-  the payload is the same contiguous run once nested. `refuse` records only on a hit
-  because it may be asked about a frame never offered to the exit; recording clean answers
-  would count every reply twice.
-- **[Phase 13.1] The pre-change capture was planted, watched, and restored by `cp` with
-  `cmp` exit 0 — no `git` write command.** The proof the restore was byte-exact is that
-  `git status --porcelain` afterwards listed only the new untracked test file. Worth
-  copying: on a shared working tree a `git checkout --` to "restore" is how another
-  session's work gets destroyed.
-- **[Phase 13.1 — CORRECTED 2026-08-01] The hook is `AgentOptions.capacity`; `admission`
-  is the instrument.** This line used to read *"the hook is named `admission`, not
-  `capacity`"* and that is wrong — `agent.ts:171` declares
-  `readonly capacity: LocalCapacity | 'accepts-every-offer'`, and `admission` is the
-  local holding what `capacity.offer()` returns, plus `FabricNode.admission` as the
-  high-water instrument. `fabric-node.ts:365` explains why the two names differ.
-  **A second error rode along with it:** `LocalCapacity.offer` *does* reserve
-  (`placement.ts:372-378`). What reserves nothing is `serveAgent`'s **`offer` request
-  branch**, via `would`. Both errors were propagated into a Phase 16 executor's brief
-  verbatim; following them literally would have renamed the wrong symbol. A note that
-  compresses two names into one sentence is how that happens.
-
-- **[Phase 14] A guard wrapped at every construction site, not at one resolution point.**
-  The plan opened by correcting its own earlier draft: **three** `Executor` implementations
-  independently turn `task.moduleCid` into bytes — `core/src/executor/wasm.ts`,
-  `browser/src/worker-executor.ts` and `aot/src/wasi-executor.ts` — so "one resolution
-  point" was false and the guarantee `guardModuleProvenance` carries is composition at
-  every site instead.
-- **[Phase 14] A census that counts call sites cannot tell a composed guard from a
-  decorative one.** Deleting `provenance(...)` from `browser-node.ts` turns two tab
-  refusals red while `trust-anchors.node.test.ts` stays **20/20**, because
-  `guardModuleProvenance(` is still textually present, just applied to nothing. Recorded
-  as M28. This is the same shape as the disclosure gate's pattern that matched nothing and
-  read green — a text census answers "is it mentioned", never "is it wired".
-- **[Phase 14] `trustAnchors` is required and typed `readonly PublicKeyHex[] |
-  'runs-unsigned-artifacts'`**, on both `FabricNodeOptions` and `BrowserNodeOptions` —
-  Phase 11's sentinel convention. `TabApi` deliberately exposes **no opt-out at all**:
-  there is no value a page or a Playwright harness can pass through `window.o2` that
-  yields a tab resolving bare CIDs. All 22 uses of the opt-out are inside `*.test.ts`;
-  `bin/agent.ts` has no off-switch.
-- **[Phase 14] "Built, not wired" has a measurable signature, and it was measured in both
-  directions.** Before the phase, emptying both demo trust-anchor sets changed nothing
-  across fifteen e2e tests. After it, the same plant takes the colouring job down.
-  Recorded as M29 — the one ledger entry that pins a *change* rather than a guard.
-- **[Phase 14] A `not.toContain` never observed as a `toContain` is a silence, not a
-  reading.** Criterion 2's "before `WebAssembly.instantiate`" rests on two instruments —
-  an in-process call counter and a cross-process blockstore-directory census — and the
-  verification required each to have been seen taking **both** values. The cross-process
-  one is upstream of instantiation: the block never reached the agent's disk.
-- **[Phase 14] Corrections do not propagate between sibling plans.** 14-03 corrected six
-  wrong `file:line` facts in its own plan; 14-05's plan, written earlier, then restated
-  one of those same corrections verbatim. A correction living in a SUMMARY reaches nobody.
-  Feed each wave the prior wave's corrections explicitly, and verify every citation before
-  relying on it.
-
-- **[Phase 15] Plan citations drift far worse than anyone assumed: 41 wrong `file:line`
-  references across four plans** (6, 9, 14, 12). These plans were written weeks before
-  they ran. Two were wrong rather than merely stale, and both would have shipped a false
-  statement into source: `purity.node.test.ts:167-174` does **not** keep the `Executor`
-  port narrow (it is the "no dependency edge from `@o2/core` to any adapter" test, and the
-  string `Executor` appears nowhere in it), and **no test in this repository asserts the
-  `Executor` port carries no chain**. Assume every citation in an unexecuted plan is stale.
-- **[Phase 15] A wave field can lie where `depends_on` cannot.** Phase 15's four plans all
-  declared `wave: 1`, which would have launched four agents into a chain where 15-03 needs
-  01 and 02 and 15-04 needs all three. Derive waves from `depends_on` and from
-  `files_modified` overlap, never from the `wave` field alone — 15-01 and 15-02 also both
-  write `packages/net/src/index.ts`.
-- **[Phase 15] "It cannot be tested" survived four plans and was false.** Every plan
-  repeated that `BrowserNode.start` "needs a real `indexedDB` and a relay to dial, so it
-  runs in neither vitest project", and the browser tier's authorizer went unproven because
-  of it — a scrambling mutation left 345 browser tests green. The true statement is
-  narrower: the **`browser`** project cannot host it, because a Circuit Relay v2 server
-  cannot run inside a browser; the **`e2e`** project can, and `two-tabs.e2e.test.ts`
-  already did. 15-05 closed it there, and needed no relay at all — a relay exists to let
-  two browsers exchange SDP, and there is one browser in that test. **Six shipped comments
-  carried the false claim, one of them sitting directly on the authorize hook.**
-- **[Phase 15] A refusal that names the wrong thing is a defect even when the job
-  correctly fails.** M30's mutated tab still refuses — at a different precedence step,
-  naming the owner *key* where the owner *id* belongs. Any assertion of the form "the job
-  failed" passes against it. Assert the refusal **text**. The same trap caught 15-03: a
-  node with no `sovereignty` option resolves to `ownerId: ''` and falls through to a
-  different `unauthorized` refusal naming the same peer.
-- **[Phase 16] A fabric cheaper than the real thing cannot observe a gate keyed on the
-  real thing's configuration.** `agent.ts` refused every combine on any node holding a
-  real `Authorizer`, and both node classes install one — so combine never worked in
-  production, from the moment the branch was written. Plan 16-02 could not see it because
-  every in-process fabric it tested builds `serveAgent({...SENTINELS})`, and the sentinel
-  is exactly what the branch keyed on. **Two plans hit it independently** (16-03 from
-  spawned processes, 16-04 from the benchmark) and **neither took the cheap way through**:
-  16-03 refused to change an auth path outside its scope, 16-04 refused to pass the
-  sentinel to `FabricNode` to make a benchmark row appear. Sibling of the Phase 15 lesson
-  and a stronger form of it.
-- **[Phase 16] The gate's premise was true when written and one phase later was not.**
-  Its comment read *"Every production call site passes the sentinel today, so this is a
-  no-op now."* Phase 15 installed real authorizers and falsified it silently. **A comment
-  asserting a fact about every call site is a claim with an expiry date**; if it matters,
-  a test must hold it, because nothing else will notice when it stops being true.
-- **[Phase 16] Routing combine through the `Authorizer` made a security property worse,
-  and that was measured rather than argued.** The old refusal had incidentally bounded
-  combine fetches to zero on any real node. Removing it widened the residue to every
-  node — and `authorizeCapability` admits every combine, because the frame carries no
-  sovereignty label and no node exposes an `authorize` option. Owner ruling: bound it at
-  the `capacity` hook, because combine partials are outputs of public map tasks and
-  therefore public by construction — **there is nothing to authorize; the exposure is CPU
-  and transfer, which is a capacity question.** Closed in 16-06.
-- **[Phase 16] The read count, not the reason string, is what proves a bound's placement.**
-  16-06 planted its cap *below* the fetch loop: both refusal-text assertions stayed green
-  while reads went 0 → 2. The reply is byte-identical in both placements. Same shape as
-  NET-08 — *a cap applied after a loop has already paid for the allocation it prevents.*
-- **[Phase 16] A mutation entry can be caught in substance and still be wrong.** The full
-  run found `M2b` catching its defect while its recorded signature says *"four sentinels"*
-  where the test says *"three"* — drifted in Phase 15 and unnoticed since. The cheap guard
-  checks that `find` still matches; it does not check that `signature` still does.
-- **[Phase 15] Naming a defect is not fixing it (owner ruling, 2026-07-31).** Plan 15-04
-  amended Phase 15's goal down to the truth — correct — and then proposed accepting
-  AUTH-03's requestor half as entry-point-unreachable. Declined. Recording a built-not-wired
-  adapter in three places is not the same as wiring it; it went to Phase 23 criterion 5,
-  where `bin/bench.ts` is already being rewritten and the most contended file in the
-  repository is fought once rather than twice.
-- **[Phase 25-04]: Ed25519 dual-port adapter (noble/libsodium sync, subtle/libsodium
-  async) shipped complete and tested but unwired — verifyChain/verifyCertificate
-  wiring deferred to a future phase pending a bootstrap-ordering decision across three
-  runtime entry points.**
-
-### Pending Todos
-
-**⚠ OPEN DEFECT NEEDING A DECISION — `PeerVerifier` settles a verdict once and never
-revisits it (found by 17-06, 2026-08-01, deliberately not fixed).** *(CLOSED — SUPERSEDED
-2026-08-22. The ruling was taken and executed on 2026-08-14 at `e1088ce`, and the shape it took
-is none of the three candidates listed below exactly: re-ask on read, bounded by `FINAL` plus a
-retry floor. `verifiedPeers`
-(`packages/libp2p/src/peer-verifier.ts:469-473`) calls `#refresh` for every connected peer on
-every read; `#refresh` (`:517-541`) re-issues `verify` for a peer with no settled verdict and
-for any standing refusal whose kind falls outside `FINAL` (`:260-269` — `unreachable`,
-`no-records` and `expired` are all outside it), bounded only by `DEFAULT_VERDICT_RETRY_FLOOR_MS`
-at 5,000 ms (`:286`, `:400`). `#demoteIfExpired` covers the other direction, dropping an
-acceptance the instant its certificate's `expiresAt` passes. The getter is read per fetch on
-both tiers — `fabric-node.ts:2366,2381` and `browser-node.ts:1543,1598` — so a node that enrols
-after a peer connected to it is taken back within one floor interval rather than excluded
-permanently. Measured at `packages/node/src/peer-verifier.node.test.ts:670-815`, "a peer that
-enrols after connecting stops being excluded". The paragraphs below are kept because they record
-the observation and the three candidate fixes the decision chose between.)*
-
-`PeerVerifier` decides a peer's verdict on `peer:connect` and never asks again. **So a node
-that enrols *after* a peer has already connected to it is permanently excluded by that
-peer.** Observed directly, not inferred: an enrolled tab holding a valid certificate sat at
-`'not asked yet'` for 20 s. It is **not browser-specific** — `FabricNode` also dials its
-provider before `serveAgent` is up, so the same window exists on the Node tier.
-
-Held under Rule 4 because every candidate fix changes how often a node re-asks its peers
-across the whole fabric — re-ask on a timer, re-ask on a records-changed push, or re-ask on
-first refusal. That is a fabric-wide behaviour decision, not a bug fix, and it interacts
-with Phase 18's discovery work. **Decide before Phase 18 plans, because 18 owns the dial
-path this defect lives on.**
-
-**Also from 17-06, and it corrects 17-04:** `PeerVerifier` should **not** move to
-`@o2/libp2p`. 17-04's portability half was right (no Node-only imports) and its
-"one-file fix" half was wrong — `@o2/libp2p` does not depend on `@o2/net`, which
-`PeerVerifier` imports four symbols from, so it is six files. Left in place for the stronger
-reason: no browser consumer exists, and **an export with no traced call path is exactly what
-Phase 22's guard fails on.**
-
-*(SUPERSEDED 2026-08-22 — `PeerVerifier` did move, on 2026-08-14 at `e1088ce`, as AUTH-02's
-browser-pinning leg. It lives at `packages/libp2p/src/peer-verifier.ts` and is exported from the
-`@o2/libp2p` barrel at `packages/libp2p/src/index.ts:69`, deliberately not re-exported from
-`@o2/node`; the move is recorded at `packages/node/src/index.ts:32`. **Both grounds above were
-false by the time it landed.** `@o2/libp2p` does depend on `@o2/net` —
-`packages/libp2p/package.json:16` declares `"@o2/net": "*"`, an edge the file's own docblock names at
-`peer-verifier.ts:154-157` as the first of "the two prices... both were paid, not avoided". And a browser consumer does exist: `packages/browser/src/browser-node.ts`
-imports `PeerVerifier` at `:76` and calls `PeerVerifier.start({...})` at `:1525`, which is the
-traced call path Phase 22's guard wanted and the wiring the move existed for. Of this
-paragraph's factual clauses only one survives — the module does import four symbols from
-`@o2/net` (`RpcFailure`, `encodeRequest`, `parseResponse`, and the type `RpcEndpoint`, at
-`peer-verifier.ts:192-193`). `@o2/net` itself remains an impossible destination:
-`packages/node/src/purity.node.test.ts:94` forbids `/^@libp2p\//` across the `PORTABLE` set
-(`:45`, which includes `net`).)*
-
-**Scheduled work carried out of 13.1's and 14's verifications (2026-07-31):**
-
-- **DATA-10's at-rest half — owner-scheduled, not deferred.** A node still serves a raw
-  sovereign block once the job that registered it has ended: `submit-with-egress.ts:155`
-  takes the registration and a `finally` releases it. Close it at a boundary the node owns
-  — a per-node set of sovereign CIDs that outlives the job — rather than at one entry
-  point. The second half, that bare `submitJob` registers nothing at all, folds into
-  **Phase 20**, where `submitJob` becomes the single job path and the fix lands at one
-  boundary instead of two. `sovereignty-placement.node.test.ts` currently drives a real
-  spawned-agent sovereign scenario through bare `submitJob` and **passes because the gap
-  is real**. *(CLOSED 2026-08-02 — SUPERSEDED 2026-08-22. Both halves landed at the one
-  boundary this ruling asked for, and neither went to Phase 20. The durable per-node set is
-  `FsSovereignCids.open(options.blockstoreDir)` (`packages/node/src/fabric-node.ts:2311`, class
-  at `packages/node/src/sovereign-cids.ts:41`; `IdbSovereignCids.open` at
-  `packages/browser/src/browser-node.ts:1575`), handed to `egressDisposition` and read by CID
-  before any payload scan at `packages/net/src/agent.ts:1171-1177` and
-  `packages/net/src/sovereign-egress.ts:205` — so the refusal outlives both the job and the
-  process, measured at `packages/node/src/sovereign-at-rest.node.test.ts:176`, "still refuses
-  after the process that recorded it is gone". Bare `submitJob` registers at its own
-  blockstore-put (`packages/core/src/job/submit.ts:2668-2672`), which covers every caller that
-  supplies the set rather than only the guarded wrapper; production callers do supply it
-  (`packages/node/src/bin/agent.ts:2397-2402`, `packages/browser/demo/main.ts:2392`). What
-  survives is narrower than the bullet above: a node built with no `blockstoreDir` takes the
-  named opt-out `'forgets-sovereignty-between-jobs'` and does still serve after the job, by
-  design rather than by omission, and `sovereignty-placement.node.test.ts` does still call bare
-  `submitJob` without the set — but it asserts placement and never asserted egress, so it was
-  never the standing evidence the last sentence made it. Ledgered `[x]` at
-  `.planning/REQUIREMENTS.md:1116` and **Done** in the traceability row at `:1393`; see this
-  file's own DATA-10 paragraph under Current focus.)*
-- **Two load-sensitive bounds, same family.** `churn.test.ts`'s 30%-killed case failed once
-  at load 17.5-59.4 and passed 3/3 in isolation; `transport-bounds.node.test.ts`'s
-  retained-bytes bound failed twice at load ~12.4 and passed at 8.72 and 7.70. Both are
-  wall-clock bounds inside otherwise deterministic tests — a bound that reads host
-  contention as a defect. Recorded in `phase-14-.../deferred-items.md`.
-- **Closed on 2026-07-31, listed so it is not re-found:** the `stopAgent` hookTimeout
-  inversion in `two-process`, `sovereignty-placement` and `egress-refusal` — a 10 s
-  SIGKILL fallback inside Vitest's 10 s default `hookTimeout`, so the fallback could never
-  fire and a wedged agent reported an anonymous timeout naming no step.
-
-**Two open owner decisions**, both deferred with the measurement they were waiting for now
-in hand.
-
-1. **The `lift.node.test.ts` integration timeout.** `INTEGRATION_TIMEOUT_MS` is 15 min and
-   wraps 45 min of internal budget (a 5 min compile plus 2 × 20 min `DEFAULT_TIMEOUT_MS`) —
-   the outer clock is the smaller one, so the inner budgets can never fire. A real lift is
-   now measured at **152.7-304.3 s**, a 2× swing with load, so any fixed budget must be
-   sized against the top of that range and not the middle. An earlier attempt to set it to
-   300 s turned six tests red and was reverted.
-2. **The benchmark's row-order confound.** Load drifted 29→49 during a run, so no
-   inter-row difference under ~20% is claimed. Fixing it needs interleaved rows rather
-   than blocks, or a quiet host.
-
-Four smaller follow-ups recorded during the 22-bug round, none load-bearing:
-`SpeculationLedger.discarded` has zero readers; `submit.test.ts:79-206` duplicates
-`verify.test.ts`; the `agreed` outcome carries no `failures` field *(CLOSED 2026-08-05 at
-`0e045f5` — SUPERSEDED 2026-08-22. It does carry one: `failures: readonly { nodeId: string;
-reason: string }[]` is declared on the `'agreed'` arm at `packages/core/src/job/verify.ts:187`
-and returned by `executeVerified` at `:269`, the same array the `disagreed` and `insufficient`
-arms return, computed once at `:226`. The field's own docblock at `:157-186` records the fix —
-"on the agreed arm too, and that is the whole of the fix" — and every other `agreed`
-construction site carries it: `commit-reveal.ts:469`, `submit.ts:1577` (`failures: []`, with a
-comment explaining the measured zero) and `submit.ts:1721`.
-Listed so it is not re-found.)*; and
-`classifyStartFailure` can only ever return `other` for an unreachable relay.
-
-### Blockers/Concerns
-
-**Three items are owner-blocked and unaffected by the 2026-07-28 testing-standard ruling:**
-the US provisional patent deadline (below), a hosted relay with real AutoTLS (NET-03,
-Phase 3 criterion 2), and GitHub Pages serving the pre-Phase-9 bundle (below). *"A second
-machine"* used to be a fourth. It is not a blocker any more — it has been struck, and its
-residual is recorded immediately below rather than dropped.
-
-- **What the lifted-vs-native benchmark costs Phase 21 (measured 2026-07-31).** Timing
-  `wasi.start()` alone, on a 32 MiB memory-and-ALU workload that all three routes agree on
-  (checksum `9584708361817009923`): native 58.78 ms, direct-compiled WASM 65.19 ms (1.11×),
-  elfconv-lifted WASM 122.81 ms (**2.09×** native, 1.88× direct). That is the emulation
-  tax, and it is the honest number to plan AOT-04 against.
-- **The ~43 ms startup floor cannot be cached away, and this was tested rather than
-  assumed.** On a trivial subject the lifted `_start` alone is 42.83 ms and
-  instantiate+start is 42.65 ms — indistinguishable, so the entire floor executes *inside*
-  the guest, in elfconv's emulated machine-state init, and is re-paid per task. Compile
-  (~4 ms, and V8 compiles lazily) and instantiate (~1.8 ms) are not where it lives. Direct
-  WASM's `_start` for the same program is 0.03 ms, ~1400× less. Content addressing fully
-  solves distributing the 5.40 MiB artifact — which is 5.40 MiB whether the program does
-  nothing or 128 MiB of traffic — but the floor stays, and under N-version execution it is
-  paid per replica, which puts a floor on useful shard size. AOT-05 independently recorded
-  V8's WASM code cache as NOT OBSERVED, so that route is closed twice over.
-
-- **Residual of the same-machine testing standard (owner ruling, 2026-07-28) — recorded,
-  not blocking.** Same machine, different browsers and/or different browser contexts and
-  different OS processes, is the project's testing standard everywhere. So no criterion of
-  this project's own is waiting on a second machine. The residual is that
-  **cross-machine reproducibility (AOT-03) and distinct-machine benchmarking (BENCH-06)
-  are unverified by choice**, and closing either would need hardware the project does not
-  have. Both requirements were rewritten to what one host genuinely establishes; **neither
-  descoped half may be reported as demonstrated.** `CROSS_MACHINE_BLIND_SPOT` stays on
-  every lifted artifact — Phase 10 showed it is structural, not configurational — and the
-  same-machine benchmark label stays required and derived from the recorded inventory.
-
-- **Relay hosting investigated 2026-07-28 — Cloudflare cannot carry the relay, and the reason
-  is structural.** Confirmed verbatim from Cloudflare's docs: *"it is not possible to make an
-  inbound TCP connection to your Worker"*, and no Cloudflare compute product exposes UDP (which
-  independently rules out WebRTC-Direct). The codebase already refuses the deployment on its own
-  terms — `canRelay` (`fabric-node.ts:289`) is false without a non-circuit listen address, so
-  `circuitRelayServer()` is never added and the reservation limit is 0.
-  - **Correction to the first pass, which was wrong:** Cloudflare **Containers** are *not* ruled
-    out by transport. A container is a real Linux process on a real port and
-    `@libp2p/websockets`' Node listener runs unmodified; the `browser`-condition stub that kills
-    workerd does not apply. Containers fail on **lifecycle** instead — no minimum uptime
-    guarantee and irregular restarts against a 2-hour reservation TTL (`constants.ts:68`), and a
-    relay can never re-dial a browser to recover. Cost was also wrong in both directions: wall-
-    minutes are not vCPU-minutes (a `lite` instance is 1/16 vCPU), and the Durable Object figure
-    double-counted — 331,776 GB-s is *inside* the 400,000 included, so ~$0 marginal duration.
-  - **Recommendation:** a small always-on host with a public IP and arbitrary port binding.
-    **But the sizing must carry a full node, not a relay daemon** — `fabric-node.ts:394-396`
-    records that no construction path yields a node which will not compute, and `bin/seed.ts:45`
-    says the seed executes tasks, serves blocks *and* relays. A relay-only budget reintroduces
-    the class that was deleted, which the module comment notes already *"survived three rounds
-    of renaming."*
-  - **Two defects found incidentally, both fixed 2026-07-28.** The disclosure gate's wrangler
-    pattern missed `wrangler pages deploy` — the command someone would actually type — and
-    nothing noticed because every test asserted *absence*, so a pattern matching nothing read
-    green. Each pattern now carries the commands it must catch and must ignore, asserted
-    directly. Separately: `stun:stun.cloudflare.com:3478` is **already** in `@libp2p/webrtc`'s
-    `DEFAULT_ICE_SERVERS` and in use, so "add Cloudflare STUN" is a no-op — and pinning to it
-    alone would cut four independent STUN operators to one.
-  - **Unverified, worth chasing upstream:** `@libp2p/circuit-relay-v2` appears to write
-    `defaultDurationLimit` in milliseconds into a protobuf field the spec defines in seconds, so
-    a dialer computes 33.3 hours where the server enforces 120 s.
-
-- **Disclosure gate: CROSSED on 2026-07-26.** The repository was made public by explicit
-  owner decision, after being told that EPO and China have no patent grace period and
-  that the loss is permanent. **EPO and China patent rights for everything disclosed as
-  of that date are forfeit.** Do not plan around recovering them. A US provisional
-  remains possible for 12 months from first disclosure under §102(b)(1), and that
-  window is now running — it is the only patent option left, and it is time-limited.
-
-- **GitHub Pages is serving the pre-Phase-9 bundle.** It was deployed by hand on
-  2026-07-26 and has *not* been redeployed since; the consent gate, the running bar,
-  the colouring job and the policy page are in the repository but not on that URL.
-  Redeploying is a human action by design (DEMO-04) — run `npm run build:demo` and
-  publish `packages/browser/dist/` deliberately.
-
-- **GitHub Pages is live** at <https://o2alexanderfedin.github.io/o2.services/>, served
-  from the `gh-pages` branch, deployed **by hand** on 2026-07-26. Verified against the
-  real URL: loads with zero page errors, correctly reports that no relay is reachable
-  with Start disabled, `crossOriginIsolated` false (BROW-05 holding in production), and
-  the kernel computes a CID byte-identical to local. It cannot join a peer until a
-  public `wss://` relay exists — an HTTPS page cannot dial `ws://`, and Pages runs no
-  server process.
-
-- **DEMO-04 still holds, and is now enforced.** No deploy workflow file may exist in
-  the repository at all — absent, not disabled — and no `package.json` script may
-  publish. `disclosure-gate.node.test.ts` asserts both, checks for workflow files by
-  *content* so relocation does not evade it, and is mutation-proved by planting one
-  in two places. `build:demo` builds and publishes nothing.
-
-- **Version traps (C5): resolved in Phase 2.** js-libp2p 3.x installed with exact pins; none of the four trap packages are present. Two duplicate resolutions were found and fixed with npm `overrides` — `multiformats` had both 14.0.5 and 13.4.2 (a v13/v14 `CID instanceof` boundary), and an invalid `uint8arrays@5.1.1` was hoisted above the 6.1.1 libp2p v3 needs. **`npm install` alone kept the stale tree; a clean re-resolution was required.** `constants.node.test.ts` now asserts one copy of each plus every relay/transport limit.
-- **Doc correction:** the relay constants are named `DEFAULT_DURATION_LIMIT`, `DEFAULT_DATA_LIMIT`, `DEFAULT_MAX_RESERVATION_STORE_SIZE` — `DEFAULT_`-prefixed, unlike what PROJECT.md and STACK.md record. Values are as documented (2 min / 128 KiB / 15 / 2 h).
-- **Node 23.11.0 is the host runtime and is not LTS.** Outside vitest's declared range (`^20 || ^22 || >=24`), so every install prints `EBADENGINE`, and `packages/node/src/bin/agent.ts` depends on Node's experimental native type stripping. Everything passes today. `STACK.md` specifies Node 24 LTS — switching the toolchain is a human action, deliberately not taken autonomously.
-- **Open decisions carried into planning:** aegir vs. vitest for the three-target test discipline (Phase 2); WASM fuel metering has no maintained JS-side tool (Phase 1/2); Safari + WebRTC-Direct is unverified with a WSS-only fallback branch (Phase 4).
+</details>
 
 ## Quick Tasks Completed
 
@@ -2366,6 +2668,7 @@ with it:
   CPU time is spent checking result validity."* Their answer was **reputation-gated selective
   replication at 5-10%**, not uniform 2-3×. This project has the primitives BOINC lacked —
   enrolment, certificates, per-node signed results. Highest-leverage change identified.
+
 - **Cross-architecture NaN divergence in V8 was measured**, closing the open question recorded in
   `CLAUDE.md` ("no measurement found"). Identical wasm bytes, identical V8 12.9.202.28, arm64 vs
   x86-64: **6 of 10 primitive float ops produce different bits**, stable across 2M iterations and
@@ -2377,12 +2680,14 @@ with it:
   one flowing through a comparison, bitcast or branch to a finite-but-different number per
   architecture — would encode happily. If quorums can ever span arm64 and x86-64 this wants a
   ruling.
+
 - **Public IPFS retrieval is not a viable artifact path.** Cloudflare's gateway ended 2024-08-14,
   Brave removed `ipfs://` 2024-08-22, the IPFS Foundation's own docs say public gateways are
   *"not intended to be part of your critical path or production infrastructure"*, and Filecoin's
   measured network-wide retrieval success rate was **12.8%** (Sept 2024). Bluesky/atproto solves
   this in production with a **CDN keyed by CID** — content addressing preserved, and the V8
   code-caching path with it.
+
 - **There is nothing to adopt for the decentralized DB.** Measured by commits, not `pushed_at`
   (which misleads): OrbitDB **0 commits since 2026-05-15** and version-incompatible anyway
   (`multiformats@^13`/`uint8arrays@^5`/`helia@^6` against this project's 14/6/7 — the exact
@@ -2420,10 +2725,12 @@ the tree is clean.
   timing bound from a number you did not measure yourself.** One such guess set
   `timeoutMs` to 300 s against a lift that really takes 304.3 s and turned six tests red;
   it was reverted.
+
 - **A security residual closed in `browser-node.ts`.** `createWorker` became required and
   the `worker ?? new WasmExecutor(...)` fallback was deleted, so a browser node can no
   longer silently execute on the main thread. The `offMainThread` getter went with it —
   once it could only return one value, the four e2e assertions reading it were tautologies.
+
 - **31/31 mutations caught**, and the full suite passed at load 89-160.
 - **The elfconv lifted-vs-native benchmark** (`tools/aot/bench-lifted.ts`, `fixtures/workload.c`).
   Findings in `.planning/BENCHMARK-RESULTS.md` and in commit `ce05cf2`; the two that bear
