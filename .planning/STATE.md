@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Open the Doors
-status: planning
-last_updated: "2026-08-25T09:39:00.000Z"
+status: ready-to-execute
+last_updated: "2026-08-25T10:19:00.000Z"
 last_activity: 2026-08-25
 progress:
-  total_phases: 0
+  total_phases: 13
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -437,10 +437,30 @@ ruling anticipated.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 29 of 41 — Hosted Tier Assembly & First Deploy (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-08-25 — Milestone v2.0 started
+Status: Planned, not executed — `/gsd-new-milestone` completed all 11 steps
+Last activity: 2026-08-25 — v2.0 requirements and roadmap written
+
+**v2.0 is 13 phases, numbered 29-41.** `gsd-sdk query roadmap.analyze` reports one
+milestone slice and phases 29 through 41 with `missing_phase_details: None`. All 40
+requirement ids — the 36 minted for v2.0 plus the four carried — land in exactly one phase
+each, verified mechanically rather than by reading the writer's own report.
+
+**`total_phases: 13` counts v2.0 only.** The 28 phase directories on disk are v1.1's and
+stay; the roadmap parser now places them in the preamble, exactly as v1.0's fell into the
+preamble when v1.1's heading was added on 2026-08-18. This is what step 10 is supposed to
+cause, and it has one consequence worth stating outright: **`/gsd-autonomous` now discovers
+13 phases, all of them v2.0.** Before the roadmap landed it discovered 16 — every one of
+them v1.0/v1.1 work, fifteen already complete on disk with an unticked box, and it would
+have re-planned and re-executed them.
+
+**The unticked v1.1 boxes are still unticked and that is deliberate.** Fifteen v1.1 phases
+read `[ ]` in the checklist while their directories hold plans, summaries and verification
+files, and Phase 3 reads `[ ]` with no directory at all. Each has a `*-VERIFICATION.md`
+carrying a score, and the status belongs to that file. Ticking them to tidy the count would
+be closing a gap by widening what counts as passing. It is open bookkeeping, owed a pass of
+its own against the verification files — not a side effect of opening a milestone.
 
 ### v1.0 carried forward, unarchived
 
@@ -2380,16 +2400,32 @@ rather than deleted. **This is the same failure the 2026-08-20 entry below gener
 artifact written at the moment work is declared finished gets written while the last of it is
 still landing. A pause handoff is now the fourth kind of file to fail that way.
 
-**`HANDOFF.json` was deliberately NOT deleted on this resume**, which departs from both the
-workflow's rule and the 2026-08-20 precedent. Reason: resumption is not complete — steps 9, 10
-and 11 of `/gsd-new-milestone` have not run, and the handoff's `blocking_constraints` govern
-them. It is corrected, not stale. Delete it when step 11 commits.
+**`HANDOFF.json` was held back mid-resume and deleted at the end**, which is the workflow's
+rule reached by a different route than the 2026-08-20 precedent. It was kept while steps 9, 10
+and 11 were still outstanding, because its `blocking_constraints` governed them and a corrected
+handoff is not a stale one; it was removed once step 11 committed. Its content did not die with
+it — every constraint it carried also lives in `.continue-here.md`, which was checked before
+the delete rather than assumed.
 
-Stopped at (2026-08-25, in progress): the research synthesizer was dispatched against
-`.planning/research/v2.0/{STACK,FEATURES,ARCHITECTURE,PITFALLS}.md` writing
-`.planning/research/v2.0/SUMMARY.md` — **the `v2.0/` path is load-bearing**; the five files
-directly under `.planning/research/` are v1's and `CLAUDE.md` cites `STACK.md:113` by line.
-Then step 9 (REQ-IDs), step 10 (roadmap, **phases from 29**), step 11 (commit).
+Stopped at (2026-08-25): **`/gsd-new-milestone` finished — all 11 steps.** `SUMMARY.md`
+under the load-bearing `v2.0/` path (the five files directly under `.planning/research/` are
+v1's and `CLAUDE.md` cites `STACK.md:113` by line, so they were left untouched — verified by a
+zero diff, not assumed). Then 36 REQ-IDs, then 13 phases numbered 29-41, then the commits.
+
+**Three guards fired and each was closed by work rather than by relaxation**, which is the part
+worth carrying forward. `acceptance-traceability.node.test.ts:901` counts orphans over *every*
+checkbox, not only ticked ones — so 36 unstarted requirements were 36 orphans, closed with 36
+honest `Not started` rows and never by appending ids to the checker's own exemption list, which
+its docblock forbids. `vocabulary.node.test.ts` scans every tracked file for five banned words
+and neither `REQUIREMENTS.md` nor `ROADMAP.md` is exempt, so the anti-feature phrasing was
+reworded — `SUMMARY.md` may write it only because `.planning/research/` is exempt as a tree.
+And `roadmap.analyze` first saw **three** milestone slices, because a backticked heading inside
+a citation and a `### Not in v2.0` subheading both matched its pattern; left alone it would have
+scoped the new phases out. Fixed in the prose, not in the parser.
+
+**One consequence to state outright: `/gsd-autonomous` was unsafe before the roadmap landed and
+is safe now.** It discovered 16 phases, all v1.0/v1.1, fifteen of them already complete on disk
+behind an unticked box; it now discovers exactly the 13 v2.0 phases.
 
 Last session: 2026-08-20T09:20:00.000Z — **resumed via `/gsd-resume-work`, nothing was in flight.**
 Resume file: `.planning/.continue-here.md`. `.planning/HANDOFF.json` was consumed and deleted on
