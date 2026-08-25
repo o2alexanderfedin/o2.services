@@ -1,6 +1,10 @@
 {
   "paused_at": "2026-08-25T09:17:00Z",
-  "milestone": { "version": "v2.0", "name": "Open the Doors", "status": "planning" },
+  "milestone": {
+    "version": "v2.0",
+    "name": "Open the Doors",
+    "status": "planning"
+  },
   "workflow": {
     "command": "/gsd-new-milestone",
     "completed_steps": "1-8 (context, goals, version, PROJECT.md, STATE.md, commit, research)",
@@ -20,8 +24,17 @@
   "in_flight": [],
   "artifacts": {
     "research_dir": ".planning/research/v2.0/",
-    "research_files": ["STACK.md", "FEATURES.md", "ARCHITECTURE.md", "PITFALLS.md"],
-    "missing": ["SUMMARY.md", "REQUIREMENTS.md (v2.0 rows)", "ROADMAP.md (v2.0 phases)"],
+    "research_files": [
+      "STACK.md",
+      "FEATURES.md",
+      "ARCHITECTURE.md",
+      "PITFALLS.md"
+    ],
+    "missing": [
+      "SUMMARY.md",
+      "REQUIREMENTS.md (v2.0 rows)",
+      "ROADMAP.md (v2.0 phases)"
+    ],
     "consults": [
       ".planning/consults/2026-08-24-cloudflare-as-a-fabric-node-measured.md",
       ".planning/consults/2026-08-24-owner-ruling-cloudflare-node-shape.md"
@@ -31,7 +44,8 @@
     "Write v2.0 research to .planning/research/v2.0/ — the files directly under .planning/research/ are the v1 research and CLAUDE.md cites STACK.md:113",
     "Do NOT run gsd-sdk query phases.clear — it deletes 28 v1.1 phase directories with no archive; numbering continues from 29 so no collision is possible",
     "Do NOT tidy the two <details> blocks in STATE.md's Accumulated Context — they are the only copy of the reset Current Position and stopped_at",
-    "Provider records DO expire: reprovide.validity is honoured and providerRecordPolicy already sets it to one hour. Only providers.provideValidity/cleanupInterval are ignored. Four wrong answers on this already exist"
+    "Provider records DO expire: reprovide.validity is honoured and providerRecordPolicy already sets it to one hour. Only providers.provideValidity/cleanupInterval are ignored. Four wrong answers on this already exist",
+    "Runaway Durable Object cost: the $34,895 figure is ONE self-report on Hacker News (thewillmoss, 2026-04-16, 31 points) — the bill was for ~930bn row reads/day, not alarm invocations, and the cause included 60+ preview deployments. What is independently corroborated is that Cloudflare has NO spending limits. setAlarm overrides rather than stacks; a throwing alarm() handler retries 6 times with backoff."
   ],
   "settled_do_not_reopen": [
     "Open source, monetization for commercial use later",
