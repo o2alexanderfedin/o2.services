@@ -2653,7 +2653,6 @@ export async function submitJob(
         },
       }
     }
-    await blockstore.put(encoded.bytes)
     // DATA-10, and this is the boundary the node owns. `submit-with-egress.ts` names it
     // as the fix a later phase would make, in exactly these words: *register at a boundary
     // the node owns — the blockstore-put of a shard labelled sovereign*.
@@ -2667,9 +2666,27 @@ export async function submitJob(
     //
     // The bytes are already in hand, so this costs a set insert and one append — the
     // second canonicalisation `submit-with-egress.ts` pays is not repeated here.
+    //
+    // **Before the put, and the order is load-bearing rather than tidy.** It read
+    // `put` then `add` until 2026-08-23, which left a window one `await` wide in which a
+    // sovereign block was resident and nothing recorded it as sovereign. Nothing consulted
+    // that window while `providers` was answered at ask time — `SelfRecordIndex` asks the
+    // withholding predicate per lookup, and by the time any lookup arrived the `add` had
+    // long resolved. `DhtProviderAnnouncer` is the first thing that reads the store's
+    // *arrivals*, and a provider record written inside that window would advertise, to
+    // strangers and durably, a block this node's own `block` branch is about to refuse.
+    // Marking first closes it at the source instead of asking every future observer to
+    // dodge it.
+    //
+    // The failure this reordering can produce is the harmless one: `add` succeeding and
+    // `put` failing leaves a CID recorded sovereign that this node does not hold, and
+    // `SelfRecordIndex.providers` already answers `[]` for a block the store does not have,
+    // so nothing advertises it and nothing serves it. The other order's failure was a
+    // block advertised before it was known sovereign.
     if ((spec.shards[i] as ShardSpec).label === 'sovereign' && options.sovereignCids !== undefined) {
       await options.sovereignCids.add(encoded.cid.toString())
     }
+    await blockstore.put(encoded.bytes)
     inputCids.push(encoded.cid)
   }
 

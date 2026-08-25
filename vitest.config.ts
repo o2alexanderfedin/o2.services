@@ -22,6 +22,51 @@ const SLOW_CUTOFF_MS = 1000
  * `MEASURED_NODE_SPANS`.
  */
 const NODE_MEASUREMENT = {
+  /**
+   * **AMENDED 2026-08-23, and the amendment is partial on purpose — read what it does and
+   * does not claim.**
+   *
+   * Three specs landed that day (`provider-expiry`, `relay-discovery`, `issuance-rate`),
+   * taking the node project past `FILE_COUNT_TOLERANCE` and reddening
+   * `slow-specs/file-count-drift` — correctly, because the record had stopped describing
+   * the tree.
+   *
+   * **Redone:** the counts, which do not depend on the host — `files`, `tests`, `unitFiles`
+   * — and one span each for the three new files, taken the way step 3 of the procedure
+   * below prescribes: alone, under `/usr/bin/time -p`, less the ~1.2 s boot floor
+   * (21.14 s → 19.94, 3.40 → 2.20, 2.35 → 1.15). All three clear `SLOW_CUTOFF_MS`, so all
+   * three leave `test:unit`. `sumOfFileSpansMs` is raised by exactly their sum, 23 290 ms,
+   * and by nothing else.
+   *
+   * **Carried forward unchanged, and therefore still dated 2026-08-18:** every other span,
+   * `load`, `loadAtEnd`, `loadPeak`, `wallClockMs`, `sumOfReportedSpansMs`,
+   * `crossCheckedFiles`, `crossCheckDisagreed`, `hookShadowCandidates`,
+   * `hookShadowDisagreed`, `unitWallClockMs`.
+   *
+   * **Confirmed independently, which is the part worth keeping.** `npm run test:unit`
+   * — the one command this table actually governs, since `SLOW_NODE_SPECS` is subtracted
+   * only under `O2_UNIT_ONLY=1` — selected exactly **124** files and passed 2232 tests.
+   * That number was written here before the run and matched it, so `unitFiles` and the
+   * three new exclusions are checked against behaviour rather than arithmetic.
+   * `unitTests` is updated to the count it reported; `unitWallClockMs` is **not**, because
+   * that run took 90.43 s of wall clock against the 7.98 s recorded here — the same load
+   * that stopped the full re-measure, and a figure that would say more about the host than
+   * about the suite.
+   *
+   * **Why the full procedure was not run, which is a measurement rather than an excuse.**
+   * It was started twice. The second attempt was stopped after `uptime` on this host read a
+   * 1-minute load average of **104.28** with 19 users logged in — against the 3.53 the
+   * 2026-08-18 pass required of itself before it would begin, and well past the 43.03 that
+   * pass recorded as its own peak. This record already has a precedent for exactly that
+   * call: the 2026-08-14 attempt at this table was **discarded** at `(user+sys)/real` 0.48
+   * because a build farm held the machine. A span table taken at load 104 would be a
+   * reading of the host, and recording it would be worse than leaving the 2026-08-18
+   * numbers standing and saying so.
+   *
+   * So: the guard is satisfied by making the record describe the tree again, not by
+   * widening the tolerance, and the half that would need a quiet host is marked as not
+   * retaken rather than silently refreshed.
+   */
   date: '2026-08-18',
   /**
    * 1-minute load average, polled every 40 s across the whole run.
@@ -96,8 +141,18 @@ const NODE_MEASUREMENT = {
    * argument is that a guard cheap to satisfy by widening is a guard that will be widened
    * again.
    */
-  files: 197,
-  tests: 2944,
+  // 2026-08-24: 204 → 203 files, 3018 → 2990 tests. `packages/core/src/cert-lifecycle.test.ts`
+  // and its browser twin left the tree with the module they specified — owner ruling, one
+  // certificate system rather than two. The node project loses exactly that one file and its
+  // 28 cases, counted from `git show` on the deleted file rather than by subtraction from a
+  // later run, so the arithmetic here is a reading of what went and not of what is left.
+  //
+  // `unitFiles` and `unitTests` are UNCHANGED, and the reason is worth stating rather than
+  // looking like an oversight: that spec was in `SLOW_NODE_SPECS`, so `test:unit` never ran
+  // it. The row leaving the table lowers `EXCLUDED.length` by one at the same moment `files`
+  // drops by one, and `unitFiles = files − EXCLUDED.length` holds at 124 on both sides.
+  files: 203,
+  tests: 2990,
   /**
    * Sum of the per-file costs the table below records, every one of them taken in the same
    * run by the same instrument.
@@ -110,7 +165,7 @@ const NODE_MEASUREMENT = {
    * inequality in that direction on purpose: a sum that did not cover the listed rows would
    * mean the table and this field came from different events.
    */
-  sumOfFileSpansMs: 2_150_034,
+  sumOfFileSpansMs: 2_168_815,
   /**
    * What `--reporter=json` alone said the same run summed to, i.e. the same 197 files with
    * every span left at the value the case-stamp instrument gave it.
@@ -207,8 +262,8 @@ const NODE_MEASUREMENT = {
    * hour once spread 25.69 / 33.68 / 22.39 s — 1.5× end to end. Any comparison against this
    * number that turns on less than half of it is reading the host's weather.
    */
-  unitFiles: 120,
-  unitTests: 2171,
+  unitFiles: 124,
+  unitTests: 2232,
   unitWallClockMs: 7_980,
 } as const
 
@@ -528,6 +583,7 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/node/src/sovereign-arm.node.test.ts', 21_719],
   ['packages/node/src/closed-fabric-agents.node.test.ts', 21_268],
   ['packages/node/src/quorum-agents.node.test.ts', 20_908],
+  ['packages/node/src/provider-expiry.node.test.ts', 19_940],
   ['packages/node/src/enrollment.node.test.ts', 19_007],
   ['packages/node/src/coverage-agents.node.test.ts', 17_859],
   ['packages/node/src/sovereignty-placement.node.test.ts', 17_441],
@@ -560,7 +616,6 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/node/src/node-records.node.test.ts', 5_111],
   ['tools/aot/cross-machine.node.test.ts', 4_991],
   ['packages/node/src/sovereign-aggregation.node.test.ts', 4_752],
-  ['packages/core/src/cert-lifecycle.test.ts', 4_509],
   ['packages/node/src/checkpoint-agents.node.test.ts', 4_470],
   ['packages/node/src/trust-anchors.node.test.ts', 4_436],
   ['tools/aot/docker-gate.node.test.ts', 4_322],
@@ -571,6 +626,7 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/node/src/sovereign-at-rest.node.test.ts', 2_711],
   ['packages/node/src/reachability-guard.node.test.ts', 2_673],
   ['packages/demo/src/kernel.test.ts', 2_408],
+  ['packages/node/src/relay-discovery.node.test.ts', 2_200],
   ['packages/node/src/egress-manifest.node.test.ts', 2_008],
   ['packages/node/src/egress-refusal.node.test.ts', 1_953],
   ['packages/node/src/node-enrollment.node.test.ts', 1_951],
@@ -584,6 +640,7 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/node/src/rendezvous-wire.node.test.ts', 1_403],
   ['packages/node/src/disclosure-gate.node.test.ts', 1_319],
   ['packages/node/src/vocabulary.node.test.ts', 1_157],
+  ['packages/node/src/issuance-rate.node.test.ts', 1_150],
   ['packages/node/src/bench-admission.node.test.ts', 1_101],
   ['packages/node/src/strip-comments.node.test.ts', 1_079],
   ['packages/node/src/relayed-job.node.test.ts', 1_058],

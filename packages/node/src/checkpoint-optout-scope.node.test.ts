@@ -424,12 +424,18 @@ describe('the set of production files that opt out of checkpointing is pinned', 
     // rather than replaced.
     expect(codeOccurrences(demo, 'checkpointsInto(node.store)')).toBe(3)
     // And it is the *store* that outlives the process, not a scratch one built for the
-    // call. `browser-node.ts` declares `readonly store: IdbBlockstore`, so naming
-    // `node.store` here is naming IndexedDB. The honest claim is that a checkpoint block
+    // call. `browser-node.ts` declares `readonly store: ObservingBlockstore<IdbBlockstore>`,
+    // so naming `node.store` here is still naming IndexedDB — the decorator delegates every
+    // `Blockstore` member and exposes the adapter as `.inner`, which is what `stop()` closes.
+    // **The pinned string was `readonly store: IdbBlockstore` until 2026-08-23**, and the
+    // generic is what keeps that claim checkable: an unparameterised wrapper would have made
+    // this line pass while saying nothing about where the blocks live. The honest claim is that a checkpoint block
     // survives the tab closing — not that it is durable: browsers evict IndexedDB
     // silently under storage pressure, and `navigator.storage.persist()` would exempt the
     // origin from eviction under disk pressure but never from a visitor clearing site data.
-    expect(codeOccurrences('packages/browser/src/browser-node.ts', 'readonly store: IdbBlockstore')).toBe(1)
+    expect(
+      codeOccurrences('packages/browser/src/browser-node.ts', 'readonly store: ObservingBlockstore<IdbBlockstore>'),
+    ).toBe(1)
   })
 
   it('can report a new opt-out, and is not satisfied by prose describing one', () => {

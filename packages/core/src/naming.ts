@@ -365,6 +365,23 @@ export type ResolveFailure =
   | { readonly kind: 'bad-signature'; readonly name: string; readonly signer: PublicKeyHex }
   | { readonly kind: 'expired'; readonly name: string; readonly expiresAt: number; readonly now: number }
   | { readonly kind: 'rollback'; readonly name: string; readonly have: number; readonly offered: number }
+  /**
+   * A record for a name this resolver already holds, offered under a **different pinned
+   * authority**. RFC-0003 Response 01 §1.8 recommendation 5: replace across channels,
+   * refuse within the set — never pick.
+   *
+   * Separate from `rollback` because they fail for opposite reasons. `rollback` is an
+   * authority contradicting *itself* and losing to its own earlier statement; this is two
+   * authorities contradicting *each other*, which no resolver can adjudicate. Folding them
+   * together would report "version too low" for a takeover attempt that named a version
+   * higher than anything on record.
+   */
+  | {
+      readonly kind: 'authority-changed'
+      readonly name: string
+      readonly have: PublicKeyHex
+      readonly offered: PublicKeyHex
+    }
   // ---- delegated signing, task #4 half 2. Four distinct kinds rather than folding them
   // into `untrusted-signer`, because they fail for four different reasons and an operator
   // reading `untrusted-signer` for an EXPIRED delegation would go looking for the wrong bug.
@@ -410,6 +427,12 @@ export function describeResolveFailure(failure: ResolveFailure): string {
       return `"${failure.name}" expired at ${failure.expiresAt}, now ${failure.now}`
     case 'rollback':
       return `"${failure.name}" offered version ${failure.offered}, but ${failure.have} is already known`
+    case 'authority-changed':
+      return (
+        `"${failure.name}" is already held under ${failure.have} and was offered under ` +
+        `${failure.offered} — two pinned anchors disagree, and this resolver refuses rather ` +
+        `than picking one`
+      )
     case 'untrusted-root':
       return (
         `"${failure.name}" is signed under a delegation from ${failure.root}, ` +
@@ -441,6 +464,19 @@ export function describeResolveFailure(failure: ResolveFailure): string {
 export type ResolveResult =
   | { readonly ok: true; readonly cid: CID }
   | { readonly ok: false; readonly failure: ResolveFailure; readonly reason: string }
+
+/**
+ * The pinned key a record ultimately rests on — itself, or the root that delegated to it.
+ *
+ * Only meaningful for a record `#authorise` has already accepted, which is where its one
+ * caller sits: a signer that is neither an anchor nor a valid delegate has been refused
+ * before this is reached. Compared instead of `signer` because a delegation is a
+ * legitimate way for one anchor to sign under several keys, and two records under one root
+ * are one authority.
+ */
+function authorityOf(record: NameRecord): PublicKeyHex {
+  return record.delegation?.root ?? record.signer
+}
 
 /**
  * Resolves names to CIDs, accepting only records signed by pinned keys.
@@ -493,6 +529,21 @@ export class SignedNameResolver {
     }
 
     const existing = this.#records.get(record.name)
+    // Before the version comparison, and unconditionally on it: a takeover names whatever
+    // version it likes, so a check that ran after `rollback` would let the highest number
+    // win — which is precisely the "pick" §1.8 forbids.
+    if (existing !== undefined) {
+      const held = authorityOf(existing)
+      const offered = authorityOf(record)
+      if (held !== offered) {
+        return this.#refuse({
+          kind: 'authority-changed',
+          name: record.name,
+          have: held,
+          offered,
+        })
+      }
+    }
     if (existing !== undefined && record.version < existing.version) {
       return this.#refuse({
         kind: 'rollback',

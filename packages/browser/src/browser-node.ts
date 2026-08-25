@@ -28,13 +28,15 @@ import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { circuitRelayTransport } from '@libp2p/circuit-relay-v2'
 import { identify, identifyPush } from '@libp2p/identify'
-import { kadDHT } from '@libp2p/kad-dht'
+import { kadDHT, passthroughMapper } from '@libp2p/kad-dht'
+import { peerIdFromString } from '@libp2p/peer-id'
 import { ping } from '@libp2p/ping'
 import { webRTC } from '@libp2p/webrtc'
 import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
 import { AbiExecutor, WasiExecutor } from '@o2/aot'
 import {
+  CertificateHolder,
   DEFAULT_ISSUANCE_WINDOW_MS,
   DEFAULT_MAX_CONCURRENT_TASKS,
   EnrollmentAuthority,
@@ -58,6 +60,7 @@ import type {
   Executor,
   IssuanceBudget,
   NodeCertificate,
+  NodeRecords,
   NodeSovereignty,
   PublicKeyHex,
   RecordIndex,
@@ -69,7 +72,11 @@ import type {
 } from '@o2/core'
 import {
   DHT_QUERY_TIMEOUT_MS,
+  DhtProviderAnnouncer,
   DhtRecordIndex,
+  ObservingBlockstore,
+  RecordPublisher,
+  startCertificateRenewal,
   Libp2pTransport,
   O2_KAD_PROTOCOL,
   O2_RECORD_NAMESPACE,
@@ -77,11 +84,16 @@ import {
   audienceKeyOf,
   generateSeed,
   identityFromSeed,
+  o2RecordSelector,
   o2RecordValidator,
+  RELAY_RESERVATION_TARGET,
+  discoverRelays,
   peerIdForNodeKey,
-  publishRecords,
+  providerRecordPolicy,
+  topUpRelays,
 } from '@o2/libp2p'
-import type { NodeIdentity, PeerVerdict } from '@o2/libp2p'
+import type { NodeIdentity, PeerVerdict, SweepOutcome } from '@o2/libp2p'
+import type { KadDHT } from '@libp2p/kad-dht'
 import {
   CountingExecutor,
   EgressGuard,
@@ -114,6 +126,23 @@ import type { WorkerFactory } from './worker-executor.ts'
 export interface BrowserNodeOptions {
   /** Relays to reserve on. At least one is required to be addressable at all. */
   readonly relayAddrs: readonly string[]
+  /**
+   * How long this tab keeps another node's provider record before sweeping it. **1 hour
+   * by default** — {@link PROVIDER_RECORD_VALIDITY_MS}.
+   *
+   * Byte-identical in meaning to `FabricNodeOptions.providerRecordValidityMs`, and both
+   * tiers thread the same derivation, so a tab and a backbone node forget on the same
+   * schedule. That matters here more than it looks: a tab is the shortest-lived provider
+   * in the fabric, and a record about it is the one most likely to outlive what it
+   * describes.
+   */
+  readonly providerRecordValidityMs?: number
+  /**
+   * How long the renewal loop waits before asking again after a refused or unreachable
+   * exchange — AUTH-04. Defaults to `RENEWAL_RETRY_FLOOR_MS`. Exists so a test can reach
+   * the retry path inside a run; production leaves it alone.
+   */
+  readonly renewalRetryFloorMs?: number
   /**
    * SCHED-03. Read on every request to decide whether this tab is **paused** — alive,
    * reachable, unchanged in what it can do, and declining all work right now.
@@ -610,6 +639,13 @@ async function resolveCertificate(parts: {
   identityStore: IdbIdentityStore
   canRelay: boolean
   relayPeerIds: readonly string[]
+  /**
+   * Whether the persisted certificate may satisfy this call — AUTH-04. The Node tier's
+   * twin carries the full argument; the short form is that a renewal must not be allowed
+   * to hand back the very certificate it is replacing, which would make the loop a no-op
+   * that reports success.
+   */
+  reuse: 'may-reuse-a-persisted-certificate' | 'must-obtain-a-fresh-certificate'
 }): Promise<NodeCertificate | null> {
   const { enrollment, identity, rpc, libp2p, identityStore, canRelay, relayPeerIds } = parts
 
@@ -626,7 +662,10 @@ async function resolveCertificate(parts: {
   // The case this catches in a tab is the one `whenSeedIsGone` describes: storage was
   // evicted, a new seed was minted, and a certificate naming the *old* node survived —
   // or, just as real, an origin whose database was copied between profiles.
-  const loaded = await identityStore.loadCertificate()
+  const loaded =
+    parts.reuse === 'may-reuse-a-persisted-certificate'
+      ? await identityStore.loadCertificate()
+      : null
   if (
     loaded !== null &&
     peerIdForNodeKey(loaded.nodeKey) === identity.peerId &&
@@ -802,8 +841,34 @@ export async function enrolledUserKey(blockstoreName?: string): Promise<PublicKe
  * answers for them — `records: 'holds-no-records'` is about a signed identity and says
  * nothing about bytes.
  */
-function ownRecords(
+/**
+ * This tab's records as they stand right now — the browser twin of `fabric-node.ts`'
+ * `recordsFrom`, split out for the identical reason. One function computes it and the
+ * index, the DHT publisher and `BrowserNode.certificate` all read through it, so a
+ * certificate that changes under them cannot leave the three disagreeing.
+ */
+function recordsFrom(
   certificate: NodeCertificate | null,
+  identity: NodeIdentity,
+  canExecuteSovereign: boolean,
+): NodeRecords | 'holds-no-records' {
+  if (certificate === null) return 'holds-no-records'
+  return {
+    certificate,
+    capabilities: publishCapabilities(identity.seed, {
+      features: [],
+      sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
+      issuedAt: certificate.issuedAt,
+      expiresAt: certificate.expiresAt,
+      // Stated, not omitted — see `fabric-node.ts`'s `ownRecords` doc. A record
+      // with none signs the payload it signed before the seam existed.
+      extensions: [],
+    }),
+  }
+}
+
+function ownRecords(
+  holder: CertificateHolder,
   identity: NodeIdentity,
   canExecuteSovereign: boolean,
   store: Blockstore,
@@ -812,21 +877,10 @@ function ownRecords(
   return new SelfRecordIndex({
     nodeKey: identity.nodeKey,
     store,
-    records:
-      certificate === null
-        ? 'holds-no-records'
-        : {
-            certificate,
-            capabilities: publishCapabilities(identity.seed, {
-              features: [],
-              sovereignFor: canExecuteSovereign ? [certificate.userKey] : [],
-              issuedAt: certificate.issuedAt,
-              expiresAt: certificate.expiresAt,
-              // Stated, not omitted — see `fabric-node.ts`'s `ownRecords` doc. A record
-              // with none signs the payload it signed before the seam existed.
-              extensions: [],
-            }),
-          },
+    // A thunk — AUTH-04 renewal. A tab renews on the same fraction a server does, because
+    // this module's own rule is that all nodes have equal functionality and the only
+    // difference is discovery. A tab that could not renew would be a tab that expired.
+    records: () => recordsFrom(holder.current, identity, canExecuteSovereign),
     withhold,
   })
 }
@@ -949,9 +1003,11 @@ export class BrowserNode {
   readonly egress: EgressGuard
   /** IndexedDB plus network fallback — what the executor reads from. */
   readonly blockstore: FetchingBlockstore
-  readonly store: IdbBlockstore
+  readonly store: ObservingBlockstore<IdbBlockstore>
   /** See {@link registrationRefusal}. Written once, after start. */
   #registrationRefusal: string | undefined
+  readonly #publisher: RecordPublisher | null
+  readonly #announcer: DhtProviderAnnouncer
   /**
    * Who advertises a block, and what a node's signed records say — SCHED-01, NET-06.
    *
@@ -959,6 +1015,12 @@ export class BrowserNode {
    * in what it can listen on, never in what it may ask.
    */
   readonly recordIndex: RecordIndex
+  /**
+   * This tab's Kademlia handle, typed — the same reading `FabricNode.dht` carries, and
+   * present here for the reason every pair on these two classes is: a tab differs from a
+   * backbone node in what it can listen on, never in what it may ask.
+   */
+  readonly dht: KadDHT
   /**
    * This tab's durable sovereign-CID set — DATA-10.
    *
@@ -996,7 +1058,7 @@ export class BrowserNode {
    * public signed statement — every peer is meant to be able to read it. Mirrors
    * `FabricNode.certificate`, which carries the long form.
    */
-  readonly certificate: NodeCertificate | null
+  readonly #certificates: CertificateHolder
   /**
    * Governed: throttles with tab visibility.
    *
@@ -1123,15 +1185,18 @@ export class BrowserNode {
 
   private constructor(parts: {
     recordIndex: RecordIndex
+    dht: KadDHT
+    publisher: RecordPublisher | null
+    announcer: DhtProviderAnnouncer
     libp2p: Libp2p
     transport: Libp2pTransport
     rpc: RpcEndpoint
     egress: EgressGuard
     blockstore: FetchingBlockstore
-    store: IdbBlockstore
+    store: ObservingBlockstore<IdbBlockstore>
     sovereignCids: SovereignCids
     identityStore: IdbIdentityStore
-    certificate: NodeCertificate | null
+    certificates: CertificateHolder
     executor: GovernedExecutor
     signingExecutor: Executor
     governor: VisibilityGovernor
@@ -1150,9 +1215,12 @@ export class BrowserNode {
     this.blockstore = parts.blockstore
     this.store = parts.store
     this.recordIndex = parts.recordIndex
+    this.dht = parts.dht
+    this.#publisher = parts.publisher
+    this.#announcer = parts.announcer
     this.sovereignCids = parts.sovereignCids
     this.identityStore = parts.identityStore
-    this.certificate = parts.certificate
+    this.#certificates = parts.certificates
     this.executor = parts.executor
     this.signingExecutor = parts.signingExecutor
     this.governor = parts.governor
@@ -1345,8 +1413,14 @@ export class BrowserNode {
     installSubtleDigestFallback()
 
     const blockstoreName = options.blockstoreName ?? DEFAULT_BLOCKSTORE_NAME
-    const store = await IdbBlockstore.open(blockstoreName)
-    undo.push(() => store.close())
+    // SCHED-01 — wrapped so the provider announcer learns what this tab comes to hold, on
+    // the identical reasoning `fabric-node.ts` states at its own store: the DHT does not
+    // exist until `createLibp2p` below, so the wrapper buffers what is put in between and
+    // `observeWith` replays it. `inner` is the `IdbBlockstore` itself, which this decorator
+    // must not swallow — an open IndexedDB connection is what blocks a `deleteDatabase`,
+    // and `start-unwind.browser.test.ts` reads exactly that.
+    const store = new ObservingBlockstore(await IdbBlockstore.open(blockstoreName))
+    undo.push(() => store.inner.close())
 
     // A separate database from the blocks, deliberately — see `idb-identity-store.ts`.
     // Opened here rather than lazily because `createLibp2p` below needs the derived key,
@@ -1429,8 +1503,47 @@ export class BrowserNode {
         // record and **reads** everyone else's, which is what this tier needs.
         dht: kadDHT({
           protocol: O2_KAD_PROTOCOL,
+          // **`peerInfoMapper`, and leaving it unset made the whole keyspace inert.**
+          // Measured 2026-08-23 on two nodes on loopback: both promote to `server`, both
+          // advertise `/o2/kad/1.0.0`, identify completes and each holds the other as a
+          // peer — and a `put` yields **no events at all** while `getClosestPeers` never
+          // returns. The routing tables were empty. `kad-dht` defaults
+          // `peerInfoMapper` to `removePrivateAddressesMapper` (`src/kad-dht.ts:179`), and
+          // `onPeerConnect` drops any peer left with zero addresses after mapping
+          // (`:403-406`), so **every peer whose only address is private was silently never
+          // added.**
+          //
+          // That default is correct for Amino, whose whole point is a public network, and
+          // wrong for this one. `/o2/kad/1.0.0` is a *private* keyspace whose membership is
+          // decided by a certificate, not by address class: its peers are on loopback in
+          // tests, on a LAN in the multi-machine demo, and behind a relay in every browser
+          // tab. `removePublicAddressesMapper` — kad-dht's own suggestion for a LAN DHT —
+          // would be the same mistake mirrored. `passthroughMapper` is what says the fabric
+          // decides who is in it.
+          //
+          // What this does **not** do is admit anybody: `relay-admission.ts` and the
+          // certificate gate are unchanged, and a peer that reaches a routing table still
+          // has to verify to be dispatched to.
+          peerInfoMapper: passthroughMapper,
           clientMode: true,
+          // NET-06 — provider-record lifetime, stated for the same reason `clientMode` is.
+          //
+          // Left unset the fabric inherits 48 h / 1 h / 24 h, which are sited against a
+          // long-running IPFS daemon. `providerRecordPolicy` derives all three from one
+          // number so the staleness bound stays `1.25 × validity` rather than becoming an
+          // accident between three independently-chosen figures. The reading that makes
+          // this necessary — that `providers.provideValidity` is declared, spread in, and
+          // read by nothing, while the honoured knob lives in `reprovide` — is in the
+          // constant's own docblock, because this project drew the wrong conclusion from
+          // it twice.
+          reprovide: providerRecordPolicy(options.providerRecordValidityMs),
           validators: { [O2_RECORD_NAMESPACE]: o2RecordValidator(() => Date.now()) },
+          // Registering `validators` without `selectors` makes a keyspace that accepts
+          // every write and errors on every read — `bestRecord` throws
+          // `MissingSelectorError` when the namespace is unknown, and `DhtRecordIndex`'s
+          // own catch turns that into a silent *"the DHT holds nothing"*. Measured
+          // 2026-08-23; see `o2RecordSelector` for the rule and for how it presented.
+          selectors: { [O2_RECORD_NAMESPACE]: o2RecordSelector },
         }),
       },
       ...(options.allowPrivateAddrs === true
@@ -1562,7 +1675,12 @@ export class BrowserNode {
       identityStore,
       canRelay: canRelayFrom(BROWSER_LISTEN),
       relayPeerIds,
+      reuse: 'may-reuse-a-persisted-certificate',
     })
+
+    // AUTH-04 renewal — one cell, read by the index, the publisher and this tab's own
+    // accessor. `CertificateHolder`'s doc says why it is a type rather than a local.
+    const certificates = new CertificateHolder(certificate)
 
     // DATA-05 — the tap and the local-only tier, bound once and handed to both readers
     // below, exactly as `fabric-node.ts` does and for the identical reason: the withholding
@@ -1582,7 +1700,7 @@ export class BrowserNode {
     // `blockstore`, which has network fallback and would turn a question about this tab
     // into a fetch.
     const records = ownRecords(
-      certificate,
+      certificates,
       identity,
       sovereignty.canExecuteSovereign,
       store,
@@ -1605,6 +1723,8 @@ export class BrowserNode {
         verifyCertificate(found.certificate, pinnedIssuers, Date.now()).ok &&
         verifyCapabilityRecord(found.capabilities, Date.now()),
       timeoutMs: DHT_QUERY_TIMEOUT_MS,
+      // A requestor is not its own candidate — see `DhtRecordIndexOptions.self`.
+      self: identity.nodeKey,
       addresses: (info) => {
         void libp2p.peerStore.merge(info.id, { multiaddrs: info.multiaddrs }).catch(() => {})
       },
@@ -1955,6 +2075,44 @@ export class BrowserNode {
       now: Date.now,
     })
 
+    // ── SCHED-01 / NET-06 — registration and provider announcement, and a tab does both ──
+    //
+    // Constructed here, before the node, so both are readable off it; started below, once
+    // there is a node for a refusal to be recorded against. Byte-identical composition to
+    // `fabric-node.ts`'s, which is the point: `clientMode: true` above says this tab does
+    // not ANSWER a query, and says nothing whatever about what it may WRITE.
+    //
+    // A kad client puts to the servers closest to the key, which is exactly what makes a
+    // tab findable by a peer that has never met it — the gap `rendezvous.ts` opens with:
+    // *"no tab can be dialled cold, and none of them will ever announce itself."* This is
+    // the announcement.
+    // A thunk, so a renewed certificate reaches the keyspace. A value record outlives the
+    // certificate inside it, so a tab that renewed without republishing would be discarded
+    // by every reader running `verifyCertificate` while believing it was enrolled.
+    const publisher =
+      certificate === null
+        ? null
+        : new RecordPublisher(libp2p.services.dht, () => {
+            const held = recordsFrom(
+              certificates.current,
+              identity,
+              sovereignty.canExecuteSovereign,
+            )
+            return held === 'holds-no-records' ? undefined : held
+          })
+    const announcer = new DhtProviderAnnouncer({
+      dht: libp2p.services.dht,
+      withhold: withholdingFrom(egressDisposition),
+    })
+    store.observeWith((cid) => {
+      announcer.observe(cid)
+      // Peer arrival covers the blocks a node already holds; this covers the peers it
+      // already has. A requestor connects and *then* stores its module and inputs, so
+      // without this every block it holds would be stored after its last arrival and
+      // never announced. Collapsed to one sweep per turn — see `sweepSoon`.
+      announcer.sweepSoon()
+    })
+
     const node = new BrowserNode({
       libp2p,
       transport,
@@ -1963,9 +2121,12 @@ export class BrowserNode {
       blockstore,
       store,
       recordIndex,
+      dht: libp2p.services.dht,
+      publisher,
+      announcer,
       sovereignCids,
       identityStore,
-      certificate,
+      certificates,
       executor,
       signingExecutor: signing,
       governor,
@@ -2158,25 +2319,122 @@ export class BrowserNode {
       attest: attestor,
     })
 
-    // SCHED-01 / NET-06 — registration, and a tab does it too.
+    // Started here, and the trigger is start **and every peer arrival**.
     //
-    // `clientMode: true` above says this tab does not ANSWER queries; it does not stop it
-    // WRITING one. A kad client puts to the servers closest to the key, which is exactly
-    // what makes a tab findable by a peer that has never met it — the gap
-    // `rendezvous.ts` opens with: *"no tab can be dialled cold, and none of them will ever
-    // announce itself."* This is the announcement.
+    // **Published once was published nowhere, and a tab is the case where that bit
+    // hardest.** A put against an empty routing table does not fail — `kad-dht` writes the
+    // record to the local datastore before it walks to the closest peers — so the one-shot
+    // reported success and left the record in the only place that already had it. A tab
+    // starts behind a relay with an empty table *by definition*, so every tab registered
+    // with nobody, and every `dht.get` for a tab missed.
+    //
+    // `peer:identify` rather than `peer:connect`: kad-dht populates its routing table
+    // through a topology registered on the DHT protocol, and that fires once identify has
+    // said which protocols the peer speaks. The announcer sweeps on the same signal for the
+    // same reason — an announcement walks the same table. Nothing here is timed.
     //
     // Published from the same object that serves them, so what a peer reads from the DHT
     // and what this tab answers over RPC cannot come to disagree. Not awaited and not
     // fatal, for the reason given at the Node factory's identical line.
-    if (certificate !== null) {
-      const own = await records.recordsFor(certificate.nodeKey)
-      if (own !== undefined) {
-        void publishRecords(libp2p.services.dht, own).then((outcome) => {
-          if (outcome.kind === 'refused') node.noteRegistrationRefused(outcome.reason)
-        })
+    const onPeerArrival = (listener: () => void): (() => void) => {
+      const onIdentify = (): void => {
+        listener()
+      }
+      libp2p.addEventListener('peer:identify', onIdentify)
+      return () => {
+        libp2p.removeEventListener('peer:identify', onIdentify)
       }
     }
+    if (publisher !== null) {
+      undo.push(() => {
+        publisher.stop()
+      })
+      void publisher.start(onPeerArrival).then((outcome) => {
+        if (outcome.kind === 'refused') node.noteRegistrationRefused(outcome.reason)
+      })
+    }
+
+    // AUTH-04 — a tab keeps its certificate alive on the same terms a server does.
+    //
+    // Not an optional extra for this tier: a tab is the node most likely to be running
+    // when its certificate lapses, because it has no operator watching it and no restart
+    // to fall back on. Without this it would go on executing while every peer's
+    // `PeerVerifier` demoted it and every relay's admission gate refused its reservation
+    // renewal — visible to the user as a tab that simply stopped being given work.
+    //
+    // The republish is what makes it visible: a value record outlives the certificate
+    // inside it, and the publisher reads through the same holder.
+    if (options.enrollment !== undefined) {
+      undo.push(
+        startCertificateRenewal({
+          holder: certificates,
+          renew: async () =>
+            resolveCertificate({
+              enrollment: options.enrollment,
+              identity,
+              rpc,
+              libp2p,
+              identityStore,
+              canRelay: canRelayFrom(BROWSER_LISTEN),
+              relayPeerIds,
+              reuse: 'must-obtain-a-fresh-certificate',
+            }),
+          renewed: async () => {
+            // `resolveCertificate` already wrote IndexedDB; the keyspace is what is left.
+            if (publisher !== null) await publisher.publish()
+          },
+          ...(options.renewalRetryFloorMs === undefined
+            ? {}
+            : { retryFloorMs: options.renewalRetryFloorMs }),
+        }),
+      )
+    }
+
+    undo.push(
+      onPeerArrival(() => {
+        void announcer.sweep()
+      }),
+    )
+
+    // NET-05 — a tab looks for relays and never offers itself as one.
+    //
+    // There is no `canRelay` branch here because there is no case to branch on: the relay
+    // server *"will not work in browsers"* in its own package's words, and a tab's
+    // certificate says `'via-relay'` for the same reason. So this tier performs only the
+    // looking half, and it is the tier that needs it most — a tab's every address runs
+    // through a relay, so losing that relay removes it from the fabric entirely, and it
+    // cannot be told about a replacement because being told requires being reachable.
+    //
+    // Bounded by `RELAY_RESERVATION_TARGET`, byte-identical to the backbone's ceiling, and
+    // the constant carries the arithmetic: 64 slots per relay make `k` a divisor on how
+    // many tabs the fabric can hold at once.
+    const topUpRelayReservations = async (): Promise<void> => {
+      await topUpRelays({
+        target: RELAY_RESERVATION_TARGET,
+        // An approximation and stated as one, exactly as the backbone states it: one relay
+        // may publish more than one circuit address for this tab, so this can over-count
+        // and stop early. Over-counting spends fewer slots than the ceiling rather than
+        // more, which is the safe direction for a number whose whole job is to be a
+        // ceiling.
+        reserved: () =>
+          libp2p.getMultiaddrs().filter((ma) => ma.toString().includes('/p2p-circuit')).length,
+        discover: () => discoverRelays({ index: recordIndex, self: identity.nodeKey }),
+        connect: async (nodeKey) => {
+          const spelling = peerIdForNodeKey(nodeKey)
+          if (spelling === null) return
+          // Connecting is what reserves: `/p2p-circuit` is already in this tab's listen
+          // list, and libp2p turns a connection to a relay into a reservation because of
+          // it.
+          await libp2p.dial(peerIdFromString(spelling))
+        },
+      })
+    }
+    void topUpRelayReservations()
+    undo.push(
+      onPeerArrival(() => {
+        void topUpRelayReservations()
+      }),
+    )
 
     return node
   }
@@ -2188,6 +2446,24 @@ export class BrowserNode {
    * table may be empty for a while after start, and a silent failure would be
    * indistinguishable from a successful registration nobody can find.
    */
+  /**
+   * This tab's provider-signed certificate, or `null` when it holds none — AUTH-01.
+   *
+   * `null` is the answer for a node nobody asked to enrol, and it is not a failure. Nor
+   * is it a lesser tier: a node with a certificate executes tasks, holds blocks and takes
+   * quorum slots on exactly the terms as one without, and what the certificate buys is
+   * being taken *by a peer that pinned an issuer*. Public, because a certificate is a
+   * public signed statement — every peer is meant to be able to read it. Mirrors
+   * `FabricNode.certificate`, which carries the long form.
+   *
+   * **A getter rather than a field, since AUTH-04 renewal** — the certificate a running
+   * tab holds is replaced about two-thirds of the way through its life, and a caller that
+   * read a field once would hold one this tab has stopped presenting to peers.
+   */
+  get certificate(): NodeCertificate | null {
+    return this.#certificates.current
+  }
+
   get registrationRefusal(): string | undefined {
     return this.#registrationRefusal
   }
@@ -2195,6 +2471,28 @@ export class BrowserNode {
   /** Recorded by the start path's publish; see {@link registrationRefusal}. */
   noteRegistrationRefused(reason: string): void {
     this.#registrationRefusal = reason
+  }
+
+  /**
+   * How many peers stored this tab's records at its most recent publish — SCHED-01.
+   *
+   * Zero is a real state, not a failure: `kad-dht` writes a record locally before walking
+   * to the closest peers, so a publish with an empty routing table succeeds and reaches
+   * nobody. See {@link FabricNode.registrationPeers} for the full reading — the two are one
+   * measurement on two tiers.
+   */
+  get registrationPeers(): number {
+    return this.#publisher?.peers ?? 0
+  }
+
+  /** How many of this tab's blocks are currently advertised in the keyspace — SCHED-01. */
+  get announcedBlocks(): number {
+    return this.#announcer.announcedCount
+  }
+
+  /** Announce the blocks this tab holds, and retract the ones it may no longer advertise. */
+  async announceHeldBlocks(): Promise<SweepOutcome> {
+    return this.#announcer.sweep()
   }
 
   get peerId(): string {
@@ -2285,7 +2583,7 @@ export class BrowserNode {
     await this.transport.stop()
     await this.libp2p.stop()
     this.governor.stop()
-    this.store.close()
+    this.store.inner.close()
     // Closed last and beside the blockstore, because an open IndexedDB connection is what
     // blocks a `deleteDatabase` — the effect `start-unwind.browser.test.ts` reads.
     this.identityStore.close()

@@ -1,7 +1,8 @@
+import type { CertificateCache } from '@o2/libp2p'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { peerIdFromString } from '@libp2p/peer-id'
 import { EnrollmentAuthority, MemoryNetwork, publishCapabilities, requestEnrollment } from '@o2/core'
 import type { NodeCertificate, NodeRecords, PublicKeyHex } from '@o2/core'
@@ -127,6 +128,16 @@ async function servedBy(options: {
    * so that the timeout is a 200 ms reading rather than a 30 s one.
    */
   clientTimeoutMs?: number
+  /**
+   * A certificate cache — W4. Absent everywhere except the cache cases.
+   *
+   * Handed in as a bare object rather than the datastore-backed implementation, because
+   * what these cases are about is the **verifier's** treatment of a cached answer and not
+   * the store's fidelity: `certificate-cache.node.test.ts` covers the store, and a real one
+   * here would make it impossible to hand the verifier a certificate a real store would
+   * never hold — which is exactly the input worth testing.
+   */
+  certificates?: CertificateCache
 }): Promise<HandBuilt> {
   const identity = await identityFromSeed(FIXTURE_SEED)
   const network = new MemoryNetwork()
@@ -154,6 +165,7 @@ async function servedBy(options: {
     trustedIssuers: options.trustedIssuers,
     ...(options.retryFloorMs === undefined ? {} : { retryFloorMs: options.retryFloorMs }),
     ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.certificates === undefined ? {} : { certificates: options.certificates }),
   })
 
   return {
@@ -1140,5 +1152,108 @@ describe('AUTH-02 — stopping removes the listeners', () => {
     plain.removeEventListener('peer:connect', listener)
     plain.dispatchEvent(new CustomEvent('peer:connect', { detail: 'two' }))
     expect(calls).toBe(1)
+  })
+})
+
+describe('W4 — a cached certificate is a hint and can never widen what is accepted', () => {
+  /** A cache that answers with exactly what it is given, however unreasonable. */
+  function holding(certificate: NodeCertificate | undefined): CertificateCache {
+    return {
+      load: async () => certificate,
+      save: async () => {},
+    }
+  }
+
+  it('skips the round trip when the cached certificate verifies', async () => {
+    // The benefit half. Without a cache this costs one RPC per peer per process, paid
+    // again on every restart even for a peer verified minutes earlier.
+    const subject = new Uint8Array(SEED_BYTES).fill(0xa1)
+    const identity = await identityFromSeed(FIXTURE_SEED)
+    const { authority, certificate } = await certificateFor(identity.seed, subject, Date.now())
+
+    const rig = await servedBy({
+      answer: async () => recordsOf(certificate, identity.seed),
+      trustedIssuers: new Set([authority.issuerKey]),
+      certificates: holding(certificate),
+    })
+    try {
+      rig.connect(rig.peerId)
+      await vi.waitFor(() => expect(rig.verifier.verifiedPeers).toContain(rig.peerId))
+      // **Nothing was asked.** This is the whole point of the cache, and asserting the
+      // verdict alone would pass with the cache doing nothing at all.
+      expect(rig.requests(), 'the peer was asked despite a usable cached certificate').toBe(0)
+    } finally {
+      rig.stop()
+    }
+  })
+
+  it('refuses a cached certificate for a different node, and asks instead', async () => {
+    // The attack the whole verifier exists for, moved into the cache: a certificate that
+    // is perfectly valid and belongs to somebody else. If the cache were believed, a
+    // poisoned or mis-keyed entry would admit any peer.
+    const identity = await identityFromSeed(FIXTURE_SEED)
+    const other = await certificateFor(new Uint8Array(SEED_BYTES).fill(0xa2), new Uint8Array(SEED_BYTES).fill(0xa3), Date.now())
+    const mine = await certificateFor(identity.seed, new Uint8Array(SEED_BYTES).fill(0xa4), Date.now())
+
+    const rig = await servedBy({
+      answer: async () => recordsOf(mine.certificate, identity.seed),
+      trustedIssuers: new Set([mine.authority.issuerKey, other.authority.issuerKey]),
+      certificates: holding(other.certificate),
+    })
+    try {
+      rig.connect(rig.peerId)
+      await vi.waitFor(() => expect(rig.verifier.verifiedPeers).toContain(rig.peerId))
+      // It fell through and asked — so the acceptance came from the wire, not the cache.
+      expect(rig.requests(), 'a certificate for another node was taken from the cache').toBe(1)
+      expect(rig.verifier.verdictFor(rig.peerId)).toMatchObject({
+        ok: true,
+        certificate: { nodeKey: mine.certificate.nodeKey },
+      })
+    } finally {
+      rig.stop()
+    }
+  })
+
+  it('refuses a cached certificate no pinned issuer signed, and asks instead', async () => {
+    // The issuer set is read at the moment of the check, not at the moment of the write.
+    // A node that un-pinned an issuer must stop accepting its certificates immediately,
+    // including ones it had already cached — otherwise un-pinning would take a wipe.
+    const identity = await identityFromSeed(FIXTURE_SEED)
+    const stranger = await certificateFor(identity.seed, new Uint8Array(SEED_BYTES).fill(0xa5), Date.now())
+    const pinned = await certificateFor(identity.seed, new Uint8Array(SEED_BYTES).fill(0xa6), Date.now())
+
+    const rig = await servedBy({
+      answer: async () => recordsOf(pinned.certificate, identity.seed),
+      trustedIssuers: new Set([pinned.authority.issuerKey]),
+      certificates: holding({ ...stranger.certificate, issuer: 'f'.repeat(64) }),
+    })
+    try {
+      rig.connect(rig.peerId)
+      await vi.waitFor(() => expect(rig.verifier.verifiedPeers).toContain(rig.peerId))
+      expect(rig.requests(), 'a certificate from an unpinned issuer was taken from the cache').toBe(1)
+    } finally {
+      rig.stop()
+    }
+  })
+
+  it('asks when the cached certificate has expired, because the peer has probably renewed', async () => {
+    // At a one-hour lifetime this is the ORDINARY case, not an unusual one. Returning the
+    // cached refusal would turn a stale copy into a verdict the peer could not correct.
+    const identity = await identityFromSeed(FIXTURE_SEED)
+    const stale = await certificateFor(identity.seed, new Uint8Array(SEED_BYTES).fill(0xa7), Date.now() - 7_200_000, 3_600_000)
+    const fresh = await certificateFor(identity.seed, new Uint8Array(SEED_BYTES).fill(0xa8), Date.now())
+
+    const rig = await servedBy({
+      answer: async () => recordsOf(fresh.certificate, identity.seed),
+      trustedIssuers: new Set([stale.authority.issuerKey, fresh.authority.issuerKey]),
+      certificates: holding(stale.certificate),
+    })
+    try {
+      rig.connect(rig.peerId)
+      await vi.waitFor(() => expect(rig.verifier.verifiedPeers).toContain(rig.peerId))
+      expect(rig.requests(), 'an expired cached certificate was accepted').toBe(1)
+    } finally {
+      rig.stop()
+    }
   })
 })

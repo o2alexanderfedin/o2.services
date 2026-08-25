@@ -324,6 +324,48 @@ export interface PeerVerifierOptions {
    * caller takes the default.
    */
   readonly now?: () => number
+  /**
+   * Somewhere to remember the certificates this node has already been shown — DATA-08.
+   *
+   * ## It is a hint and never a decision
+   *
+   * A cached certificate takes exactly the same path as one that just arrived over the
+   * wire: it must name the key this peer authenticated with, and it must satisfy
+   * `verifyCertificate` against **the issuers pinned right now** and **the current clock**.
+   * So a cache cannot widen what this node accepts. It can only save the round trip that
+   * would have produced the same answer.
+   *
+   * That is not a claim about this class being careful — it is a property of the design
+   * this repository already committed to. Revocation here is non-renewal on the
+   * certificate's own clock, not a list, so verification reaches nothing and a stale copy
+   * cannot be *more* acceptable than a fresh one. Caching would be unsafe in a system with
+   * an online status check; here it is safe by construction.
+   *
+   * ## A cached certificate that does not verify is not a refusal
+   *
+   * It falls through to asking the peer, because the most likely reason a cached
+   * certificate fails is that it expired and the peer has since **renewed** — which at a
+   * one-hour lifetime is the ordinary case rather than an unusual one. Returning the
+   * cached refusal would turn a stale copy into a verdict the peer could not correct.
+   *
+   * Optional: a node with nowhere durable to write has no cache, and asks.
+   */
+  readonly certificates?: CertificateCache
+}
+
+/**
+ * Somewhere to keep certificates between runs.
+ *
+ * Deliberately narrow — no delete, no enumeration, no expiry sweep. A certificate expires
+ * on its own clock and a cached one that has is simply not used, so a store that never
+ * forgets is wrong only in how much room it takes, and that is the implementation's
+ * problem rather than this interface's.
+ */
+export interface CertificateCache {
+  /** The certificate last seen for this node key, if any. Never trusted — always re-checked. */
+  load(nodeKey: PublicKeyHex): Promise<NodeCertificate | undefined>
+  /** Remember one. Failure must not be raised: a cache that cannot write is still a cache. */
+  save(certificate: NodeCertificate): Promise<void>
 }
 
 function refuse(failure: PeerFailure, reason: string): PeerVerdict {
@@ -340,6 +382,8 @@ export class PeerVerifier {
   readonly #inFlight = new Map<string, Promise<PeerVerdict>>()
   /** The settled verdicts, which is what {@link verdictFor} and {@link verifiedPeers} read. */
   readonly #verdicts = new Map<string, PeerVerdict>()
+  /** See {@link PeerVerifierOptions.certificates}. A hint, never a decision. */
+  readonly #certificates: CertificateCache | undefined
   /**
    * The most recent ask per peer: when it was issued, and which ask it was.
    *
@@ -397,6 +441,7 @@ export class PeerVerifier {
     this.#rpc = options.rpc
     this.#peers = options.peers
     this.#trustedIssuers = options.trustedIssuers
+    this.#certificates = options.certificates
     this.#retryFloorMs = options.retryFloorMs ?? DEFAULT_VERDICT_RETRY_FLOOR_MS
     this.#now = options.now ?? Date.now
   }
@@ -674,6 +719,29 @@ export class PeerVerifier {
       )
     }
 
+    // 1a. A certificate this node was already shown, if there is anywhere to have kept
+    //     one. **Checked exactly as a fresh one would be** — `#accept` is the same code
+    //     path steps 3 and 4 take below — so this cannot widen what is accepted, only skip
+    //     a round trip that would reach the same answer.
+    //
+    //     A cached certificate that does not verify is NOT returned as a refusal: the
+    //     likeliest reason is that it expired and the peer has renewed, which at a
+    //     one-hour lifetime is ordinary. So it falls through and the peer is asked.
+    if (this.#certificates !== undefined) {
+      let remembered: NodeCertificate | undefined
+      try {
+        remembered = await this.#certificates.load(expected)
+      } catch {
+        // A cache that cannot be read is a cache miss. It must never be able to stop a
+        // node verifying its peers.
+        remembered = undefined
+      }
+      if (remembered !== undefined) {
+        const cached = this.#accept(peerId, expected, remembered)
+        if (cached.ok) return cached
+      }
+    }
+
     // 2. Ask exactly that peer, directly — not through `RpcRecordIndex`. See the module
     //    comment for why the single-element-thunk reuse loses a whole failure kind.
     let body: CanonicalValue
@@ -702,6 +770,28 @@ export class PeerVerifier {
       )
     }
 
+    // 3 and 4, and they are a method rather than inline **because the cache above takes
+    //    the identical path**. One copy, so a cached certificate cannot be judged by a
+    //    laxer rule than a fresh one — which is the entire safety argument for caching at
+    //    all, and would be worth nothing if it were two copies that agree today.
+    const accepted = this.#accept(peerId, expected, response.records.certificate)
+    if (accepted.ok && this.#certificates !== undefined) {
+      // After acceptance, never before: a certificate this node refused is not one worth
+      // remembering, and writing it would let a bad answer survive a restart.
+      try {
+        await this.#certificates.save(accepted.certificate)
+      } catch {
+        // A cache that cannot be written is still a cache. The verdict stands.
+      }
+    }
+    return accepted
+  }
+
+  /**
+   * Steps 3 and 4 — the whole of what "verified" means here, applied to one certificate
+   * whatever produced it.
+   */
+  #accept(peerId: string, expected: PublicKeyHex, certificate: NodeCertificate): PeerVerdict {
     // 3. The certificate must name the key this peer authenticated with.
     //
     //    Not redundant with the signature check below, and the difference is the whole of
@@ -710,7 +800,6 @@ export class PeerVerifier {
     //    somebody else — presented, perhaps, by a node that copied it off the wire.
     //    Without this the verifier would accept any valid certificate from any peer, which
     //    is not verification, it is a signature test.
-    const { certificate } = response.records
     if (certificate.nodeKey !== expected) {
       return refuse(
         { kind: 'nodeKey-mismatch', expected, presented: certificate.nodeKey },

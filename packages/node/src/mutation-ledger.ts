@@ -3589,29 +3589,25 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'carries the form across the wire intact, so the certificate still verifies',
     signatureSource: 'test-title',
   },
-  {
-    id: 'CL1',
-    why:
-      "The owner non-decision about `cert-lifecycle.ts`'s facades, held by a check rather than by a " +
-      'comment. A barrel export is a decision — it makes a surface part of the package — and this ' +
-      'one was priced at +7 findings and has no consumer to pay for them. Until this entry existed, ' +
-      'a single re-export line could have taken that decision silently, because the module reaches no ' +
-      'barrel and every reachability case in the tree passed with it present or absent alike.',
-    file: 'packages/core/src/index.ts',
-    find: "export type { Ed25519AsyncVerifier, Ed25519Backend, Ed25519SyncVerifier } from './ed25519-backend.ts'",
-    replace:
-      "export type { Ed25519AsyncVerifier, Ed25519Backend, Ed25519SyncVerifier } from './ed25519-backend.ts'\n" +
-      "export { Subject } from './cert-lifecycle.ts'",
-    caughtBy: ['packages/node/src/reachability-guard.node.test.ts'],
-    // Observed 2026-08-11: EXIT=1, `Tests  4 failed | 20 passed (24)`. Both new claims went red
-    // together — the module stopped reading orphan (`expected [ …(26) ] to include
-    // 'packages/core/src/cert-lifecycle.ts'`) and the facade appeared on the barrel
-    // (`expected [ 'core/Subject' ] to deeply equal []`) — and both ceilings went with them,
-    // 73 against 72 and 37 against 36, which is the reading that says they now bind with no slack.
-    // Restored by the surgical inverse; `cmp` exit 0.
-    signature: "expected [ 'core/Subject' ] to deeply equal []",
-    signatureSource: 'rendered-at-runtime',
-  },
+  // ── CL1, RETIRED 2026-08-24 ───────────────────────────────────────────────────────────
+  //
+  // It planted `export { Subject } from './cert-lifecycle.ts'` onto `@o2/core`'s barrel and was
+  // caught by the reachability guard — 4 of 24 red at once, observed 2026-08-11.
+  //
+  // **The defect it planted can no longer exist.** The entry held an owner NON-decision: a
+  // 775-line module with no consumer, where a single re-export line would have made its seven
+  // facades part of the package's surface silently, because the module reached no barrel and
+  // every reachability case passed with it present or absent alike. On 2026-08-24 the owner
+  // decided — one certificate system, not two — and `cert-lifecycle.ts` was deleted. There is
+  // no file left to re-export from, so the plant would now be a compile error rather than the
+  // reading this entry recorded.
+  //
+  // Retired rather than edited, which is the opposite call from the `browser-node.ts` entry a
+  // few hundred lines above: that one was re-indented because its defect and its reading were
+  // unchanged. Here both are gone. Recorded in place rather than dropped, because a ledger
+  // entry that vanishes on a refactor is exactly what the drift check exists to make
+  // impossible — and a reader who finds the guard block it points at needs to know why no
+  // entry names it any more.
 ]
 
 /**

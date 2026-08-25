@@ -124,6 +124,26 @@
  * node. Revocation is **non-renewal on the certificate's own clock**, not a list and not
  * a shorter clock; `certificateLifetimeMs` keeps its default.
  *
+ * > **SUPERSEDED 2026-08-23 — the last clause only, by owner ruling.** The default is now
+ * > one hour ({@link DEFAULT_CERTIFICATE_LIFETIME_MS}). The paragraph above is preserved
+ * > rather than rewritten because everything in it except that clause still holds, and
+ * > because it records *why* the shortening was refused for three weeks: the argument it
+ * > rejects — shortening as a mitigation for the unauthenticated enrolment frame — is
+ * > still rejected, and nothing in this change buys anti-abuse.
+ * >
+ * > What changed is that the two things the shortening was actually blocked on were built
+ * > and measured on 2026-08-23. **Issuance cost**: ~28 ms per joiner under simultaneous
+ * > arrival, i.e. an issuer of this shape serves on the order of 10^5 renewals an hour, so
+ * > throughput is not the constraint (`issuance-rate.node.test.ts`). **Renewal**: it did
+ * > not exist — a certificate was obtained once at start and the only route to another was
+ * > a restart, which made any short lifetime simply a node that expired
+ * > (`@o2/libp2p`'s `certificate-renewal.ts`).
+ * >
+ * > **The trade the owner accepted, stated plainly**: revocation reach falls from thirty
+ * > days to one hour, and partition tolerance falls the same way — a node whose issuer is
+ * > unreachable for over an hour now leaves the fabric, where before it had a month. That
+ * > is the whole cost, and no measurement pays for it.
+ *
  * Pure module, with **one** stated exception: {@link EnrollmentAuthority.mintChallenge}
  * draws random bytes, because a nonce a caller could predict is not a nonce. Nothing else
  * here reads a clock, a random source, or a platform API — `enrol` still takes `now` as a
@@ -139,6 +159,7 @@
  */
 
 import { ed25519 } from '@noble/curves/ed25519.js'
+import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js'
 import { randomBytes } from '@noble/hashes/utils.js'
 import { NotEncodableError, encodeCanonical } from './canonical/encode.ts'
 import type { CanonicalValue } from './canonical/encode.ts'
@@ -231,6 +252,40 @@ export interface NodeCertificate {
    * certificate). Owner ruling, 2026-08-11.
    */
   readonly x509?: string
+  /**
+   * A commitment to the key this node will rotate to next — AUTH-05, owner ruling
+   * 2026-08-23.
+   *
+   * ## What it is for
+   *
+   * A node that changes its key today becomes, to every peer, a **stranger**: nothing
+   * links the new `nodeKey` to the old one, so the new identity has to be trusted from
+   * scratch — and the window where an attacker can claim to be the rotated node is exactly
+   * that gap. A commitment closes it. The certificate a node holds *now*, signed by an
+   * issuer peers already accept, names the key it will move to; when it moves, a verifier
+   * that saw the old certificate can check {@link honoursKeyCommitment} and carry the
+   * trust across without a fresh decision.
+   *
+   * ## Why a commitment and not the key itself
+   *
+   * Publishing the next public key early would let an attacker watch for it and attack
+   * that key before its owner ever used it, and would link the two identities for anyone
+   * reading the keyspace long before the rotation. {@link keyCommitment} is a hash, so the
+   * certificate proves the choice was made without revealing what was chosen. The node
+   * discloses the key by *using* it, and the hash is what ties the two together.
+   *
+   * ## Optional, additively, and for the reason `x509` is
+   *
+   * `payloadOf` omits the field entirely when absent rather than encoding a null, so a
+   * certificate without one is byte-for-byte what this repository has always issued and
+   * every certificate ever signed still verifies. It is inside the issuer's signature when
+   * present, so nobody can graft a commitment onto somebody else's envelope.
+   *
+   * **This adds the field and its check; it does not rotate anything.** Nothing in this
+   * repository changes a node's key yet. The field lands now because the alternative is
+   * changing a signed format later, with issued certificates in circulation.
+   */
+  readonly nextKeyCommitment?: string
 }
 
 /**
@@ -267,10 +322,67 @@ function payloadOf(certificate: Omit<NodeCertificate, 'signature'>): Uint8Array<
     // inside the issuer's own signature, so an attacker cannot graft a different X.509
     // form onto somebody else's envelope and have the envelope still verify.
     ...(certificate.x509 === undefined ? {} : { x509: certificate.x509 }),
+    // Conditionally spread for both of the reasons above, unchanged: a certificate with no
+    // commitment must produce the payload it produced before this field existed, and a
+    // commitment that IS present has to sit inside the issuer's signature or an attacker
+    // could name the key a rotated node will move to.
+    ...(certificate.nextKeyCommitment === undefined
+      ? {}
+      : { nextKeyCommitment: certificate.nextKeyCommitment }),
   }
   const encoded = encodeCanonical(value)
   if (!encoded.ok) throw new NotEncodableError('certificate', encoded.error)
   return encoded.bytes
+}
+
+/**
+ * The commitment a certificate carries to the key its node will rotate to — AUTH-05.
+ *
+ * A SHA-256 over the next public key, domain-separated by a purpose string so a commitment
+ * can never be mistaken for, or replayed as, any other hash this fabric computes over a
+ * key. Hex, like every other key-shaped field in this envelope.
+ *
+ * **A hash and not the key**, which is the whole design: publishing the next public key
+ * early would let an attacker work against it before its owner ever used it, and would
+ * link the two identities in the keyspace long before the rotation. The node reveals the
+ * key by *using* it, and this is what ties the two together after the fact.
+ *
+ * Synchronous, deliberately. Every other statement in this module is built without
+ * awaiting, and a promise here would push `async` up through `requestEnrollment`'s field
+ * construction for a 32-byte hash.
+ */
+export function keyCommitment(nextNodeKey: PublicKeyHex): string {
+  const encoded = encodeCanonical({ purpose: 'o2-next-key', nextNodeKey })
+  if (!encoded.ok) throw new NotEncodableError('key commitment', encoded.error)
+  return toHex(nobleSha256(encoded.bytes))
+}
+
+/**
+ * Whether `next` is the rotation `previous` announced — AUTH-05.
+ *
+ * True only when the earlier certificate carried a commitment **and** the later
+ * certificate's `nodeKey` is what that commitment names. Everything else is false, and the
+ * cases collapse deliberately: a caller acts identically on "no commitment was made" and
+ * "the commitment does not match", because both mean *this rotation was not pre-announced
+ * and must be trusted on its own terms*. Splitting them would invite a caller to treat the first
+ * as benign, which is the fail-open this exists to prevent.
+ *
+ * **Says nothing about whether either certificate is valid.** It compares two statements
+ * and does not verify signatures, issuers or expiry — `verifyCertificate` does that, and a
+ * caller must run it on both before this answer means anything at all. Kept separate
+ * because folding verification in would make a continuity check silently also a trust
+ * decision, and a reader would not know which one they had.
+ *
+ * It also does not require the same issuer. A node that rotates its key while moving
+ * between issuers still honoured what it committed to, and whether the new issuer is
+ * acceptable is `trustedIssuers`' question rather than this one.
+ */
+export function honoursKeyCommitment(
+  previous: NodeCertificate,
+  next: NodeCertificate,
+): boolean {
+  if (previous.nextKeyCommitment === undefined) return false
+  return previous.nextKeyCommitment === keyCommitment(next.nodeKey)
 }
 
 /** The bytes a node signs to prove it holds the private half of `nodeKey`. */
@@ -363,6 +475,15 @@ export interface EnrollmentRequest {
   readonly operatorId: string
   readonly discoverability: Discoverability
   readonly relayIds: readonly string[]
+  /**
+   * A commitment to the key this node will rotate to next — AUTH-05, optional.
+   *
+   * See {@link NodeCertificate.nextKeyCommitment} for what it buys. Supplied by the node,
+   * because only the node knows its own next key; the issuer merely signs the claim, which
+   * is all that is needed — the commitment's whole value is that the *previous issuer*
+   * vouched for it before the new key existed publicly.
+   */
+  readonly nextKeyCommitment?: string
   /** Signature over `possessionChallenge`, by the node's own private key. */
   readonly proofOfPossession: string
   /**
@@ -797,10 +918,46 @@ export const DEFAULT_ISSUANCE_WINDOW_MS = 3_600_000
  * device and profile fan-out inside one hour while staying far below any aggregate budget
  * an operator would plausibly set — so one buggy client still cannot drain a window.
  *
+ * > **AMENDED 2026-08-23 to 64, and the reason is arithmetic in the paragraph above.** The
+ * > sentence *"a persisted certificate lives 30 days = 720 of these windows and is reused
+ * > without contacting the provider at all, so a returning visitor spends nothing in 719
+ * > hours of 720"* was the load-bearing half of this sizing, and
+ * > {@link DEFAULT_CERTIFICATE_LIFETIME_MS} inverted it: at a one-hour lifetime a node
+ * > spends an issuance in **every** window, not in one of 720. The worst ordinary case is
+ * > therefore no longer the ~20-tab restore alone but that restore *plus* every already-
+ * > enrolled node of the same owner renewing inside the same hour — about twice what it
+ * > was. So the number doubles too, which keeps the 1.6x headroom the original argument
+ * > chose rather than inventing a new ratio.
+ * >
+ * > The paragraph above is left standing because its *reasoning* is what still decides this
+ * > number; only one input to it moved. And the warning below is sharper now, not weaker:
+ * > sizing this back down under a one-hour lifetime refuses honest owners far faster than
+ * > it ever could at thirty days.
+ *
  * **A reader who takes this for an anti-abuse control will size it back down and
  * reintroduce the refusal it exists to prevent.** Read the two paragraphs above first.
  */
-export const DEFAULT_MAX_PER_WINDOW = 32
+export const DEFAULT_MAX_PER_WINDOW = 64
+
+/**
+ * How long an issued certificate is valid — one hour.
+ *
+ * **Owner ruling 2026-08-23**, reversing the 2026-08-02 correction quoted in this module's
+ * header. The header carries the trade; what belongs here is the consequence for anybody
+ * reading this number.
+ *
+ * Expiry is the only revocation this fabric has — *non-renewal on the certificate's own
+ * clock, not a list* — so this number **is** the revocation window. At thirty days a
+ * compromised node stayed accepted for a month. At one hour it stays accepted for at most
+ * an hour, and no directory, no status service and no online lookup is introduced to
+ * achieve that: verification stays fully offline, which is what makes every certificate in
+ * this system safe to cache.
+ *
+ * The other side is exact and is not a footnote: **a node whose issuer is unreachable for
+ * more than an hour leaves the fabric.** Before this it had thirty days of grace. Renewal
+ * begins at two-thirds — forty minutes — so the real margin is the last twenty.
+ */
+export const DEFAULT_CERTIFICATE_LIFETIME_MS = 3_600_000
 
 /** What the sentinel selects: a history that lives and dies with this object. */
 class InProcessIssuance implements IssuanceLedger {
@@ -926,7 +1083,7 @@ export class EnrollmentAuthority {
     this.#maxPerWindow = options.maxPerWindow ?? DEFAULT_MAX_PER_WINDOW
     this.#maxIssuedPerWindow = options.maxIssuedPerWindow
     this.#windowMs = options.windowMs ?? DEFAULT_ISSUANCE_WINDOW_MS
-    this.#lifetimeMs = options.certificateLifetimeMs ?? 30 * 24 * 3_600_000
+    this.#lifetimeMs = options.certificateLifetimeMs ?? DEFAULT_CERTIFICATE_LIFETIME_MS
     this.#challengeTtlMs = options.challengeTtlMs ?? ENROLLMENT_CHALLENGE_TTL_MS
     this.#issuesX509 = options.x509 === 'issues-the-x509-form'
     this.#issuance =
@@ -1169,6 +1326,12 @@ export class EnrollmentAuthority {
       issuedAt: now,
       expiresAt: now + this.#lifetimeMs,
       issuer: this.#issuer,
+      // Carried through from the request, and only when the joiner supplied one. The
+      // authority does not invent a commitment: only the node knows its own next key, and
+      // a commitment the node did not choose is one it can never honour.
+      ...(request.nextKeyCommitment === undefined
+        ? {}
+        : { nextKeyCommitment: request.nextKeyCommitment }),
     }
     // Minted **before** the envelope signature, because the X.509 form is inside the
     // payload that signature covers (see `payloadOf`). Signing first and attaching after
@@ -1447,4 +1610,117 @@ export function resolveReplicaSets(
       canVerifyWithinOwnerDomain: certs.length >= 2,
     }))
     .sort((a, b) => a.userKey.localeCompare(b.userKey))
+}
+
+/**
+ * When a node should start trying to renew, as a fraction of its certificate elapsed.
+ *
+ * Two-thirds leaves a full third of the lifetime for the exchange to happen — and the
+ * exchange is two round trips to a provider that may be down, so the margin is doing real
+ * work rather than being a rounding allowance. Renewing at the deadline would mean every
+ * renewal races the expiry it exists to prevent.
+ *
+ * **Deliberately not aliased to `RENEW_AT` in `lease.ts`**, which today holds the same
+ * number. A lease renewal is a heartbeat to a scheduler that is already talking to this
+ * node; a certificate renewal is a fresh two-leg exchange with an authority that might be
+ * unreachable for hours. The two will drift, and the drift is the point: a change to one
+ * must not silently become a change to the other. Same call as
+ * `MAX_CONCURRENT_STREAMS_PER_PEER` in `@o2/libp2p`'s constants makes about the muxer
+ * default it sits below.
+ */
+export const CERTIFICATE_RENEW_AT: number = 2 / 3
+
+/**
+ * Whether a node holding this certificate should be trying to renew it now.
+ *
+ * ## The one place this deliberately disagrees with `shouldRenew`
+ *
+ * `lease.ts`' `shouldRenew` answers **false** once the lease has expired: a worker whose
+ * lease lapsed has lost the task, and the right move is to stop rather than to keep
+ * heartbeating about work somebody else now holds.
+ *
+ * A certificate is the opposite case and must keep trying. A node whose issuer was down
+ * across the whole renewal window is not a node that lost anything to somebody else — it
+ * is a node that is now refused by every peer running `verifyCertificate`, including the
+ * relay admission gate, and it cannot get back in by giving up. So this stays **true**
+ * after `expiresAt`, and the caller's retry floor is what keeps a dead issuer from being
+ * hammered.
+ *
+ * The disagreement is written down because the two functions otherwise look like they
+ * should share an implementation, and somebody will try to make them.
+ *
+ * Returns false only for a certificate not yet two-thirds through its life. A certificate
+ * whose `issuedAt` and `expiresAt` do not describe a positive span is treated as due,
+ * because there is no window left to wait inside.
+ */
+export function shouldRenewCertificate(certificate: NodeCertificate, now: number): boolean {
+  const span = certificate.expiresAt - certificate.issuedAt
+  if (span <= 0) return true
+  return now >= certificate.issuedAt + span * CERTIFICATE_RENEW_AT
+}
+
+/**
+ * How long to wait before asking again, given a certificate and the instant now.
+ *
+ * Never negative and never zero — a caller scheduling a timer needs a real delay, and a
+ * zero here would spin. A certificate already due returns `floorMs`, which is the caller's
+ * statement about how hard it is willing to press an authority that is refusing or down.
+ */
+export function msUntilRenewalDue(
+  certificate: NodeCertificate,
+  now: number,
+  floorMs: number,
+): number {
+  const span = certificate.expiresAt - certificate.issuedAt
+  if (span <= 0) return floorMs
+  const dueAt = certificate.issuedAt + span * CERTIFICATE_RENEW_AT
+  return Math.max(floorMs, Math.ceil(dueAt - now))
+}
+
+/**
+ * The one mutable cell a renewing node's certificate lives in.
+ *
+ * ## Why a box rather than a field somebody reassigns
+ *
+ * A renewed certificate has to become visible to several readers at once — the record
+ * index a peer's `records` request is answered from, the node's own public accessor, the
+ * DHT registration that republishes it, and whatever persisted it. Handing each of them a
+ * `NodeCertificate` at construction time gives every one of them its own snapshot, and a
+ * renewal then updates however many of them the wiring happened to reach. That is not a
+ * hypothetical: `SelfRecordIndex` held exactly such a snapshot until this type existed,
+ * and a node that renewed went on serving the expired certificate to every peer.
+ *
+ * So there is **one** cell, everybody reads through it, and renewal is a single write.
+ *
+ * Pure: no clock, no timer, no I/O. Deciding *when* to write is
+ * {@link shouldRenewCertificate}'s job and *doing* it is the caller's.
+ */
+export class CertificateHolder {
+  #current: NodeCertificate | null
+
+  constructor(initial: NodeCertificate | null) {
+    this.#current = initial
+  }
+
+  /** The certificate this node holds right now, or `null` if it holds none. */
+  get current(): NodeCertificate | null {
+    return this.#current
+  }
+
+  /**
+   * Replace it.
+   *
+   * **Refuses to move backwards.** A renewal that arrived out of order — two exchanges
+   * overlapping, or a provider replaying an older signature — must not shorten a node's
+   * own reachability window. `issuedAt` is the authority's statement about which is
+   * newer, and a replacement that is not strictly newer is dropped.
+   *
+   * Returns whether the write happened, so a caller can tell a real renewal from a
+   * no-op without comparing certificates itself.
+   */
+  replace(certificate: NodeCertificate): boolean {
+    if (this.#current !== null && certificate.issuedAt <= this.#current.issuedAt) return false
+    this.#current = certificate
+    return true
+  }
 }

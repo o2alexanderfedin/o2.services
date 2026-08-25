@@ -146,6 +146,33 @@ export interface DhtRecordIndexOptions {
   readonly timeoutMs: number
   /** Where a discovered provider's multiaddrs go, or the stated decision to drop them. */
   readonly addresses: ProviderAddressSink | 'discards-provider-addresses'
+  /**
+   * This node's own key, which a provider answer must not contain — or the stated
+   * decision that it may.
+   *
+   * **Required, because the alternative was measured and it is not a cosmetic
+   * duplicate.** Once a node announces the blocks it holds, `findProviders` truthfully
+   * answers *itself* for anything it stored — and a requestor's own key arriving in its
+   * own candidate list is wrong twice over. It double-counts for redundancy, and
+   * redundancy in this fabric is N-version execution whose entire claim is that the
+   * executors are **independent**: a shard run twice on one node agrees with itself and
+   * demonstrates nothing.
+   *
+   * It is also the property `attestation-ui.e2e.test.ts`'s SCHED-01 case calls its
+   * anti-vacuity check — *"a page that had quietly answered from its own record index
+   * would list itself here"* — and that case went red the first time provider
+   * announcement shipped, with the tab appearing in its own `providers` answer.
+   *
+   * The RPC half never needed this: a node asks its **peers**, and `SelfRecordIndex`
+   * answers only about the node it belongs to, so a requestor was never in a position to
+   * hear about itself. A DHT has no such shape, which is why the filter lives here rather
+   * than being inherited.
+   *
+   * The sentinel exists for a caller that genuinely wants every provider — an audit, or a
+   * fixture measuring what the keyspace holds — and it has to be written down so that
+   * including yourself is a decision rather than an omission.
+   */
+  readonly self: PublicKeyHex | 'answers-about-itself-too'
 }
 
 export class DhtRecordIndex implements RecordIndex {
@@ -155,6 +182,7 @@ export class DhtRecordIndex implements RecordIndex {
   readonly #verify: RecordVerifier
   readonly #timeoutMs: number
   readonly #addresses: ProviderAddressSink | 'discards-provider-addresses'
+  readonly #self: PublicKeyHex | 'answers-about-itself-too'
 
   /**
    * Providers the DHT named that this class could not name back.
@@ -176,6 +204,7 @@ export class DhtRecordIndex implements RecordIndex {
     this.#verify = options.verify
     this.#timeoutMs = options.timeoutMs
     this.#addresses = options.addresses
+    this.#self = options.self
   }
 
   /**
@@ -211,6 +240,9 @@ export class DhtRecordIndex implements RecordIndex {
             this.unnamedProviders += 1
             continue
           }
+          // Not itself. See `DhtRecordIndexOptions.self` — a requestor in its own candidate
+          // list double-counts for a redundancy whose whole claim is independence.
+          if (nodeKey === this.#self) continue
           // Before the key is returned, so a caller that dials what it is handed has an
           // address for it. See `ProviderAddressSink`.
           if (this.#addresses !== 'discards-provider-addresses') this.#addresses(info)

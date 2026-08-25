@@ -4,6 +4,64 @@ milestone: v1.1
 milestone_name: Wire What Was Built
 status: milestone_complete
 stopped_at: >-
+  CURRENT AS OF 2026-08-24. v1.1 is closed at 15/15 and the figures below still hold; what
+  follows is the work done since, on `feature/dht-registration-and-discovery`, which is 31
+  commits ahead of `develop` and not yet merged.
+
+
+  **This file's frontmatter was found wrong and is restored.** An orphaned working-tree write —
+  from a process the 2026-08-24 reboot ended, and machine-shaped rather than hand-written — had
+  replaced the reconciliation block below with the one line "context exhaustion at 100%
+  (2026-08-23)", set `status` back to `verifying`, moved `total_phases` to 29, and zeroed
+  `completed_phases`, `total_plans`, `completed_plans` and `percent` for a milestone this same
+  file records as 15/15 with 103 plans. It left the 2 200-line body alone: 235 lines out, 60 in.
+  **Said precisely because the first description of it here was wrong** — "cut from 2 397 lines
+  to 17" — which was read off the frontmatter preview and inferred rather than measured; the
+  working copy was 2 222 lines. It is preserved outside the repo rather than merged in, and the
+  figures below are the measured ones.
+
+
+  **AUTH-04 — a certificate now outlives its first issue.** Nothing renewed one: it was
+  obtained once at start and the only route to another was a restart, so a process outliving
+  its certificate kept running while every peer demoted it. Three snapshots had to stop being
+  snapshots — `SelfRecordIndex`, `RecordPublisher` and each tier's `certificate` field — and
+  all three now read one `CertificateHolder`. Renewal begins at two-thirds, deliberately not
+  aliased to `lease.ts`, and deliberately stays true after expiry, where `shouldRenew` goes
+  false. The renewal timer is clamped to 2^31-1 ms, because `setTimeout` overflows to one
+  millisecond rather than saturating.
+
+
+  **Owner rulings taken 2026-08-24, all three implemented.** Certificate lifetime 30 days to
+  **1 hour**, reversing the 2026-08-02 correction recorded in `enrollment.ts`'s own header —
+  which drags `DEFAULT_MAX_PER_WINDOW` 32 to 64, because that number was sized on "a returning
+  visitor spends nothing in 719 hours of 720" and an hourly certificate inverts it. A change of
+  trust anchors is now a **consent event**, with a fourth `ConsentGap` kind. And a certificate
+  can announce the key its node will rotate to (`nextKeyCommitment`), as a hash inside the
+  issuer's signature — the format lands now because the alternative is changing a signed format
+  with certificates in circulation.
+
+
+  **One certificate system, not two.** `cert-lifecycle.ts` — 775 lines, tested, imported by
+  nothing — was deleted by owner ruling, closing what CRYPTO-03 had explicitly left open. Its
+  delegation half duplicated `capability.ts`, its identity half `enrollment.ts`, its
+  crypto-backend selection was already merged into `ed25519-backend.ts` by Phase 28, and its
+  revocation half is refused by standing ruling.
+
+
+  **DATA-08 — a node with a durable directory now keeps its libp2p state**, and the diagnosis
+  that had blocked it for a week was falsified rather than confirmed: ten sound eliminations had
+  been assembled into one false claim ("any asynchronous datastore hangs enrolment"), and an
+  async in-memory store enrols fine in four different shapes. Peers verified before a restart are
+  no longer re-asked, and the cache cannot widen what is accepted because a cached certificate
+  takes the same `#accept` a fresh one does.
+
+
+  **Suite at HEAD:** node 208/208 files and 3 032 tests at `(user+sys)/real` 1.36; browser
+  315/315 and 5 286 tests; e2e last read 38/38 and 235 tests. The `tools/aot` Docker gates fail
+  as a group below a CPU ratio of about 1.0 and pass individually — a property of this host under
+  contention, measured across five full runs, not a defect in them.
+
+
   RECONCILED 2026-08-20, AND THE HEADLINE BELOW IS THE ONE THING THAT WAS WRONG. **THE COUNT IS 15
   OF 15, NOT 12.** All three carried phases closed on 2026-08-18, each by a dated amendment to its
   own verification file rather than by a rewrite: 20 at 7/7 (criterion 7 closed at `ce97bc8`), 21
@@ -223,8 +281,8 @@ stopped_at: >-
   demo-pi.e2e.test.ts IS A KNOWN FLAKE - green, red, green on identical code, cause not found.
   AOTW-06's 27/27 NOTE IS UNREPRODUCED: two prose sentences from one commit, no patch, no log, and
   third_party/elfconv pristine at its pinned commit.
-last_updated: "2026-08-20T09:20:00.000Z"
-last_activity: 2026-08-20
+last_updated: "2026-08-24T17:45:00.000Z"
+last_activity: 2026-08-24
 progress:
   total_phases: 15
   completed_phases: 15
@@ -1976,6 +2034,12 @@ residual is recorded immediately below rather than dropped.
 - **Doc correction:** the relay constants are named `DEFAULT_DURATION_LIMIT`, `DEFAULT_DATA_LIMIT`, `DEFAULT_MAX_RESERVATION_STORE_SIZE` — `DEFAULT_`-prefixed, unlike what PROJECT.md and STACK.md record. Values are as documented (2 min / 128 KiB / 15 / 2 h).
 - **Node 23.11.0 is the host runtime and is not LTS.** Outside vitest's declared range (`^20 || ^22 || >=24`), so every install prints `EBADENGINE`, and `packages/node/src/bin/agent.ts` depends on Node's experimental native type stripping. Everything passes today. `STACK.md` specifies Node 24 LTS — switching the toolchain is a human action, deliberately not taken autonomously.
 - **Open decisions carried into planning:** aegir vs. vitest for the three-target test discipline (Phase 2); WASM fuel metering has no maintained JS-side tool (Phase 1/2); Safari + WebRTC-Direct is unverified with a WSS-only fallback branch (Phase 4).
+
+## Quick Tasks Completed
+
+| Task | Date | Outcome |
+|------|------|---------|
+| `260823-fkf-wire-dht-registration-and-discovery` | 2026-08-23 | **The DHT is used for registration and discovery, and the reason it was not is two `kad-dht` settings rather than missing code.** `peerInfoMapper` was left at `removePrivateAddressesMapper`, so on loopback, LAN and relay no peer ever entered a routing table — measured on two `server`-mode nodes where `put` yielded no events and `getClosestPeers` never returned; and `selectors` had no `o2` entry, so `bestRecord` threw `MissingSelectorError` on every read and `DhtRecordIndex`'s catch presented it as an empty keyspace. Both fixed on both tiers. Registration moved from a one-shot start put to `RecordPublisher`, which republishes on every `peer:identify`; `dht.provide` is now called for the first time, through `DhtProviderAnnouncer`, under the owner ruling of 2026-08-23 and behind the same `withholdingFrom` predicate the serving index uses. `discoverCandidates` gained a required `index` option so the composed `DhtRecordIndex` finally has a reader on both tiers. `submit.ts` now marks a shard sovereign **before** it puts the bytes, which closes at its source the window an announcer would otherwise have had to dodge. Proof: `packages/node/src/dht-registration.node.test.ts`, DHT-only via `recordsFallback: 'answers-from-the-dht-alone'`, three plants watched red. **Open decision left to the owner**: a provider record already replicated survives `cancelReprovide` until `PROVIDERS_VALIDITY` (48 h), so a block that was public when swept and becomes sovereign afterwards stays discoverable-as-provided until then. |
 
 ## Deferred Items
 

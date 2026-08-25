@@ -21,7 +21,7 @@
  * `start(options: { relayAddrs, blockstoreName, trustAnchors? })`, and the visitor's
  * consent reaches the node from `requireConsent()`'s **return value** rather than from a
  * parameter. And `grantConsent` is not the only minter — `requireConsent` goes through
- * `readConsent(store)`, which mints one of its own from a record already on disk
+ * `readConsent(store, DEMO_ANCHORS)`, which mints one of its own from a record already on disk
  * (`consent.ts:154`), so a returning visitor starts with `grantConsent` never running.
  * What is true, and what the gate actually rests on, is that `new GrantedConsent(...)` is
  * reachable at two places only, both inside `consent.ts` and both behind a module-private
@@ -111,6 +111,7 @@ import {
   grantConsent,
   pageConsentStore,
   probeEnvironment,
+  describeAnchors,
   readConsent,
   readEnrolment,
   revokeConsent,
@@ -145,6 +146,24 @@ import * as pid from '@libp2p/peer-id'
 // graph. A type-only import is erased before anything runs, emits no edge, and is the only way
 // to annotate a binding the dynamic import produces.
 import type { CID } from 'multiformats/cid'
+
+/**
+ * The anchor set this demo consents under.
+ *
+ * `[KERNEL_TRUST_ANCHOR]`, because that is what `start` actually passes when a visitor
+ * supplies nothing — a consent that described some *other* anchor set would be describing
+ * a node this page does not run. The first cut of this line named the provenance opt-out
+ * instead, which was wrong twice over: `trust-anchors.node.test.ts` permits that literal
+ * in two files and this is not one of them, and the demo does not run unsigned artifacts
+ * in the first place.
+ *
+ * Named once so the value handed to `grantConsent` and the value checked by `readConsent`
+ * cannot come to disagree; two expressions would be two places to change.
+ *
+ * A visitor who supplies their own `trustAnchors` to `start` is running under a different
+ * set, and `readConsent` will say so — which is the whole feature, not an edge case.
+ */
+const DEMO_ANCHORS: string = describeAnchors([KERNEL_TRUST_ANCHOR])
 
 let node: BrowserNode | null = null
 let consent: GrantedConsent | null = null
@@ -237,7 +256,7 @@ function checkpointsFor(blockstoreName: string): Promise<IdbCheckpoints> {
  * running on a permission the visitor has withdrawn.
  */
 function requireConsent(): GrantedConsent {
-  const found = readConsent(store)
+  const found = readConsent(store, DEMO_ANCHORS)
   if (found.ok) {
     consent = found.consent
     return found.consent
@@ -247,7 +266,7 @@ function requireConsent(): GrantedConsent {
 }
 
 function stateOf(): TabConsentState {
-  const found = readConsent(store)
+  const found = readConsent(store, DEMO_ANCHORS)
   return found.ok
     ? { granted: true, version: DISCLOSURE_VERSION, reportingAllowed: found.consent.reportingAllowed }
     : { granted: false, gap: found.gap.kind, version: DISCLOSURE_VERSION, reportingAllowed: false }
@@ -340,7 +359,7 @@ async function offerOf(): Promise<TabEnrolmentOffer> {
   // Consent gates the network read inside `discoverRelays`, and a page that has not been
   // granted it has nothing to offer yet. Reported as "no offer" rather than thrown: the
   // consent gate is the surface that should be speaking at that moment, not this one.
-  if (!readConsent(store).ok) {
+  if (!readConsent(store, DEMO_ANCHORS).ok) {
     return { offered: false, accepted: false, canHoldKey, appliedToRunningNode: true }
   }
   const { enrollmentProvider } = await api.discoverRelays()
@@ -736,6 +755,10 @@ async function discoveredPool(
         // steers where work goes, so a peer that has not cleared verification does not get
         // to put an entry in one. A tab that pinned nobody never reaches this line.
         peers: () => n.verifiedPeers,
+        // NET-06 / SCHED-01 — the tab's own composed asking index, which is the byte
+        // identical composition `fabric-node.ts` builds. A tab differs from a backbone
+        // node in what it can listen on, never in what it may ask.
+        index: n.recordIndex,
         // The same anchor `peerCertificate` uses and for the same reason — this tab's own
         // issuer is the only key it holds that was not handed to it by the peer being
         // checked.
@@ -937,7 +960,7 @@ const api: TabApi = {
 
   grantConsent(options = {}) {
     const reporting = options.reporting === true
-    consent = grantConsent(store, { reportingAllowed: reporting })
+    consent = grantConsent(store, { anchoredTo: DEMO_ANCHORS, reportingAllowed: reporting })
     if (!reporting) declinedLocally += 1
     notify()
     return stateOf()
@@ -1804,7 +1827,7 @@ const api: TabApi = {
       moduleCid,
       Array.from({ length: options.cubes }, () => encodedInput.cid),
     )
-    const records = await checkpointsFor(node.store.name)
+    const records = await checkpointsFor(node.store.inner.name)
     const offered = await records.newestHandleFor(jobId)
     // Dynamic, following this file's existing convention at the three other `CID` sites.
     const { CID } = await import('multiformats/cid')
@@ -2179,7 +2202,7 @@ const api: TabApi = {
   },
 
   async storedBlocks() {
-    return required().store.refresh()
+    return required().store.inner.refresh()
   },
 
   async hasBlock(cid) {

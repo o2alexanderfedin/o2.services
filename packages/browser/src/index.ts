@@ -65,6 +65,7 @@ export {
   localConsentStore,
   memoryConsentStore,
   pageConsentStore,
+  describeAnchors,
   readConsent,
   revokeConsent,
 } from './consent.ts'
