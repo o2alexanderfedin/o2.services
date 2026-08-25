@@ -567,7 +567,15 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // whose field had to land before certificates circulate, and whose users are a phase
       // nobody has scoped. Raised by exactly the two rows added, so the ceiling still cannot
       // absorb a third arrival silently.
-    ).toBeLessThanOrEqual(71)
+      // 2026-08-25: 71 -> 74. Three rows, all in `packages/cloudflare/src/do-datastore.ts` —
+      // `DoDatastore` and its two refusal types — named in `OPEN_FINDINGS` above. Raised by
+      // exactly the three that arrived. **These differ from every raise before them in one way
+      // worth stating: their closing condition is inside the SAME phase.** Phase 29's criteria
+      // 2 and 7 assemble the libp2p node that constructs this store, and until that stream
+      // lands the store has no caller for a reason that is scheduled rather than unscoped. So
+      // this raise is expected to be REVERSED by wiring within the milestone, not carried; if
+      // Phase 29 closes with these three still here, that is a finding about the phase.
+    ).toBeLessThanOrEqual(74)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
@@ -1327,6 +1335,54 @@ interface OpenFinding {
  */
 const OPEN_FINDINGS: readonly OpenFinding[] = [
   {
+    key: 'cloudflare/DoDatastore',
+    declaredIn: 'packages/cloudflare/src/do-datastore.ts',
+    // `unreachable-only`, and the graph is what said so — this row claimed `none` first, on
+    // the reasoning that nothing outside the package touches it yet. The walk corrected it:
+    // `refusedPrefixFor` reads `DoDatastore.refusedKeyPrefixes` at `do-datastore.ts:158`, so a
+    // caller exists and is itself stranded. Recording the corrected value rather than the
+    // reasoned one, because the field's whole purpose is that `none` and `unreachable-only`
+    // need different work.
+    callers: 'unreachable-only',
+    reason:
+      'Phase 29 criterion 3, landed 2026-08-25. The hosted tier reaches Durable Object ' +
+      'storage through `interface-datastore`, and no published package binds the two — the ' +
+      'last generic async datastore this project reached for hung the enrolment RPC for a ' +
+      'week, which is why this is hand-written and small enough to read. IT HAS NO CALLER ' +
+      'BECAUSE ITS CONSUMER IS THE SAME PHASE AND IS NOT BUILT YET: criteria 2 and 7 assemble ' +
+      'the libp2p node that passes this store to `createLibp2p`, and that assembly is a ' +
+      'separate stream. The nameable wiring that closes this row is exactly that — a Durable ' +
+      'Object class constructing `DoDatastore` over its own `state.storage` and handing it to ' +
+      'the node factory. This must not be closed by exporting a caller; it closes when the ' +
+      'node deploys and dials.',
+  },
+  {
+    key: 'cloudflare/RecordShapedKeyRefusedError',
+    declaredIn: 'packages/cloudflare/src/do-datastore.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The refusal `DoDatastore.put` raises for a DHT-record-shaped key, and the reason it ' +
+      'is a named typed outcome rather than a thrown string is that Phase 29 criterion 3 ' +
+      'makes it load-bearing: the store carries the node identity key and holds NO DHT ' +
+      'record until Phase 31 lands the sweep beside the record store, so the ' +
+      'unbounded-accumulation window never opens. Its thrower is `DoDatastore.put`, which is ' +
+      'itself unreachable for the reason in the row above — so this closes on the same day ' +
+      'and by the same wiring, not by a separate change. Proved able to fail: emptying the ' +
+      'refused-prefix set turns 10 cases red, deleting only the four-line guard in `put` ' +
+      'turns 9 red.',
+  },
+  {
+    key: 'cloudflare/StoredValueNotBytesError',
+    declaredIn: 'packages/cloudflare/src/do-datastore.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Raised when Durable Object storage answers with something that is not bytes. It ' +
+      'exists because this repository forbids type assertions and the real storage API types ' +
+      'its reads through a caller-chosen generic, which is an assertion wearing a type ' +
+      'parameter — so the value is PROVED to be bytes at runtime instead of being declared to ' +
+      'be. Same thrower and same closing condition as the two rows above.',
+  },
+  {
     key: 'core/keyCommitment',
     declaredIn: 'packages/core/src/enrollment.ts',
     // `unreachable-only`, and the graph is what said so — this row claimed `none` first, on
@@ -1836,7 +1892,15 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
 // left the tree by owner ruling — see `UNCOUNTED_MODULE` below. Lowered rather than left
 // slack, because slack is what lets a 29th arrive unnoticed, which is the whole point of
 // holding this number still.
-const ORPHAN_MODULE_CEILING = 28
+// 2026-08-25: 28 → 30, raised by exactly two and both named. `packages/cloudflare/src/index.ts`
+// is the new package's barrel, which nothing imports yet for the same scheduled reason as the
+// three `cloudflare/` rows in `OPEN_FINDINGS` — its consumer is Phase 29's own criteria 2 and
+// 7. `packages/cloudflare/src/do-storage.fixture.ts` is a test-only instrument, the same
+// mechanism as `node/capability-fixture.ts` already on this list, and it is deliberately a
+// COMPLETE implementation of the storage interface rather than a partial mock, which is why it
+// is a module rather than an inline object. Neither is production code that forgot to be
+// wired, and the first is expected to leave this list inside the milestone.
+const ORPHAN_MODULE_CEILING = 30
 
 /**
  * A production module that reaches **no barrel at all**, named by path.

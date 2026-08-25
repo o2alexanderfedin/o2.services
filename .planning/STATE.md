@@ -5,6 +5,23 @@ milestone_name: Open the Doors
 status: ready-to-execute
 last_updated: "2026-08-25T10:19:00.000Z"
 last_activity: 2026-08-25
+stopped_at: >-
+  Phase 29 "Hosted Tier Assembly & First Deploy" is under way on
+  feature/phase-29-hosted-tier. Criterion 3 has landed — packages/cloudflare,
+  a hand-written DoDatastore binding Durable Object storage to
+  interface-datastore, refusing every DHT-record-shaped key until Phase 31
+  lands the sweep. Open question 1 is settled by measurement and turned out
+  to be the wrong question: no wrangler alias is needed at all.
+  Two owner rulings of 2026-08-25 govern what follows. DEMO-04 is REPURPOSED
+  rather than retired, its rationale replaced by "deploying a paid tier does
+  not happen by itself". And autonomous execution stops at the Cloudflare
+  boundary, so criteria 1 and 2 (the billing alert and the first deploy) stay
+  open and MUST BE REPORTED OPEN. Not built yet, all in this phase — the
+  libp2p node assembly (criteria 2, 7) and three guards (criteria 4, 5, 6).
+  This field was absent from the frontmatter from the v2.0 milestone switch
+  until 2026-08-25 and nothing caught it, because state-frontmatter is not
+  one of the six cheap guards and only runs in a full --project node sweep.
+  It is a block scalar because a plain one cannot carry ": ".
 progress:
   total_phases: 13
   completed_phases: 0
