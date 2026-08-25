@@ -1574,14 +1574,29 @@ rather than means (`BENCH-03`).
 
 Recorded, not answered. Each names what would settle it and which rows move when it does.
 
-1. **Can wrangler's `alias` redirect one deep file inside `@chainsafe/libp2p-noise`, or whole
-   packages only?** This is the fix for the `node:crypto.diffieHellman` gap — the package
-   already ships a `browser` field mapping that call to pure-JS X25519, so the remedy is a
-   resolution override rather than a hand-written shim. `STACK.md` documents `alias` working at
-   whole-package granularity and states plainly that redirecting one file *inside* a dependency
-   "is not verified in this pass." **Settled by:** a real build test against the pinned
-   `@chainsafe/libp2p-noise@17.0.0`, before any plan says "just add an alias line."
-   **Changes:** `HOST-01` — whether the hosted tier builds at all.
+1. **SETTLED 2026-08-25 by measurement, and the question turned out to be the wrong question.**
+   It read: *can wrangler's `alias` redirect one deep file inside `@chainsafe/libp2p-noise`, or
+   whole packages only* — as the fix for the `node:crypto.diffieHellman` gap. **No alias is
+   needed at all.** Wrangler's default resolution already honours the package's legacy top-level
+   `browser` field and bundles `index.browser.ts`, so `diffieHellman` never enters the bundle,
+   with and without `nodejs_compat`, on both wrangler versions tested. Established by causation
+   rather than correlation: deleting the `browser` field from a *private scratch copy* flips the
+   build to the Node path. The literal question also has an answer — deep aliasing works only by
+   the specifier string **exactly as written in the importing module** (`./crypto/index.js`),
+   while every package-qualified form is a **silent no-op** that builds green with a bundle
+   identical to the baseline; and because that key is a relative specifier it matches across the
+   whole dependency graph, silently replacing any other module importing the same string.
+   Runtime was checked as well, locally and without deploying: the baseline completes a
+   handshake, the Node backend planted returns
+   `TypeError: crypto2.diffieHellman is not a function`.
+   **Changes `HOST-01`:** it ships no alias line, and gains a guard asserting `diffieHellman` is
+   absent from the emitted bundle — cheap, and red exactly when this silently regresses. A second
+   finding neither investigator was asked for: **wrangler is declared in no `package.json` in
+   this repository**, so `npx wrangler` resolves to whatever is ambient (4.14.1 here, against a
+   4.125.0 pin); Phase 29 pins it. Full working, **including what it does not establish** — the
+   full Phase 29 graph and the `ws` CJS-dynamic-require question are untested, and "moot" is a
+   claim about this one file's resolution, not about the hosted tier bundling:
+   `.planning/consults/2026-08-25-noise-diffiehellman-on-workerd-measured.md`.
 2. **Is Workers KV's ~60 s global propagation acceptable for the kill switch, or must the
    push-over-an-open-socket path ship in the same phase?** The cheap version is a KV poll with
    a Durable Object broadcast layered on only if the sub-minute window proves unacceptable in
