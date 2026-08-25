@@ -1,5 +1,5 @@
 {
-  "paused_at": "2026-08-25T09:17:00Z",
+  "paused_at": "2026-08-25T09:32:00Z",
   "milestone": {
     "version": "v2.0",
     "name": "Open the Doors",
@@ -12,12 +12,11 @@
     "do_not_rerun": "/gsd-new-milestone — it would redo steps 1-8"
   },
   "git": {
-    "branch": "feature/milestone-v2.0-open-the-doors",
-    "head": "b3704d2",
-    "commits_ahead_of_develop": 2,
-    "merged": false,
-    "develop": "ddefce3",
-    "main": "d5f6f01",
+    "branch": "develop",
+    "head": "71a638e",
+    "merged": true,
+    "develop_level_with_origin": true,
+    "main_level_with_origin": true,
     "tree_clean": true,
     "worktrees": 1
   },
@@ -68,5 +67,6 @@
     "Telegram in-app WebView behaviour — verify on real iOS and Android links BEFORE recruiting",
     "DEMO-04 guard: retire, repurpose or keep now that its rationale is spent"
   ],
-  "next_action": "Spawn gsd-research-synthesizer writing .planning/research/v2.0/SUMMARY.md, then define REQ-IDs, then roadmap phases starting at 29, then merge the branch through develop to main."
+  "next_action": "Spawn gsd-research-synthesizer writing .planning/research/v2.0/SUMMARY.md, then define REQ-IDs, then roadmap phases starting at 29, then merge the branch through develop to main.",
+  "cloudflare_account_state": "Verified 2026-08-25 by namespace, not by worker list: ZERO Durable Object namespaces. Nothing from this session can wake or bill. Only the owner's three ocr-checks-worker* scripts remain."
 }
