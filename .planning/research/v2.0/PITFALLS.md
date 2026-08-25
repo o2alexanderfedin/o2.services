@@ -78,12 +78,25 @@ An alarm handler reschedules itself unconditionally on every wake, and every wak
 new demand for another wake. Cost accrues per-object, per-wake, with no natural ceiling, and
 Cloudflare gives no proactive warning before the bill posts.
 
-**Why it happens — a real, dated incident:**
-A publicly documented case (Hacker News, April 2026): a Durable Object's `onStart()` called
-`this.ctx.storage.setAlarm()` on every wake-up **without checking whether an alarm was already
-scheduled**, combined with 60+ preview-deployment instances each running the same bug
-independently. Result: **$34,000 in 8 days, with zero real users, and no platform warning**
-before the bill posted.
+**Why it happens — one self-reported incident, read at the source 2026-08-25.**
+
+The primary source is a Hacker News post by `thewillmoss`, 2026-04-16, **31 points and 4
+comments** (`news.ycombinator.com/item?id=47787042`). It is **one person's self-report**, not
+journalism, not an audit, and not confirmed by Cloudflare — the poster's own last line is that
+there was *"no billing response yet"*. Treat the figure as reported.
+
+Its timeline, from the post: the loop began **3 April** with zero prior Durable Object usage;
+peaked **4–5 April at ~930 billion row reads per day**; was found and fixed **11 April**; the
+invoice of **$34,895** fell due **15 April**.
+
+**Two details in it change what the pitfall actually is**, and both were lost in the first
+retelling here:
+
+- **The bill was for row reads, not for alarm invocations.** The alarm loop was the trigger;
+  the cost came from storage reads at 930 billion per day.
+- **It was not one object.** The cause was `onStart()` calling `setAlarm()` on every wake-up
+  **combined with 60+ preview Worker deployments**, each with its own Durable Object
+  instances. That makes it as much a CI/preview-environment hazard as an alarm hazard.
 
 **Why this is not a hypothetical for this milestone specifically:** the milestone's own plan
 requires exactly the mechanism that failed — an alarm sweep plus a read-time check — because
@@ -98,7 +111,21 @@ already sets it. The pitfall below is unaffected: the sweep still has to be port
 demonstrates the alarm mechanism works (fired 1ms late, survived eviction) — but a mechanism
 that *works* is not the same claim as a mechanism that is *bounded*.
 
-**Prevention:**
+**Prevention.** *(Corrected 2026-08-25 against Cloudflare's own alarms documentation, which
+was read rather than assumed.)*
+
+**An object cannot stack alarms.** The docs state that each Durable Object has one alarm at a
+time and *"if you call `setAlarm` when there is already one scheduled, it will override the
+existing alarm."* So the `getAlarm()` check below does **not** prevent accumulation — there is
+nothing to accumulate. What it prevents is an unconditional reschedule pushing the next firing
+around on every wake. The thing that actually bounds spend is the interval floor and the
+alert, not the check.
+
+**And a failing sweep multiplies itself by six:** *"The `alarm()` handler has guaranteed
+at-least-once execution and will be retried upon failure using exponential backoff, starting
+at 2 second delays for up to 6 retries"* — on an uncaught exception. A sweep that throws is a
+sweep that runs seven times.
+
 - Every alarm handler calls `storage.getAlarm()` and checks for `null` before calling
   `setAlarm()` again — never reschedule unconditionally.
 - Enforce a **minimum reschedule interval** (e.g., sweep no more than once per N minutes per
