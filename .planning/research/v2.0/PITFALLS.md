@@ -111,6 +111,24 @@ already sets it. The pitfall below is unaffected: the sweep still has to be port
 demonstrates the alarm mechanism works (fired 1ms late, survived eviction) — but a mechanism
 that *works* is not the same claim as a mechanism that is *bounded*.
 
+**What the platform offers now, checked 2026-08-25.** Cloudflare shipped **budget alerts** on
+2026-04-13 — after the incident above — and turned them **on by default** for pay-as-you-go
+accounts on 2026-07-20 at a **$10** account threshold. Their own wording is the important part:
+*"The alert is informational only. It does not cap your usage."* **There is still no hard
+ceiling.** The alert is worth lowering from $10 and is not worth mistaking for a limit.
+
+**Two constraints for this project specifically, both from the incident's actual shape:**
+
+1. **No preview deployments of the hosted tier, ever.** The decisive multiplier was not the
+   alarm — it was **60+ preview Worker deployments**, each with its own Durable Object
+   instances running the same bug. One deployed instance is one bug; sixty is a bill.
+2. **The set of object names must be closed and short.** `idFromName()` creates an object for
+   any name it is given, so a name derived from anything a visitor controls lets a public
+   cohort — or one person in it — create unbounded objects, each with its own storage and its
+   own alarm. `bootstrap-eu` / `-us` / `-apac` is the whole namespace. This is a design
+   constraint, not an operational habit, and it belongs in the requirement rather than in a
+   runbook.
+
 **Prevention.** *(Corrected 2026-08-25 against Cloudflare's own alarms documentation, which
 was read rather than assumed.)*
 
