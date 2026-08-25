@@ -4,9 +4,22 @@ milestone: v1.1
 milestone_name: Wire What Was Built
 status: milestone_complete
 stopped_at: >-
-  CURRENT AS OF 2026-08-24. v1.1 is closed at 15/15 and the figures below still hold; what
-  follows is the work done since, on `feature/dht-registration-and-discovery`, which is 31
-  commits ahead of `develop` and not yet merged.
+  CURRENT AS OF 2026-08-24, AFTER THE MERGES. v1.1 is closed at 15/15 and the figures below
+  still hold; what follows is the work done since, which was on
+  `feature/dht-registration-and-discovery` and **is now merged through to `main`** by owner
+  instruction — feature into `develop` (`f874f95`), `develop` into `main` (`e75d39f`), both
+  `--no-ff` so the history says which branch carried what.
+
+
+  **All three branches point at one tree, `50599689`, and it is the tree the suites below were
+  run on.** That is asserted rather than assumed: the hashes were compared after each merge.
+  Merging `develop` into the feature branch first changed **no file at all** — those twelve
+  commits were merge commits of material already present at the branch point — so the
+  confirmation taken before the merges is a confirmation of exactly what landed.
+
+
+  **94 commits are unpushed on both `main` and `develop`.** Pushing was not done: it is an
+  action outward and was not asked for.
 
 
   **This file's frontmatter was found wrong and is restored.** An orphaned working-tree write —
@@ -57,7 +70,7 @@ stopped_at: >-
 
 
   **Suite at HEAD:** node 208/208 files and 3 032 tests at `(user+sys)/real` 1.36; browser
-  315/315 and 5 286 tests; e2e last read 38/38 and 235 tests. The `tools/aot` Docker gates fail
+  315/315 and 5 286 tests; e2e 38/38 files and 235 tests, all three read at this tree. The `tools/aot` Docker gates fail
   as a group below a CPU ratio of about 1.0 and pass individually — a property of this host under
   contention, measured across five full runs, not a defect in them.
 
@@ -281,7 +294,7 @@ stopped_at: >-
   demo-pi.e2e.test.ts IS A KNOWN FLAKE - green, red, green on identical code, cause not found.
   AOTW-06's 27/27 NOTE IS UNREPRODUCED: two prose sentences from one commit, no patch, no log, and
   third_party/elfconv pristine at its pinned commit.
-last_updated: "2026-08-24T17:45:00.000Z"
+last_updated: "2026-08-24T20:30:00.000Z"
 last_activity: 2026-08-24
 progress:
   total_phases: 15
