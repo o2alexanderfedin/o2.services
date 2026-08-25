@@ -430,10 +430,10 @@ Plans:
 - [x] 13-01-PLAN.md — Build registerSovereignInputs (a production caller for EgressGuard.guard()) and submitJobWithEgress (per-job manifest attachment), both in @o2/net, proven against a real RpcEndpoint/serveAgent fabric
 - [x] 13-02-PLAN.md — Wire both FabricNode and BrowserNode to construct RpcEndpoint over a new EgressGuard field and auto-register every sovereign task's input before executing it
 - [x] 13-03-PLAN.md — Prove all three criteria against real FabricNode instances over real RPC, and plant/watch-fail/revert both required mutations (registration removed, transport wrap removed)
-- [ ] 13-04-PLAN.md — Make EgressGuard.send refuse a frame carrying a registered sovereign payload instead of forwarding it, and invert every @o2/net assertion that encoded the forward-anyway behavior
-- [ ] 13-05-PLAN.md — Prove the refused job fails and its shard stalls rather than relocating, in process against real FabricNodes and across two spawned bin/agent.ts processes
-- [ ] 13-06-PLAN.md — Restate the DATA-05/DATA-06 ledger rows against the amended criteria, and guard bin/bench.ts's egress leg with a test rather than the type-checker alone
-- [ ] 13-07-PLAN.md — Release a sovereign registration from the serve path once its reply frame has settled, so scan cost is bounded by in-flight tasks rather than node uptime
+- [x] 13-04-PLAN.md — Make EgressGuard.send refuse a frame carrying a registered sovereign payload instead of forwarding it, and invert every @o2/net assertion that encoded the forward-anyway behavior
+- [x] 13-05-PLAN.md — Prove the refused job fails and its shard stalls rather than relocating, in process against real FabricNodes and across two spawned bin/agent.ts processes
+- [x] 13-06-PLAN.md — Restate the DATA-05/DATA-06 ledger rows against the amended criteria, and guard bin/bench.ts's egress leg with a test rather than the type-checker alone
+- [x] 13-07-PLAN.md — Release a sovereign registration from the serve path once its reply frame has settled, so scan cost is bounded by in-flight tasks rather than node uptime
 
 ### Phase 13.1: Node-Side Admission & Transport Bounds (INSERTED)
 **Goal**: A node refuses work it cannot run, with a stated reason, and neither side of the wire can be driven past a bound by a peer — closing three defects measured against the real stack rather than inferred

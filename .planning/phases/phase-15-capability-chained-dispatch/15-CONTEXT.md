@@ -104,8 +104,17 @@ curve is not silently re-measured against a new per-dispatch verification cost.
 `Executor.execute(task)` (`packages/core/src/ports.ts:56-`) takes a `Task` and nothing
 else, and `submitJob` calls `executeVerified(task, selectedExecutors)`
 (`submit.ts:237`) with no channel for extra per-dispatch data. Widening the kernel port
-to carry an `@o2/net` concern is the wrong direction and `purity.node.test.ts:167-174`
-exists to keep it that way.
+to carry an `@o2/net` concern is the wrong direction and
+`purity.node.test.ts:284` — *"has no dependency edge from `@o2/core` to any adapter
+package"* — exists to keep it that way.
+**Citation corrected 2026-08-25 (audit finding F-17, raised by `15-VERIFICATION.md:26`).**
+It read `purity.node.test.ts:167-174`, which is the docblock and body of `violationsIn()`,
+a helper that renders forbidden imports in one file's source and says nothing about
+`Executor`, capability chains or a port. The claim above is sound and its evidence was
+misfiled; the line now cited is the case that actually holds it. Note what is still true
+and was true when the verification raised this: **no test asserts that the `Executor` port
+carries no chain** — the dependency-direction rule forbids the import that would be needed,
+which is a different and weaker statement.
 
 `RemoteExecutor` is already one instance per remote node — exactly the granularity
 `audience` needs, since a chain minted for node A is refused at node B with
