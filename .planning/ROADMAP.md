@@ -2128,3 +2128,297 @@ and guarded; **alone in its wave** because it runs `npm install`) → `28-03` (t
      ONE NON-BLOCKING DRIFT, recorded so it is not rediscovered as a defect:
      `reachability-guard.node.test.ts:350` and `REQUIREMENTS.md:790` both still say "47" against
      an `OPEN_FINDING_CEILING` that is now 49. Comment drift only — nothing reddens. -->
+
+## Milestone v2.0 — Open the Doors (Phases 29-41)
+
+**Added 2026-08-25**, from the v2.0 requirements section of `.planning/REQUIREMENTS.md`
+(`:1267-1623`) and `.planning/research/v2.0/SUMMARY.md`. Thirteen phases, **40 requirement
+ids** — 36 newly minted, 4 carried in from v1.1 by their existing ids.
+
+**Phases are numbered from 29, and nothing below 29 is touched by this milestone.** The 28 phase
+directories under `.planning/phases/` belong to v1.0 and v1.1; there is no archive and
+`latest_completed_milestone` is `null`, so the numbering continues rather than restarting. No
+checkbox, goal, criterion or progress row above this heading is edited by this section.
+
+v1.1's subject was mechanism that already existed and that no runnable entry point reached, so it
+minted almost no ids. **v2.0's subject is a tier that does not exist, a cohort that has not been
+invited, and numbers nobody has taken** — every one of the 36 new ids is `[ ]` and not one of them
+is *Built, not wired*.
+
+**What changed on 2026-08-24, and why it opens this milestone.** A Cloudflare Durable Object was
+measured doing three jobs a browser mesh structurally cannot do for itself: a dialable libp2p peer
+over WSS with a persisted identity, a working Circuit Relay v2 server, and a record store
+(`.planning/consults/2026-08-24-cloudflare-as-a-fabric-node-measured.md` §7, §9, §13). And the
+owner has a few hundred willing testers across countries and continents. The missing ingredient
+was never hardware — it was somewhere to send them and a way to be reachable once they arrived.
+
+**Not gated on disclosure.** The repository has been public since 2026-07-26, and the owner ruled
+on 2026-08-24 that the project is open source with monetization for commercial use added later.
+That closes the question twice over rather than trading it away. **The public run is an ordinary
+phase inside this milestone and carries no disclosure gate.**
+
+### Settled — stated as settled, and not re-opened by a plan that reaches one of these phases
+
+- Open source, with monetization for commercial use added later, and **no CLA** (owner rulings
+  2026-08-24; `PROJECT.md` Key Decisions).
+- **Three regions, named by the owner 2026-08-25 and explicitly temporary:** `bootstrap-us`,
+  `bootstrap-eu` (created in the binding `eu` jurisdiction), `bootstrap-sam` (a `locationHint`
+  only — South America has no jurisdiction value). The set is expected to grow.
+- **TURN and a relayed connection are the two fallback rungs** below direct WebRTC. Both are
+  wanted; which vendor supplies TURN is open question 4 and is named nowhere in this section.
+- **One identity per Durable Object.** `idFromName()` resolves to a single global instance, so
+  sharding is addressing, not provisioning.
+- **A Cloudflare-hosted node never advertises execution.** Runtime WASM compilation is refused
+  there by a V8 embedder flag — the same one that disables `eval` — and
+  `WebAssembly.instantiateStreaming` does not exist at all. The requirement is the omission, not
+  a workaround for the refusal.
+
+### The sequencing is not taste
+
+Eight orderings below are load-bearing, and each has a stated cost if inverted.
+
+1. **The billing alert is configured before the first Durable Object is deployed** (Phase 29).
+   Cloudflare has no hard spending ceiling; its own wording for its budget alerts is
+   *"informational only. It does not cap your usage."* The ordering is the whole control.
+2. **Exactly one call site may create the three objects** (Phase 29). An object's location is
+   fixed by its very first `get()` and never changes afterwards, so a stray `get()` sites it
+   permanently and the only repair is a new name.
+3. **The inbound listener is made correct before anything carries load** (Phase 30, ahead of the
+   relay in 32). Both required fields fail *silently* when omitted, and without a remote address
+   derived from `CF-Connecting-IP` libp2p treats the whole internet as one host and caps
+   admission at five connections per second — which one or two peers cannot surface by
+   construction.
+4. **Record expiry lands in the same phase as the record store** (Phase 31), never after. Durable
+   Object storage is durable by construction, unlike the browser's evictable IndexedDB, so this
+   is the first tier where records that never expire simply accumulate. Phase 29's datastore
+   carries the node's identity key and no DHT record for exactly this reason.
+5. **The two counters report before the relay accepts its first browser reservation** (Phase 32),
+   and **the relay-kill drill is scheduled and repeated** (Phase 33). The hosted tier quietly
+   becoming load-bearing while every document still says peer-to-peer is the **median** outcome
+   for hosted-relay systems — IPFS's measured cloud reliance (arXiv:2309.16203) and Matrix's
+   homeserver dominance are the two precedents. These are structural, not instrumentation polish
+   scheduled at the end.
+6. **The six-stage connectivity funnel is instrumented and reporting live before recruitment**
+   (Phase 37, ahead of Phase 39), because it is how this milestone's headline number gets taken
+   at all. No published figure exists for what fraction of a general audience cannot participate.
+7. **Telegram's in-app WebView is verified on real iOS and Android links before recruiting**
+   (Phase 38), because recruitment happens *from Telegram*. This is a precondition of the run,
+   not a detail of it.
+8. **The seven conditions of entry gate the first invite** (Phase 39 over Phases 35-38). A
+   Telegram-recruited cohort of a few hundred is spendable exactly once: SETI@home's move to
+   BOINC lost roughly half of its ~600,000 volunteers to added platform complexity alone, with no
+   bug and no bad actor.
+
+**Parallel track (config `parallelization: true`):** Phase 41 depends on nothing else in this
+milestone and can run alongside all of it. The new tier does not help it — it needs execution
+across two hosts, and execution is exactly what a Worker refuses by ruling.
+
+### Open questions that reach a phase
+
+Six live in `REQUIREMENTS.md` `### Open questions` (`:1561-1606`). They are recorded, not
+answered, and each phase that depends on one says so in its own block: 1 → Phase 29,
+2 → Phases 35 and 36, 3 → Phases 35 and 37, 4 → Phase 34, 5 → Phases 38 and 39, 6 → Phase 29.
+
+### Out of scope for this milestone
+
+Cold fan-out through a Cloudflare gateway path (the 50-subrequests-per-invocation cap is
+cumulative and non-refundable on close — scoped out unless a warm connection-pool design is
+budgeted, in which case it must be load-tested against the cap); leaderboards, team rankings and
+contribution ranking; any payment or cryptocurrency framing; attentiveness-adaptive intensity
+ramping; a single global on/off switch with no regional or cohort slice; a native app, browser
+extension or elevated-permission install; silent Battery Status API detection for a low-power
+pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each are in
+`REQUIREMENTS.md:1610-1621`.
+
+### Phase Checklist
+
+- [ ] **Phase 29: Hosted Tier Assembly & First Deploy** - A third workspace package deploys a libp2p node to a Durable Object that a peer can dial twice, days apart, and get the same PeerId — with the billing alert configured before the first object exists
+- [ ] **Phase 30: Inbound Listener Correctness & Hibernation** - More than five distinct clients a second are admitted, each with its own remote address, and backpressure has a defined answer instead of `undefined`
+- [ ] **Phase 31: Hosted Record Store, Its Expiry, and the Capability It Never Advertises** - The hosted node answers on `/o2/kad/1.0.0`, its records expire by an alarm-driven sweep landing in the same phase, and no record it publishes ever claims execution
+- [ ] **Phase 32: The Relay Role and the Two Counters** - Two browsers meet through the hosted relay and then leave it, and the peer-to-peer/relayed split is counted before the first reservation is accepted
+- [ ] **Phase 33: Three Regions, and a Relay Killed on Purpose** - `bootstrap-us`/`-eu`/`-sam` exist under a closed name set, no document claims where any of them runs, and a scheduled drill measures what a region's loss costs
+- [ ] **Phase 34: Two Fallback Rungs Below Direct WebRTC** - A pair that cannot connect directly falls to TURN, then to a relayed connection whose budget is stated at 64 KiB each way and tested on the relayed path
+- [ ] **Phase 35: Conditions of Entry in the Browser** - Consent blocks the artifact fetch, an indicator survives an unfocused tab, and the stop control drops CPU to zero and closes the socket the operator pays for
+- [ ] **Phase 36: The Kill Switch and a Status Page** - The cohort stops admitting work with no redeploy, sliceable by region and client version, verifiable by a volunteer rather than by internal telemetry
+- [ ] **Phase 37: The Six-Stage Funnel and a Frozen Telemetry Schema** - Page load through first task executed is instrumented and reporting live, on a schema designed backward from three questions and frozen before recruitment
+- [ ] **Phase 38: Reaching the Cohort — Telegram's WebView and What the Copy Promises** - The in-app WebView is detected and verified on real iOS and Android links, and the public copy promises what the licensing ruling will still support later
+- [ ] **Phase 39: The Public Run** - Seven conditions hold on a dated go/no-go checklist, invites go out in stages by region and slice, and BENCH-06's distinct-machine half is finally measured
+- [ ] **Phase 40: The Numbers Only the Run Can Produce** - The WebRTC failure rate segmented by country and network class, and a diurnal churn curve, published as measured and never beside a proxy that could be read as one
+- [ ] **Phase 41: Cross-Host Determinism for the AOT Track** - The same lift on two distinct hosts is byte-identical, or the divergence is reported — and `AOTW-06` stays gated on a compiler nobody has built
+
+### Phase 29: Hosted Tier Assembly & First Deploy
+**Goal**: A third workspace package — `packages/cloudflare/`, beside `packages/browser` and `packages/node` and not a branch inside `fabric-node.ts` — assembles a libp2p node that deploys to a Durable Object and is dialable by an ordinary peer over WSS at an identity that survives eviction and redeploy, with the money and the siting made irreversible-safe before the first object exists
+**Mode:** mvp
+**Depends on**: Nothing new — builds on the v1.1 tree. First in this milestone because every other hosted-tier phase needs an object that deploys, and because two of its criteria are irreversible once wrong: an object's location is fixed by its very first `get()`, and Cloudflare has no hard spending ceiling
+**Requirements**: HOST-01, HOST-05, HOST-08, HOST-10, HOST-11, HOST-12, NET-03 (carried from Phase 3)
+**Research**: Partly done — `.planning/consults/2026-08-24-cloudflare-as-a-fabric-node-measured.md` §7, §8, §9 measured a deployed object holding a persisted identity, and `.planning/research/v2.0/{STACK,ARCHITECTURE}.md` pin `wrangler@4.125.0` and the three workerd gaps (`process.versions`, `BroadcastChannel`, `node:crypto.diffieHellman`). **Open question 1 reaches this phase and is not answered here**: whether wrangler's `alias` can redirect one deep file inside `@chainsafe/libp2p-noise@17.0.0` — the package already ships a `browser` field mapping that call to pure-JS X25519 — or whole packages only, is unverified, and it decides whether the hosted tier builds at all. Settled by a real build test, before any plan writes "just add an alias line". **Open question 6 also reaches this phase**: `DEMO-04`'s guard still passes but its stated rationale is spent, and whether it is retired, repurposed as a no-accidental-deploys rule, or kept as written is an owner ruling, not an implementation detail
+**Success Criteria** (what must be TRUE):
+  1. A billing alert exists and its configuration timestamp **precedes** the deploy that created the first Durable Object — refutable by a deploy log that predates the alert. There is no hard ceiling behind it: Cloudflare's own wording is that its budget alerts are *"informational only. It does not cap your usage."* The runaway-cost figure usually quoted here is one Hacker News self-report (`thewillmoss`, 2026-04-16, 31 points, 4 comments, no billing response), was for ~930 billion row reads per day rather than for alarm invocations, and was multiplied by 60+ preview deployments; it is cited with those qualifiers or not at all
+  2. A peer outside Cloudflare dials `/dns4/<name>/tcp/443/tls/ws/p2p/<peerId>`, completes identify, and gets the **same** PeerId when it dials again after the object has been evicted and after a redeploy. A run that mints a new identity on the second dial fails this criterion — a plain Worker does exactly that, three consecutive requests returning three different PeerIds (`...measured.md` §7), which is why the node is a Durable Object and not a Worker
+  3. Durable Object storage is reached through `interface-datastore` by a hand-written class in this repository following `packages/node/src/fs-datastore.ts`. **It carries the node's identity key and holds no DHT record until Phase 31 lands the sweep beside the record store** — a `put` of a record-shaped key from this assembly fails a guard, so the unbounded-accumulation window never opens. No published package binds `interface-datastore` to Durable Object storage, and the last generic async datastore this project reached for (`datastore-level`) hung the enrollment RPC for a week
+  4. Exactly one call site in the repository can obtain a stub for these objects, and a guard fails when a second appears — planting a second `get()` in an unrelated file is watched turning the guard red. The cost of getting this wrong is not a test failure: the object is sited permanently wherever that call came from and the only repair is a new name
+  5. A deploy configuration or CI path that would create a preview deployment fails a guard. The preview multiplier is the structural part of the self-report in criterion 1 — the per-deployment cost was ordinary and the count was not
+  6. The `idFromName()` name set is a closed, short enumeration in source, and no name is derived from visitor-controlled input — a planted call passing a request-derived string fails the guard, so no visitor can cause an object to be created
+  7. **NET-03 is reported as a second route, not as a closure.** On the Cloudflare path TLS is terminated at the edge by a commercial certificate the host already holds, so the certificate requirement **does not arise rather than being satisfied**. The AutoTLS route is untouched and still wants a public authority and a publicly reachable interface, and NET-03's row keeps that half open. A milestone report that ticks NET-03 on this deploy alone has widened what counts as passing
+**Plans**: TBD
+
+### Phase 30: Inbound Listener Correctness & Hibernation
+**Goal**: The hosted node's inbound listener declares the two fields libp2p needs in order to admit more than five connections a second, and holds its socket against the hibernation API with a defined answer for the absent `bufferedAmount` — the two defects that each produce a node which looks healthy and silently refuses to work or to scale
+**Mode:** mvp
+**Depends on**: Phase 29. Sequenced **before** the relay in Phase 32 and before anything that carries cohort load, because both defects fail silently and neither can be surfaced by one or two peers
+**Requirements**: NET-11, HOST-15
+**Research**: None new — both defects were measured on the deployed object (`2026-08-24-cloudflare-as-a-fabric-node-measured.md`; `PROJECT.md`'s "A correct inbound listener" bullet). The work is shipping the fields and a test that can go red
+**Success Criteria** (what must be TRUE):
+  1. **More than five** concurrent, distinct client addresses connect to the deployed node inside one second and all are admitted. The count is above five by construction: with one or two peers the defect cannot appear at all, so a green from a two-peer test is a green that could not have gone red
+  2. Removing `direction: 'inbound'` from the listener, and separately removing the `CF-Connecting-IP`-derived remote address, each turns criterion 1 red — both plants watched failing and restored. Without the second, libp2p sees the whole internet as one host and the per-host inbound cap becomes a five-connections-per-second ceiling on the entire fabric
+  3. Each accepted connection's remote address, read back from the node's own connection list, is the client's address and not the address of the Cloudflare edge — the same value for every peer is the failure this criterion exists to catch
+  4. The socket is written against the hibernation API and backpressure has a **stated** answer where `bufferedAmount` is absent: a caller reading it gets the defined value, and a test asserting that value fails when the field is passed through raw as `undefined`. Billing on this platform is duration of held sockets rather than messages carried, so a non-hibernating socket is the cost and a silently-`undefined` backpressure signal is a correctness defect that looks like a healthy node
+**Plans**: TBD
+
+### Phase 31: Hosted Record Store, Its Expiry, and the Capability It Never Advertises
+**Goal**: The hosted node holds and answers records on the fabric's private keyspace `/o2/kad/1.0.0` — with the sweep that bounds them landing in the **same** phase, driven by a Durable Object alarm rather than a `setInterval` that cannot fire there, and with execution omitted from every record it publishes
+**Mode:** mvp
+**Depends on**: Phase 29 (an object that deploys and a datastore), Phase 30 (a listener that admits more than five peers a second)
+**Requirements**: HOST-03, HOST-04, HOST-09, HOST-13, HOST-14
+**Research**: **HOST-13 is a port, not a build, and a plan that rebuilds the policy has done the wrong job.** `providerRecordPolicy` (`packages/libp2p/src/constants.ts:316`) already derives sweep interval and republish threshold from a single validity of one hour; both tiers pass it (`packages/node/src/fabric-node.ts:2154`, `packages/browser/src/browser-node.ts:1539`); and it is read across two processes by `packages/node/src/provider-expiry.node.test.ts` under NET-06. What does not work on workerd is the `setInterval` driving it, because `Date.now()` does not advance without I/O. The read-time half is already satisfied by `verifyCapabilityRecord`'s `expiresAt` check through `DhtRecordIndex`. **HOST-14 is the genuinely missing sweep** — `/o2/<nodeKey>` value records have none
+**Success Criteria** (what must be TRUE):
+  1. A browser peer writes a record to `/o2/kad/1.0.0` and a second peer reads it back **through the hosted node**, which is configured with the four settings a private DHT needs rather than two — `protocol`, `clientMode`, `peerInfoMapper` and `selectors`. Dropping `peerInfoMapper` is watched emptying the routing table silently (the default strips private addresses and a peer left with none is never added), and dropping `selectors` is watched throwing `MissingSelectorError` on every read, which a caller that catches query failures reads as an empty keyspace
+  2. The one-hour provider-record validity policy runs on the hosted tier driven by a **Durable Object alarm**: a provider record published at T is gone at T + validity, observed on the deployed object, with both numbers sourced from the same `providerRecordPolicy` constant rather than restated. Replacing the alarm with the existing `setInterval` leaves the record present past its validity — that is the plant that proves the driver is what changed
+  3. `/o2/<nodeKey>` value records expire by a sweep, and the sweep is observed running against records **the fabric actually wrote**, not synthetic fixtures, **before** Phase 39 invites anyone. A sweep that ships after persistence has already lost the property this criterion is about
+  4. `getAlarm()` is checked before every `setAlarm()`, and a minimum reschedule interval is enforced: an alarm handler planted to reschedule itself at zero delay is refused at the floor rather than running hot. There is no hard spending ceiling behind this — see Phase 29 criterion 1
+  5. The hosted node's published `NodeRecords.capabilities` (`packages/core/src/discovery.ts:414`) contains **no** execution capability, and a guard fails if one ever appears in one — so the scheduler never learns the hosted tier exists as anything but a capability-limited participant. The requirement is the omission: runtime WASM compilation is refused there on every entry point by a V8 embedder flag and `WebAssembly.instantiateStreaming` does not exist at all, so a workaround is not what is being asked for
+**Plans**: TBD
+
+### Phase 32: The Relay Role and the Two Counters
+**Goal**: The hosted node runs a Circuit Relay v2 server that two browsers use to find each other and then drop out of, and the peer-to-peer/relayed split is counted from before the first browser reservation is accepted — so the fabric cannot become hosted-in-practice while every document still calls it peer-to-peer
+**Mode:** mvp
+**Depends on**: Phase 30 (a listener that does not cap at five a second), Phase 31 (records, so a browser can find the relay through the keyspace rather than a hardcoded address)
+**Requirements**: HOST-02, NET-14
+**Research**: Done — the relay role was measured on a deployed Durable Object (`2026-08-24-...-measured.md` §13): peer A reserved a slot, peer B reached A only through it, verified A's PeerId and pinged in 54 ms. `circuitRelayServer()`'s own "will not work in browsers" comment is about browsers, and a Durable Object is not a browser
+**Success Criteria** (what must be TRUE):
+  1. Browser A reserves a slot on the deployed relay, browser B reaches A **only** through it and verifies A's PeerId, and the pair then completes a WebRTC handshake after which traffic flows with the relay out of the data path — observable as the relay's byte counter flat while the pair's own counter moves
+  2. Removing `addresses.announce` is watched turning criterion 1 red with **empty reservations**: with nothing declared the server has no address to hand a client, and every reservation comes back empty rather than erroring
+  3. Two counters — connection-seconds and bytes carried **peer-to-peer**, against connection-seconds and bytes carried **through the relay** — are reporting **before the relay accepts its first browser reservation**. This is ordering inside the phase, not a dashboard added later: the hosted tier becoming load-bearing while the documents still say peer-to-peer is the **median** outcome for hosted-relay systems, with IPFS's measured cloud reliance (arXiv:2309.16203) and Matrix's homeserver dominance as the two precedents
+  4. The counters are not vacuous: a run in which every pair falls back to a relayed connection and a run in which every pair connects directly produce visibly different values on both counters, and a counter that reports the same split for both arrangements fails
+**Plans**: TBD
+
+### Phase 33: Three Regions, and a Relay Killed on Purpose
+**Goal**: `bootstrap-us`, `bootstrap-eu` and `bootstrap-sam` exist as three identities in three objects under the closed name set, nothing anywhere claims where any of them actually runs, and a scheduled, repeated drill measures what a region's loss costs instead of discovering it during the run
+**Mode:** mvp
+**Depends on**: Phase 32 (one relay working before three)
+**Requirements**: HOST-06, HOST-07, NET-15
+**Research**: None new — Cloudflare's data-location documentation was read rather than assumed (`PROJECT.md`'s multi-region bullet): `locationHint` is best-effort and not binding, `jurisdiction` is binding and takes `eu`, `us` and `fedramp` and nothing else, and an object's location is fixed at first `get()`
+**Success Criteria** (what must be TRUE):
+  1. Three objects exist, one identity each, under Phase 29's closed name set. `bootstrap-eu` is created in the **`eu` jurisdiction**, which is binding; `bootstrap-sam` carries a **`locationHint` only**, because no South-American jurisdiction value exists — a plan that passes `sam` as a jurisdiction is watched failing at creation
+  2. **No surface, document, published record or benchmark line claims where a hosted object runs.** A grep over this milestone's published copy and results finds no location claim, and a review rejects any figure captioned with a city or a country attributed to a hint. The object is placed in a datacenter chosen to minimise latency *from* the hint, so the region name is an address and never a location claim — a report saying "measured in São Paulo" on the strength of a hint has written a measured fact it did not measure
+  3. A **scheduled, repeated** drill takes one region's relay out and reports bounded, measured degradation: which stage of Phase 37's funnel moves, and by how much, against the same arrangement with the relay up. A drill run once is a design review; the schedule is the requirement, and its absence from the schedule is the failure
+  4. Each region's object is dialable from the other two, so losing one region is a measured degradation and not a partition — observed during the drill rather than asserted from the topology
+**Plans**: TBD
+
+### Phase 34: Two Fallback Rungs Below Direct WebRTC
+**Goal**: A pair that cannot connect directly falls to TURN, and a pair that cannot use TURN falls to a relayed connection whose budget is written down at 64 KiB **each way** and tested on the relayed path — so no design assumes twice the room it has
+**Mode:** mvp
+**Depends on**: Phase 32 (the relay), Phase 33 (three regions to shard against)
+**Requirements**: NET-12, NET-13
+**Research**: **Required, and open question 4 reaches this phase.** Where TURN runs is unmeasured in both 2026-08-24 consults and is the one point where the four v2.0 research files disagree with each other — `STACK.md` recommends one vendor to avoid a second vendor relationship and a second always-up server, `ARCHITECTURE.md` calls for a dedicated spike instead. **This phase names no provider**; the spike settles it. The mechanism is not in doubt: `WebRTCTransportInit.rtcConfiguration` accepts a plain `RTCConfiguration` **or a function returning one**, read from the package's own `.d.ts`, which is how short-lived credentials are supplied
+**Success Criteria** (what must be TRUE):
+  1. A pair that fails to connect directly connects over TURN, with credentials supplied through `rtcConfiguration`'s function form and short-lived: a credential captured from one session is refused after its stated lifetime, and a request from outside the fabric is refused. Both are verified **before** Phase 39 invites anyone, not after
+  2. TURN is sharded to match the three bootstrap regions, and a cross-continent pair is observed using its own region's rung rather than one city's. Cross-continent pairs concentrate exactly where TURN is absent, which is why the sharding is part of the requirement and not an optimisation
+  3. The protocol specification states the relayed budget **per direction** — 64 KiB each way, not 128 — and a boundary test drives the **relayed** path to the cut and observes it. A test that exercises only direct WebRTC cannot fail this way and does not count. The Circuit Relay v2 data limit is enforced bidirectionally: out plus back plus the reply in flight is `131072` in every framing measured, so a symmetric request/response protocol gets half of what the figure reads as
+  4. A pair that falls all the way through is reported as **control-only**, not as a working data path, and a job that would need bulk data over that pair is refused with a named reason rather than stalling
+**Plans**: TBD
+
+### Phase 35: Conditions of Entry in the Browser
+**Goal**: A visitor sees what will run, what leaves their device and what it costs before anything is fetched; knows the tab is computing even when it is not the tab they are looking at; and can stop it in a way that drops CPU to zero and closes the socket the operator is billed for
+**Mode:** mvp
+**Depends on**: Phase 29 (a hosted tier for a tab to hold a socket to). Ahead of Phase 39, which gates on this phase's five requirements
+**Requirements**: BROW-06, BROW-07, BROW-08, BROW-09, BROW-10
+**Research**: None new for the mechanism — the browser tier, its Workers and the Playwright multi-engine harness all exist. **Two of these are not re-mints of closed v1 rows**: `BROW-01` (consent before compute) and `BROW-04` (a stop control) stay closed, and `BROW-06`/`BROW-08` state the materially stricter obligation beside each. **Open question 2 changes how `BROW-08` is read** — node-local versus a global propagation bound — and **open question 3 reaches `BROW-09`**, whose telemetry sentence depends on a legal basis that is contested across sources and settled by legal review, not by engineering judgement
+**Success Criteria** (what must be TRUE):
+  1. Opt-in blocks the artifact **fetch**: with consent not yet recorded, a network log of the page shows zero task-artifact requests — not a request that is fetched and then not executed. A reviewer watching network traffic reads a fetch on its own as preparation-to-run, and that reviewer is the audience this gate exists for
+  2. A persistent indicator says the tab is computing and is visible while the tab is **unfocused** — a tab-title glyph or equivalent, verified with the tab backgrounded in the three engines this project's Playwright harness already drives. Page-body content alone is watched failing the criterion, because a backgrounded tab shows none of it
+  3. The stop control is a hard interrupt of the `Worker.terminate()` class: CPU is measured falling to zero and no in-flight task is allowed to run to completion. A cooperative "stop accepting new tasks" implementation is watched failing this criterion. **The connection the tab held to the hosted tier closes with it**, measured as the duration billing that connection was accruing stopping — on this platform cost is held sockets, not messages, so a stop that leaves the socket open has not stopped anything the operator pays for
+  4. Plain-language disclosure is shown **before** opt-in and states four things: what code runs, whose task it is, what leaves the device — with the sovereignty guarantee stated as a selling point rather than a caveat — and what telemetry is sent. A disclosure missing any one of the four fails; a disclosure shown after the opt-in click fails whatever it says
+  5. A rough data cost sits beside the CPU disclosure and before opt-in, stated **in bytes for a representative task** and taken from a real run of that task rather than estimated. An international cohort has a mobile-data subset, and a figure nobody measured is the one that gets quoted back
+**Plans**: TBD
+
+### Phase 36: The Kill Switch and a Status Page
+**Goal**: The cohort can be told to stop admitting new tasks with no redeploy, sliced by region and by client version rather than all at once, and a volunteer can see both that control and the fabric's state without being given operator access
+**Mode:** mvp
+**Depends on**: Phase 35 (a node in a tab that can be stopped), Phase 31 (records the status page reads)
+**Requirements**: RUN-02, RUN-03
+**Research**: **Open question 2 reaches this phase and is not answered here** — whether Workers KV's ~60 s global propagation is acceptable, or whether the push-over-an-open-socket path must ship in this same phase, is unsettled. What settles it is whether "a stop control that provably drops CPU to zero" is read as node-local (the client reads its own flag) or as a global propagation-latency bound. No feature-flag SaaS or self-hosted flag server is used: it is one boolean, read rarely
+**Success Criteria** (what must be TRUE):
+  1. The cohort stops admitting new tasks with **no redeploy**, and the stop is sliceable **by region and by client version** — flipping one region's slice is observed leaving the other two admitting work. A global-only switch fails this criterion by construction: one bad region would take offline volunteers whose region was never affected
+  2. A volunteer verifies the stop **from their own tab** — the indicator and the status page both change — rather than the operator reading internal telemetry. A green taken only from operator-side telemetry does not satisfy this criterion
+  3. The propagation window is **measured and published, not assumed**: elapsed time from flipping the switch to the last observed tab stopping, recorded with the population it was taken over. Open question 2 governs what is done about that number; this criterion only requires that it exists
+  4. A minimal status page is reachable by a volunteer before Phase 39 sends anything — a read-only view over data the fabric already publishes (DHT records, benchmark output) is enough. What is not enough is nothing
+**Plans**: TBD
+
+### Phase 37: The Six-Stage Funnel and a Frozen Telemetry Schema
+**Goal**: Every visitor's progress from page load to first task executed is counted at six named stages and reporting live before anyone is recruited, on a schema designed backward from exactly three questions, frozen before recruitment, aggregate-only, and discarding raw IP at collection
+**Mode:** mvp
+**Depends on**: Phase 35 (consent, which is where stage two is), Phase 32 (a relay, which is where stage four's classification comes from)
+**Requirements**: RUN-04, RUN-05
+**Research**: **Open question 3 reaches this phase and is settled by legal review, not by engineering judgement** — consent versus legitimate interest under GDPR is contested *across sources*, not merely unresolved. The engineering recommendation to carry telemetry consent on the same gate as `BROW-06` rather than showing a second banner is a **design recommendation, not a compliance ruling**, and is flagged for legal review before shipping. No third-party analytics SaaS is used: the five surveyed all set persistent cross-session identifiers, retain raw IP by default, or both
+**Success Criteria** (what must be TRUE):
+  1. Six stages are instrumented and reporting live — page load → consent → WSS to bootstrap → ICE gathering → connection classified → first task executed — with each stage's count readable while the fabric is running, **before recruitment begins in Phase 39**. Standing the funnel up after the first invite means the milestone's headline number was never taken
+  2. Each stage's drop-off is attributable: a synthetic client made to fail at exactly one stage moves exactly that stage's count and no other. A funnel where one failure moves two counters cannot tell anyone where a cohort was lost
+  3. The schema answers exactly three questions and is frozen before the first invite — the scaling curve, the WebRTC failure rate by country and network class, and diurnal churn. A field that answers none of the three is not collected, and adding a field after recruitment begins breaks the freeze rather than improving the dataset
+  4. Telemetry is aggregate-only and raw IP is discarded at collection: a dump of everything stored contains no IP address and no cross-session identifier, checked against the store rather than against the collector's intent
+  5. **No published figure derived from this instrumentation is merged with or backfilled from a proxy.** The bounds available today are proxies and are labelled as proxies wherever quoted — 10–20% relay-required industry guidance, and 70%±7.1% DCUtR hole-punch success with ~30% relay fallback and 11% symmetric NAT from a *different* protocol (arXiv:2510.27500). No published figure exists for what fraction of a general audience cannot participate; this milestone is how the real number gets taken
+**Plans**: TBD
+
+### Phase 38: Reaching the Cohort — Telegram's WebView and What the Copy Promises
+**Goal**: A visitor arriving from a Telegram message lands somewhere that works, and the copy that brought them there promises exactly what the licensing ruling will still support a year later — with the contribution posture written down before the first outside pull request arrives
+**Mode:** mvp
+**Depends on**: Phase 35 (the page the link opens)
+**Requirements**: RUN-06, DEMO-05, DEMO-06
+**Research**: **Open question 5 reaches this phase.** Whether Telegram's in-app WebView suspends JS on backgrounding, and whether it diverges on IndexedDB or WebRTC, is a MEDIUM-confidence general WebView pattern; Telegram's own current behaviour was not found in any authoritative current source, so it is measured on the devices rather than looked up
+**Success Criteria** (what must be TRUE):
+  1. The in-app WebView is detected and the visitor is offered an "open in your own browser" interstitial, verified by opening the **real** recruitment link from a **real** Telegram message on **both iOS and Android**. A green obtained from a spoofed user-agent string does not satisfy this: the point of the check is the engine, not the string
+  2. What that WebView does to a running node is **recorded from those two devices** — whether JS is suspended on backgrounding, and whether IndexedDB or WebRTC diverge. The answer is recorded rather than predicted; a phase that reports the general pattern without opening the link has reported the thing that was already known
+  3. `CONTRIBUTING.md` states explicitly that pull requests are **triaged, never merged**, and that any fix is implemented **independently of the reported diff**. No CLA is planned — the owner ruled to rely on the civilized world rather than build CLA machinery — so provenance for the later relicensing track is preserved by not merging rather than by paperwork
+  4. Public recruitment copy and project copy do **not** promise permanent open licensing. The settled position is open source with monetization for commercial use added later, and three dated precedents — Terraform→OpenTofu, Redis→Valkey, Elastic→OpenSearch — show the shape of the backlash when the copy and the later licensing disagree
+  5. The copy carries no payment framing and no cryptocurrency framing, and is read against the five patterns `packages/node/src/vocabulary.node.test.ts` enforces. That guard scans tracked files, so recruitment copy that lives outside the tree is checked by hand against the same five patterns before it is sent — an unchecked message is the one a reviewer greps
+**Plans**: TBD
+
+### Phase 39: The Public Run
+**Goal**: The first invite goes out only after seven conditions hold on a dated checklist with named evidence for each; invites go out in stages by region and by cohort slice with the funnel read between them; and the fabric's headline claim is finally measured on hundreds of independently-owned devices
+**Mode:** mvp
+**Depends on**: **Phases 35, 36, 37 and 38 — all four**, because criterion 1 is a gate over their outputs and not a summary of them. Also Phase 33 (three regions) and Phase 34 (both fallback rungs verified before the cohort arrives)
+**Requirements**: RUN-01, RUN-07, BENCH-06 (carried from Phase 8)
+**Research**: None — this phase runs an event rather than building a mechanism. **Open question 5's answer is a precondition of criterion 1**, since `RUN-06` sits in the gate through `RUN-01`
+**Success Criteria** (what must be TRUE):
+  1. A **dated go/no-go checklist** records, for each of the seven conditions — `BROW-06`, `BROW-07`, `BROW-08`, `BROW-09`, `BROW-10`, `RUN-02`, `RUN-03` — the named evidence that it holds, and **no invite is sent until every one does**. A row with no named evidence is a no-go, not a judgement call. A Telegram-recruited cohort of a few hundred is spendable exactly once: SETI@home's move to BOINC lost roughly half of its ~600,000 volunteers to added platform complexity alone, with no bug and no bad actor
+  2. Phase 37's funnel is **reporting live at the moment the first invite is sent**, observable in its own record with a timestamp preceding the invite — not stood up afterwards from stored events
+  3. Invites go out in stages, by region and by cohort slice, and each stage's go/no-go **reads the funnel** before the next invite is sent. Staged rollout is **inferred from general release practice and recorded as inferred**: no named volunteer-computing precedent for staged rollout of a compute cohort was found, and this criterion does not pretend otherwise
+  4. **`BENCH-06`'s distinct-machine half is measured from the run**: a map/reduce job distributes across nodes on independently-owned devices across several continents, each machine read off its own announced handshake line rather than off the driver, and the distinct-machine count is published beside the curve. **Until the run reports, the half stays descoped and unmeasured — not met — and a same-host figure may not be published in its place**
+  5. The kill switch and the stop control are exercised **during** the run and not only before it, and the observed behaviour matches what Phase 36 measured on a quiet fabric — a control that works at three tabs and not at three hundred is a control nobody has
+**Plans**: TBD
+
+### Phase 40: The Numbers Only the Run Can Produce
+**Goal**: Two figures that did not exist before this milestone are published under the discipline the `BENCH-` family already carries — the WebRTC connection-failure rate segmented by country and by network class, and a diurnal churn curve per region
+**Mode:** mvp
+**Depends on**: Phase 39 (the run), Phase 37 (the funnel that supplies the denominator)
+**Requirements**: BENCH-08, BENCH-09
+**Research**: None — the methodology discipline is inherited: pre-registered methodology before the first published number (`BENCH-02`) and percentiles rather than means (`BENCH-03`)
+**Success Criteria** (what must be TRUE):
+  1. The WebRTC connection-failure rate is published **segmented by country and by network class**, with Phase 37's page-load stage as the denominator, and stated as measured. It is **never** merged with, backfilled from, or presented beside the proxy figures in a way that lets a reader take a proxy for a measurement — a chart placing the measured rate on the same axis as the 10–20% guidance fails this criterion however the caption reads
+  2. A diurnal churn curve — node arrivals and departures against time of day, **per region** — is published with the **observation window and the population size stated beside it**. A curve with no stated window is not publishable, because a reader cannot tell a weekend from a fortnight
+  3. Both figures carry a pre-registered methodology dated before the first published number, and are reported as percentiles rather than means. A figure published without its pre-registration fails review whatever the number says
+  4. Every published figure states which driver and which tier produced it, so no figure is silently replaced — the rule Phase 23 criterion 4 already applies to `BENCHMARK-RESULTS.md`, extended to the run's output
+**Plans**: TBD
+
+### Phase 41: Cross-Host Determinism for the AOT Track
+**Goal**: The elfconv track's two open cross-host questions are answered by running them on two distinct machines — or reported unanswered with the blocker named — rather than carried for another milestone as a word that reads like a hardware wall and is not one
+**Mode:** mvp
+**Depends on**: **Nothing in this milestone.** A parallel track with a different skill surface, runnable alongside Phases 29-40. The hosted tier does not help it: both ids need execution across two hosts, and execution is exactly what a Worker refuses by ruling
+**Requirements**: AOT-03 (carried from Phase 10), AOTW-06 (carried from Phase 26)
+**Research**: None for `AOT-03` — repeated lifts in separate spawned toolchain processes are already byte-identical on one host. **`AOTW-06` is gated on a build nobody has paid**: `26-GATE.md` returned **NO-GO**, with 21 of 27 non-test translation units failing to compile for `wasm32-wasi`, and glog has no `__wasi__` branch at all (the `wasm32-wasi-threads` arm only moves the refusal from `glog/logging.h:51` to `glog/platform.h:58`). The only cross-compiled LLVM on this host targets Emscripten and cannot be guest code under this project's preview1 sandbox
+**Success Criteria** (what must be TRUE):
+  1. The same AArch64 static binary lifted by `elfconv` in separate spawned toolchain processes on **two distinct hosts** produces byte-identical `.wasm` and an identical CID — or a divergence is reported **as a divergence** and not normalised away. `CROSS_MACHINE_BLIND_SPOT` is removed from artifacts by that measurement and by nothing else; a phase that closes without it leaves the flag attached
+  2. The two hosts are recorded by name and by each host's **own** reported platform, read off that host rather than off the driver — a same-host run relabelled as two is the failure this criterion exists to catch, and it is the same discipline `announcedMachine` already applies to spawned agents
+  3. `AOTW-06` stays gated until a `wasm32-wasi` LLVM is built from source and glog carries a `__wasi__` branch. The first deliverable is therefore a compiler, not a feature, and a plan reporting progress without the toolchain has reported nothing. **The symbol half of `26-GATE.md` is an upper bound, conclusive in neither direction** — `wasm-ld` pulls only the members it needs, and the process and signal residue lives in six LLVMSupport objects — so a future pass must not read it as a verdict
+  4. Whatever the outcome, neither id is closed by widening what counts as passing: a one-host result is reported as a one-host result, and `26-GATE.md`'s NO-GO stands until the toolchain exists
+**Plans**: TBD

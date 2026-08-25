@@ -1264,7 +1264,373 @@ the port was measured and found to be churn rather than progress.
 
 ---
 
+## v2.0 Requirements — Open the Doors
+
+**Defined:** 2026-08-25, from `.planning/research/v2.0/SUMMARY.md` and `.planning/PROJECT.md`'s
+v2.0 milestone block (`:49-96`). **Phases are numbered from 29** — the 28 existing phase
+directories belong to v1.1 and to the four owner-filed phases above it, and none of them is
+touched by this milestone.
+
+**Every row here is `[ ]`, and not one of them is `Built, not wired`.** That is the difference
+between this milestone and v1.1. v1.1 minted almost no ids because its subject was mechanism
+that already existed and that nothing reached; v2.0's subject is a tier that does not exist, a
+cohort that has not been invited, and numbers nobody has taken. So it mints, and the rows below
+say what would be observable if the work were done — never what a component would contain.
+
+**Two new prefixes, and only two.**
+
+- **`HOST-`** — the always-on hosted tier (Cloudflare Workers / Durable Objects). Nothing
+  existing covers it: `NET-` is about how peers reach each other, `DEMO-` is about the static
+  client and the gate on deploying it, `BROW-` is one visitor's node. There has never been a
+  third, operated, always-reachable tier, so its roles, its siting and its cost have no
+  category to belong to.
+- **`RUN-`** — the public volunteer run itself: the cohort, the gate on inviting it, what is
+  measured while it is live, and the control that stops it. `BROW-` is one visitor's node and
+  `DEMO-` is the artifact they load; neither is the event.
+
+Every other row below reuses an existing prefix.
+
+**Settled — stated as settled, and not re-opened by a plan that reaches one of these rows.**
+
+- **Open source, with monetization for commercial use added later**, and **no CLA** (owner
+  rulings, 2026-08-24; `PROJECT.md` Key Decisions).
+- **Disclosure is closed twice over** — the repository has been public since 2026-07-26, and
+  the open-source ruling settles the question outright rather than trading it away. **The
+  public run is inside this milestone and carries no disclosure gate.** It is an ordinary
+  phase.
+- **The milestone is v2.0**, not v1.2. `v1.2-CARRIED.md` was renamed `v2.0-CARRIED.md` when
+  scope was taken on 2026-08-25.
+- **Three regions, named by the owner 2026-08-25 and explicitly temporary:** `bootstrap-us`,
+  `bootstrap-eu`, `bootstrap-sam`. The set is expected to grow.
+- **TURN and a relayed connection are the two fallback rungs** below direct WebRTC (owner
+  decision, 2026-08-24). Both are wanted; which vendor supplies TURN is not settled and is
+  open question 4.
+- **One identity per Durable Object.** `idFromName()` resolves to a single global instance, so
+  sharding is addressing, not provisioning (owner ruling, 2026-08-24).
+- **A Cloudflare-hosted node does not advertise execution** (owner ruling, 2026-08-24). The
+  compute leg is closed by choice, not deferred.
+
+---
+
+### In scope — existing IDs carried (4)
+
+Four ids ride in from v1.1 rather than opening new work, and **no new id is minted for any of
+them**. Their rows above are the authoritative ones; this table says only what v2.0 does with
+each.
+
+| Id | Origin phase | What this milestone does with it |
+|---|---|---|
+| **BENCH-06** | 8 — Benchmark Harness | Stops being a chore and becomes the milestone's headline experiment. Its distinct-machine half is exactly what the public run produces: hundreds of independently-owned devices across several continents. Until the run reports, the half stays **descoped and unmeasured — not met**, precisely as its own row says, and a same-host figure may not be published in its place |
+| **NET-03** | 3 — Browser Tier & Backbone Relay | **The Cloudflare path does not fully close this, and the distinction is the requirement's own.** TLS is terminated at the edge by a commercial certificate the host already holds, so on that route the certificate requirement **does not arise rather than being satisfied** — that is a *second way to satisfy* NET-03, not a closure (SUMMARY §7). The AutoTLS route is untouched and still wants a public authority and a publicly reachable interface. A milestone report that ticks NET-03 on the Cloudflare deploy alone has widened what counts as passing |
+| **AOT-03** | 10 — elfconv AOT Native→WASM | A parallel track with a different skill surface. The new tier does not help it: it needs execution across two hosts, and execution is exactly what a Worker refuses by ruling. `CROSS_MACHINE_BLIND_SPOT` stays on every artifact |
+| **AOTW-06** | 26 — elfconv Compiled to Wasm | Same — and additionally gated on a `wasm32-wasi` LLVM built from source, per `26-GATE.md`'s NO-GO. Unhelped by the hosted tier for the same reason |
+
+---
+
+### Conditions of entry — the gate on the first invite (new IDs)
+
+`SUMMARY.md` §4 states these as a literal gate on the first Telegram invite: all seven hold, or
+no invite is sent. Every named precedent in this domain — Coinhive, The Pirate Bay,
+Showtime/CBS, BrowseAloud/ICO.gov.uk — has the same shape: CPU was used without telling the
+visitor, a third party found it, and the finding cost far more trust than the cycles were worth.
+
+**Two of these look like re-mints of a closed v1 row and are not**, and the distinction is the
+same one v1.1's preamble drew when it refused to mint `WIRE-05` beside `DATA-03`. `BROW-01` and
+`BROW-04` are closed and stay closed; each new row below states the obligation that is
+materially stricter than the row it sits beside, and it is the stricter obligation that is
+unmet — not the original one restated.
+
+- [ ] **BROW-06**: A visitor's opt-in blocks the artifact **fetch**, not only execution — no
+      task bytes are requested before consent is recorded. **Not a re-mint of BROW-01**, which
+      is satisfied by consent before compute begins and stays closed: this row moves the line
+      earlier, because a fetch on its own reads as preparation-to-run to a reviewer watching
+      network traffic, and the reviewer is the audience this gate exists for
+- [ ] **BROW-07**: A persistent indicator says the tab is computing, and it is visible while
+      the tab is **unfocused** — a tab-title glyph or equivalent, not page-body content alone —
+      for as long as any task is in flight
+- [ ] **BROW-08**: The stop control is a hard interrupt of the `Worker.terminate()` class:
+      CPU is measured falling to zero, and no in-flight task is allowed to run to completion.
+      **Not a re-mint of BROW-04**, which a cooperative "stop accepting new tasks" satisfies
+      and this row refuses. The connection the tab held to the hosted tier closes with it, so
+      the duration billing that connection was accruing stops too — on this platform cost is
+      held sockets, not messages, so a stop that leaves the socket open has not stopped
+      anything the operator pays for
+- [ ] **BROW-09**: Plain-language disclosure is shown **before** opt-in and states four things:
+      what code runs, whose task it is, what leaves the device — where the sovereignty
+      guarantee is a selling point rather than a caveat — and what telemetry is sent
+- [ ] **BROW-10**: A rough data-cost disclosure sits alongside the CPU disclosure and before
+      opt-in, stated in bytes for a representative task, because an international cohort has a
+      mobile-data subset
+- [ ] **RUN-01**: No recruitment invite is sent until `BROW-06`…`BROW-10`, `RUN-02` and
+      `RUN-03` all hold, recorded as a dated go/no-go checklist naming each condition's
+      evidence. This is a gate, not a nice-to-have: **a Telegram-recruited cohort of a few
+      hundred is spendable exactly once**, and SETI@home's move to BOINC lost roughly half of
+      its ~600,000 volunteers to added platform complexity alone — no bug, no bad actor
+- [ ] **RUN-02**: A kill switch stops the cohort admitting new tasks with **no redeploy**,
+      sliceable by region and by client version rather than global-only, and verifiable by a
+      volunteer rather than only in internal telemetry. **Open question 2 changes this row**:
+      whether Workers KV's ~60 s global propagation is acceptable, or the push-over-an-open-socket
+      path must ship in the same phase, is unsettled
+- [ ] **RUN-03**: A minimal status page is reachable by a volunteer before the invite is sent.
+      A read-only view over data the fabric already publishes — DHT records, benchmark output —
+      is enough; what is not enough is nothing
+
+---
+
+### The hosted always-on tier (new prefix `HOST-`)
+
+Three roles were measured working on one deployed Durable Object on 2026-08-24
+(`.planning/consults/2026-08-24-cloudflare-as-a-fabric-node-measured.md` §7, §9, §13). These
+rows require them **shipped in this repository**, which is a different thing from having been
+measured in a consult. The structural shape is settled: a third assembly file in a third
+workspace package, `packages/cloudflare/`, beside `packages/browser` and `packages/node` — not
+a branch inside `fabric-node.ts`.
+
+- [ ] **HOST-01**: A deployed hosted node is dialable as an ordinary libp2p peer over WSS at
+      `/dns4/<name>/tcp/443/tls/ws/p2p/<peerId>`, and its identity is persisted in that
+      object's own storage and unchanged across eviction and across redeploy — a peer that
+      dials it twice, days apart, gets the same PeerId
+- [ ] **HOST-02**: The same node runs a Circuit Relay v2 server: a browser reserves a slot,
+      a second browser reaches the first **only** through it, verifies the first's PeerId, and
+      the pair completes a WebRTC handshake after which the relay leaves the data path. It
+      declares `addresses.announce` — with nothing declared the server has no address to hand
+      a client and every reservation comes back empty
+- [ ] **HOST-03**: The same node holds and answers records on the fabric's private keyspace
+      `/o2/kad/1.0.0`, configured with the four settings a private DHT needs rather than two:
+      `protocol`, `clientMode`, `peerInfoMapper` and `selectors`
+- [ ] **HOST-04**: A Cloudflare-hosted node **never advertises execution capability**. Its
+      published `NodeRecords.capabilities` (`packages/core/src/discovery.ts:414`) omits it and
+      a guard fails if an execution capability ever appears in one, so the scheduler never
+      learns the hosted tier exists as anything but a capability-limited participant. Runtime
+      WASM compilation is refused there on every entry point by a V8 embedder flag — the same
+      one that disables `eval` — and `WebAssembly.instantiateStreaming` does not exist at all.
+      The requirement is the omission, not a workaround for the refusal
+- [ ] **HOST-05**: Durable Object storage is reached through `interface-datastore` by a
+      hand-written class in this repository, following `packages/node/src/fs-datastore.ts`.
+      **No published package binds `interface-datastore` to Durable Object storage**, and the
+      last generic async datastore this project reached for (`datastore-level`) hung the
+      enrollment RPC for a week — which is why `fs-datastore.ts` exists at all
+- [ ] **HOST-06**: The three regions are `bootstrap-us`, `bootstrap-eu` and `bootstrap-sam`,
+      one identity in one object each. `bootstrap-eu` is created in the **`eu` jurisdiction**,
+      which is binding. `bootstrap-sam` is a **`locationHint` only**, because no
+      South-American jurisdiction value exists — `jurisdiction` takes `eu`, `us` and
+      `fedramp` and nothing else
+- [ ] **HOST-07**: No surface, document or published record claims **where** a hosted object
+      actually runs. `locationHint` is best-effort: the object is placed in a datacenter chosen
+      to minimise latency *from* the hint, so the region name is an address and never a
+      location claim. A report that says "measured in São Paulo" on the strength of a hint has
+      written a measured fact it did not measure
+- [ ] **HOST-08**: Exactly **one** call site in the repository may create these objects, and a
+      guard fails on a second. An object's location is fixed by its very first `get()` and
+      never changes afterwards, so a stray `get()` from anywhere else permanently sites the
+      object wherever that call came from
+- [ ] **HOST-09**: `getAlarm()` is checked before every `setAlarm()`, and a minimum reschedule
+      interval is enforced so an alarm cannot reschedule itself tighter than that floor
+- [ ] **HOST-10**: A billing alert is configured **before the first Durable Object is
+      deployed**. What is independently corroborated is that Cloudflare has **no hard spending
+      limit** — its budget alerts are, in its own words, *"informational only. It does not cap
+      your usage."* The runaway-alarm cost figure usually quoted beside this is **one Hacker
+      News self-report** (`thewillmoss`, 2026-04-16, 31 points, 4 comments, no billing
+      response), was for ~930 billion row reads per day rather than for alarm invocations, and
+      was multiplied by 60+ preview deployments. It is cited with those qualifiers or not at all
+- [ ] **HOST-11**: The hosted tier has **no preview deployments, ever** — a deploy
+      configuration or CI path that would create one fails a guard. The preview multiplier is
+      the part of the self-report in `HOST-10` that is structural rather than anecdotal: the
+      per-deployment cost was ordinary and the count was not
+- [ ] **HOST-12**: The `idFromName()` name set is closed, short, and enumerated in source. No
+      name is ever derived from visitor-controlled input, so no visitor can cause an object to
+      be created
+- [ ] **HOST-13**: The provider-record validity policy this project **already ships** runs on
+      the hosted tier, driven by a **Durable Object alarm**. `providerRecordPolicy`
+      (`packages/libp2p/src/constants.ts:316`) derives sweep interval and republish threshold
+      from a single validity of one hour; both tiers pass it
+      (`packages/node/src/fabric-node.ts:2154`, `packages/browser/src/browser-node.ts:1539`);
+      and it is read across two processes by `packages/node/src/provider-expiry.node.test.ts`
+      under NET-06. It is driven by a `setInterval`, which will not fire reliably on workerd
+      because `Date.now()` does not advance without I/O. **The work is the driver, not the
+      policy — this row is a port, and a plan that rebuilds the policy has done the wrong job**
+- [ ] **HOST-14**: `/o2/<nodeKey>` value records expire by a sweep, and the sweep is observed
+      running against **real, not synthetic** records **before** persistence ships to the
+      public cohort. Durable Object storage is durable by construction, unlike the browser's
+      evictable IndexedDB, so this is the first tier where records that never expire simply
+      accumulate. A sweep that ships after persistence has already lost the property
+- [ ] **HOST-15**: The hosted node's socket is written against the hibernation API and gives a
+      defined answer for the absent `bufferedAmount`. Billing on this platform is duration of
+      held sockets rather than messages carried, so a non-hibernating socket is the cost, and a
+      backpressure signal that silently reads `undefined` is a correctness defect that looks
+      like a healthy node
+
+---
+
+### Transport, fallback, and the peer-to-peer / relay split (existing `NET-` prefix)
+
+- [ ] **NET-11**: The hosted tier's inbound listener declares `direction: 'inbound'` and
+      derives each connection's remote address from `CF-Connecting-IP`. **Both fail silently
+      when omitted**, and without the second libp2p treats the whole internet as one host and
+      caps admission at five connections per second. The verification uses **more than five**
+      concurrent distinct client addresses — one or two peers cannot surface this defect by
+      construction, so a green from a two-peer test is a green that could not have gone red
+- [ ] **NET-12**: TURN is the first fallback rung below direct WebRTC, with short-lived
+      credentials supplied through `WebRTCTransportInit.rtcConfiguration`'s function form,
+      sharded to match the three bootstrap regions, and with credential rotation and
+      open-relay hardening verified before the public run. Cross-continent pairs concentrate
+      exactly where TURN is absent, which is why the sharding is part of the requirement.
+      **Open question 4 changes this row and it deliberately names no provider**: where TURN
+      runs is unmeasured in both 2026-08-24 consults and is the one point where the four v2.0
+      research files disagree with each other
+- [ ] **NET-13**: A relayed connection is the second fallback rung, and the protocol
+      specification states its budget **per direction**: the Circuit Relay v2 data limit is
+      enforced **bidirectionally**, so a symmetric request/response protocol gets **64 KiB each
+      way, not 128**. A boundary test exercises the **relayed** path, not only direct WebRTC —
+      a design that assumes twice the room has assumed it from a figure that reads as
+      one-directional and is not
+- [ ] **NET-14**: Two counters are reported from the first day the hosted tier is live:
+      connection-seconds and bytes carried **peer-to-peer**, against connection-seconds and
+      bytes carried **through the relay**. This is structural, not instrumentation polish —
+      the hosted tier becoming load-bearing while every document still says peer-to-peer is
+      the **median** outcome for hosted-relay systems, with IPFS's measured cloud reliance
+      (arXiv:2309.16203) and Matrix's homeserver dominance as the two precedents
+- [ ] **NET-15**: A **scheduled, repeated** relay-kill drill takes the hosted relay out and
+      reports bounded, measured degradation rather than a silent outage. Scheduled and
+      repeated is the requirement; a one-time design review is what this replaces
+
+---
+
+### The public run and what it measures (new prefix `RUN-`)
+
+- [ ] **RUN-04**: The six-stage connectivity funnel — page load → consent → WSS to bootstrap →
+      ICE gathering → connection classified → first task executed — is instrumented and
+      reporting live **before** recruitment begins. **No published figure exists for what
+      fraction of a general audience cannot participate.** The bounds available are proxies and
+      are labelled as proxies wherever quoted: 10–20% relay-required industry guidance, and
+      70%±7.1% DCUtR hole-punch success with ~30% relay fallback and 11% symmetric NAT from a
+      *different* protocol (arXiv:2510.27500). This milestone is how the real number gets taken
+- [ ] **RUN-05**: The telemetry schema is designed backward from exactly three questions — the
+      scaling curve, the WebRTC failure rate by country and network class, and diurnal churn —
+      is **frozen before recruitment**, is aggregate-only, and discards raw IP at collection.
+      **Open question 3 changes this row**: whether the legal basis is consent or legitimate
+      interest is contested across sources rather than merely unresolved. The engineering
+      recommendation — carry telemetry consent on the same gate as `BROW-06` rather than
+      showing a second banner — is a **design recommendation, not a compliance ruling**, and is
+      flagged for legal review before shipping
+- [ ] **RUN-06**: Telegram's in-app WebView is detected and the visitor is offered an "open in
+      your own browser" interstitial, verified by opening the **real** recruitment link from a
+      **real** Telegram message on **both iOS and Android** before recruiting begins. **Open
+      question 5 changes this row**: whether that WebView suspends JS on backgrounding, and
+      whether it diverges on IndexedDB or WebRTC, is a MEDIUM-confidence general WebView
+      pattern and was not found in any authoritative current source for Telegram specifically
+- [ ] **RUN-07**: The cohort is invited in stages — by region and by cohort slice — rather than
+      all at once, and each stage's go/no-go reads `RUN-04`'s funnel before the next invite is
+      sent. **No named volunteer-computing precedent exists for staged rollout of a compute
+      cohort**; this is inferred from general release practice and is recorded as inferred
+      rather than sourced
+
+---
+
+### Published numbers only the run can produce (existing `BENCH-` prefix)
+
+Both rows below inherit the discipline the existing `BENCH-` family already carries:
+pre-registered methodology before the first published number (`BENCH-02`) and percentiles
+rather than means (`BENCH-03`).
+
+- [ ] **BENCH-08**: The WebRTC connection-failure rate is published **segmented by country and
+      by network class**, with `RUN-04`'s page-load stage as the denominator, and is stated as
+      measured — never merged with, backfilled from, or presented beside the proxy figures in
+      `RUN-04` in a way that lets a reader take a proxy for a measurement
+- [ ] **BENCH-09**: A diurnal churn curve is published from the run — node arrivals and
+      departures against time of day, per region — with the observation window and the
+      population size stated beside it
+
+---
+
+### Disclosure and contribution posture (existing `DEMO-` prefix)
+
+- [ ] **DEMO-05**: `CONTRIBUTING.md` states explicitly that pull requests are **triaged, never
+      merged**, and that any fix is implemented **independently of the reported diff**. No CLA
+      is planned (owner ruling, 2026-08-24 — rely on the civilized world rather than build CLA
+      machinery), so provenance for the later relicensing track is preserved by not merging
+      rather than by paperwork. Monetizing commercial use later requires owning every line
+- [ ] **DEMO-06**: Public recruitment copy and project copy do not promise permanent open
+      licensing. The settled position is open source **with monetization for commercial use
+      added later**, and three dated precedents — Terraform→OpenTofu, Redis→Valkey,
+      Elastic→OpenSearch — show the shape of the backlash when the copy and the later licensing
+      disagree
+
+---
+
+### Open questions — these change a requirement and are not settled
+
+Recorded, not answered. Each names what would settle it and which rows move when it does.
+
+1. **Can wrangler's `alias` redirect one deep file inside `@chainsafe/libp2p-noise`, or whole
+   packages only?** This is the fix for the `node:crypto.diffieHellman` gap — the package
+   already ships a `browser` field mapping that call to pure-JS X25519, so the remedy is a
+   resolution override rather than a hand-written shim. `STACK.md` documents `alias` working at
+   whole-package granularity and states plainly that redirecting one file *inside* a dependency
+   "is not verified in this pass." **Settled by:** a real build test against the pinned
+   `@chainsafe/libp2p-noise@17.0.0`, before any plan says "just add an alias line."
+   **Changes:** `HOST-01` — whether the hosted tier builds at all.
+2. **Is Workers KV's ~60 s global propagation acceptable for the kill switch, or must the
+   push-over-an-open-socket path ship in the same phase?** The cheap version is a KV poll with
+   a Durable Object broadcast layered on only if the sub-minute window proves unacceptable in
+   practice. **Settled by:** whether "a stop control that provably drops CPU to zero" is read as
+   node-local — the client reads its own flag, which `STACK.md` argues matters more — or as a
+   global propagation-latency bound. **Changes:** `RUN-02`, and how `BROW-08` is read.
+3. **Telemetry legal basis: consent versus legitimate interest under GDPR.** **Contested across
+   sources, not merely unresolved** — the sources consulted disagreed with each other on
+   whether IP-based analytics needs consent or can rest on legitimate interest. **Settled by:
+   legal review, not engineering judgement.** The engineering recommendation (carry telemetry
+   consent on the same gate as the CPU-use consent rather than a second banner) is explicitly a
+   **design recommendation and not a compliance ruling**, and is flagged for legal review
+   before shipping. **Changes:** `RUN-05`, `BROW-09`.
+4. **Where does TURN run?** Unmeasured in both 2026-08-24 consults, and the one point where the
+   four v2.0 research files disagree with each other: `STACK.md` recommends Cloudflare Realtime
+   TURN specifically to avoid a second vendor relationship and a second always-up server — the
+   things the hosted-tier decision existed to avoid — while `ARCHITECTURE.md` calls for a
+   dedicated research spike instead. **Settled by:** that spike. **Changes:** `NET-12`, which
+   is why it names no provider.
+5. **Does Telegram's in-app WebView kill sessions on backgrounding, and does it diverge on
+   IndexedDB or WebRTC?** A MEDIUM-confidence general WebView pattern; Telegram's own current
+   behaviour was not found in an authoritative current source. **Settled by:** opening the
+   actual recruitment link from a real Telegram message on both iOS and Android before
+   recruiting begins — cheap to check, expensive to get wrong at cohort scale. **Changes:**
+   `RUN-06`, and `RUN-01`'s gate.
+6. **`DEMO-04`'s guard still passes, but its stated rationale is spent.** The guard
+   (`packages/node/src/disclosure-gate.node.test.ts`) forbids a deploy workflow in order to
+   prevent an irreversible legal event — and that event is now the plan, because the project is
+   open source. **Retire it, repurpose it as an ordinary "no accidental deploys" rule, or keep
+   it as written is an open decision, not a rule.** `ARCHITECTURE.md` §7 already treats
+   *building* `packages/cloudflare/`'s source as distinct from *deploying* it under the guard's
+   own logic, and recommends keeping deployment a manual, separately-triggered act however this
+   resolves. **Settled by:** an owner ruling. **Changes:** `DEMO-04` itself, and the phrasing of
+   `HOST-11`.
+
+---
+
+### Explicitly not in v2.0
+
+| Item | Why it stays out |
+|---|---|
+| **Cold fan-out through a Cloudflare gateway/routing path** | The 50-subrequests-per-invocation cap is cumulative and non-refundable on close, while reuse on an already-open socket is free. Scoped out **unless a warm connection-pool design is budgeted into the milestone** — with one, it is in scope and must be load-tested against the cap; without one, building the fan-out path builds a ceiling nobody measured |
+| **Leaderboards, team rankings, contribution ranking** | `PROJECT.md` excludes reputation markets outright, and a competitive ranking is a soft version of the same thing: it invites fabricated nodes and unattended always-on scripts left running purely to rank |
+| **Any payment or cryptocurrency framing** | Out of scope per `PROJECT.md`. Browser compute demonstrably cannot be paid — the largest operators of the 2017-era in-page cryptocurrency scripts took single-digit dollars over months — and the framing reintroduces exactly the reputational shadow this project needs distance from |
+| **Attentiveness-adaptive intensity ramping** | Ramping work up when the visitor is probably not looking is *precisely* the cryptojacking evasion pattern documented in the wild (arXiv:1808.09474): behaviourally indistinguishable from malware regardless of intent, and caught by the same antivirus and ad-blocker heuristics that killed the 2017-era scripts |
+| **A single global on/off switch with no regional or cohort slice** | One bad region would take the whole cohort offline for volunteers whose region was never affected. `RUN-02` requires slices for this reason |
+| **A native app, browser extension, or elevated-permission install** | Defeats the project's own core value — every visitor to a web page is a potential compute node — and reads as *more* suspicious to a security-conscious volunteer than an in-tab consent click |
+| **Silent Battery Status API detection for a low-power pause** | Firefox removed that API in 2016 specifically as a fingerprinting vector and Safari never shipped it. A low-power pause is a preference the visitor states, not a property the page detects |
+| **TEE tiers, zk proofs, S/Kademlia, secure aggregation** | Unchanged, and they live in `## v2 Requirements (deferred)` below — which, despite the name, is not this milestone. See the note under that heading |
+
+---
+
 ## v2 Requirements (deferred)
+
+**Clarified 2026-08-25.** This heading predates the v2.0 milestone and does not name it.
+It was written when *v2* meant *someday, far future* — TEE tiers, zk proofs, S/Kademlia —
+and the milestone now called **v2.0 "Open the Doors"** is a different thing entirely. The
+two headings read alike and are not alike. Read this one as *beyond the current milestone*;
+the milestone's own requirements are the `## v2.0 Requirements — Open the Doors` section
+above. The heading is kept rather than renamed or deleted so that anything citing it still
+resolves.
 
 - Mergeable sketches (HyperLogLog, t-digest, Count-Min) for approximate holistic ops
 - Secure aggregation and differential privacy over cross-owner partials
@@ -1421,6 +1787,42 @@ this table as two independent sources rather than one.
 | CRYPTO-04 | Phase 28 — One Cryptographic Implementation | **Done** — the differential-conformance guard in `packages/core/src/ed25519-backend.test.ts` survived the merge and gained the floor that closes its vacuity hole. `it('refuses to run against fewer than two backends')` asserts `backends.length` at `>= 2` and is declared **before** the accept and reject describes, so a failure names the floor rather than a vector. **Watched red rather than reasoned about**: `availableBackends()` was planted to return after the noble push, and the case failed with `a differential guard needs two implementations to differ — this host offered 1: noble`, exit 1. **The measurement that matters is the 31** — all five accept vectors, all seven reject vectors and both pre-existing cardinality assertions stayed green under that plant, so the vacuity is invisible to every other case in the file. Restored by surgical inverse, `cmp` reporting IDENTICAL to pre-plant snapshot. **The hazard the floor closes is INFERRED, never observed, and the docblock says so**: every host anybody has run reads `backends available this run: noble, subtle` — node v25.9.0, chromium, firefox and webkit alike — so the floor is slack on all four and guards a future host rather than fixing a current failure. The rejection weighting is now **asserted** rather than incidental: `REJECT_VECTORS.length > ACCEPT_VECTORS.length`, read 2026-08-10 as 7 against 5, where before this phase the weighting was true and unasserted and three added accept vectors would have inverted it with nothing going red. The `>= 7` floor and the name-uniqueness check both stay, and the seven reject vectors include the non-canonical-S case. The sync/async port boundary is pinned by name and untouched: `describe('sync port and async port agree on every reject vector (T-25-16)')` matches at `:883` and still runs all seven malformed vectors through both ports after `initEd25519()` |
 | CRYPTO-05 | Phase 28 — One Cryptographic Implementation | **Done** — the delta was measured in one run, on one host, before the uninstall made that measurement impossible again, and the conditions are recorded beside it: Darwin 25.5.0 arm64, Node v25.9.0, Vite 8.1.5 library mode, esbuild production minification, `gzipSync` over raw output bytes, three builds sequential in one process. Pre-uninstall: baseline **127 B**, verifier **28434 B**, `verifierDelta` **28307 B**, libsodium **153132 B**, `libsodiumDelta` **153005 B** (149.4 KiB). Post-uninstall: baseline 125 B, verifier 28431 B, delta **28306 B**, and the libsodium entry no longer resolves at all, which is part of the proof rather than an inconvenience. **The inherited 314.9 KB is retired, not averaged**: it is 322427 B, the sum of the two packages' unbundled unminified `dist/modules` files as published, identified to the byte, against 153005 B measured through a bundler — a **2.11x** disagreement, and the measured number wins. **The guard's shape departs from the `x509-bundle.e2e.test.ts` precedent on purpose**: that file guards an *addition* with `toBeLessThanOrEqual`, which is sound for a ceiling and useless for a removal, because a tree that never removed anything also satisfies a generous upper bound. So absence is asserted directly and the size relations are added on top, with a **non-vacuity** case kept separate from the size check. Both defences were demonstrated rather than argued: crippling the matcher left **8 of 9 cases still passing**, including both live readings of the real manifest and the real lockfile, which passed vacuously and were caught only by the fixture; and building the verifier entry from the baseline source left the marker scan **passing over an empty bundle**, caught only by the separate non-vacuity assertion. Two sited constants: `VERIFIER_BUDGET_BYTES` **38912** at 1.375x headroom, and `LIBSODIUM_MEASURED_GZIP_BYTES` **153005**, a historical reading whose entry can no longer be built, its docblock saying exactly that. **One sub-criterion is NOT met and is recorded unmet rather than rescued.** Plan 28-02 required the ceiling to sit at least an order of magnitude below the removed weight; measured, 153005 over 38912 is **3.93x**, and 5.41x against the raw delta. It is unreachable at any legal headroom — even the tightest permitted 1.2x gives 4.5x — because both premises moved: the inherited figure was 2.11x too large, and the verification surface is 28.3 KB rather than small, since a caller touching the barrel pays for the `@noble/curves`, `@ipld/dag-cbor` and `multiformats` graph. Neither number was bent: the constant was not inflated back to the retired figure and the ceiling was not sited below the measured delta. What the criterion was *for* survives — re-attaching libsodium takes the delta to roughly 181311 B, **4.66x** the ceiling, so the guard reddens decisively rather than as a formality |
 | CRYPTO-06 | Phase 28 — One Cryptographic Implementation | **Done** — the WebKit finding is two guards rather than a docblock. **The finding, restated:** signing the same message with the same key on the same page yields different Ed25519 signature bytes per engine, because nonce construction is engine-specific. `describe('cross-arm signing is mutually verifiable, never byte-identical (CRYPTO-06)')` runs four seeds — 7, 11, 13, 17 — and asserts all four verification directions on each: noble to noble, noble to subtle, subtle to subtle, subtle to noble. **Every direction passed on every engine.** The per-engine byte-match verdict, as printed: node v25.9.0 **MATCHED x4**, chromium **MATCHED x4**, firefox **MATCHED x4**, webkit **DIFFERED x4**. Four seeds rather than one, so webkit's divergence reads as its nonce construction and not as a coincidence on a single input. **Byte-equality of Ed25519 signatures is asserted in neither direction, deliberately**: `toEqual` would be red four times on webkit and `not.toEqual` twelve times across the other three, so either would encode an engine rather than a property, and the acceptance grep confirms neither is present. **X25519 is the contrast case and the only byte-identity claim in the block** — `agreeX25519` over the same key pair *is* asserted byte-identical across arms and passes on all three engines, without which the block would read as "cross-arm agreement is generally impossible", which is false. **The source-level half** is `one-crypto-implementation.node.test.ts` Block 2: `findSignatureIdentityConstructs` raises equality, keyed-collection and conversion-as-key constructs over the same 153-file corpus, with two exclusions written for lines this tree really contains. Nine candidates were raised, eight excluded, **one kept** — `tools/aot/cli.ts`, `readBack.signature !== record.signature`, a serialisation-fidelity check inside one process with one signing operation, which the hedged-nonce finding cannot reach because there is no second engine for it to differ from. The register is anchored by file plus source text rather than by line number, and `SIGNATURE_COMPARISON_CEILING` is **2**, asserted to be exactly one more than the register length. **Set equality is asserted in both directions and each direction was watched red**: disabling an exclusion produced three unregistered findings and 4 failed of 24, and changing the anchor text to an expression the tree does not contain produced one stale entry and 3 failed of 24 — so an unregistered finding and a stale permission both fail |
+| BROW-06 | v2.0 — phase not yet numbered | **Not started** — nothing gates the artifact fetch on consent today; BROW-01's gate sits in front of execution, which is a later line. The obligation here is the earlier line, and it is unmet rather than partly met |
+| BROW-07 | v2.0 — phase not yet numbered | **Not started** — no indicator survives the tab losing focus. Whether a tab-title glyph is the right carrier is an implementation choice; that something is visible while unfocused is the requirement |
+| BROW-08 | v2.0 — phase not yet numbered | **Not started** — BROW-04's stop is satisfied by a cooperative one and this is not. Two readings are unmet: CPU measured falling to zero with no in-flight task completing, and the held socket closing so the hosted tier stops accruing duration billing for it |
+| BROW-09 | v2.0 — phase not yet numbered | **Not started** — no pre-consent disclosure surface exists naming what runs, whose task it is, what leaves the device and what telemetry is sent |
+| BROW-10 | v2.0 — phase not yet numbered | **Not started** — no data-cost figure is shown anywhere. The figure must be stated in bytes for a representative task and measured rather than estimated, or it is not a disclosure |
+| RUN-01 | v2.0 — phase not yet numbered | **Not started** — the go/no-go checklist does not exist. It is the gate on sending the first invite and it depends on seven rows below it, so it closes last of the entry-conditions family and cannot close early by widening what counts |
+| RUN-02 | v2.0 — phase not yet numbered | **Not started** — no cohort-wide stop exists in any form, redeploy-free or otherwise. Region and version slices are part of the requirement rather than a later refinement. Open question 2 decides whether a KV poll suffices or the push path ships in the same phase |
+| RUN-03 | v2.0 — phase not yet numbered | **Not started** — no status surface a volunteer can reach exists. A read-only view over data the fabric already publishes satisfies it; nothing does not |
+| HOST-01 | v2.0 — phase not yet numbered | **Not started** — a deployed Durable Object was measured as a dialable WSS peer with a persisted identity on 2026-08-24, in a consult. No such node exists in this repository, and measured-in-a-consult is not shipped |
+| HOST-02 | v2.0 — phase not yet numbered | **Not started** — the relay role was measured in the same consult, including the announce-address finding that an undeclared announce list returns empty reservations. Nothing in `packages/` runs it |
+| HOST-03 | v2.0 — phase not yet numbered | **Not started** — the four private-DHT settings are known and are already carried by the two existing tiers; a hosted tier that carries them does not exist |
+| HOST-04 | v2.0 — phase not yet numbered | **Not started** — the ruling is recorded (`PROJECT.md` Key Decisions, 2026-08-24) and no guard enforces it, because there is no hosted node to publish a record at all. A ruling with no guard is a policy someone has to remember |
+| HOST-05 | v2.0 — phase not yet numbered | **Not started** — no datastore binds Durable Object storage. The shape is fixed by precedent rather than open: a hand-written class following `fs-datastore.ts`, not a generic async adapter |
+| HOST-06 | v2.0 — phase not yet numbered | **Not started** — the three names are settled and no object is created under any of them. The `eu` jurisdiction is binding and `sam` can only be a hint, so the three are not symmetric and must not be created by one uniform code path that hides the difference |
+| HOST-07 | v2.0 — phase not yet numbered | **Not started** — nothing claims a location today because nothing is hosted. The row exists so the claim is refused before there is an opportunity to make it, which is the only point at which refusing it is cheap |
+| HOST-08 | v2.0 — phase not yet numbered | **Not started** — no creating call site exists, so neither does the guard that keeps it the only one. Location is fixed by the first `get()` and never changes, so this is unrecoverable rather than correctable after the fact |
+| HOST-09 | v2.0 — phase not yet numbered | **Not started** — no alarm is scheduled anywhere in this repository yet |
+| HOST-10 | v2.0 — phase not yet numbered | **Not started** — no Cloudflare account configuration is under this repository's control today. The corroborated fact this rests on is that no hard spending limit exists; the widely-quoted cost figure beside it is a single self-report and carries its qualifiers wherever it is repeated |
+| HOST-11 | v2.0 — phase not yet numbered | **Not started** — no deploy configuration exists to forbid previews in. The guard has to arrive with the configuration rather than after it |
+| HOST-12 | v2.0 — phase not yet numbered | **Not started** — no name set exists. The requirement is that it be closed and enumerated in source, which a dynamic name derived from a request would silently violate without failing anything |
+| HOST-13 | v2.0 — phase not yet numbered | **Not started** — a port rather than a build: the policy ships today and is read across two processes under NET-06. What is missing is a driver that fires on workerd, where `setInterval` does not, because time does not advance without I/O |
+| HOST-14 | v2.0 — phase not yet numbered | **Not started** — the value records have no sweep on any tier. It is a hosted-tier requirement because durable storage is the first place their absence accumulates rather than being cleared by eviction |
+| HOST-15 | v2.0 — phase not yet numbered | **Not started** — no socket implementation exists. Both halves fail in ways that look healthy: a non-hibernating socket bills for its whole life, and an undefined backpressure reading is a defect that reports nothing |
+| NET-11 | v2.0 — phase not yet numbered | **Not started** — both settings fail silently when omitted, which is why the verification is specified rather than left to the executor: more than five concurrent distinct client addresses. A two-peer test on this cannot go red and so proves nothing |
+| NET-12 | v2.0 — phase not yet numbered | **Not started** — there is no TURN in the stack at all, and a pair behind symmetric NAT simply fails. Where TURN runs is open question 4 and this row deliberately names no provider |
+| NET-13 | v2.0 — phase not yet numbered | **Not started** — the 64 KiB-per-direction figure is measured (2026-08-24) and no protocol specification states it, and no boundary test exercises the relayed path. The measured figure without the test is exactly how a design comes to assume twice the room |
+| NET-14 | v2.0 — phase not yet numbered | **Not started** — neither counter exists. Structural rather than instrumentation polish: the failure it detects is the median outcome for hosted-relay systems, not a tail case |
+| NET-15 | v2.0 — phase not yet numbered | **Not started** — no drill is scheduled. Scheduled and repeated is the requirement; a single exercise satisfies the letter and not the property |
+| RUN-04 | v2.0 — phase not yet numbered | **Not started** — none of the six stages is instrumented. The row's own honesty condition is that the proxy bounds it quotes stay labelled as proxies, because no published figure exists for this question |
+| RUN-05 | v2.0 — phase not yet numbered | **Not started** — no telemetry schema exists. Open question 3 is contested across sources and is a legal-review item; the engineering recommendation recorded beside it is a design recommendation and not a compliance ruling |
+| RUN-06 | v2.0 — phase not yet numbered | **Not started** — no in-app-browser detection exists and Telegram's current WebView behaviour is unverified (open question 5). The verification named is a hand check on real links on both platforms, because no authoritative source was found |
+| RUN-07 | v2.0 — phase not yet numbered | **Not started** — no staged rollout plan exists. Recorded as inferred from general release practice rather than sourced, because no named volunteer-computing precedent for it was found |
+| BENCH-08 | v2.0 — phase not yet numbered | **Not started** — the number does not exist and cannot until RUN-04's funnel supplies its denominator. It inherits BENCH-02's pre-registration and BENCH-03's percentile discipline |
+| BENCH-09 | v2.0 — phase not yet numbered | **Not started** — the churn curve does not exist. The observation window and population size are part of the published result rather than a footnote to it |
+| DEMO-05 | v2.0 — phase not yet numbered | **Not started** — no `CONTRIBUTING.md` exists. It is documentation and it is load-bearing: with no CLA, provenance for the later relicensing track rests on not merging rather than on paperwork |
+| DEMO-06 | v2.0 — phase not yet numbered | **Not started** — no recruitment copy exists yet, which is the cheapest moment to fix what it may not promise. Three dated precedents show the backlash shape when copy and later licensing disagree |
 
 **Coverage: 76/76 mapped. No orphans, no duplicates.** (72 v1 + 4 v1.1-only WIRE
 requirements. Of the 72, 40 are in v1.1 scope for wiring — see
@@ -1446,3 +1848,13 @@ carries"* — which is a note for whoever next re-reads `AOTW-06` rather than a 
 since that precedent has itself been refuted. Read the two figures rather than quoting them:
 `grep -c '^- \[ \] \*\*' .planning/REQUIREMENTS.md` and
 `grep -c '^- \[x\] \*\*' .planning/REQUIREMENTS.md`.
+
+**AMENDED 2026-08-25 — the same drift, one milestone later, and it is appended rather than
+folded into the figure above so that each amendment stays readable as its own event.** The
+mapping is **138 of 138**: the 102 counted on 2026-08-22 plus the **36** minted with
+v2.0 "Open the Doors" — `BROW-06`..`BROW-10`, `RUN-01`..`RUN-07`, `HOST-01`..`HOST-15`,
+`NET-11`..`NET-15`, `BENCH-08`, `BENCH-09`, `DEMO-05` and `DEMO-06`. **All 36 are unchecked
+and every one of their verdicts begins `Not started`**, which is what a milestone that has not
+begun looks like in this table; the four v2.0 carries — `NET-03`, `BENCH-06`, `AOT-03`,
+`AOTW-06` — mint no new id and keep the rows they already have. Read the figures rather than
+quoting them, by the two `grep -c` commands above.
