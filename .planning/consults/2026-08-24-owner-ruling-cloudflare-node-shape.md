@@ -84,10 +84,24 @@ is worth building on first.
 
 **Said by the owner, of the record table:** *"Надо только expiration."*
 
-**This lines up with a ruling already on the books** — provider records must expire — and with
-the finding that made it urgent: `@libp2p/kad-dht@16.4.0` never expires provider records at all,
-which is harmless only while nothing persists the datastore. Durable Object storage persists by
-definition, so on this tier the two meet.
+**This lines up with a ruling already on the books** — provider records must expire.
+
+**CORRECTED 2026-08-25.** This paragraph gave as the urgent finding that
+*"`@libp2p/kad-dht@16.4.0` never expires provider records at all."* That is **the fourth wrong
+answer in a row about the same number** — 48 hours, then 24, then never, then this — and
+`RFC-0003-RESPONSE-04` §8 had already recorded and corrected the first three. The measurement
+underneath it stands: the provider *store* ignores `providers.provideValidity` and
+`cleanupInterval`, which are declared and read by nothing. The conclusion drawn from it does
+not, because a different knob is honoured — `reprovide.validity` — and **this project already
+sets it**: `providerRecordPolicy` (`packages/libp2p/src/constants.ts:316`) derives all three
+coupled figures from a single validity of one hour, both tiers pass it, and
+`packages/node/src/provider-expiry.node.test.ts` reads the result across two processes.
+
+**What the ruling still needs is therefore narrower than it read.** The existing policy is
+driven by `setInterval`, which cannot fire reliably on workerd for the reason stated above —
+so the work is to drive the same policy from an alarm, and to add the sweep that the
+`/o2/<nodeKey>` value records still lack. Durable Object storage persists by definition, so
+this tier is where an unswept keyspace would first accumulate.
 
 **The mechanism exists and is exact.** A Durable Object alarm fired **1 ms** after its requested
 time, ran in the instance that scheduled it, and its result was read back by a *different*
