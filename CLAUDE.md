@@ -442,8 +442,16 @@ it looks like ceremony.
 - **Never trust an exit code you did not read directly.** `EXIT=$?` on the line *immediately*
   after the command — no pipes, no trailing `echo`/`tail`. A trailing `tail` has made a
   *failing* vitest run report success more than once.
-- **Run vitest by project** — `npx vitest run --project node|browser|e2e|perf`. A bare path
-  fans out across all four.
+- **Run vitest by project** — `npx vitest run --project node|aot|browser|e2e|perf`. A bare path
+  fans out across all five. **`aot` is new as of 2026-08-25 and it is a LANE, not a subset —
+  run it on its own.** It holds the eleven `tools/**` container specs at `fileParallelism:
+  false`, and the reason is measured: inside the `node` project they competed and a full sweep
+  lost **five of them at once**, two to a 900 000 ms hook budget and three to a harness child
+  returning `run.status === null`, killed by a signal. Serialised they pass 11/11.
+  **Run the two lanes separately, and the numbers say why**: `node` alone is 161.70 s at
+  `(user+sys)/real` **5.37**, `aot` alone is 1181.61 s at **0.090** — one computes, the other
+  waits on a container. Run together they take **2872.08 s** and six load-sensitive node specs
+  fall over. Separate lanes are both faster and greener than the combination.
 - **Prefer a comparative reading to an absolute one.** An absolute threshold silently encodes
   the machine, the load and the I/O weather of the day it was written, and then fails
   somewhere else for reasons that have nothing to do with the code. A ratio taken *within one

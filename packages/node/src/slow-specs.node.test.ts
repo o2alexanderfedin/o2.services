@@ -142,18 +142,46 @@ function walk(dir: string, out: string[] = []): string[] {
  * Reimplemented rather than asked of vitest, because asking vitest means starting it.
  * Verified against a real `--reporter=json` run: both say 112 on 2026-08-01.
  */
-const NODE_PROJECT_FILES: readonly string[] = (() => {
-  const packages = walk(join(ROOT, 'packages')).filter((path) =>
-    /\/packages\/[^/]+\/src\/.*\.test\.ts$/.test(path),
-  )
-  const tools = walk(join(ROOT, 'tools')).filter((path) => path.endsWith('.node.test.ts'))
-  return [...packages, ...tools]
+/**
+ * Repo-relative and slash-free at the front, matching how `MEASURED_NODE_SPANS`
+ * writes a path. `ROOT` carries a trailing slash, so the slice already drops it.
+ */
+const relative = (paths: readonly string[]): readonly string[] =>
+  paths
     .filter((path) => !/\.(browser|e2e|perf)\.test\.ts$/.test(path))
-    // Repo-relative and slash-free at the front, matching how `MEASURED_NODE_SPANS`
-    // writes a path. `ROOT` carries a trailing slash, so the slice already drops it.
     .map((path) => path.slice(ROOT.length).replace(/^\//, ''))
     .sort()
-})()
+
+/**
+ * **These globs are a REIMPLEMENTATION of the config's, and on 2026-08-25 that cost
+ * a silent fail-open.** `tools/**` moved from the `node` project to the new `aot`
+ * project, and this constant went on walking `tools/` — so it modelled a project
+ * shape that no longer existed, and every assertion below it passed while measuring
+ * the wrong population. The guard whose whole job is to notice the node project
+ * drifting did not notice the node project being cut by eleven files.
+ *
+ * There is no cheap way to have vitest hand a project's collected files to a spec
+ * inside that project, so the reimplementation stays — what changes is that the two
+ * projects are now modelled SEPARATELY and the assertions say which is which. A
+ * future move between them reddens `collected the node project the same way the
+ * reporter did` rather than passing quietly.
+ */
+const NODE_PROJECT_FILES: readonly string[] = relative(
+  walk(join(ROOT, 'packages')).filter((path) => /\/packages\/[^/]+\/src\/.*\.test\.ts$/.test(path)),
+)
+
+/** The `aot` project — `tools/**\/*.node.test.ts`, serialised, see its config docblock. */
+const AOT_PROJECT_FILES: readonly string[] = relative(
+  walk(join(ROOT, 'tools')).filter((path) => path.endsWith('.node.test.ts')),
+)
+
+/**
+ * Both together. `MEASURED_NODE_SPANS` was taken from one run that collected all of
+ * them, and `SLOW_NODE_SPECS` is derived from it for BOTH projects' `exclude`, so a
+ * span whose file has moved between the two is not stray — it is still measured and
+ * still excluded. Only a span in neither project is stray.
+ */
+const MEASURED_PROJECT_FILES: readonly string[] = [...NODE_PROJECT_FILES, ...AOT_PROJECT_FILES].sort()
 
 /**
  * How far the project may grow before the measurement must be retaken.
@@ -220,7 +248,7 @@ describe('every measured path is still a file this project runs', () => {
   it('has no measured path outside the node project', () => {
     // An excluded path the project would not have collected anyway excludes nothing,
     // and reads exactly like a working exclusion.
-    const stray = SPANS.filter((span) => !NODE_PROJECT_FILES.includes(span.path)).map((span) => ({
+    const stray = SPANS.filter((span) => !MEASURED_PROJECT_FILES.includes(span.path)).map((span) => ({
       paths: [CONFIG_FILE, span.path],
       line: span.path,
     }))
@@ -233,9 +261,34 @@ describe('the recorded measurement still describes this repository', () => {
     // Cross-check of the reimplemented globs against the recorded run, which is what
     // makes the drift check below mean anything.
     expect(NODE_PROJECT_FILES.length).toBeGreaterThan(80)
-    expect(NODE_PROJECT_FILES).toContain('tools/aot/lift.node.test.ts')
     expect(NODE_PROJECT_FILES).toContain('packages/node/src/fabric-node.node.test.ts')
     expect(NODE_PROJECT_FILES.filter((path) => /\.(browser|e2e|perf)\.test\.ts$/.test(path))).toEqual([])
+    // **The boundary between the two projects, asserted from both sides.** Until
+    // 2026-08-25 this line read `expect(NODE_PROJECT_FILES).toContain('tools/aot/…')`
+    // and it kept passing after `tools/**` had left the node project, because this
+    // file's globs are a reimplementation and were not moved with the config. Naming
+    // the container spec's project positively AND excluding it from the other is what
+    // makes a future move between them go red instead of quiet.
+    expect(AOT_PROJECT_FILES).toContain('tools/aot/lift.node.test.ts')
+    expect(NODE_PROJECT_FILES.filter((path) => path.startsWith('tools/'))).toEqual([])
+    expect(AOT_PROJECT_FILES.filter((path) => !path.startsWith('tools/'))).toEqual([])
+  })
+
+  it('reads the config back, so the reimplementation above cannot become a belief', () => {
+    // **THIS CHECK DID NOT EXIST UNTIL 2026-08-25, AND ITS ABSENCE IS WHY IT IS HERE.**
+    // The globs above are transcribed from `vitest.config.ts`. When `tools/**` moved to
+    // the `aot` project this file went on walking `tools/` and every assertion passed —
+    // a guard for node-project drift, blind to eleven files leaving the node project.
+    // `opt-in-only-sources.node.test.ts` has done this read-back all along and caught the
+    // same change the same afternoon; its docblock states the rule this file was missing:
+    // "Reading the config back is what keeps the re-implementation from becoming a belief."
+    expect(CONFIG).toContain("name: 'node'")
+    expect(CONFIG).toContain("include: ['packages/*/src/**/*.test.ts']")
+    expect(CONFIG).toContain("name: 'aot'")
+    expect(CONFIG).toContain("include: ['tools/**/*.node.test.ts']")
+    // The node project must keep refusing `tools/**` explicitly. Without this the two
+    // projects would both collect the container specs and each run them.
+    expect(CONFIG).toContain("'tools/**',")
   })
 
   it('has not drifted further from the measured file count than the tolerance allows', () => {
@@ -279,7 +332,12 @@ describe('the recorded measurement still describes this repository', () => {
     // The specific failure being prevented: prose figures nothing reads. These are the
     // ones derivable from the table itself; the rest are evidence held by the drift
     // check above.
-    expect(measurementField('unitFiles')).toBe(measurementField('files') - EXCLUDED.length)
+    // **Project-aware since 2026-08-25.** `EXCLUDED` spans both projects, because
+    // `SLOW_NODE_SPECS` feeds both `exclude` lists. Only the ones the NODE project
+    // actually holds reduce the node project's unit count; subtracting all of them
+    // would charge the node lane for files the `aot` project skips.
+    const excludedInNode = EXCLUDED.filter((span) => NODE_PROJECT_FILES.includes(span.path))
+    expect(measurementField('unitFiles')).toBe(measurementField('files') - excludedInNode.length)
     // Sum-of-spans must at least cover the files actually listed.
     const listed = SPANS.reduce((total, span) => total + span.ms, 0)
     expect(measurementField('sumOfFileSpansMs')).toBeGreaterThanOrEqual(listed)

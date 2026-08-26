@@ -12,7 +12,7 @@ import { defineConfig } from 'vitest/config'
 const SLOW_CUTOFF_MS = 1000
 
 /**
- * The run `MEASURED_NODE_SPANS` came from, as data rather than as prose.
+ * The runs `MEASURED_NODE_SPANS` came from, as data rather than as prose.
  *
  * Every figure that used to sit in the paragraph below is here instead, because the
  * paragraph is what went wrong: it stated a file count, a test count and a wall clock,
@@ -20,243 +20,365 @@ const SLOW_CUTOFF_MS = 1000
  *
  * `load` is recorded because it changes the answer. See the note on reproducibility in
  * `MEASURED_NODE_SPANS`.
+ *
+ * **Since 2026-08-25 this object describes TWO projects rather than one**, because
+ * `tools/**` now has a vitest project of its own. An unprefixed field is the `node`
+ * project; an `aot`-prefixed one is the `aot` project. The two fields that mix them —
+ * {@link NODE_MEASUREMENT.sumOfFileSpansMs} and
+ * {@link NODE_MEASUREMENT.sumOfReportedSpansMs} — say so in their own docblocks, and
+ * every other field names the run it came from.
  */
 const NODE_MEASUREMENT = {
   /**
-   * **RETAKEN IN FULL 2026-08-25.** Every field below and every row of
-   * {@link MEASURED_NODE_SPANS} comes from the single run named in that table's docblock.
-   * Nothing is carried forward from 2026-08-18, which is what the previous two amendments
-   * had to say and this one does not.
+   * **SPLIT AND RETAKEN 2026-08-25.** The layer this one replaces — summarised, not kept
+   * verbatim, under "The 209-file layer" below — recorded one run of a `node` project that
+   * collected 209 files because `tools/**` was still in it. That project no longer exists.
+   * `tools/**\/*.node.test.ts` moved to a new `aot` project with `fileParallelism: false`,
+   * by owner ruling, to stop five container specs failing together under contention; the
+   * measured case for the move is in that project's own docblock. The `node` project now
+   * holds **198** files and `aot` holds **11**.
    *
-   * **What went red, and what it turned out to be.** `slow-specs/file-count-drift` read
-   * *"the node project holds 209 test files, the recorded measurement covered 203"*. Six
-   * files, and the interesting half is that only one of them is new work:
+   * **Three runs, all 2026-08-25, and nothing here is carried from the 209-file run:**
    *
-   * | file | arrived | what it is |
+   * | run | population | wall clock | `(user+sys)/real` | 1-min load at start |
+   * |---|---|---|---|---|
+   * | `--project node`, reporter only | 198 / 2853 | 162.47 s | 5.37 | 6.68 |
+   * | `--project aot` | 11 / 240 | 1182.34 s | 0.090 | 18.95 |
+   * | `--project node`, **both instruments** — the node rows below | 198 / 2853 | 163.21 s | 5.35 | 5.20 |
+   *
+   * The two `node` runs are 45 minutes apart and reproduce each other: 162.47 s against
+   * 163.21 s, ratio 5.37 against 5.35, the same 198 files, the same 2853 cases and the same
+   * two foreign reds. That agreement is what lets the third run replace the first without
+   * re-opening anything else.
+   *
+   * ## THE FINDING: there are THREE windows onto a file's cost, not two
+   *
+   * The third run carried `--reporter=json` **and**
+   * `tools/measure/module-span-reporter.js`, which is step 3 of the procedure below, and
+   * the pair of them turned out to be three readings rather than two. Same run, same file,
+   * three numbers:
+   *
+   * | window | what it brackets | sum over 198 files |
    * |---|---|---|
-   * | `packages/core/src/certificate-renewal.test.ts` | 2026-08-23 `795df6a` | AUTH-04, renewal window arithmetic |
-   * | `packages/core/src/key-rotation.test.ts` | 2026-08-23 `916841a` | W13, a certificate naming its successor key |
-   * | `packages/libp2p/src/certificate-renewal-loop.test.ts` | 2026-08-23 `3fa2832` | AUTH-04, the loop both tiers run |
-   * | `packages/node/src/certificate-cache.node.test.ts` | 2026-08-23 `fbfa8c9` | W4, a verified peer is not re-asked |
-   * | `packages/node/src/datastore-persistence.node.test.ts` | 2026-08-23 `d358dcc` | W2, libp2p state survives a restart |
-   * | `packages/cloudflare/src/do-datastore.test.ts` | in the commit this repair rides with | Phase 29 criterion 3, `interface-datastore` over Durable Object storage |
+   * | `--reporter=json` | first case start -> last case end | 979 703 ms |
+   * | the module reporter's `collectedToEndMs` | end of collection -> module end | 995 675 ms |
+   * | `prepareDuration + collectDuration + setupDuration + duration` | the whole file, import included | **1 098 805 ms** |
    *
-   * **Five of the six predate the commit the guard fired on, and the record's own
-   * arithmetic is how they got in.** `d4573a0` recorded `files: 204` and the tree really
-   * held 204 — that reading was exact. `a96096b` then deleted `cert-lifecycle.test.ts` and
-   * wrote `204 → 203` **by subtraction**, stating in its own comment that the figure was
-   * *"a reading of what went and not of what is left"*. It was precisely that, and that is
-   * the defect: by then the tree held **208**, because the five specs above had landed in
-   * between. Subtracting a known departure from a stale total gives a number that is wrong
-   * by everything that arrived, and it looks more careful than counting. **Counting is
-   * cheaper than the arithmetic that replaced it**, which is why step 4 of the procedure
-   * says re-derive rather than adjust. 204 − 1 + 6 = 209, and 209 is what all three routes
-   * now return.
+   * **The third is the one this table records, and step 3 already said so** — it names
+   * those four fields and says why: *"`collectDuration` as the module's import — so
+   * together they cover both halves of the blind spot by construction."* The middle window
+   * shares the reporter's blind spot for anything a file does at **import** time, because
+   * its clock starts after collection.
    *
-   * The sixth, `do-datastore.test.ts`, lands in the `node` project by design: its
-   * `.test.ts` suffix means *"needs no Node APIs"*, so it runs in the `browser` project too.
-   * At 57 ms accounted it is far below the floor and is not listed below.
+   * **The difference is not academic and this repository's own guard specs are where it
+   * bites.** `vocabulary.node.test.ts` reads every tracked file; it does that at module
+   * scope, so its cost is `collectDuration`:
+   *
+   * | file | reporter | `collectedToEndMs` | accounted |
+   * |---|---|---|---|
+   * | `vocabulary.node.test.ts` | 6 | 9 | **1 535** |
+   * | `opt-in-only-sources.node.test.ts` | 5 | 7 | **2 083** |
+   * | `start-reporting.node.test.ts` | 96 | 336 | **1 442** |
+   * | `datastore-persistence.node.test.ts` | 192 | 198 | **1 615** |
+   *
+   * A window under which a spec that scans the whole tree costs 9 ms is measuring around
+   * the work rather than measuring it. **And the accounted figure is independently
+   * bracketed**: the same reporter records `queuedToEndMs`, a plain wall-clock stamp from
+   * enqueue to module end, and it sums to **1 098 581 ms** — 0.02 % from the accounted sum,
+   * on two instruments that share no arithmetic. `collectedToEndMs` is 103 s short of both,
+   * and the shortfall is exactly the collection it excludes.
+   *
+   * **So the morning layer's figures were confirmed, not retracted.** It read `vocabulary`
+   * at 1 138 ms and `opt-in-only-sources` at 1 909 ms; today, by the same definition, they
+   * are 1 535 and 2 083. The seven files a previous version of this docblock listed as *"a
+   * gap — they may be rejoining `test:unit` wrongly"* are all sixteen-crossing files after
+   * all, and the gap is closed in the direction the older reading pointed.
+   *
+   * ## What the two instruments agree and disagree about
+   *
+   * - **The pre-first-case HOOK shadow is nearly absent in this project.** Of the 62 files
+   *   the reporter puts at or above the cut, exactly one — `closed-fabric-agents` — differs
+   *   from the wall-clock bracket by more than 10 %. Zero files disagree about which side
+   *   of the cut they fall on when the reporter is compared with `collectedToEndMs`. That
+   *   half of the earlier worry was real and is now measured to be small.
+   * - **The IMPORT shadow is the large one.** Against the accounted window, **16** files the
+   *   reporter puts below the cut are above it, and **none** crosses the other way. See
+   *   {@link NODE_MEASUREMENT.hookShadowCandidates}.
+   *
+   * ## Why the node files got SLOWER while the run got faster
+   *
+   * `admission-agents` read 46 988 ms in the 209-file run and reads 98 043 ms here;
+   * `coverage-agents` 13 263 against 46 475. The run itself went from 869 s to 163 s.
+   * **Both are the same measured fact**: `(user+sys)/real` was **1.12** when the container
+   * specs were in this project and is **5.35** now. The old run spent most of its wall clock
+   * with idle cores waiting on a VM, so the node specs had CPU to spare; with the containers
+   * gone, eight workers of genuinely CPU-hungry specs contend with each other. The suite is
+   * five times quicker and each file inside it is dearer. Nothing became fast when the
+   * containers left — the *project* did.
+   *
+   * ## The 209-file layer, kept because deleting it would delete the reason for the rule
+   *
+   * That pass read *"RETAKEN IN FULL 2026-08-25"* and it was: every field and every row
+   * came from one run, with nothing carried forward from 2026-08-18. What it found is
+   * still the standing account of how this record drifts. `slow-specs/file-count-drift`
+   * had fired at *"the node project holds 209 test files, the recorded measurement covered
+   * 203"*, and only one of the six missing files was new work — five had landed on
+   * 2026-08-23 (`certificate-renewal`, `key-rotation`, `certificate-renewal-loop`,
+   * `certificate-cache`, `datastore-persistence`) and the sixth, `do-datastore.test.ts`,
+   * rode in with the commit that repaired it. **The record's own arithmetic is how they got
+   * in**: `d4573a0` recorded `files: 204` against a tree that really held 204, then
+   * `a96096b` deleted one spec and wrote `204 - 1 = 203` **by subtraction**, calling the
+   * figure *"a reading of what went and not of what is left"*. It was exactly that, and by
+   * then the tree held 208. Subtracting a known departure from a stale total is wrong by
+   * everything that arrived and looks more careful than counting. **Counting is cheaper
+   * than the arithmetic that replaced it**, which is why step 4 of the procedure says
+   * re-derive rather than adjust.
    */
   date: '2026-08-25',
   /**
-   * 1-minute load average, polled every 40 s across the whole run.
+   * 1-minute load average at the start of the `node` run the rows below come from.
+   * `aotLoad` is the same reading for the `aot` run.
    *
-   * **What was waited for, which this time is the longest wait in the record.** The host was
-   * held by a *different project's* C++ toolchain — `/Volumes/ProjectsSSD/Projects/transpilers/cpp-to-rust`
-   * — running a compile-then-test cycle: first six to nine `clang++` plus `cpp2rust` at
-   * roughly five of eight cores, then its `build/tests/**` binaries. Nothing was killed or
-   * signalled. Polling at 20 s intervals ran from **09:40 to 10:23, about 43 minutes**, and
-   * over that window the 1-minute average fell 13.99 → 26.66 (its compile peak) → 5.10.
+   * **No run in this layer was load-polled, so `loadAtEnd` and `loadPeak` are gone rather
+   * than carried forward.** The 209-file layer polled every 40 s and recorded 5.10 / 32.21
+   * / 7.64; those describe a project that no longer exists, and keeping them beside these
+   * runs would make them look like readings of these runs. What was read is what is here:
+   * the node run started at 1-minute **5.20** with the 5- and 15-minute averages at
+   * **10.95** and **11.51** — a host coming down off something rather than idle — and the
+   * `aot` run at **18.95**.
    *
-   * **The run started against a stated criterion rather than against a feeling**: five
-   * consecutive samples, 100 s, each with 1-minute load below 6.5 and non-desktop foreign
-   * CPU below 1.5 cores. The samples were 5.35 → 4.54 → 4.55 → 4.79 → 5.10, with the 5- and
-   * 15-minute averages falling monotonically throughout (6.14 → 5.63 and 8.47 → 7.87).
-   *
-   * **What was tolerated is named rather than elided.** The neighbour's sequential test
-   * phase still took ~1 core in bursts, and OneDrive held ~0.6 of a core throughout. That is
-   * the same order as the 2026-08-18 pass, which recorded OneDrive at ~0.67 and ran. What
-   * was *not* tolerated is that pass's own disqualifier and this one's: the parallel
-   * **compile** phase, which is the condition the discarded 2026-08-14 attempt ran under.
-   *
-   * **Measure the process, not the machine.** `/usr/bin/time -p` read
-   * `real 868.99  user 804.99  sys 169.80`, i.e. `(user+sys)/real` = **1.12**. That is the
-   * lowest ratio any *kept* run has recorded — against 2.19, 1.68, 1.45, 1.36, 1.36, 1.23
-   * and 1.15 before it, and 0.48 on the discarded one. **The ratio is a comparability key
-   * and not a verdict, and here it is the thing that had to be checked rather than
-   * reported**, because 868.99 s against 362.54 s invites the reading that the host starved
-   * this run. **It did not, and the file-by-file comparison is what says so.** Over the 102
-   * files common to this table and the 2026-08-18 one:
-   *
-   * | population | median span, this run ÷ 2026-08-18 |
-   * |---|---|
-   * | `packages/**` (102 − 10 files) | **0.86** — p10 0.55, p90 1.03 |
-   * | `tools/aot/**` (10 files) | **2.74** — 1.00 to 3.44 |
-   *
-   * The pure-JS half of the suite ran **slightly faster** than on the fastest run in the
-   * record. The whole of the difference sits in `tools/aot`, and inside that group it sits
-   * on the specs that actually lift a binary: `docker-gate` is 1.00× and `cli` 1.22×, while
-   * `elflift-wasi-gate` is 3.44×, `cross-machine` 3.42× and `elflift-wasi-port` 3.11×.
-   * Those specs run `elfconv` inside a container, so their cost is paid in a VM whose CPU
-   * allocation this host shares with the neighbour above. **That is a measurement and not an
-   * explanation** — what the numbers establish is *where* the 506 s went, not why the VM was
-   * slower, and the why is left unclaimed. What follows for this table is narrow and
-   * sufficient: every one of the ten is 160× the cut or more at either scale, so **not one
-   * membership decision turns on it.**
+   * **Measure the process, not the machine, and here the two ratios are the finding.**
+   * `/usr/bin/time -p` read `real 163.21  user 701.81  sys 170.87` for `node`, i.e.
+   * `(user+sys)/real` = **5.35**, and `real 1182.34  user 94.44  sys 11.99` for `aot`, i.e.
+   * **0.090**. The earlier reporter-only node run read 5.37 on the same population, so the
+   * ratio reproduces to within 0.4 %. Every run of this suite before the split mixed the
+   * two populations and landed between 1.12 and 2.19. **The separated numbers say what the
+   * blend could not**: the `node` project is CPU-bound and keeps more than five cores busy
+   * across eight workers, while the `aot` project spends 91 % of its wall clock waiting on
+   * a container. A wall-clock budget over the second population measures the host's
+   * contention and never the toolchain — which is the measured case for
+   * `fileParallelism: false` recorded in the `aot` project's docblock.
    */
-  load: 5.10,
-  loadAtEnd: 7.64,
-  loadPeak: 32.21,
+  load: 5.20,
+  aotLoad: 18.95,
   /**
    * Files and tests the `node` project ran, i.e. with no `test:unit` exclusions.
    *
-   * **Three routes that share no code agree exactly, and they were diffed rather than
-   * counted**:
+   * **Four routes that share no code agree exactly, and the LISTS were diffed rather than
+   * the counts:**
    *
    * | route | reading |
    * |---|---|
-   * | the filesystem walk `slow-specs.node.test.ts` derives `NODE_PROJECT_FILES` from | **209** |
-   * | `git ls-files packages tools`, filtered by the same globs | **209** |
-   * | `find packages tools -type f -name '*.test.ts'`, filtered by the same globs | **209** |
+   * | the filesystem walk `slow-specs.node.test.ts` derives `NODE_PROJECT_FILES` from | **198** |
+   * | `git ls-files packages`, filtered by the same globs | **198** |
+   * | `find packages -type f -name '*.test.ts'`, filtered by the same globs | **198** |
+   * | the two instruments' own row counts for the run below | **198** and **198** |
    *
-   * `diff` is empty in all six directions, and `--reporter=json` returned a row for all
-   * **209** as a fourth reading taken by the run itself. `git status --porcelain
-   * --untracked-files=all` adds **0** untracked test files — the seven uncommitted paths it
-   * does list are all staged, so `git ls-files` already knows them and route two is a real
-   * cross-check rather than a subtraction.
+   * `diff` is empty in every direction, and `git status --porcelain --untracked-files=all`
+   * adds **0** untracked test files, so the `git ls-files` route is a real cross-check
+   * rather than a subtraction. The `aot` project reads **11** by the same routes.
    *
-   * **The tolerance was not moved**, and this is the second pass in a row where moving it
-   * was the cheaper option and was rejected — see `FILE_COUNT_TOLERANCE` in
-   * `packages/node/src/slow-specs.node.test.ts`.
+   * **209 to 198 is not drift and the guard would have called it drift**, which is why this
+   * field had to move in the same edit as the project split: eleven files left the `node`
+   * project for the `aot` project and none left the repository. `MEASURED_NODE_SPANS` still
+   * measures and still excludes all 209, because `SLOW_NODE_SPECS` feeds both projects'
+   * `exclude`.
+   *
+   * **The tolerance was not moved**, for the third pass running — see
+   * `FILE_COUNT_TOLERANCE` in `packages/node/src/slow-specs.node.test.ts`.
    */
-  files: 209,
-  tests: 3067,
+  files: 198,
+  tests: 2853,
   /**
-   * Sum of the per-file costs the table below records, every one of them taken in the same
-   * run by the same instrument.
+   * Sum of the per-file costs the table below records, over **every** file of **both**
+   * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
+   * 1 181 599 ms for the `aot` project's 11 as serial execution derives them.
    *
-   * Not a wall clock: vitest runs files in parallel across eight workers, so this exceeds
-   * {@link NODE_MEASUREMENT.wallClockMs} by roughly the concurrency — 5.1× here against
-   * 6.0× on 2026-08-18.
+   * **The two halves are commensurable on purpose.** Both are whole-file costs with the
+   * module's import inside them — the `aot` half because an end-to-end delta cannot exclude
+   * anything, the `node` half because the accounted window adds `collectDuration` back. Had
+   * the node half been taken from `collectedToEndMs` instead, the table would have mixed a
+   * whole-file figure with an import-excluding one and the two projects' rows would not
+   * have meant the same thing.
    *
-   * This is the sum over **all 209 files**, not over the 105 the table lists, which is why
-   * it is larger than the table's own column adds to (4 452 182). The guard checks the
-   * inequality in that direction on purpose: a sum that did not cover the listed rows would
-   * mean the table and this field came from different events.
+   * **The definition changed on 2026-08-25 and the old one is no longer available.** It
+   * used to mean "one run's spans, summed". There are two runs now and they cannot be added
+   * as if there were one: the `aot` half alone exceeds the whole `node` half. So this is a
+   * sum over two runs, stated as such, and it is not a wall clock in either direction —
+   * `node` ran eight files at a time, `aot` ran one at a time for 1 182 s.
+   *
+   * The guard in `slow-specs.node.test.ts` checks `>=` against the rows the table actually
+   * lists (2 269 462). The slack is **10 942 ms**, which is the 77 files below the listing
+   * floor, to within the millisecond each row is rounded to. A sum that did not cover the
+   * listed rows would mean the table and this field came from different events.
    */
-  sumOfFileSpansMs: 4_464_563,
+  sumOfFileSpansMs: 2_280_404,
   /**
-   * What `--reporter=json` alone said the same run summed to, i.e. the same 209 files with
-   * every span left at the value the case-stamp instrument gave it.
+   * What `--reporter=json` alone said the same two runs summed to: 979 703 ms for the
+   * `node` project plus **343 313** ms for the eleven `aot` files as the `aot` run's own
+   * reporter read them.
    *
-   * Recorded because the gap **is** the finding: 1 531 514 against 4 464 563 means the
-   * instrument the first six versions of this table were derived from could not see
-   * **65.7 %** of the suite's cost. Against 51.0 % on 2026-08-18, 50.1 % on 2026-08-15 and
-   * 44 % on 2026-08-11.
+   * **Both halves are now a real contrast, which is new.** For `aot`: 343 313 reported
+   * against 1 181 599 derived, so the reporter cannot see **70.9 %** of that project's
+   * cost. For `node`: 979 703 reported against 1 098 805 accounted, i.e. **10.8 %** unseen
+   * in aggregate — a far smaller fraction than `aot`'s, and concentrated rather than spread:
+   * sixteen files carry most of it, and sixteen files is what moves the cut.
    *
-   * **The series is rising and the reason is arithmetic rather than drift.** The shadow is
-   * concentrated in `tools/aot`, whose specs the reporter sees as 2 ms to 355 ms; when that
-   * group's true cost grows — as it did this run — the percentage the reporter misses grows
-   * with it, while the reporter's own reading of those files stays flat. So this figure
-   * tracks the *composition* of the suite, not a widening blind spot. What is stable is the
-   * mechanism, and it is stated in the table's docblock.
+   * For the record the earlier layers read 65.7 % (2026-08-25, 209 files), 51.0 %
+   * (2026-08-18), 50.1 % (2026-08-15) and 44 % (2026-08-11) — all blended figures over a
+   * project that contained `tools/**`, so none is comparable with either number above. The
+   * blend is exactly what the split was for: 10.8 % and 70.9 % are two different facts about
+   * two different kinds of work, and one number over both of them told you neither.
    */
-  sumOfReportedSpansMs: 1_531_514,
-  /** Wall clock of that same run, for contrast with the sum above. */
-  wallClockMs: 868_990,
+  sumOfReportedSpansMs: 1_323_016,
+  /**
+   * Wall clock of the `node` run the rows below come from, `/usr/bin/time -p`'s `real`.
+   *
+   * The module reporter's own bracket over the same run — `performance.now()` from its
+   * construction to `onTestRunEnd` — reads **162 479 ms**, and vitest printed
+   * `Duration 162.44s`. The three agree to within 0.5 %, which is the check that the
+   * instrument was measuring the run it was attached to.
+   */
+  wallClockMs: 163_210,
+  /** Wall clock of the `aot` run, same instrument. Serial, so it is also that project's cost. */
+  aotWallClockMs: 1_182_340,
   /**
    * How many files were cross-checked against a second instrument before their span was
    * written down, and how many of those disagreed with `--reporter=json`.
    *
-   * **This is data rather than prose so that skipping the cross-check has to be an edit
-   * rather than an omission.** `crossCheckedFiles` is the whole population, so a pass that
-   * measured fewer has to write a smaller number here rather than quietly measure less.
-   * Both instruments returned a row for **every one of the 209** — no file was missing from
-   * either, and no `diagnostic()` call threw — so there is no selection step left to get
-   * wrong.
+   * **All 198 node files, and all 11 `aot` files, by two different second instruments.**
+   * The `node` project got the module reporter in the same run as `--reporter=json`, which
+   * is what step 3 requires; the `aot` project gets its second instrument for free, because
+   * serial execution makes an end-to-end delta a true span. Both instruments returned a row
+   * for every file and `diagnostic()` threw on none, so the populations are whole rather
+   * than an intersection somebody has to trust.
    *
    * `crossCheckDisagreed` counts files where the two instruments differ by more than 10 %,
-   * which on this run is 168 of 209. That is the finding, not a fault.
+   * on unrounded readings: **164 of 198** on `node`, and **6 of 11** on `aot`
+   * (`aotCrossCheckDisagreed`). The two numbers are kept apart because they were found by
+   * different means and mean different things — and because merging them would hide that
+   * the `aot` cross-check found six disagreements while the node one found a different
+   * shape of disagreement entirely, described on
+   * {@link NODE_MEASUREMENT.hookShadowCandidates}.
+   *
+   * **164 is large and almost all of it is harmless.** Only **45** of the 164 involve a
+   * file at or above the cut on either instrument, and only **16** change which side of the
+   * cut a file falls on. The rest are small files where a 20 ms import is a large fraction
+   * of a 60 ms total.
    */
-  crossCheckedFiles: 209,
-  crossCheckDisagreed: 168,
+  crossCheckedFiles: 198,
+  crossCheckDisagreed: 164,
+  aotCrossCheckedFiles: 11,
+  aotCrossCheckDisagreed: 6,
   /**
-   * The hook shadow, sized by two numbers with a stated definition.
+   * The shadow, sized by two numbers with a stated definition — and on 2026-08-25 it was
+   * measured for the `node` project for the first time since the split.
    *
    * - **`hookShadowCandidates`** — files `--reporter=json` puts *below* `SLOW_CUTOFF_MS`,
-   *   i.e. precisely the population it would leave in `test:unit`. **144** of 209.
-   * - **`hookShadowDisagreed`** — of those, the ones the module-lifecycle instrument puts
-   *   at or above the cut. **14**. These are the files `--reporter=json` alone would have
-   *   kept in the fast loop forever.
+   *   i.e. precisely the population it would leave in `test:unit`. **136** of 198.
+   * - **`hookShadowDisagreed`** — of those, the ones the accounted window puts at or above
+   *   the cut. **16**. These are the files `--reporter=json` alone would have kept in the
+   *   fast loop forever.
    *
-   * **The reverse count is zero, and that is the reason to believe the fourteen.** Not one
-   * file crosses the cut in the other direction — 65 files read at or above 1 000 ms on the
-   * reporter and all 65 do on the second instrument too. A miscalibrated instrument would
-   * scatter in both directions; a blind spot only ever finds *more*.
+   * **The reverse count is zero, and that is the reason to believe the sixteen.** Not one
+   * file crosses the cut in the other direction: every file the reporter reads at or above
+   * 1 000 ms is at or above it on the accounted window too. A miscalibrated instrument
+   * would scatter both ways; a blind spot only ever finds *more*.
    *
-   * The sharpest of the fourteen is `tools/aot/elfconv-differential.node.test.ts`: **2 ms
-   * reported against 867 886 accounted, a factor of 384 683** — the largest this instrument
-   * has recorded, past the 54 845× of 2026-08-18. Four of the fourteen are above 300 s of
-   * true cost and the reporter calls every one of them a sub-400 ms file. `test:unit` built
-   * on `--reporter=json` alone would carry roughly **48 minutes** of `tools/aot` in the fast
-   * loop and print nothing to say so.
+   * **The name is now half wrong and the docblock says so rather than the field being
+   * renamed.** The shadow this project actually has is an **import** shadow, not a hook
+   * shadow. The pre-first-case *hook* case is nearly absent here — one file above the cut
+   * differs by more than 10 % between the reporter and a wall-clock bracket that starts
+   * after collection. What the reporter misses is `collectDuration`, the module's own
+   * import, and this repository's guard specs are the extreme case because they do their
+   * work at module scope: `opt-in-only-sources` is 5 ms reported against **2 083** ms
+   * accounted, a factor of 417 on those rounded readings, and `vocabulary` 6 against
+   * **1 535**, a factor of 256.
    *
-   * **None of this pass's six new files is among the fourteen**, and none is above the cut:
-   * the largest is `certificate-renewal-loop.test.ts` at 4 697 ms, which the reporter already
-   * reads as 4 552 ms. The shadow is a property of what a file does before its first case,
-   * not of how recently it arrived.
+   * `aotHookShadowCandidates` / `aotHookShadowDisagreed` are the same two counts for the
+   * `aot` project: **6** files below the cut on the reporter, of which **5** are above it on
+   * the derived span. There the mechanism really is a hook — a container started in a
+   * `beforeAll` above the first case — and the factors are larger still: 1 ms reported
+   * against 183 464 derived for `elflift-wasi-port`, recorded as 134 191x against the
+   * unrounded reading, and 2 against 314 234 for `elfconv-differential`, 142 426x. A
+   * `test:unit` built on `--reporter=json` alone would carry roughly **14 minutes** of
+   * `tools/aot` and another **23 seconds** of `packages/**` in the fast loop and print
+   * nothing to say so.
    */
-  hookShadowCandidates: 144,
-  hookShadowDisagreed: 14,
+  hookShadowCandidates: 136,
+  hookShadowDisagreed: 16,
+  aotHookShadowCandidates: 6,
+  aotHookShadowDisagreed: 5,
   /**
    * What `npm run test:unit` measured with the derived list below applied.
    *
    * `unitFiles` is not an independent reading — `slow-specs.node.test.ts` asserts it equals
-   * `NODE_MEASUREMENT.files` minus the derived exclusion count, so it moves when the table
-   * does. It was **also observed directly** by running `npm run test:unit` against this
-   * table, which is the cross-check that keeps this field from being a restatement of the
-   * assertion that derives it. Deriving it alone would make that assertion a tautology.
+   * `NODE_MEASUREMENT.files` minus the derived exclusion count **counted over the node
+   * project only**, since the ten excluded `aot` rows are the other project's and skipping
+   * them does not shorten this lane. It was **also observed directly**, which is the
+   * cross-check that keeps this field from being a restatement of the assertion that
+   * derives it.
    *
-   * **124 → 130, while the project grew by six files.** The derived exclusion count moved
-   * 77 → 79, so the fast loop took six new files and gave up two more to the slow list. Of
-   * the six arrivals **none is slow** — the first pass in this record where that is true —
-   * and the exclusion count moved on boundary crossings alone.
+   * **130 -> 120 across the split, and every step is accounted for.** The node project lost
+   * `tools/**` to the `aot` project, which took ten excluded files with it (130 + 10 = 140
+   * would have been the count on the old project shape); the file count fell 209 -> 198;
+   * and the accounted window then found sixteen more files above the cut than the reporter
+   * did. 198 - 78 = 120.
    *
-   * **`unitFiles` was OBSERVED and it is the cross-check that matters**: the derivation says
-   * 209 − 79 = 130 and `npm run test:unit` reported `Test Files 130`, independently. It also
-   * reported `Tests 2 failed | 2304 passed (2306)`, and 2306 is what is recorded — the
-   * collected total, not the passing subset, because that is what the field has always meant.
+   * **The new exclusion set is a strict superset of the reporter's**, checked by diffing the
+   * two lists rather than the two counts: no file that the reporter-derived list ran in the
+   * fast loop has been added to it, sixteen have left it. So this lane can only have got
+   * shorter, and no spec entered it that had not been passing there already.
    *
-   * **`unitWallClockMs` is NOT retaken, and this is the reason rather than an oversight.**
-   * That run was red: the two failures are both in `state-frontmatter.node.test.ts`, the
-   * planning-document guard described in the table's docblock, and they are foreign to this
-   * edit and reproduce on the unmodified tree. The rule stated below is applied strictly
-   * anyway — *a duration measured on a suite that did not pass is not a duration for the
-   * suite this field claims to describe* — because relaxing it for a red that looks harmless
-   * is how it stops being a rule. The figure carried here is therefore still 2026-08-18's.
-   * For what it is worth outside this field, that run read `real 10.09  user 41.45
-   * sys 6.66`, ratio **4.76**, at 1-minute load 6.35; it is recorded in this sentence and not
-   * in the field, which is the distinction.
+   * **And it did get shorter by about what the accounted window predicted.** The same lane
+   * with the reporter-derived list of 136 files read `Duration 11.13s` earlier the same
+   * afternoon; with these 120 it reads **6.95 s**. Those two runs started at 1-minute load
+   * 5.62 and 3.72, and this field's own rule is that a wall-clock comparison turning on less
+   * than half of the number is reading the weather. 11.13 to 6.95 clears that bar, but not
+   * by much, so it is offered as consistent with the sixteen rather than as proof of them.
+   * The proof is the eight-file run recorded in the table's docblock.
    *
-   * **Durations from red runs are deliberately never recorded here.** A duration measured on
-   * a suite that did not pass is not a duration for the suite this field claims to describe.
-   * The recorded history is also the reason this object stores a load beside a duration
-   * rather than a duration alone — 5.96 s at load 5.6, 9.97 s at 8.4, 7.49 s at 6.1, 8.37 s
-   * at 11.7, 9.25 s at **58**, 6.93 s at 5.3, 9.53 s at 4.9, 7.75 s at 6.9, then 25.95 s,
-   * 24.59 s, 22.39 s and 22.52 s once the unlisted slow files started running inside it, then
-   * 11.82 s, 11.15 s, 7.98 s, and this run.
+   * **Two of the excluded sixteen are guards over this very file** — `vocabulary` and
+   * `opt-in-only-sources`. That is uncomfortable and it is left alone, because the list is
+   * derived from the rule rather than curated: they cost 1.5 s and 2.1 s, the rule excludes
+   * files that cost that much, and `npm run test:node`, a bare `vitest run` and the commit
+   * hooks all still run them. Curating them back in would be the "list maintained beside a
+   * rule" this file exists to prevent.
+   *
+   * **All three figures were OBSERVED, and the run was GREEN.**
+   * `O2_UNIT_ONLY=1 /usr/bin/time -p npx vitest run --project node` exited **0** and
+   * reported `Test Files 120 passed (120)`, `Tests 2214 passed (2214)`, `Duration 6.95s`,
+   * at `real 7.74  user 32.52  sys 5.40` — ratio **4.90** — with the 1-minute load at
+   * **3.72** when it started. The derivation says 198 - 78 = 120 and the run said 120
+   * independently, which is the cross-check that keeps `unitFiles` from being a restatement
+   * of the assertion that derives it. `unitTests` records the collected total, as it always
+   * has. `unitWallClockMs` is vitest's own `Duration`, the figure this field has always
+   * carried; `real` is 0.79 s larger and is recorded in the sentence above rather than in
+   * the field.
+   *
+   * **Durations from red runs are deliberately never recorded here.** A duration measured
+   * on a suite that did not pass is not a duration for the suite this field claims to
+   * describe. That rule cost the previous layer this field entirely — it could only carry
+   * 2026-08-18's figure, because its own `test:unit` run was red on a planning-document
+   * guard — and it is what makes the number above worth having. The recorded history is
+   * also the reason this object stores a load beside a duration rather than a duration
+   * alone: 5.96 s at load 5.6, 9.97 s at 8.4, 7.49 s at 6.1, 8.37 s at 11.7, 9.25 s at
+   * **58**, 6.93 s at 5.3, 9.53 s at 4.9, 7.75 s at 6.9, then 25.95 s, 24.59 s, 22.39 s and
+   * 22.52 s once the unlisted slow files started running inside it, then 11.82 s, 11.15 s,
+   * 7.98 s, then 11.13 s at 5.6 on the reporter-derived list of 136, and this run.
    *
    * **TREAT THE WALL CLOCK AS SOFT.** Three readings of one table on this host within an
-   * hour once spread 25.69 / 33.68 / 22.39 s — 1.5× end to end. Any comparison against this
+   * hour once spread 25.69 / 33.68 / 22.39 s — 1.5x end to end. Any comparison against this
    * number that turns on less than half of it is reading the host's weather.
    */
-  unitFiles: 130,
-  unitTests: 2306,
-  unitWallClockMs: 7_980,
+  unitFiles: 120,
+  unitTests: 2214,
+  unitWallClockMs: 6_950,
 } as const
 
 /**
- * Per-file spans from one recorded run, and the **only** hand-maintained data here.
+ * Per-file spans from two recorded runs — one per project — and the **only**
+ * hand-maintained data here.
  *
  * `SLOW_NODE_SPECS` is derived from this table by applying `SLOW_CUTOFF_MS`, so the
  * list and the measurement cannot disagree. They did before: the list held nine files
@@ -265,63 +387,134 @@ const NODE_MEASUREMENT = {
  * numbers were 102 / 1411 / 24.03 s. A list maintained beside a rule drifts from the
  * rule; a list computed from the rule cannot.
  *
+ * The derived list feeds **both** projects' `exclude`, which is why one table still
+ * covers both.
+ *
  * ## The measurement
  *
- * One run, **2026-08-25**, 209 files / 3067 tests, taken with both instruments attached at
- * once:
+ * Both runs on **2026-08-25**, after `tools/**` moved to the `aot` project:
  *
  * ```
- * O2_MODULE_SPAN_OUT=$OUT/o2-spans.json /usr/bin/time -p npx vitest run --project node \
- *   --reporter=json --outputFile=$OUT/o2-report.json \
- *   --reporter=./tools/measure/module-span-reporter.js
+ * O2_MODULE_SPAN_OUT=$OUT/node-modulespans.json /usr/bin/time -p npx vitest run \
+ *   --project node --reporter=default --reporter=json \
+ *   --outputFile.json=$OUT/node2.json --reporter=./tools/measure/module-span-reporter.js
+ *   -> 198 files / 2853 tests, real 163.21  user 701.81  sys 170.87, ratio 5.35, load 5.20
+ *
+ * /usr/bin/time -p npx vitest run --project aot
+ *   -> 11 files / 240 tests, real 1182.34  user 94.44  sys 11.99, ratio 0.090, load 18.95
  * ```
  *
  * `$OUT` was a scratch directory outside the tree, which is why `git status --porcelain
- * --untracked-files=all` stayed clean across the run — the two instruments write ~1 MB of
- * JSON, and writing it into the repository would have reddened the two specs that snapshot
- * `git status` around themselves.
+ * --untracked-files=all` stayed clean across the runs — the two instruments write ~1.2 MB
+ * of JSON, and writing it into the repository would have reddened the two specs that
+ * snapshot `git status` around themselves.
  *
- * `/usr/bin/time -p` read `real 868.99  user 804.99  sys 169.80`, `(user+sys)/real`
- * **1.12**. Load polled every 40 s: 5.10 at the start, **32.21 at its peak**, 7.64 at the
- * end, on an 8-core host, after a 43-minute wait for a neighbouring project's C++ compile
- * farm to finish and a 100 s pre-flight poll reading 5.35 → 5.10 with all three averages
- * falling. Nothing was killed or signalled. See {@link NODE_MEASUREMENT.load} for what was
- * waited for, what was tolerated, and — because 1.12 is the lowest ratio any kept run has
- * recorded — for the file-by-file comparison that shows the low ratio is `tools/aot` and not
- * starvation. Nothing below is carried forward from an earlier table and nothing is a solo
- * re-run: every one of the 209 figures comes from that single execution.
+ * **The node rows are the accounted window**: `prepareDuration + collectDuration +
+ * setupDuration + duration` per file, which is what step 3 below prescribes and which
+ * includes the module's own import. **The `aot` rows are serial end-to-end deltas.** Both
+ * are whole-file costs, so the two halves mean the same thing. See
+ * {@link NODE_MEASUREMENT.date} for the three windows this run exposed and for why the
+ * middle one — `collectedToEndMs`, which starts its clock after collection — is not what
+ * this table records.
  *
- * **This run was not green, and the rule about that is narrower than it looks.** Exit 1,
- * 3062 passed, 1 skipped, **4 failed** across three files. One is
- * `slow-specs.node.test.ts`'s file-count drift check, red *because* the table it checks was
- * the stale one this pass replaces. It is red in every measurement run taken to fix drift,
- * by construction, and this very edit clears it.
+ * ### The `aot` half retires step 3 BY CONSTRUCTION, and this is the note to read first
  *
- * ## The other three reds, attributed by measurement rather than by coincidence
+ * `fileParallelism: false` means one file runs at a time. So a file's true span is the
+ * delta from the previous file's end to its own end — end to end, hooks and import
+ * included, with nothing attributed to nothing. **No solo re-runs, no boot-floor
+ * subtraction, no selecting candidates by reading hook bodies**: step 3's manual half is
+ * not merely unnecessary for this project, it cannot add anything, because the delta
+ * already contains everything the wall clock contains.
  *
- * Both are foreign to this edit, which touches `vitest.config.ts` and nothing else, and
- * both **reproduce solo on the unmodified tree** — run together at
- * `EXIT=1`, `Tests 3 failed | 15 passed (18)`, which is how they are attributed rather than
- * assumed:
+ * It also brings a check the manual method never had. The eleven derived spans **sum to
+ * 1 181 599 ms against a measured wall clock of 1 181 610 ms** — an 11 ms closure. (The
+ * rows below are rounded to the millisecond and add to 1 181 598; the closure figure is the
+ * unrounded one.) That says the eleven deltas account for the whole run rather than each
+ * merely looking plausible on its own, which is exactly what a set of separately-taken solo
+ * figures cannot say: the 2026-08-11 pass's substituted figures summed to more than the run
+ * they appeared in.
  *
- * - **`job-entry-points.node.test.ts`**, WIRE-04: *"expected [ 'packages/aot/src/index.ts',
- *   …(8) ] to deeply equal [ …(7) ]"*. The ninth barrel is
- *   `packages/cloudflare/src/index.ts`, which arrives in the same commit as
- *   `do-datastore.test.ts` — so it belongs to that commit's author, and its budget is the
- *   one `501d4ad` set. It is named here rather than fixed here: widening a barrel budget
- *   from inside a measurement pass is exactly the "close a gap by widening what counts as
- *   passing" this file exists to prevent.
- * - **`state-frontmatter.node.test.ts`**, two cases: *"expected [ 'gsd_state_version',
- *   …(6) ] to include 'stopped_at'"*. `.planning/STATE.md` still exists but lost frontmatter
- *   fields when `eb481ff` retired the milestone-planning workflow. A planning-document
- *   change, unreachable from anything this table governs.
+ * **This does NOT extend to the `node` project.** Its 198 files run in parallel across
+ * eight workers, so a delta between two file-end timestamps there is a measure of the
+ * scheduler and not of a file. Step 3 applies to it unchanged — and, for the first time
+ * since the split, was performed.
  *
- * Neither aborts a worker, spawns anything, or changes another file's span, so neither
- * perturbs the numbers below. The rule the {@link NODE_MEASUREMENT} `unitWallClockMs`
- * docblock states — *a duration measured on a suite that did not pass is not a duration for
- * that suite* — is applied there strictly, where a single aggregate number is at stake, and
- * is not applied to the per-file table here for the reason it has never been applied to it:
- * a fully green `--project node` is unobtainable *before* the edit that makes it green.
+ * | `aot` file | derived | reporter | factor |
+ * |---|---|---|---|
+ * | `elfconv-differential.node.test.ts` | 314 234 | 2 | 142 426x |
+ * | `lift.node.test.ts` | 234 458 | 233 597 | 1x |
+ * | `echo-guest.node.test.ts` | 197 083 | 347 | 568x |
+ * | `elflift-wasi-port.node.test.ts` | 183 464 | 1 | 134 191x |
+ * | `elflift-wasi-gate.node.test.ts` | 138 741 | 16 | 8 893x |
+ * | `elflift-wasm-determinism.node.test.ts` | 76 097 | 75 749 | 1x |
+ * | `cross-machine.node.test.ts` | 23 678 | 23 368 | 1x |
+ * | `cli.node.test.ts` | 6 385 | 6 035 | 1x |
+ * | `docker-gate.node.test.ts` | 4 330 | 4 191 | 1x |
+ * | `wasi-preview1-surface.node.test.ts` | 3 012 | 5 | 575x |
+ * | `scan.node.test.ts` | 116 | 2 | 54x |
+ *
+ * The eleventh is below this table's 300 ms listing floor and is therefore the one `aot`
+ * file with no row of its own below.
+ *
+ * ### What step 3 found for the `node` project, which is not what it was expected to find
+ *
+ * A previous version of this docblock recorded a gap — the node rows were taken from
+ * `--reporter=json` alone, and seven files that the 209-file layer had put above the cut
+ * sat below it, with no way to tell instrument from weather. **The gap is closed, and the
+ * answer is that the older reading was right**: all seven are above the cut on the
+ * accounted window, and eleven more join them.
+ *
+ * The shadow is an **import** shadow rather than the hook shadow the procedure was written
+ * for. `--reporter=json` brackets from the first case; `collectedToEndMs` brackets from the
+ * end of collection; both therefore miss work a file does at **module scope**, and this
+ * repository's guard specs do exactly that — they read the tree in top-level constants.
+ * Sixteen files cross the cut on that difference, none crosses back, and the two extremes
+ * are `opt-in-only-sources` at 5 ms reported against 2 083 accounted and `vocabulary` at 6
+ * against 1 535.
+ *
+ * **A third source that shares no code with either instrument agrees, and it is the reason
+ * to believe the sixteen rather than merely to prefer one column.** Eight of them were run
+ * together as their own vitest invocation: `Test Files 8 passed`, `Duration 3.00s`,
+ * `real 3.65  user 7.86  sys 1.73` — against a single-file boot floor of `Duration 0.332s`
+ * on the same host minutes earlier. The reporter's total for those eight is **1 703 ms**,
+ * which across parallel workers predicts a run barely above the floor; their accounted total
+ * is **11 646 ms**, which predicts what was observed. And vitest's own default summary line
+ * for that eight-file run reads **`import 9.43s`** — the same quantity `collectDuration`
+ * measures, arrived at by vitest's own reporter rather than by ours, against our
+ * **9 656 ms**. Two instruments and a summary line, 2.3 % apart.
+ *
+ * **The pre-first-case HOOK shadow, by contrast, is nearly absent in this project**, and
+ * that is worth recording because it is the thing the procedure was built to catch: of the
+ * 62 files the reporter puts at or above the cut, exactly one — `closed-fabric-agents`,
+ * 11 685 reported against 26 641 accounted — differs by more than 10 % from a wall-clock
+ * bracket taken after collection. In `tools/aot` the hook shadow is everything; in
+ * `packages/**` it is one file. **Two projects, two different blind spots, one procedure
+ * that catches both only because step 3 names all four fields rather than three.**
+ *
+ * ## The reds, attributed by measurement rather than by plausibility
+ *
+ * The `aot` run was green — **exit 0, 11 files / 240 tests passed.**
+ *
+ * The `node` run was not: **3 cases across 2 files**, and both are foreign to this table.
+ *
+ * - **`late-combine.node.test.ts`**, 2 cases — its own load-sited RPC margin, recorded as
+ *   foreign three times before, most recently in
+ *   `.planning/phases/phase-20-*\/20-09-SUMMARY.md`.
+ * - **`coverage-agents.node.test.ts`**, 1 case — it snapshots `git status --porcelain`
+ *   around itself and read `M .planning/BENCHMARK-RESULTS.md`, i.e. a concurrent agent's
+ *   working-tree change to a file no part of this edit touches. Attributed by its own
+ *   assertion text rather than by plausibility, and reproduced solo for the same reason.
+ *
+ * **`slow-specs.node.test.ts` PASSED in this run**, which is the difference between it and
+ * the two runs before it: the table it checks had already been repaired when the run was
+ * taken. `admission-agents` and `requirements-ledger` also passed, having failed in the
+ * first node-alone run of the day.
+ *
+ * **`admission-agents` therefore has three readings and no verdict.** The 209-file layer
+ * ruled it *"a one-shot reservation race rather than a contention threshold"* — *"the load
+ * was the occasion; the missing retry is the cause"*. It then failed at 1-minute load 6.68
+ * and passed at 5.20. Two greens and a red across one afternoon settle nothing; this is
+ * written down so the next pass does not inherit a closed question that is open.
  *
  * ## Runs of this tree, for the comparison that makes a red attributable
  *
@@ -332,21 +525,23 @@ const NODE_MEASUREMENT = {
  * | 2026-08-18, vocabulary pass (`2d8ec73`) | 472.08 s | 1.68 | 5 vocabulary findings, since fixed |
  * | 2026-08-18 | 362.54 s | 2.19 | `admission-agents` clause 1 |
  * | 2026-08-18, verification of that edit | 363.54 s | 2.17 | none — exit 0 |
- * | 2026-08-25 — **the table below** | **868.99 s** | **1.12** | `job-entry-points`, `state-frontmatter` ×2 — both foreign, both reproduced solo |
+ * | 2026-08-25, morning — 209 files, superseded by the split | 868.99 s | 1.12 | `job-entry-points`, `state-frontmatter` x2 |
+ * | 2026-08-25, `--project node`, reporter only | 162.47 s | 5.37 | `late-combine` x2, `admission-agents`, `requirements-ledger` |
+ * | 2026-08-25, verification of the split edit | 140.61 s | 5.96 | `late-combine` x2, `coverage-agents` |
+ * | 2026-08-25 — **the `node` rows below**, both instruments | **163.21 s** | **5.35** | `late-combine` x2, `coverage-agents` |
+ * | 2026-08-25 — **the `aot` rows below** | **1182.34 s** | **0.090** | none — exit 0 |
  *
- * **`admission-agents` did not recur.** It cost the 2026-08-18 table a row and was ruled a
- * one-shot reservation race rather than a contention threshold — *"the load was the
- * occasion; the missing retry is the cause"*. This run is 2.4× longer in wall clock and at
- * half the CPU share, i.e. far more of the contention the losing theory predicted would
- * reproduce it, and it passed. That is one more reading against the threshold story, and its
- * span here (46 988 ms) is a green-run figure where 2026-08-18's 52 425 was not.
+ * The last four rows are not one population and their wall clocks are not comparable with
+ * each other or with the six above them. 163.21 + 1182.34 also does not reconstruct 868.99:
+ * the same eleven files cost 506 s inside the parallel run and 1 182 s serialised, which is
+ * the price of the split and is discussed under the validation set below.
  *
  * ## Retaking this table: the obvious method is measurably wrong, and that is the defect
  *
  * **`--reporter=json` does not time a file. It times the file's cases.** A file's
  * `startTime` is stamped when its **first case begins**, not when the worker picks the
- * file up, so every millisecond a hook spends before that first case is attributed to
- * nothing at all — not to the file, not to the run, nowhere.
+ * file up, so every millisecond spent before that first case — in a hook, or importing the
+ * module — is attributed to nothing at all: not to the file, not to the run, nowhere.
  *
  * **The discriminator is positional, not structural**, and the distinction is the whole
  * point: *"does this file have a `beforeAll`"* is the wrong question, and answering it is
@@ -354,7 +549,7 @@ const NODE_MEASUREMENT = {
  * from this reporter. Proved 2026-08-05 in a throwaway three-file project outside this
  * repository, three arms of one fixture each spending an identical 3 000 ms:
  *
- * | where the 3 000 ms sits | reported span | Σ case durations | pre-first-case |
+ * | where the 3 000 ms sits | reported span | Sum of case durations | pre-first-case |
  * |---|---|---|---|
  * | `beforeAll` **above** the file's first case | **1 ms** | 1 | 3 608 |
  * | `beforeAll` in a describe **after** a case has run | **3 007 ms** | 2 | 526 |
@@ -363,38 +558,55 @@ const NODE_MEASUREMENT = {
  * A hook above the first case is understated **3 000-fold**; the identical hook moved
  * below one case is reported exactly. That is a falsifiable comparison rather than an
  * assertion — had the reporter charged hook time to the file, arm one would have read
- * 3 000 ms too.
+ * 3 000 ms too. **And the 2026-08-25 run adds the other half of the same defect**: work at
+ * module scope is understated the same way and by the same mechanism, which is why step 3
+ * names four fields and not three.
  *
  * ### So this is the procedure, and it is not optional
  *
  * 1. **Wait for a quiet host and record what was waited for.** Do not kill or signal
  *    another process; poll until it exits. Record the 1-minute load at start, peak and
- *    end, and `/usr/bin/time -p`'s `real`/`user`/`sys` with `(user+sys)/real` beside them.
- *    **Record it even when nothing had to be waited for** — "the host was checked and was
- *    quiet" is a measurement, and the run that skipped taking it is the run that was
- *    discarded at ratio 0.48.
- * 2. **Retake the WHOLE table in one run.** Pinning new entries onto an old table makes it
+ *    end where they are polled, and `/usr/bin/time -p`'s `real`/`user`/`sys` with
+ *    `(user+sys)/real` beside them. **Record it even when nothing had to be waited for** —
+ *    "the host was checked and was quiet" is a measurement, and the run that skipped taking
+ *    it is the run that was discarded at ratio 0.48. **Record what was NOT polled too**:
+ *    the 2026-08-25 runs have a start load and no peak, and saying so is what stops the
+ *    209-file layer's peak being read as theirs.
+ * 2. **Retake a whole project in one run.** Pinning new entries onto an old table makes it
  *    a blend of two runs and destroys the only property it has, which is that one person
- *    can reproduce it.
- * 3. **Take the spans from the module lifecycle, not from the case stamps.** Attach a
- *    second reporter implementing `onTestModuleEnd` and record, per file,
- *    `prepareDuration + collectDuration + setupDuration + duration` from
+ *    can reproduce it. Since the split there are two projects and therefore two runs, and
+ *    the boundary between them is the only place a blend is allowed — never inside one.
+ * 3. **Take the spans from the module lifecycle, not from the case stamps, and add ALL
+ *    FOUR fields.** Attach a second reporter implementing `onTestModuleEnd` and record, per
+ *    file, `prepareDuration + collectDuration + setupDuration + duration` from
  *    `TestModule.diagnostic()`. `duration` is documented as *"accumulated duration of all
  *    tests **and hooks** in the module"* and `collectDuration` as the module's import — so
  *    together they cover both halves of the blind spot by construction. Run it in the
  *    **same** run as `--reporter=json` so the two instruments can be compared without the
  *    weather changing between them.
+ *    **Do not substitute a wall-clock bracket that starts later.** The same reporter also
+ *    emits `collectedToEndMs`, which looks like a whole-file span and is not: its clock
+ *    starts at `onTestModuleCollected`, so it excludes the import and it read `vocabulary`
+ *    at **9 ms** against 1 535 accounted on the very run that measured both. `queuedToEndMs`
+ *    is the bracket that does not exclude it — it sums to 1 098 581 against the accounted
+ *    1 098 805, 0.02 % apart, and it is the independent check that the accounted figure is
+ *    a real span rather than an accumulation artefact.
+ *    **This step does not apply to the `aot` project**, whose serial execution makes an
+ *    end-to-end delta the true span and gives a wall-clock closure as its own check — see
+ *    the note above.
  * 4. **Re-derive `NODE_MEASUREMENT.files` independently**, at least twice and ideally by
  *    three routes that share no code — and **diff the lists, do not compare the counts.**
  *    Three equal counts over three different sets agree numerically and are wrong.
- *    **Re-derive; do not adjust.** The 2026-08-24 pass wrote `204 → 203` by subtracting a
+ *    **Re-derive; do not adjust.** The 2026-08-24 pass wrote `204 -> 203` by subtracting a
  *    file it had watched leave, which is a defensible-looking move that was wrong by five,
  *    because five had arrived while it was not counting.
  * 5. **Record how many files were compared and how many disagreed** in
- *    {@link NODE_MEASUREMENT.crossCheckedFiles} / `crossCheckDisagreed`, and the hook-shadow
+ *    {@link NODE_MEASUREMENT.crossCheckedFiles} / `crossCheckDisagreed`, and the shadow
  *    population and its crossings in {@link NODE_MEASUREMENT.hookShadowCandidates} /
  *    `hookShadowDisagreed`, so that a later pass that skipped step 3 has to write a smaller
- *    number rather than merely not read a paragraph.
+ *    number rather than merely not read a paragraph. **Both directions of that rule have now
+ *    been exercised**: the pass that could not perform step 3 wrote 11 and 6 where the
+ *    previous one had written 209 and 144, and the pass that performed it wrote 198 and 136.
  *
  * **Step 3 replaced a hand-selection on 2026-08-15, and the old text is worth keeping in
  * view because it explains what the replacement buys.** It read: find every file whose
@@ -402,75 +614,105 @@ const NODE_MEASUREMENT = {
  * run alone under `/usr/bin/time -p` and the wall clock wins over the reporter"*, bracketed
  * by a trivial spec to subtract a ~1.01 s boot floor. That procedure was correct and it had
  * three costs the new one does not: it selected by **reading hook bodies**, so a file nobody
- * thought to look at kept a false span; it produced figures **out of run**, which the
- * previous table's own note admits are *"not commensurable with `wallClockMs`"* — two
- * substituted files summed to more than the whole run; and it cost a solo re-run of a 314 s
- * file and a 200 s file, twice each, so it was expensive enough to be skipped.
- *
- * The replacement was **validated before it was trusted**, on a criterion stated in advance:
- * for the seven files the 2026-08-11 pass measured by hand, the accounted figure must track
- * the *solo* number rather than the reporter's. It did, on all seven, and it still does on
- * this run — the same seven are carried below as a standing validation set.
+ * thought to look at kept a false span — and `vocabulary.node.test.ts`, which has no such
+ * hook at all and hides 1.5 s in its imports, is the file that would have been missed; it
+ * produced figures **out of run**, which the previous table's own note admits are *"not
+ * commensurable with `wallClockMs`"* — two substituted files summed to more than the whole
+ * run; and it cost a solo re-run of a 314 s file and a 200 s file, twice each, so it was
+ * expensive enough to be skipped.
  *
  * ### What the cross-check found this time
  *
- * **Every one of the 209 files was compared.** Both instruments returned a row for every
- * file, and `diagnostic()` threw on none, so the two lists are the same 209 rather than an
- * intersection somebody has to trust.
+ * **All 209 files across the two projects were cross-checked**, by two different second
+ * instruments: the module reporter for `node`, in the same run as `--reporter=json`, and
+ * serial derivation for `aot`. Both instruments returned a row for every file and
+ * `diagnostic()` threw on none.
  *
- * **168 of the 209 disagree with `--reporter=json` by more than 10 %**, and the aggregate
- * gap is the finding: 1 531 514 ms reported against 4 464 563 ms accounted, so the
- * instrument the first six tables were derived from could not see **65.7 %** of this
- * suite's cost. See {@link NODE_MEASUREMENT.sumOfReportedSpansMs} for why that percentage
- * moves with the suite's composition rather than with the reporter.
+ * - `node`: **164 of 198** differ by more than 10 %, aggregate 979 703 ms reported against
+ *   1 098 805 accounted — **10.8 %** unseen. Only 45 of the 164 involve a file at or above
+ *   the cut, and only **16** change a file's side of it.
+ * - `aot`: **6 of 11** differ, aggregate 343 313 against 1 181 599 — **70.9 %** unseen, of
+ *   which **5** change a file's side of the cut.
  *
- * **Fourteen files cross the cut and none crosses it the other way.** See
- * {@link NODE_MEASUREMENT.hookShadowDisagreed} for what those two counts mean and for the
- * 384 683× case, which is the largest this instrument has recorded.
+ * Two projects, two orders of magnitude apart in how much the reporter misses. See
+ * {@link NODE_MEASUREMENT.crossCheckedFiles} and
+ * {@link NODE_MEASUREMENT.hookShadowCandidates} for the counts as data.
+ *
+ * ### The validation set, and what it says about serialising the container specs
  *
  * The seven files the 2026-08-11 pass measured by hand remain the validation set, because
- * they are the reason to believe the other 202:
+ * they are the reason to believe the other 202. Four are `aot` files and now carry a
+ * derived figure; three are `node` files and carry an accounted one:
  *
- * | file | `--reporter=json` | accounted | 2026-08-11 solo |
+ * | file | 2026-08-11 solo | 2026-08-25, 209-file run | 2026-08-25, the rows below |
  * |---|---|---|---|
- * | `tools/aot/elfconv-differential.node.test.ts` | **2** | 867 886 | 313 820 |
- * | `tools/aot/echo-guest.node.test.ts` | 355 | 745 434 | 199 870 |
- * | `tools/aot/elflift-wasi-gate.node.test.ts` | 14 | 564 801 | 138 160 |
- * | `packages/node/src/closed-fabric-agents.node.test.ts` | 10 490 | 19 542 | 16 640 |
- * | `packages/node/src/aot-dispatch.node.test.ts` | 4 286 | 5 248 | 3 670 |
- * | `tools/aot/wasi-preview1-surface.node.test.ts` | 6 | 3 728 | 800 |
- * | `packages/node/src/start-reporting.node.test.ts` | 76 | 795 | 580 |
+ * | `tools/aot/elfconv-differential.node.test.ts` | 313 820 | 867 886 | **314 234** |
+ * | `tools/aot/echo-guest.node.test.ts` | 199 870 | 745 434 | **197 083** |
+ * | `tools/aot/elflift-wasi-gate.node.test.ts` | 138 160 | 564 801 | **138 741** |
+ * | `tools/aot/wasi-preview1-surface.node.test.ts` | 800 | 3 728 | **3 012** |
+ * | `packages/node/src/closed-fabric-agents.node.test.ts` | 16 640 | 19 542 | **26 641** |
+ * | `packages/node/src/aot-dispatch.node.test.ts` | 3 670 | 5 248 | **10 302** |
+ * | `packages/node/src/start-reporting.node.test.ts` | 580 | 795 | **1 442** |
  *
- * **All seven satisfy the stated criterion: accounted tracks the solo figure, not the
- * reporter's.** The four `tools/aot` rows sit far *above* their solo figures for the reason
- * {@link NODE_MEASUREMENT.load} measures; the three `packages` rows sit within 1.2× of them,
- * which on a run that shares eight workers across 208 other files is contention and is the
- * point — every number in this table comes from the same run, so they are commensurable with
- * each other and with {@link NODE_MEASUREMENT.wallClockMs} in a way substituted solo figures
- * never were.
+ * **Three of the four `aot` rows reproduce the hand-measured solo figure to within 1.5 %** —
+ * +0.1 %, -1.4 % and +0.4 % — across two weeks, two methods and two host conditions. That
+ * is the strongest evidence in this record that serial derivation is sound, and it was not
+ * arranged: the solo figures were taken by a different procedure on 2026-08-11 and nothing
+ * since has touched them. The fourth, `wasi-preview1-surface`, is a 3 s file whose
+ * 2026-08-11 figure had a ~1 s boot floor subtracted from it, which is the case where the
+ * subtraction dominates.
  *
- * **`start-reporting.node.test.ts` remains a boundary case rather than a shadow case**, at
- * 795 ms against a 1 000 ms cut, having read 974 last pass. It was the file that first proved
- * the shadow exists — 90 ms reported against a real 765 ms — and the reporter still
- * understates it 10-fold here. It simply is not slow. That is the honest reading and it is
- * left in, because a validation set curated to keep only its dramatic members is not one.
+ * **The three `node` rows all read HIGHER than their solo figures, and that is the CPU
+ * contention measured elsewhere in this file rather than an instrument fault.** A solo run
+ * has eight idle cores; these ran beside 197 other files at `(user+sys)/real` 5.35. The
+ * stated criterion for step 3 — *"accounted tracks the solo figure, not the reporter's"* —
+ * holds for `start-reporting` (96 reported, 1 442 accounted, 580 solo) and is ambiguous for
+ * `closed-fabric-agents`, where accounted overshoots the solo figure by 1.6x while the
+ * reporter undershoots it by 1.4x. **Ambiguous is written as ambiguous.**
+ *
+ * **And the middle column is the cost of contention, measured rather than argued.** Run in
+ * parallel inside the 209-file project on the same day, the four `aot` files read 2.8x,
+ * 3.8x, 4.1x and 1.2x their serial spans. The container work does not get faster when eight
+ * workers ask for it at once; it gets slower and it stops being attributable. That is the
+ * same fact the `aot` project's docblock records as five simultaneous suite-level failures,
+ * seen from the timing side.
+ *
+ * **`start-reporting.node.test.ts` has stopped being a boundary case, and the record of it
+ * changing sides is left in.** It was the file that first proved the shadow exists — 90 ms
+ * reported against a real 765 ms — and it has read 974, 795 and 580 across earlier passes,
+ * all below the cut, and **1 442** here. Whether the move is contention or instrument is not
+ * separated: its reporter reading on this very run is 96 ms. What is not in doubt is that
+ * 96 ms is wrong about it, which was always the point of listing it.
  *
  * ### There are no substituted entries, and there is no unlisted measured file
  *
- * Nothing in the table below comes from anywhere except the single run named above. Two
- * previous defects stay closed:
+ * Every row below comes from one of the two runs named above, and each row comes from
+ * exactly one of them — no row blends the two, and no row is a solo re-run. Two previous
+ * defects stay closed:
  *
  * - Six rows of the 2026-08-11 table carried a solo wall clock marked `// wall clock`, and
  *   its own note admitted they were **"not commensurable with `wallClockMs`"** —
  *   `elfconv-differential` at 313 820 and `echo-guest` at 199 870 summed to more than the
  *   whole 387 630 ms run they appeared in. A reader adding that table up got a number that
- *   could not be true of any single execution. There are none here.
+ *   could not be true of any single execution. There are none here: the `aot` rows sum
+ *   within 11 ms of their own run's wall clock, and the `node` rows sum to 1 098 805 ms
+ *   across eight parallel workers over 163 s, which is the concurrency and is stated.
  * - Six passes before 2026-08-15 each carried at least one file that was measured, was above
  *   the floor, and still could not be listed, because this table requires every path to be
  *   git-tracked while the file count comes from the filesystem. **This pass had zero
- *   untracked test files** — the seven uncommitted paths in the tree are staged, so
- *   `git ls-files` knows them all — so the conflict did not arise. If this paragraph ever
- *   needs a sentence added to it, that is the same gap reopening.
+ *   untracked test files**, so the conflict did not arise. If this paragraph ever needs a
+ *   sentence added to it, that is the same gap reopening.
+ *
+ * ### The one honest caveat of the accounted window
+ *
+ * `collectDuration` charges a module's import to the file that pays it, and files in the
+ * same worker share a module cache. So a dependency imported by two specs is charged in
+ * full to whichever ran first, and excluding that file from `test:unit` does not
+ * necessarily save its collect time — a sibling may simply pay it instead. **This is not
+ * measured and it is not modelled**; what can be said is the direction. It makes the
+ * accounted figure an upper bound on what excluding a file saves, never a lower one, so it
+ * errs the way this table has always chosen to err. Establishing the real saving would mean
+ * measuring `test:unit`'s own import phase against the full run's, which nothing here does.
  *
  * ## An absolute millisecond cut is not reproducible, and this is the evidence
  *
@@ -479,34 +721,48 @@ const NODE_MEASUREMENT = {
  *
  * | run | 1-min load | files at or above 1 s |
  * |---|---|---|
- * | 2026-08-01, run 1 | 53 → 108 | 29 |
- * | 2026-08-01, run 3 | 21 → 42 | 36 |
- * | 2026-08-02 | 50 → 115 → 16 | 28 |
- * | 2026-08-03, run 2 | 7.41 → 30.71 → 5.75 | 40 |
- * | 2026-08-03, run 4 | 13.43 → 59.60 → 23.67 | 35 |
- * | 2026-08-04 | 5.76 → 38.60 → 10.44 | 37 |
- * | 2026-08-05, run 1 | 15.46 → 109.21 → 43.94 | 52 |
- * | 2026-08-05, run 2 | 9.32 → 69.02 → 12.02 | 53 |
- * | 2026-08-11 | 7.91 → 64.98 → 13.55 | 59 |
- * | 2026-08-15 | 5.92 → 135.51 → 9.12 | 70 |
- * | 2026-08-18 | 3.53 → 43.03 → 16.38 | 77 |
- * | 2026-08-25 — **the table below** | 5.10 → 32.21 → 7.64 | **79** |
+ * | 2026-08-01, run 1 | 53 -> 108 | 29 |
+ * | 2026-08-01, run 3 | 21 -> 42 | 36 |
+ * | 2026-08-02 | 50 -> 115 -> 16 | 28 |
+ * | 2026-08-03, run 2 | 7.41 -> 30.71 -> 5.75 | 40 |
+ * | 2026-08-03, run 4 | 13.43 -> 59.60 -> 23.67 | 35 |
+ * | 2026-08-04 | 5.76 -> 38.60 -> 10.44 | 37 |
+ * | 2026-08-05, run 1 | 15.46 -> 109.21 -> 43.94 | 52 |
+ * | 2026-08-05, run 2 | 9.32 -> 69.02 -> 12.02 | 53 |
+ * | 2026-08-11 | 7.91 -> 64.98 -> 13.55 | 59 |
+ * | 2026-08-15 | 5.92 -> 135.51 -> 9.12 | 70 |
+ * | 2026-08-18 | 3.53 -> 43.03 -> 16.38 | 77 |
+ * | 2026-08-25, morning — 209 files, accounted | 5.10 -> 32.21 -> 7.64 | 79 |
+ * | 2026-08-25 — `node` 198 files, reporter | 6.68 | 62 |
+ * | 2026-08-25 — `node` 198 files, **accounted** | 5.20 | **78** |
+ * | 2026-08-25 — `aot` 11 files, derived | 18.95 | **10** |
  *
- * **Membership near the boundary is noise, and the standing examples keep making the
- * point by moving again.** `named-refusal.node.test.ts` has now read 1 726, then **996**
- * — four milliseconds under the cut — then **1 631**, and now **1 691**.
- * `strip-comments.node.test.ts` read 1 400, then 959, then 1 079, now **1 073**.
- * `egress-refusal` went 2 908 → 1 039 → 1 953 → **1 793**. None of the three was edited.
- * `churn.test.ts` remains the sharpest case in the record: 1134 ms, then 962, then exactly
- * 1000, then 974, then 1002, then below the floor, then 251, and below the floor again here.
- * **This pass adds a case as sharp**: `issuance-rate` and `rendezvous-wire` landed on
- * **1 000.13** and **1 000.42** ms — two files decided by four hundred microseconds each,
- * and both above rather than below only because that is where this run put them. **So the
- * list cannot be made to enforce itself by re-timing** — a guard that re-measured would
- * disagree with itself between runs, and the only stable thing to check is structure. That
- * is what `packages/node/src/slow-specs.node.test.ts` does, and why it explicitly does not
- * re-time anything: it counts files, which is the one property of the project a quiet host
- * and a loaded one agree on.
+ * **The last three rows change instrument as well as population, so 78 + 10 against 79 is
+ * not a like-for-like comparison and is not offered as one.** What the middle two rows DO
+ * compare like for like is the instrument, on one project on one afternoon: 62 against 78,
+ * sixteen files, all of them crossing upward.
+ *
+ * **Membership near the boundary is noise, and this pass measured the noise directly.** The
+ * two node runs are 45 minutes apart on the same tree, and their reporter-derived sets of 62
+ * are not the same 62: `strip-comments.node.test.ts` read 1 021 in the first and **999** in
+ * the second — two milliseconds under — while `enrol-agent.test.ts` went 887 to **1 159**.
+ * One file in, one file out, nothing edited in between. Inside the second run the two
+ * instruments agree on all 62 exactly; between the two runs the weather moved two files.
+ * **That is the whole argument in one measurement: the instrument is not the unstable part,
+ * the boundary is.**
+ *
+ * The standing examples keep making the same point by moving again.
+ * `named-refusal.node.test.ts` has read 1 726, then **996**, then 1 631, 1 691, 1 117, and
+ * **2 619** here. `strip-comments.node.test.ts` read 1 400, then 959, 1 079, 1 073, 1 021,
+ * and **1 035**. `egress-refusal` went 2 908 -> 1 039 -> 1 953 -> 1 793 -> 1 643 ->
+ * **3 079**. None of the three was edited. `churn.test.ts` remains the sharpest case in the
+ * record: 1134 ms, then 962, then exactly 1000, then 974, then 1002, then below the floor,
+ * then 251, below the floor again, and **395** here. **So the list cannot be made to enforce
+ * itself by re-timing** — a guard that re-measured would disagree with itself between runs,
+ * and the only stable thing to check is structure. That is what
+ * `packages/node/src/slow-specs.node.test.ts` does, and why it explicitly does not re-time
+ * anything: it counts files, which is the one property of the project a quiet host and a
+ * loaded one agree on.
  *
  * What *is* stable is the shape: a handful of files dominate by more than an order of
  * magnitude, and the marginal ~1 s files barely matter because vitest runs them in
@@ -517,10 +773,14 @@ const NODE_MEASUREMENT = {
  *
  * ## What the cut buys
  *
- * The 79 excluded files are **99.7 %** of the 4 452.2 s this table lists (4 437.7 s of it).
- * `elfconv-differential` at 867.9 s, `lift` at 750.8 s, `echo-guest` at 745.4 s and
- * `elflift-wasi-port` at 681.5 s are **68 %** of it in four files, and the reporter alone
- * calls three of those four a 2 ms, a 2 ms and a 355 ms file.
+ * The 88 excluded files are **99.1 %** of the 2 269.5 s this table lists (2 248.5 s), and
+ * 78 of them are the `node` project's. `elfconv-differential` at 314.2 s, `lift` at
+ * 234.5 s, `echo-guest` at 197.1 s and `elflift-wasi-port` at 183.5 s are **41 %** of it in
+ * four files, and the reporter alone calls three of those four a 2 ms, a 1 ms and a 347 ms
+ * file. At the other end the sixteen files the accounted window added are 22.7 s together —
+ * 1 % of the total, and the reason to add them is not the seconds but that
+ * `--reporter=json` would have kept them in the fast loop while printing 7.7 s for the
+ * lot.
  *
  * ## Entries below the cut are listed too, on purpose
  *
@@ -528,125 +788,155 @@ const NODE_MEASUREMENT = {
  * visible and a file that crosses it is a one-line diff against a recorded number rather
  * than a rediscovery. Faster files are omitted.
  *
- * **Every one of the 209 was measured, and the 104 omitted ones were measured too** — the
- * distinction matters, because "not in the table" has to keep meaning "fast" rather than
- * "nobody looked", which is the failure this whole file was rebuilt to prevent.
+ * **All 209 files of the two projects were measured, and the 77 omitted ones were measured
+ * too** — the distinction matters, because "not in the table" has to keep meaning "fast"
+ * rather than "nobody looked", which is the failure this whole file was rebuilt to prevent.
  *
  * ## Mechanism, where it was actually established
  *
  * Filename is not a usable signal and neither is the obvious mechanical proxy:
  * grepping for `node:child_process` or `docker` selects a different set —
- * `disclosure-gate`, `purity` and `vocabulary` all spawn real processes and are fast,
- * while `transport-bounds` and `admission` import neither and are among the slowest.
- * The mechanism notes below are only on the files where a pass verified one. The rest are
- * deliberately unannotated rather than guessed at.
+ * `disclosure-gate` and `purity` spawn real processes and are fast, while
+ * `transport-bounds` and `admission` import neither and are among the slowest. **What the
+ * 2026-08-25 run added is a second mechanism with a real signal**: a spec that reads the
+ * tree in top-level constants pays for it in `collectDuration`, and `vocabulary`,
+ * `opt-in-only-sources` and `strip-comments` are all in the table for that reason and not
+ * for anything their cases do. The mechanism notes below are only on the files where a pass
+ * verified one. The rest are deliberately unannotated rather than guessed at.
  */
 const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
-  ['tools/aot/elfconv-differential.node.test.ts', 867_886],
-  ['tools/aot/lift.node.test.ts', 750_830],
-  ['tools/aot/echo-guest.node.test.ts', 745_434],
-  ['tools/aot/elflift-wasi-port.node.test.ts', 681_508],
-  ['tools/aot/elflift-wasi-gate.node.test.ts', 564_801],
-  ['tools/aot/elflift-wasm-determinism.node.test.ts', 160_250],
-  ['packages/node/src/enrol-through-a-closed-door.node.test.ts', 60_298],
-  ['packages/node/src/admission-agents.node.test.ts', 46_988],
-  ['packages/node/src/discovery-agents.node.test.ts', 39_780],
-  ['packages/node/src/auto-tls.node.test.ts', 29_975],
-  ['packages/node/src/relay-admission.node.test.ts', 25_160],
-  ['packages/node/src/enrollment.node.test.ts', 24_896],
-  ['packages/node/src/enrolment-needs-no-reservation.node.test.ts', 22_334],
-  ['packages/node/src/tree-reduce-agents.node.test.ts', 21_905],
-  ['packages/node/src/sovereign-arm.node.test.ts', 20_187],
-  ['packages/node/src/closed-fabric-agents.node.test.ts', 19_542],
-  ['tools/aot/cross-machine.node.test.ts', 17_076],
-  ['packages/node/src/quorum-agents.node.test.ts', 16_567],
-  ['packages/node/src/sovereignty-placement.node.test.ts', 14_979],
-  ['packages/node/src/orphan-leash.node.test.ts', 14_271],
-  ['packages/node/src/bench-attestation.node.test.ts', 13_994],
-  ['packages/node/src/coverage-agents.node.test.ts', 13_263],
-  ['packages/node/src/peer-gate.node.test.ts', 12_187],
-  ['packages/node/src/reachability.node.test.ts', 11_635],
-  ['packages/node/src/late-combine.node.test.ts', 11_156],
-  ['packages/node/src/provider-expiry.node.test.ts', 10_762],
-  ['packages/node/src/enrollment-cost.node.test.ts', 10_467],
-  ['packages/node/src/transport-bounds.node.test.ts', 10_279],
-  ['packages/node/src/peer-dial.node.test.ts', 10_047],
-  ['packages/node/src/dht-registration.node.test.ts', 10_029],
-  ['packages/node/src/admission.node.test.ts', 9_798],
-  ['tools/aot/cli.node.test.ts', 8_808],
-  ['packages/node/src/enrolment-residual.node.test.ts', 7_952],
-  ['packages/node/src/speculation-agents.node.test.ts', 7_502],
-  ['packages/node/src/two-process.node.test.ts', 7_354],
-  ['packages/node/src/certificate-verification.node.test.ts', 6_984],
-  ['packages/node/src/fabric-node.node.test.ts', 6_142],
-  ['packages/node/src/agent-handshake.node.test.ts', 5_623],
-  ['packages/browser/src/colouring-surface.node.test.ts', 5_280],
-  ['packages/node/src/aot-dispatch.node.test.ts', 5_248],
-  ['packages/node/src/churn-agents.node.test.ts', 5_217],
-  ['packages/node/src/duty-cycle.node.test.ts', 5_029],
-  ['packages/node/src/bench-process-ladder.node.test.ts', 4_966],
-  ['packages/node/src/signed-artifact.node.test.ts', 4_844],
-  ['packages/node/src/owner-domain-agents.node.test.ts', 4_715],
-  ['packages/libp2p/src/certificate-renewal-loop.test.ts', 4_697],
-  ['packages/node/src/peer-verifier.node.test.ts', 4_365],
-  ['tools/aot/docker-gate.node.test.ts', 4_318],
-  ['packages/node/src/trust-anchors.node.test.ts', 4_239],
-  ['packages/node/src/capability-dispatch.node.test.ts', 4_192],
-  ['packages/node/src/result-signature.node.test.ts', 4_145],
-  ['packages/node/src/sovereign-aggregation.node.test.ts', 4_021],
-  ['packages/node/src/reservation-exhaustion.node.test.ts', 3_791],
-  ['tools/aot/wasi-preview1-surface.node.test.ts', 3_728],
-  ['packages/node/src/provider-answering.node.test.ts', 3_053],
-  ['packages/node/src/bench-fabric.node.test.ts', 3_037],
-  ['packages/node/src/execution-deadline.node.test.ts', 3_011],
-  ['packages/node/src/checkpoint-agents.node.test.ts', 2_986],
-  ['packages/node/src/node-records.node.test.ts', 2_829],
-  ['packages/node/src/discover-arm.node.test.ts', 2_738],
-  ['packages/node/src/sovereign-at-rest.node.test.ts', 2_421],
-  ['packages/node/src/node-enrollment.node.test.ts', 2_082],
-  ['packages/node/src/opt-in-only-sources.node.test.ts', 1_909],
-  ['packages/node/src/relay-discovery.node.test.ts', 1_888],
-  ['packages/node/src/egress-manifest.node.test.ts', 1_858],
-  ['packages/node/src/egress-refusal.node.test.ts', 1_793],
-  ['packages/node/src/named-refusal.node.test.ts', 1_691],
-  ['packages/demo/src/kernel.test.ts', 1_587],
-  ['packages/node/src/combine-signature.node.test.ts', 1_573],
-  ['packages/node/src/relaying.node.test.ts', 1_502],
-  ['packages/node/src/reachability-guard.node.test.ts', 1_414],
-  ['packages/node/src/job-entry-points.node.test.ts', 1_407],
-  ['packages/node/src/sovereign-block-refusal.node.test.ts', 1_184],
-  ['packages/node/src/vocabulary.node.test.ts', 1_138],
-  ['packages/node/src/strip-comments.node.test.ts', 1_073],
-  ['packages/node/src/bench-admission.node.test.ts', 1_039],
-  ['packages/node/src/disclosure-gate.node.test.ts', 1_026],
-  ['packages/node/src/issuance-rate.node.test.ts', 1_000],
-  ['packages/node/src/rendezvous-wire.node.test.ts', 1_000],
-  ['packages/net/src/enrol-agent.test.ts', 903],
-  ['packages/node/src/requirements-ledger.node.test.ts', 855],
-  ['packages/node/src/start-unwind.node.test.ts', 797],
-  ['packages/node/src/start-reporting.node.test.ts', 795],
-  ['packages/node/src/node-identity.node.test.ts', 770],
-  ['packages/node/src/relayed-job.node.test.ts', 752],
-  ['packages/node/src/acceptance-traceability.node.test.ts', 748],
-  ['packages/node/src/enrollment-dos.node.test.ts', 698],
-  ['packages/core/src/enrollment.test.ts', 689],
-  ['packages/node/src/datastore-persistence.node.test.ts', 643],
-  ['packages/net/src/discovery.test.ts', 609],
-  ['packages/core/src/job/submit.test.ts', 593],
-  ['packages/node/src/slow-specs.node.test.ts', 579],
-  ['packages/node/src/seed-enrollment-provider.node.test.ts', 568],
-  ['packages/net/src/provider-merge.test.ts', 531],
-  ['packages/node/src/purity.node.test.ts', 522],
-  ['packages/node/src/commit-scope.node.test.ts', 457],
-  ['packages/node/src/mutation-guard.node.test.ts', 368],
-  ['packages/net/src/discover-candidates.test.ts', 364],
-  ['packages/net/src/reduce-job.test.ts', 353],
-  ['packages/net/src/sovereign-egress.test.ts', 352],
-  ['packages/node/src/checkpoint-optout-scope.node.test.ts', 324],
-  ['packages/core/src/discovery.test.ts', 320],
-  ['packages/node/src/fs-blockstore.node.test.ts', 304],
-  ['packages/core/src/ed25519-backend.test.ts', 303],
-  ['packages/node/src/primes-reduce.node.test.ts', 302],
+  ['tools/aot/elfconv-differential.node.test.ts', 314_234],
+  ['tools/aot/lift.node.test.ts', 234_458],
+  ['tools/aot/echo-guest.node.test.ts', 197_083],
+  ['tools/aot/elflift-wasi-port.node.test.ts', 183_464],
+  ['tools/aot/elflift-wasi-gate.node.test.ts', 138_741],
+  ['packages/node/src/admission-agents.node.test.ts', 98_043],
+  ['packages/node/src/discovery-agents.node.test.ts', 77_520],
+  ['tools/aot/elflift-wasm-determinism.node.test.ts', 76_097],
+  ['packages/node/src/sovereign-arm.node.test.ts', 69_509],
+  ['packages/node/src/enrol-through-a-closed-door.node.test.ts', 64_756],
+  ['packages/node/src/tree-reduce-agents.node.test.ts', 54_612],
+  ['packages/node/src/coverage-agents.node.test.ts', 46_475],
+  ['packages/node/src/enrollment.node.test.ts', 37_149],
+  ['packages/node/src/auto-tls.node.test.ts', 36_373],
+  ['packages/node/src/reachability.node.test.ts', 31_788],
+  ['packages/node/src/relay-admission.node.test.ts', 30_635],
+  ['packages/node/src/late-combine.node.test.ts', 29_626],
+  ['packages/node/src/enrolment-needs-no-reservation.node.test.ts', 28_883],
+  ['packages/node/src/quorum-agents.node.test.ts', 28_147],
+  ['packages/node/src/closed-fabric-agents.node.test.ts', 26_641],
+  ['packages/node/src/bench-attestation.node.test.ts', 25_574],
+  ['tools/aot/cross-machine.node.test.ts', 23_678],
+  ['packages/node/src/sovereignty-placement.node.test.ts', 19_425],
+  ['packages/node/src/orphan-leash.node.test.ts', 17_491],
+  ['packages/node/src/enrollment-cost.node.test.ts', 17_464],
+  ['packages/node/src/peer-gate.node.test.ts', 13_857],
+  ['packages/node/src/provider-expiry.node.test.ts', 10_921],
+  ['packages/node/src/peer-dial.node.test.ts', 10_872],
+  ['packages/node/src/certificate-verification.node.test.ts', 10_767],
+  ['packages/node/src/transport-bounds.node.test.ts', 10_665],
+  ['packages/browser/src/colouring-surface.node.test.ts', 10_459],
+  ['packages/node/src/admission.node.test.ts', 10_358],
+  ['packages/node/src/aot-dispatch.node.test.ts', 10_302],
+  ['packages/node/src/two-process.node.test.ts', 10_181],
+  ['packages/node/src/dht-registration.node.test.ts', 10_053],
+  ['packages/node/src/trust-anchors.node.test.ts', 10_010],
+  ['packages/node/src/speculation-agents.node.test.ts', 9_661],
+  ['packages/node/src/signed-artifact.node.test.ts', 9_536],
+  ['packages/node/src/enrolment-residual.node.test.ts', 9_291],
+  ['packages/node/src/churn-agents.node.test.ts', 8_903],
+  ['packages/node/src/bench-process-ladder.node.test.ts', 8_768],
+  ['packages/node/src/agent-handshake.node.test.ts', 8_480],
+  ['packages/node/src/bench-fabric.node.test.ts', 7_872],
+  ['packages/node/src/owner-domain-agents.node.test.ts', 7_786],
+  ['packages/node/src/result-signature.node.test.ts', 7_339],
+  ['packages/node/src/capability-dispatch.node.test.ts', 7_178],
+  ['packages/node/src/reservation-exhaustion.node.test.ts', 6_981],
+  ['packages/node/src/peer-verifier.node.test.ts', 6_934],
+  ['packages/node/src/fabric-node.node.test.ts', 6_498],
+  ['packages/node/src/duty-cycle.node.test.ts', 6_483],
+  ['tools/aot/cli.node.test.ts', 6_385],
+  ['packages/node/src/sovereign-aggregation.node.test.ts', 6_343],
+  ['packages/node/src/node-records.node.test.ts', 6_232],
+  ['packages/node/src/checkpoint-agents.node.test.ts', 5_684],
+  ['packages/demo/src/kernel.test.ts', 5_354],
+  ['packages/libp2p/src/certificate-renewal-loop.test.ts', 4_819],
+  ['packages/node/src/discover-arm.node.test.ts', 4_679],
+  ['packages/node/src/provider-answering.node.test.ts', 4_397],
+  ['tools/aot/docker-gate.node.test.ts', 4_330],
+  ['packages/node/src/execution-deadline.node.test.ts', 4_207],
+  ['packages/node/src/sovereign-at-rest.node.test.ts', 4_083],
+  ['packages/node/src/reachability-guard.node.test.ts', 4_049],
+  ['packages/node/src/node-enrollment.node.test.ts', 3_607],
+  ['packages/node/src/egress-manifest.node.test.ts', 3_322],
+  ['packages/node/src/combine-signature.node.test.ts', 3_167],
+  ['packages/node/src/egress-refusal.node.test.ts', 3_079],
+  ['tools/aot/wasi-preview1-surface.node.test.ts', 3_012],
+  ['packages/node/src/relay-discovery.node.test.ts', 2_646],
+  ['packages/node/src/named-refusal.node.test.ts', 2_619],
+  ['packages/node/src/relaying.node.test.ts', 2_333],
+  ['packages/node/src/opt-in-only-sources.node.test.ts', 2_083],
+  ['packages/node/src/job-entry-points.node.test.ts', 2_012],
+  ['packages/node/src/issuance-rate.node.test.ts', 1_920],
+  ['packages/node/src/sovereign-block-refusal.node.test.ts', 1_748],
+  ['packages/node/src/datastore-persistence.node.test.ts', 1_615],
+  ['packages/node/src/rendezvous-wire.node.test.ts', 1_593],
+  ['packages/node/src/vocabulary.node.test.ts', 1_535],
+  ['packages/node/src/bench-admission.node.test.ts', 1_458],
+  ['packages/node/src/start-unwind.node.test.ts', 1_455],
+  ['packages/node/src/start-reporting.node.test.ts', 1_442],
+  ['packages/net/src/enrol-agent.test.ts', 1_386],
+  ['packages/node/src/relayed-job.node.test.ts', 1_323],
+  ['packages/node/src/node-identity.node.test.ts', 1_177],
+  ['packages/core/src/enrollment.test.ts', 1_122],
+  ['packages/node/src/disclosure-gate.node.test.ts', 1_086],
+  ['packages/node/src/enrollment-dos.node.test.ts', 1_078],
+  ['packages/node/src/strip-comments.node.test.ts', 1_035],
+  ['packages/node/src/requirements-ledger.node.test.ts', 1_016],
+  ['packages/node/src/acceptance-traceability.node.test.ts', 933],
+  ['packages/net/src/discovery.test.ts', 844],
+  ['packages/net/src/provider-merge.test.ts', 747],
+  ['packages/core/src/job/submit.test.ts', 712],
+  ['packages/libp2p/src/dht-record-index.test.ts', 610],
+  ['packages/node/src/identity-store.node.test.ts', 586],
+  ['packages/net/src/discover-candidates.test.ts', 577],
+  ['packages/node/src/seed-enrollment-provider.node.test.ts', 563],
+  ['packages/node/src/fs-blockstore.node.test.ts', 561],
+  ['packages/node/src/pi-reduce.node.test.ts', 547],
+  ['packages/node/src/primes-reduce.node.test.ts', 539],
+  ['packages/core/src/ed25519-backend.test.ts', 537],
+  ['packages/aot/src/wasi-real.node.test.ts', 525],
+  ['packages/node/src/purity.node.test.ts', 515],
+  ['packages/node/src/certificate-cache.node.test.ts', 504],
+  ['packages/aot/src/wasi-executor.test.ts', 483],
+  ['packages/net/src/sovereign-execution.test.ts', 481],
+  ['packages/net/src/combine.test.ts', 478],
+  ['packages/core/src/discovery.test.ts', 461],
+  ['packages/core/src/capability.test.ts', 456],
+  ['packages/libp2p/src/dht-registration.test.ts', 444],
+  ['packages/net/src/capability-extension-wire.test.ts', 441],
+  ['packages/net/src/paused.test.ts', 438],
+  ['packages/node/src/mutation-guard.node.test.ts', 435],
+  ['packages/libp2p/src/identity.test.ts', 430],
+  ['packages/net/src/reduce-sovereign.test.ts', 430],
+  ['packages/node/src/commit-scope.node.test.ts', 418],
+  ['packages/demo/src/kernel-build.node.test.ts', 415],
+  ['packages/demo/src/pi-build.node.test.ts', 413],
+  ['packages/node/src/fs-issuance.node.test.ts', 404],
+  ['packages/net/src/sovereign-egress.test.ts', 403],
+  ['packages/net/src/churn.test.ts', 395],
+  ['packages/net/src/reduce-job.test.ts', 391],
+  ['packages/node/src/checkpoint-optout-scope.node.test.ts', 391],
+  ['packages/net/src/start-report.test.ts', 379],
+  ['packages/net/src/enrol-protocol.test.ts', 378],
+  ['packages/core/src/x509.test.ts', 376],
+  ['packages/libp2p/src/relay-service.test.ts', 374],
+  ['packages/node/src/constants.node.test.ts', 373],
+  ['packages/core/src/result-attestation.test.ts', 356],
+  ['packages/net/src/distributed.test.ts', 351],
+  ['packages/node/src/one-crypto-implementation.node.test.ts', 311],
+  ['packages/net/src/protocol.test.ts', 303],
+  ['packages/core/src/reduce.test.ts', 302],
 ]
 
 /**
@@ -765,11 +1055,9 @@ export default defineConfig({
         test: {
           name: 'node',
           environment: 'node',
-          // `tools/` holds the build-time drivers — they shell out to containers and
-          // could not run in a browser even in principle, so only this project sees
-          // them. Their suffix still has to say `.node.test.ts`, so the rule stays
-          // one rule.
-          include: ['packages/*/src/**/*.test.ts', 'tools/**/*.node.test.ts'],
+          // `tools/` used to be collected here. It moved to the `aot` project on
+          // 2026-08-25 — see that project for why. This one is now packages only.
+          include: ['packages/*/src/**/*.test.ts'],
           // `?worker` is a browser bundling concern; that target runs in the
           // browser project only. `*.e2e.test.ts` has its own project.
           //
@@ -781,8 +1069,67 @@ export default defineConfig({
             '**/*.e2e.test.ts',
             // The perf gate has its own project — see `PERF_GATE`.
             '**/*.perf.test.ts',
+            // `tools/` is the `aot` project's now, but a stale editor state or a
+            // future glob change should not silently pull it back in here.
+            'tools/**',
             ...(UNIT_ONLY ? SLOW_NODE_SPECS : []),
           ],
+        },
+      },
+      {
+        test: {
+          /**
+           * The container toolchain, ONE FILE AT A TIME.
+           *
+           * `tools/` holds the build-time drivers — they shell out to containers and
+           * could not run in a browser even in principle. Their suffix still has to
+           * say `.node.test.ts`, so the rule stays one rule; what changed is which
+           * project collects them.
+           *
+           * **Why they are carved out, measured rather than supposed.** Run inside the
+           * `node` project they competed with each other, and a full
+           * `npx vitest run --project node` on 2026-08-25 lost FIVE of them at once —
+           * `echo-guest` and `lift` to a 900 000 ms `beforeAll` budget, and
+           * `elfconv-differential`, `elflift-wasi-gate` and `elflift-wasi-port` to a
+           * harness child that came back `run.status === null`, killed by a signal
+           * rather than exiting. Zero test CASES failed; all five were suite-level.
+           * Re-run solo the same afternoon they passed — `lift` 133/133 at
+           * `real 221.34 user 2.80 sys 0.75`, `elflift-wasi-gate` 8/8 at
+           * `real 139.20 user 0.81 sys 0.20`.
+           *
+           * **`(user+sys)/real` is 0.016 and 0.007.** These processes are almost
+           * entirely WAITING on a container rather than computing, so a wall-clock
+           * budget over them measures the host's contention and never the toolchain.
+           * That is why the repair is serialisation and NOT a larger timeout: raising
+           * the budget would have addressed two of the five failures and widened what
+           * counts as passing to do it. `21-VERIFICATION.md`'s W1 recorded the budget
+           * problem and left the choice to the owner; the owner ruled "do it" on
+           * 2026-08-25 and this is what was done.
+           *
+           * This is the same trade `e2e` and `perf` already took below, for the same
+           * reason each of them writes down: contention produces a timeout in whichever
+           * file lost, which reads as a defect in the thing under test and is not one.
+           *
+           * **The wall-clock cost is smaller than it looks, and this was measured too**
+           * — vitest 4.1.10 does NOT run projects one after another. Four files of 2 s
+           * across two projects finished in 2.21 s, not 4 s; and `fileParallelism:false`
+           * on one project took three such files from 2.16 s to 6.41 s. So these
+           * serialise among THEMSELVES while the `node` project's packages run beside
+           * them.
+           */
+          name: 'aot',
+          environment: 'node',
+          include: ['tools/**/*.node.test.ts'],
+          // **No suffix excludes, on this config's own stated reasoning** — the one
+          // `e2e` gives for declaring none: a perf, browser or e2e suffix cannot match
+          // an include that ends in `.node.test.ts`. Declaring them anyway would have
+          // added a third occurrence of the perf-suffix literal and reddened
+          // `opt-in-only-sources.node.test.ts`, whose pinned count of two exists to
+          // catch exactly that. It did redden, on the first attempt — and then a second
+          // time on this very comment, which quoted the literal it was explaining. The
+          // count is over the whole file's text and does not care that it is prose.
+          exclude: [...(UNIT_ONLY ? SLOW_NODE_SPECS : [])],
+          fileParallelism: false,
         },
       },
       {
