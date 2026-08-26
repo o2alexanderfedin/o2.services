@@ -1,0 +1,63 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-08-26T07:56:00.000Z",
+  "phase": "29",
+  "phase_name": "Hosted Tier Assembly & First Deploy",
+  "phase_dir": ".planning/phases/phase-29-hosted-tier-assembly-and-first-deploy",
+  "phase_dir_note": "Holds 29-REPORT.md, not a SUMMARY: there is no PLAN for this phase, and a SUMMARY beside no plan would make the tooling read a plan as executed.",
+  "plan": null,
+  "task": null,
+  "total_tasks": null,
+  "status": "paused",
+  "branch": "feature/phase-29-hosted-tier",
+  "head": "0360be7",
+  "tree": "clean",
+  "lanes": {
+    "node": "200 files, EXIT=0, real 173.04, (user+sys)/real 5.19 — every skip printed its own name and numbers",
+    "aot": "11 files / 240 tests, EXIT=0, real 1782.49, (user+sys)/real 0.064 — waits on containers, per its recorded signature",
+    "browser_e2e_perf": "NOT RUN this session. Only node-lane test files and the cloudflare package were touched, but that is a reason to expect them green, not a measurement of it."
+  },
+  "completed_tasks": [
+    {"id": 1, "name": "the straggler threshold was guarded in one direction only — a real production-guard gap, plus mutation-ledger D1b", "status": "done", "commit": "a312ea3"},
+    {"id": 2, "name": "speculation-agents: a settledAt cast that crashed on the case its claims most clearly hold for", "status": "done", "commit": "f8ad0c8"},
+    {"id": 3, "name": "speculation-agents: the drifted-reconstruction gate, keyed on identity not on the host", "status": "done", "commit": "4ab6fea"},
+    {"id": 4, "name": "discovery-agents: a count replaced by an identity-keyed bounded re-query", "status": "done", "commit": "19ba8be"},
+    {"id": 5, "name": "admission clause 3 now reads connection DIRECTION and ROUTE, not the connected set", "status": "done", "commit": "38384e8"},
+    {"id": 6, "name": "package-lock.json stale in two ways; npm ci measured failing before and passing after", "status": "done", "commit": "0f3503a"},
+    {"id": 7, "name": "MR-02's three-way disagreement settled as a WORDING problem with a dated note", "status": "done", "commit": "278611e"},
+    {"id": 8, "name": "late-combine: the all-censored residue", "status": "done", "commit": "772fe8d"},
+    {"id": 9, "name": "admission stand-up re-attempts one named host condition, once", "status": "done", "commit": "a3f7981"},
+    {"id": 10, "name": "late-combine: the host gate was an AND where the file's own rule is an OR", "status": "done", "commit": "6806f9b"},
+    {"id": 11, "name": "closed-fabric-agents: a SIXTH file in the class, absent from the survey", "status": "done", "commit": "8c3f04c"},
+    {"id": 12, "name": "sovereign-arm: a SEVENTH, discriminated on the leg's own output with no host calibration", "status": "done", "commit": "55928fc"},
+    {"id": 13, "name": "Phase 29: the assembly, the identity that survives an eviction, the closed name set", "status": "done", "commit": "127a5c3"},
+    {"id": 14, "name": "Phase 29: the deploy configuration and three guards, each planted red", "status": "done", "commit": "34179f1"},
+    {"id": 15, "name": "Phase 29: the report, DEMO-04 repurposed, NET-03 re-stated as a second route", "status": "done", "commit": "8f85b2f"},
+    {"id": 16, "name": "RETRACTION — the listener was never blocked; corrected in five documents", "status": "done", "commit": "7e02aad"},
+    {"id": 17, "name": "the minimal inbound listener, written in TypeScript over a PUBLIC base class", "status": "done", "commit": "389fd61"},
+    {"id": 18, "name": "late-combine: a THIRD assertion, the map budget rather than the combine", "status": "done", "commit": "f7e8402"}
+  ],
+  "remaining_tasks": [
+    {"id": 19, "name": "The node assembly — createLibp2p() inside the Durable Object, handed the DoDatastore and the new connection. Makes criterion 2 reachable once deployed, and puts noise in the bundle, which flips the open-question-1 guard from a loud skip to a real reading. READ .planning/research/v2.0/ARCHITECTURE.md:470-506 FIRST.", "status": "not_started"},
+    {"id": 20, "name": "Hibernation-aware socket — Phase 30. ARCHITECTURE.md:506 calls it the largest genuinely-new engineering item on this tier and scopes it as its own task. A plain accept() socket died after 6 min idle; a hibernatable one survived 15.", "status": "not_started"},
+    {"id": 21, "name": "A NINTH speculation-agents mode, cause UNVERIFIED: one shard of the on arm producing no result, seen once on a 13.75s run against a 6.8-7.2s norm. Three runs immediately after were green.", "status": "not_started"},
+    {"id": 22, "name": "judgedAt in speculation-agents is the wrapper's dispatch instant, one RPC hop after the scheduler's woke, so the reconstructed sample can only OVER-include. Named, not fixed.", "status": "not_started"}
+  ],
+  "blockers": [
+    {"description": "Phase 29 criteria 1 and 2 — the billing alert and the first deploy — are owner acts at the Cloudflare boundary and stay open by ruling of 2026-08-25", "type": "human_action", "workaround": "everything else proceeds and reports them open"},
+    {"description": "The distinct-machine benchmark (Phase 39 criterion 4) is blocked on there being a build to hand the Telegram tester cohort", "type": "human_action", "workaround": "none; it is a calendar decision"},
+    {"description": "NOTHING ELSE IS BLOCKED. The listener blocker reported earlier this session was RETRACTED the same day — it was Node's resolver measured where esbuild's mattered, and three research documents already covered the ground.", "type": "retracted", "workaround": "n/a"}
+  ],
+  "human_actions_pending": [
+    {"action": "Cloudflare billing alert, then the first deploy — in that order", "context": "Cloudflare has no hard spending ceiling; its own wording is that budget alerts are informational only. The account carries ZERO Durable Object namespaces today, so nothing built here can wake or bill.", "blocking": false},
+    {"action": "Cut a build for the Telegram tester cohort", "context": "The scaling claim has never been measured off one laptop. Access is the only gate, and access is the disclosure event.", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "The listener is WRITTEN, not borrowed", "rationale": "webSocketToMaConn is not on @libp2p/websockets' public surface; reaching it means a path into dist/, a build artefact with no semver signal. The base class comes through @libp2p/utils' public barrel and only the Cloudflare half is ours. The owner's 'we write TypeScript' is what settled it.", "phase": "29"},
+    {"decision": "Six new cloudflare symbols to OPEN_FINDINGS, not DISPOSITIONS", "rationale": "A disposition says a symbol has a real caller behind a hop the tracer cannot follow; global-object-hop's symbols have callers that RUN. These have a caller in a Worker nothing deploys. Dispositioning would have made the number look like wiring.", "phase": "29"},
+    {"decision": "No budget was raised in any of the seven load-sensitive files", "rationale": "Owner ruling: slow under load is normal. Implemented as discrimination rules moved from failure-message prose into conditions.", "phase": "20-29"}
+  ],
+  "uncommitted_files": [],
+  "next_action": "The node assembly (task 19). Read .planning/research/v2.0/ARCHITECTURE.md:470-506 BEFORE writing a line — skipping that document is what cost this session a retracted blocker and two hours of a false claim standing in five files.",
+  "context_notes": "The recurring shape across everything closed today: a guard that models STRUCTURE and not TRUTH — a condition stricter than the rule written beside it (twice in one file), a count where the question is about identity, a connected set where the claim is about who dialled, a budget whose own docblock says it is only reached when the leg is gone. The other lesson is mine: I reported a blocker from one failing command without reading the project's own research, and the owner corrected it in one line. Three plants this session proved nothing and are each recorded as retracted rather than quietly replaced."
+}
