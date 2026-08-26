@@ -1111,6 +1111,16 @@ describe('MR-04 — a paused process answers after the request that asked for it
     const { job, execSpans, ms: mapMs } = map
     const slowestExecMs = execSpans[execSpans.length - 1] as number
 
+    // `SOLO_*` are this file's own 2026-08-16 paired readings, already quoted in the message
+    // and in the header table. The 2× gate is a judgement and is deliberately loose: at 1×
+    // ordinary jitter would suppress the case, and the observed starved run was 3.0× on
+    // standUp and 56× on map, so nothing near the boundary was being decided.
+    const SOLO_STAND_UP_MS = 1331
+    const SOLO_MAP_MS = 274
+    const STARVED_RATIO = 2
+    const hostStarved =
+      standUpMs > SOLO_STAND_UP_MS * STARVED_RATIO && mapMs > SOLO_MAP_MS * STARVED_RATIO
+
     const tree = await deriveTree(job, submitter.store)
     // A tree, not a one-level merge: two level-1 combines and a root above them.
     expect(tree.leaves).toHaveLength(SHARDS)
@@ -1144,6 +1154,44 @@ describe('MR-04 — a paused process answers after the request that asked for it
     expect(cold).toHaveLength(coldTasks.length * coldPeers.length)
     // A `null` sample is a combine that hit the very timeout this reading sites, so a
     // floor taken over the survivors would be the one case where it must not be taken.
+    //
+    // **ALL SIX null is a different fact from SOME null, and this line could not tell them
+    // apart until 2026-08-25.** The residue `ce34171` named and did not close: a survey run
+    // recorded all six samples at `product === null` with spans of 1501–1565 ms against an
+    // `RPC_TIMEOUT_MS` of 1500 — every one of them a hair past the budget, none of them
+    // near it from below. That is not a biased floor. It is a host on which an **unpaused,
+    // unmodified** combine RPC cannot complete inside the budget at all, so there is no
+    // baseline in the run and the case's whole subject — telling a late reply from a lost
+    // one — has nothing to be late relative to.
+    //
+    // - **Some null, some not** is the case this assertion exists for and still fails: the
+    //   survivors are the fast tail of a distribution whose slow half was censored by the
+    //   very timeout the floor is about to site.
+    // - **All null on a HEALTHY host** is a broken combine path and MUST still fail. It is
+    //   the defect this precondition would otherwise wave through, so the host reading is
+    //   conjoined rather than assumed.
+    //
+    // `ce34171`'s two discriminators are downstream of this line and are never reached when
+    // it fires, which is why the rule has to be stated again here rather than inherited.
+    const timedOut = cold.filter((sample) => sample.product === null)
+    if (timedOut.length === cold.length && hostStarved) {
+      // `process.stdout.write`, not `console.log` and not `ctx.skip(note)` — measured on
+      // vitest 4.1.10, and the reason is written out at the MR-04 discriminator below.
+      process.stdout.write(
+        `[criterion 6 / no baseline] every one of the ${cold.length} cold combines hit the ` +
+          `${RPC_TIMEOUT_MS}ms budget — spans ` +
+          `${cold.map((sample) => Math.round(sample.ms)).join(', ')}ms — so this run holds no ` +
+          `unpaused baseline for a paused combine to be late relative to. The host reading ` +
+          `agrees and is what separates this from a broken combine path: standUp ` +
+          `${Math.round(standUpMs)}ms (solo ~${SOLO_STAND_UP_MS}), map ${Math.round(mapMs)}ms ` +
+          `(solo ~${SOLO_MAP_MS}). Re-run this file alone; the samples complete there. This ` +
+          `is NOT a verdict about the combine.\n`,
+      )
+      ctx.skip()
+    }
+    // Byte-identical to what it was: what changed is when it is reached. A partly-censored
+    // sample still fails here, and so does a wholly-censored one on a host that is not
+    // starved.
     expect(cold.filter((sample) => sample.product === null)).toEqual([])
     const coldSpans = [...cold.map((sample) => sample.ms)].sort((a, b) => a - b)
     const healthyCombineMs = coldSpans[0] as number
@@ -1258,15 +1306,11 @@ describe('MR-04 — a paused process answers after the request that asked for it
     // The narrow case — the floor alone inflated, `standUp` and `map` at their solo figures
     // — still runs and still fails, because that one IS the combine.
     //
-    // `SOLO_*` are this file's own 2026-08-16 paired readings, already quoted in the message
-    // and in the header table. The 2× gate is a judgement and is deliberately loose: at 1×
-    // ordinary jitter would suppress the case, and the observed starved run was 3.0× on
-    // standUp and 56× on map, so nothing near the boundary was being decided.
-    const SOLO_STAND_UP_MS = 1331
-    const SOLO_MAP_MS = 274
-    const STARVED_RATIO = 2
-    const hostStarved =
-      standUpMs > SOLO_STAND_UP_MS * STARVED_RATIO && mapMs > SOLO_MAP_MS * STARVED_RATIO
+    // `SOLO_STAND_UP_MS`, `SOLO_MAP_MS`, `STARVED_RATIO` and `hostStarved` are declared once,
+    // just after `mapMs` is taken — moved there 2026-08-25 when the cold-sample precondition
+    // below needed the same reading. One definition rather than two, because two copies of a
+    // calibration are two things that can drift apart, and this file's whole subject is a
+    // reading that must stay comparable to itself.
     const budgetUnreachable = RPC_TIMEOUT_MS <= healthyCombineMs * TIMEOUT_MARGIN
     if (hostStarved && budgetUnreachable) {
       // **Loud on purpose, and `process.stdout.write` rather than `console.log` for a
