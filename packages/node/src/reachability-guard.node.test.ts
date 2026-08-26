@@ -584,6 +584,17 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // refusal. Raised by exactly the four that arrived. They are in `OPEN_FINDINGS` and not
       // dispositioned for the reason the paragraph below gives about the six before them: the
       // caller is a Worker that nothing deploys.
+      // 2026-08-26, later still: 84 -> 87. Three rows, all in
+      // `packages/libp2p/src/dht-record-sweep.ts` — the DHT record sweep. Raised by exactly
+      // the three that arrived. **This raise deliberately makes NO prediction about a
+      // reversal**, because the raise two entries above made one and it was wrong: it said
+      // three `do-datastore.ts` rows were *"expected to be REVERSED by wiring within the
+      // milestone"*, the named wiring landed, and the rows did not move. What is stated
+      // instead is the closing CONDITION, which a reader can check: these three close when
+      // `packages/cloudflare/src/expiry-alarm.ts` calls `sweepDhtRecords` from `alarm()`.
+      // That file is step 7 of `ARCHITECTURE.md:508-518`, which requires it to ship in the
+      // same phase as the assembly. Whether that happens is a fact about the next phase, not
+      // a forecast this comment is entitled to make.
       // 2026-08-26: 74 -> 80. Six rows, all in `packages/cloudflare/src/`, all named in
       // `OPEN_FINDINGS` above: `HostedNode`, `hostedIdentity`, `loadOrCreateHostedSeed`,
       // `MalformedStoredSeedError`, `stubFor`, `UnknownHostedObjectNameError`. Raised by
@@ -1372,7 +1383,7 @@ interface OpenFinding {
  * symbols; this number exists so a seventh arrival cannot slip in under a bound that was
  * sized for six.
  */
-const UNREACHABLE_CEILING = 84
+const UNREACHABLE_CEILING = 87
 
 const OPEN_FINDINGS: readonly OpenFinding[] = [
   {
@@ -1551,6 +1562,45 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       'named typed outcome because the alternative is the silent one: a fallback is invisible ' +
       'until the sixth connection of a second, and a refusal is loud at the first. Thrown ' +
       'inside that function and stranded with it.',
+  },
+  {
+    key: 'libp2p/sweepDhtRecords',
+    declaredIn: 'packages/libp2p/src/dht-record-sweep.ts',
+    callers: 'none',
+    reason:
+      'The storage half of the owner ruling that DHT records must expire, landed 2026-08-26. ' +
+      'Its caller is `packages/cloudflare/src/expiry-alarm.ts`, which does not exist yet — ' +
+      "`.planning/research/v2.0/ARCHITECTURE.md:510` scopes that glue as step 7 and requires " +
+      'it to ship in the SAME phase as the Durable Object assembly, because the assembly is ' +
+      'what makes the datastore persistent and there is no safe state where it exists ' +
+      'without a sweep. The module was built FIRST on that document\'s own ordering (:444, ' +
+      '"this must land before or with persistence") precisely because it needs no ' +
+      'deployment to be proved: it is a pure walk over an `interface-datastore` with an ' +
+      'injected clock. Proved able to fail — seven plants watched red, one per criterion.',
+  },
+  {
+    key: 'libp2p/sweepValueRecords',
+    declaredIn: 'packages/libp2p/src/dht-record-sweep.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The `/o2/<nodeKey>` half, and the family `@libp2p/kad-dht@16.4.0` has no sweep for at ' +
+      'all: `rpc/handlers/get-value.ts:129-135` deletes an over-age record only on the way ' +
+      'out of a read that names its exact key, so a record nobody queries is never examined. ' +
+      'Reached by `sweepDhtRecords`, which is itself stranded. Its criterion is time and ' +
+      'nothing else — a bad signature and a not-yet-valid record are both KEPT, each with a ' +
+      'case that reddens when the whole `verifyCapabilityRecord` verdict is substituted.',
+  },
+  {
+    key: 'libp2p/sweepProviderRecords',
+    declaredIn: 'packages/libp2p/src/dht-record-sweep.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The provider half. The library DOES sweep these, in `reprovider.ts`, but its driver is ' +
+      'a `setTimeout` re-armed inside its own `finally` — and a workerd isolate\'s timers are ' +
+      'not guaranteed to survive between requests, so on the hosted tier that sweep never ' +
+      'runs while DO storage keeps everything. Reached by `sweepDhtRecords`. It exempts this ' +
+      "node's own entries exactly as `reprovider.ts:139-142` does, and `selfPeerId` is a " +
+      'REQUIRED argument so the exemption cannot be forgotten.',
   },
   {
     key: 'core/keyCommitment',
@@ -2005,7 +2055,15 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
     // to a sibling row does.
     for (const row of OPEN_FINDINGS) {
       expect(row.reason.length, `${row.key} needs a reason, not a note`).toBeGreaterThan(80)
-      expect(row.key, `${row.key} is not in barrel/symbol form`).toMatch(/^[a-z]+\/\S+$/)
+      // `[a-z0-9]`, not `[a-z]`. **This was a latent defect in the register, found 2026-08-26
+      // by the first row that exercised it**: the walk keys a row by its barrel's directory
+      // name, one of which is `libp2p`, and `[a-z]+` cannot match a name containing a digit.
+      // So for as long as this check has existed, a stranded export in `@o2/libp2p` could be
+      // COUNTED by the ceiling but never REGISTERED with a reason — the register was closed to
+      // one of the three barrels it walks, and nothing said so, because no row had ever come
+      // from there. A format check that cannot express a value the producer emits is a check
+      // against the wrong alphabet.
+      expect(row.key, `${row.key} is not in barrel/symbol form`).toMatch(/^[a-z0-9]+\/\S+$/)
     }
     expect(openFindingKeys().size, 'a duplicated key hides a row').toBe(OPEN_FINDINGS.length)
   }, GRAPH_TIMEOUT_MS)
