@@ -754,7 +754,53 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
     expect(reader.transport.peers).toContain(member.peerId)
 
     // And the unadmitted arm was never dialled, because there was nothing to dial.
-    expect(reader.transport.peers).not.toContain(stranger.peerId)
+    //
+    // **Read by DIRECTION and by ROUTE, and this line read `expect(reader.transport.peers)
+    // .not.toContain(stranger.peerId)` until 2026-08-25.** That instrument is the connected
+    // SET — `Libp2pTransport.peers` is `libp2p.getPeers()`, which says who this node is
+    // connected to and nothing about who dialled whom — while the clause's claim is about
+    // what the READER derived and attempted. The two come apart, and the coming-apart was
+    // measured rather than supposed: a whole-lane run on 2026-08-25 printed the reader's
+    // connections at exactly this point and found **three**, of which one was `inbound` from
+    // a fixture node the reader never dialled. A node that dials this one does not falsify
+    // "the reader derived no address"; it falsifies nothing at all.
+    //
+    // So the set-membership reading could report the clause broken on a fact that is not
+    // about the clause, and it did — recorded against this assertion while
+    // `expect(toStranger).toStrictEqual([])`, the reading that actually carries the claim,
+    // passed in every failing run.
+    //
+    // **Two assertions, because there are two ways the clause could genuinely break.**
+    // A connection the reader OPENED means something derived an address for a peer the
+    // advertisement does not name. A connection over `/p2p-circuit` in EITHER direction
+    // means the relay is routing for a peer it refused, which is the admission gate itself
+    // failing. Neither is weakened; what is dropped is only the inbound-direct case, which
+    // was never this clause's subject.
+    const connectionsTo = (peerId: string): readonly string[] =>
+      reader.libp2p
+        .getConnections()
+        .filter((connection) => connection.remotePeer.toString() === peerId)
+        .map((connection) => `${connection.direction} ${connection.remoteAddr.toString()}`)
+    const everyConnection = reader.libp2p
+      .getConnections()
+      .map(
+        (connection) =>
+          `${connection.remotePeer.toString()} ${connection.direction} ${connection.remoteAddr.toString()}`,
+      )
+      .join(' | ')
+    const strangerConnections = connectionsTo(stranger.peerId)
+    expect(
+      strangerConnections.filter((held) => held.startsWith('outbound')),
+      `the reader OPENED a connection to the unadmitted arm, so something derived an address ` +
+        `for a peer the relay does not advertise. Every connection the reader holds: ` +
+        `${everyConnection}`,
+    ).toEqual([])
+    expect(
+      strangerConnections.filter((held) => held.includes('/p2p-circuit')),
+      `a connection to the unadmitted arm runs through the relay, so the relay is routing for ` +
+        `a peer it refused — the admission gate, not the discovery half. Every connection the ` +
+        `reader holds: ${everyConnection}`,
+    ).toEqual([])
 
     // **The limit of the clause, asserted rather than asserted-around.** The refused node is
     // alive and directly dialable; a peer holding its address reaches it. Discovery is what
