@@ -1456,6 +1456,26 @@ describe('MR-04 — a paused process answers after the request that asked for it
     // The map's completeness was treated as a precondition and its cost was never read,
     // so the budget's real margin was invisible: 3.5× on an idle host, not the 8× the
     // header's arithmetic implied, and under 1× where it failed.
+    //
+    // **GATED ON THE SAME HOST READING 2026-08-26 — a THIRD assertion in this case, and the
+    // two `ce34171` fixed were about the COMBINE budget while this one is about the MAP.**
+    // Observed on a whole-lane run: `expected 15000 to be greater than 45002.48`, with standUp
+    // 3298ms (solo ~1331, 2.5x) and map 15101ms (solo ~274, **55x**). The paragraph above
+    // already says the margin runs "under 1x where it failed"; what it does not say is that a
+    // 55x map is a statement about the machine. A wall-clock budget over a map that is not
+    // getting CPU measures the host. The narrow case this guard exists for — a map budget
+    // genuinely too tight on a QUIET host — still runs and still fails, because `hostStarved`
+    // is false there.
+    if (hostStarved) {
+      process.stdout.write(
+        `[criterion 6 / map budget unmeasurable] the slowest exec dispatch was ` +
+          `${Math.round(slowestExecMs)}ms against a ${MAP_RPC_TIMEOUT_MS}ms budget, on a host ` +
+          `whose map took ${Math.round(mapMs)}ms against a solo figure of ~${SOLO_MAP_MS} — ` +
+          `${(mapMs / SOLO_MAP_MS).toFixed(1)}x. The margin this line reads is the machine's, ` +
+          `not the mapper's. Re-run this file alone. NOT a verdict about the budget.\n`,
+      )
+      ctx.skip()
+    }
     expect(MAP_RPC_TIMEOUT_MS).toBeGreaterThan(slowestExecMs * MAP_DISPATCH_MARGIN)
 
     // And the upper bound the mechanism needs, against the transport's own constant
