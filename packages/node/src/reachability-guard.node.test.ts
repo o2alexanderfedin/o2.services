@@ -579,6 +579,11 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // lands the store has no caller for a reason that is scheduled rather than unscoped. So
       // this raise is expected to be REVERSED by wiring within the milestone, not carried; if
       // Phase 29 closes with these three still here, that is a finding about the phase.
+      // 2026-08-26, later the same day: 80 -> 84. Four rows, all in
+      // `packages/cloudflare/src/websocket-connection.ts` — the inbound listener and its
+      // refusal. Raised by exactly the four that arrived. They are in `OPEN_FINDINGS` and not
+      // dispositioned for the reason the paragraph below gives about the six before them: the
+      // caller is a Worker that nothing deploys.
       // 2026-08-26: 74 -> 80. Six rows, all in `packages/cloudflare/src/`, all named in
       // `OPEN_FINDINGS` above: `HostedNode`, `hostedIdentity`, `loadOrCreateHostedSeed`,
       // `MalformedStoredSeedError`, `stubFor`, `UnknownHostedObjectNameError`. Raised by
@@ -1367,7 +1372,7 @@ interface OpenFinding {
  * symbols; this number exists so a seventh arrival cannot slip in under a bound that was
  * sized for six.
  */
-const UNREACHABLE_CEILING = 80
+const UNREACHABLE_CEILING = 84
 
 const OPEN_FINDINGS: readonly OpenFinding[] = [
   {
@@ -1500,6 +1505,52 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       'refuse it. Thrown inside `stubFor` and stranded with it. Proved able to fail: deleting ' +
       "the check turns `hosted-identity.test.ts`'s undeclared-name case red, and that case " +
       'asserts NOTHING WAS SITED rather than only that a throw happened.',
+  },
+  {
+    key: 'cloudflare/CloudflareWebSocketConnection',
+    declaredIn: 'packages/cloudflare/src/websocket-connection.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The inbound listener, landed 2026-08-26 — a Cloudflare WebSocket as a libp2p ' +
+      '`MultiaddrConnection`. Written here rather than reached inside `@libp2p/websockets`, ' +
+      'whose `webSocketToMaConn` is not on its public surface; the base class comes through ' +
+      "`@libp2p/utils`' own barrel, so nothing crosses a package boundary. It is stranded for " +
+      'the same reason as `HostedNode` above: its caller is the deployed Worker and nothing ' +
+      'deploys. Proved able to fail — five plants, one per requirement, each watched red: ' +
+      'direction, the client address, the backpressure answer, the binaryType ordering, and ' +
+      'the send-side copy.',
+  },
+  {
+    key: 'cloudflare/acceptWebSocket',
+    declaredIn: 'packages/cloudflare/src/websocket-connection.ts',
+    callers: 'none',
+    reason:
+      'Sets `binaryType` on the REAL socket before accepting it and wires the frame handlers — ' +
+      'the whole listener in one call. It deliberately does NOT call the upgrader: ' +
+      '`upgradeInbound` must not be awaited before the 101 is returned, since no byte moves ' +
+      'until the response is sent, so awaiting deadlocks by construction. Keeping that at the ' +
+      "caller makes the ordering a visible decision. Same closing condition as the row above.",
+  },
+  {
+    key: 'cloudflare/remoteAddrFromRequest',
+    declaredIn: 'packages/cloudflare/src/websocket-connection.ts',
+    callers: 'none',
+    reason:
+      'Derives the remote multiaddr from `CF-Connecting-IP`. The consult calls the absence of ' +
+      'this "the most consequential defect found in the listener": without it every inbound ' +
+      "connection reports as loopback and libp2p's per-host inbound threshold rate-limits the " +
+      'entire internet at five connections a second, invisible below that scale. Same closing ' +
+      'condition.',
+  },
+  {
+    key: 'cloudflare/MissingClientAddressError',
+    declaredIn: 'packages/cloudflare/src/websocket-connection.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The refusal `remoteAddrFromRequest` raises rather than defaulting to loopback. It is a ' +
+      'named typed outcome because the alternative is the silent one: a fallback is invisible ' +
+      'until the sixth connection of a second, and a refusal is loud at the first. Thrown ' +
+      'inside that function and stranded with it.',
   },
   {
     key: 'core/keyCommitment',
