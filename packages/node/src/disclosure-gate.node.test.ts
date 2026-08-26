@@ -8,10 +8,34 @@ import { describe, expect, it } from 'vitest'
  * DEMO-04 — publishing is a human act, and the repository is built so it cannot
  * become an automatic one.
  *
+ * ## The rationale was REPURPOSED on 2026-08-25 by owner ruling — the mechanism did not move
+ *
+ * This guard was written to prevent an irreversible legal event. That event became the plan:
+ * v2.0 recruits a public cohort, so disclosure is now intended rather than forbidden, and a
+ * guard whose stated reason has expired is a guard nobody can defend. The open question asked
+ * retire / repurpose / keep; **the ruling is repurpose**, and it is recorded at
+ * `.planning/REQUIREMENTS.md` § Open questions item 6.
+ *
+ * **The new reason, and it is not weaker than the old one: deploying a paid tier does not
+ * happen by itself.** Phase 29 puts a Durable Object behind this repository, and Cloudflare
+ * has no hard spending ceiling — its own wording for its budget alerts is that they are
+ * *"informational only. It does not cap your usage."* The only runaway-bill report this
+ * project cites was multiplied by **60+ preview deployments**, each with its own object
+ * instances running the same bug. So a workflow that deploys on push is no longer a legal
+ * hazard and is now a financial one, and the same absence answers both.
+ *
+ * `ARCHITECTURE.md` §7's distinction survives intact and is what makes the repurpose exact:
+ * **building** `packages/cloudflare/`'s source stays distinct from **deploying** it. The
+ * dry-run build in `hosted-tier-deploy.node.test.ts` is a build, runs with no credential, and
+ * is deliberately outside what this guard forbids.
+ *
+ * ## The reason it was written, kept because a rationale that vanishes cannot be audited
+ *
  * Public hosting is public disclosure. EPO and China have no patent grace period,
  * so anything published there is permanently forfeit; the US provisional window is
  * the only one still open. That makes "deploy on push" not a convenience but an
- * irreversible legal event triggered by a `git push`.
+ * irreversible legal event triggered by a `git push`. That was true when written and is
+ * superseded rather than deleted.
  *
  * The constraint is therefore *absence*, not configuration. A workflow that is
  * disabled, commented out, or `workflow_dispatch`-only is one edit — or one
