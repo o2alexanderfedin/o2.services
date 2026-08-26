@@ -130,8 +130,13 @@ describe('the emitted bundle — open question 1, and the trap beside it', () =>
     // be true of an empty file.
     //
     // The chain is measured end to end and each link is elsewhere in this commit:
-    //   1. the inbound listener needs `webSocketToMaConn`, which `@libp2p/websockets@10.1.17`
-    //      does not export by any supported import (`ERR_PACKAGE_PATH_NOT_EXPORTED`);
+    //   1. nothing here constructs a libp2p node yet — the inbound listener belongs to Phase
+    //      30 by the roadmap's division, and its four measured requirements are recorded in
+    //      `.planning/research/v2.0/ARCHITECTURE.md:484-506`. (An earlier version of this
+    //      comment said the listener was BLOCKED because `webSocketToMaConn` is unexported.
+    //      That was wrong and is corrected in `hosted-object.ts`: `exports` gates package
+    //      specifiers only, and the same file imported BY PATH builds under wrangler at
+    //      exit 0 with the symbol in the bundle.);
     //   2. so nothing calls `createLibp2p`;
     //   3. so no connection encrypter is bundled;
     //   4. so this assertion has no subject.

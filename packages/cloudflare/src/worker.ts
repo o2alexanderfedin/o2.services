@@ -21,11 +21,11 @@
  *
  * ## What it does NOT do
  *
- * It does not upgrade a WebSocket and does not accept a libp2p dial. The reason is measured
- * and is recorded at {@link HostedNode} rather than repeated here: the listener recipe in
- * `.planning/consults/2026-08-24-…-measured.md` §9 rests on `webSocketToMaConn`, which the
- * pinned `@libp2p/websockets@10.1.17` does not export by any supported import. Criterion 2 is
- * an owner act at the Cloudflare boundary in any case.
+ * It does not upgrade a WebSocket and does not accept a libp2p dial. Criterion 2 is an owner
+ * act at the Cloudflare boundary in any case, and the listener's own requirements belong to
+ * Phase 30 — Inbound Listener Correctness & Hibernation — by the roadmap's division.
+ *
+ * **CORRECTED 2026-08-26, same day.** The claim above is wrong about its conclusion and right only about one resolver. `ERR_PACKAGE_PATH_NOT_EXPORTED` is **Node's** ESM resolver refusing a package-specifier import; `exports` is consulted only for package specifiers and a FILE PATH does not go through it at all. Three wrangler builds settled it: by specifier esbuild also fails (*"Could not resolve"*, exit 1); **by path it builds — exit 0, 153.30 KiB, `webSocketToMaConn` three times in the emitted bundle.** The listener is writable today. What was actually done was to measure Node and conclude about wrangler. What is genuinely open is what `STACK.md:146` and `ARCHITECTURE.md:484-506` already recorded: the listener's four requirements — `direction: 'inbound'`, `remoteAddr` from `CF-Connecting-IP`, an explicit `bufferedAmount`, and a hibernation-aware socket — of which three belong to **Phase 30** by the roadmap's own division.
  */
 
 import { HostedNode, stubFor } from './hosted-object.ts'

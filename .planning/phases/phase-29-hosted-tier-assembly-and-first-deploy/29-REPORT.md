@@ -6,6 +6,7 @@ score: >-
   3 of 7 criteria MET (3, 4, 6 — and 5 within what a build can see). Criteria 1 and 2 are
   OWNER ACTS at the Cloudflare boundary and stay OPEN by the ruling of 2026-08-25; criterion 7
   is met as a REPORT, which is what it asks for. Nothing here is ticked on locally-done work.
+  **One finding in this report was RETRACTED the day it was written — see finding 1.**
 ---
 
 # Phase 29 — Hosted Tier Assembly & First Deploy
@@ -19,7 +20,7 @@ the plan-phase workflow — criterion 3 on 2026-08-25 and everything else on 202
 | # | Criterion | Verdict |
 |---|---|---|
 | 1 | Billing alert configured **before** the first object exists | **OPEN — owner act.** Not attempted. |
-| 2 | An outside peer dials the object twice and gets the same PeerId | **OPEN — owner act**, and see the blocker below. |
+| 2 | An outside peer dials the object twice and gets the same PeerId | **OPEN — owner act.** The identity half is built and tested; no listener is written, and see the retraction below for why that is work rather than a blocker. |
 | 3 | Durable Object storage reached through `interface-datastore`, carrying the identity and **no** DHT record | **MET** |
 | 4 | Exactly one call site may obtain a stub; a second fails a guard | **MET**, plant watched red |
 | 5 | A configuration that would create a preview deployment fails a guard | **MET**, plant watched red |
@@ -40,7 +41,12 @@ the plan-phase workflow — criterion 3 on 2026-08-25 and everything else on 202
 - `packages/cloudflare/src/hosted-identity.test.ts` (8 cases) and
   `packages/node/src/hosted-tier-deploy.node.test.ts` (9 cases).
 
-## Three measured findings this phase's own research does not contain
+## Three measured findings — one of which the research DID contain, and I did not read
+
+**The heading of this section read *"three measured findings this phase's own research does not
+contain"* until the owner corrected finding 1.** Two of the three are new. The first was not:
+it is covered in `STACK.md`, `ARCHITECTURE.md` and `PITFALLS.md`, and reading them would have
+prevented both the wrong conclusion and the two hours it stood.
 
 **1. The inbound listener cannot be written against the pinned transport.** The 2026-08-24
 consult §9 gives it as `server.accept()` → `webSocketToMaConn()` → `upgrader.upgradeInbound()`
@@ -52,17 +58,39 @@ Object.keys(await import('@libp2p/websockets'))              ->  ['webSockets']
 import('@libp2p/websockets/dist/src/websocket-to-conn.js')   ->  ERR_PACKAGE_PATH_NOT_EXPORTED
 ```
 
-The package's `exports` map declares `.` and `./filters` and nothing else. Closing this needs
-either a `MultiaddrConnection` adapter written in this repository or an upstream export. **It
-is a decision, not an oversight, and it is the reason no listener was written**: forty lines
-against an API that does not exist, on a platform this session cannot run, is the
-structure-not-truth failure this milestone exists to remove.
+The package's `exports` map declares `.` and `./filters` and nothing else.
+
+> **RETRACTED THE SAME DAY, AND THE RETRACTION IS THE FINDING.** The conclusion drawn from the
+> two lines above — that the listener "cannot be written as it stands" — was **wrong**, and it
+> reached five documents before it was caught. `ERR_PACKAGE_PATH_NOT_EXPORTED` is **Node's**
+> ESM resolver refusing a PACKAGE SPECIFIER. `exports` is consulted only for package
+> specifiers; a **file path** does not go through it at all. Three wrangler builds settled it:
+>
+> | import form | result |
+> |---|---|
+> | `@libp2p/websockets/dist/src/websocket-to-conn.js` | esbuild: *"Could not resolve"*, exit 1 |
+> | the same file **by path** | **exit 0, 153.30 KiB, `webSocketToMaConn` ×3 in the bundle** |
+>
+> So the function is reachable and the listener is writable today. The error was to measure
+> Node's resolver and conclude about wrangler's — and, worse, to do it without reading the
+> research that already covers this ground. `.planning/research/v2.0/STACK.md:146` says the
+> listener *"is already measured working against the exact pinned versions this project runs …
+> it is already built"*, and `ARCHITECTURE.md:484-506` names its four requirements. The owner's
+> one-line correction — *"look in the code, we ran a series of experiments before deciding"* —
+> is what surfaced it.
+>
+> **What is genuinely open is what that research already said was open**, and the roadmap
+> already owns it: `direction: 'inbound'` (§14), `remoteAddr` from `CF-Connecting-IP` (§19),
+> an explicit `bufferedAmount` (§16), and a **hibernation-aware** socket (§17) — called there
+> *"the largest genuinely-new engineering item on this tier"*. Three of the four are **Phase
+> 30 — Inbound Listener Correctness & Hibernation**. Phase 29's share is a minimal listener,
+> and it is not written; it is not blocked either.
 
 **2. The open-question-1 guard would have been vacuous.** The consult instructs Phase 29 to
 assert `diffieHellman` is absent from the emitted bundle. Written naively it passes today and
 proves nothing — measured on the real bundle, `noise` appears **0** times, `pureJsCrypto` **0**
 times, and the sourcemap lists **0** sources whose path contains "noise". The absence is the
-whole package's, not the call's. The chain is finding 1: no listener → no `createLibp2p` → no
+whole package's, not the call's. The chain is that no listener is written yet → no `createLibp2p` → no
 encrypter → no subject. The guard is written with that precondition and **skips loudly**,
 flipping to a real reading the moment the assembly pulls noise in.
 
@@ -94,6 +122,15 @@ untouched — the configuration is asserted not to contain their prefix.
 
 ## What the next session should do first
 
-Not the listener. **Decide finding 1**: an adapter in this repository, or an upstream export.
-Until that is decided, criterion 2 has no code path even after the owner deploys, and the
-open-question-1 guard stays skipped.
+**Write the minimal listener**, which finding 1's retraction unblocks. It is not a decision any
+more; it is work, and its recipe is measured in three documents. The one choice inside it that
+IS a decision, and should be put to the owner rather than taken quietly: `webSocketToMaConn` is
+reachable only by FILE PATH into `node_modules`, which is fragile — `.planning/consults/
+2026-08-25-noise-diffiehellman-on-workerd-measured.md` §4 records a related trap where a
+relative specifier collided across the whole dependency graph, silently, at build exit 0. A
+small `MultiaddrConnection` adapter written here is the alternative, and it is what
+`ARCHITECTURE.md:506` already scopes for the hibernation-aware case anyway.
+
+Do NOT drop any of the four requirements. Each has a measured silent-failure mode: no
+`direction: 'inbound'` and every stream is refused while the dial still looks fine; no
+`CF-Connecting-IP` and the node rate-limits the entire internet to five connections a second.

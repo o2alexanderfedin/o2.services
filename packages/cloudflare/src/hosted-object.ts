@@ -35,11 +35,11 @@
  *   package's `exports` map declares only `.` and `./filters`
  *
  * So `webSocketToMaConn` is not reachable through any supported import of the pinned package,
- * and the recipe cannot be written as it stands. Writing forty lines against an API that does
- * not exist — on a platform this session cannot run — would be exactly the structure-not-truth
- * failure the rest of this milestone is spent removing. The finding is recorded here and in
- * the phase report; closing it needs either a `MultiaddrConnection` adapter written in this
- * repository or an upstream export, and that is a decision, not an oversight.
+ * and the recipe cannot be written as it stands.
+ *
+ * **CORRECTED 2026-08-26, SAME DAY, AND THE CORRECTION IS LARGER THAN THE CLAIM.** The reading above is WRONG about the conclusion and right only about one resolver. `ERR_PACKAGE_PATH_NOT_EXPORTED` is **Node's** ESM resolver refusing a package-specifier import; `exports` is consulted only for package specifiers, and a FILE PATH does not go through it at all. Measured the same day with three wrangler builds: importing `@libp2p/websockets/dist/src/websocket-to-conn.js` by specifier fails in esbuild too (*"Could not resolve"*, exit 1), and importing the same file BY PATH builds — **exit 0, 153.30 KiB, and `webSocketToMaConn` appears three times in the emitted bundle**. So the function is reachable and the listener is writable today. What I did was measure Node and conclude about wrangler.
+ *
+ * **What is actually open is what the research already said was open**, which is the second half of the error: `.planning/research/v2.0/STACK.md:146` states the listener *"is already measured working against the exact pinned versions this project runs … it is already built"*, and `ARCHITECTURE.md:484-506` names FOUR requirements for it — `direction: 'inbound'` (§14; omitted, both ends negotiate yamux as clients and every stream is refused while the dial still looks fine), `remoteAddr` from `CF-Connecting-IP` (§19; omitted, libp2p rate-limits the whole internet as one host at 5/s), an explicit answer for `bufferedAmount` (§16; absent from workerd's WebSocket prototype), and a **hibernation-aware** socket (§17), which that document calls *"the largest genuinely-new engineering item on this tier"* and scopes as its own task. Three of those four belong to **Phase 30 — Inbound Listener Correctness & Hibernation**, by the roadmap's own division.
  *
  * What IS here is everything the identity claim needs: the store, the seed, and a PeerId that
  * is the same on a second instantiation over the same storage.
