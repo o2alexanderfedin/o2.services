@@ -942,6 +942,24 @@ describe('CHURN-05 — the benchmark driver renders coverage only where a job de
     // the risk is actually about.
     const published = join(REPO, '.planning', 'BENCHMARK-RESULTS.md')
     const before = readFileSync(published, 'utf8')
+    // **Snapshotted, not compared against `''` — corrected 2026-08-25.** The porcelain
+    // check below read `.toBe('')`, i.e. "this file is identical to HEAD", which is a
+    // claim about the whole shared checkout and not about the driver. It failed at
+    // *"expected ' M .planning/BENCHMARK-RESULTS.md\n' to be ''"* on a run where another
+    // agent was editing that planning file and the driver had provably not touched it —
+    // the content comparison beside it passed. That is exactly the failure this file's
+    // own docblock says it avoided by comparing content: *"`discover-arm` and
+    // `bench-attestation` both snapshot the whole tree's status and both went red …
+    // because another agent staged a file mid-run, which is a fact about the shared
+    // checkout and not about the driver."* Forty lines later it did the thing it argued
+    // against. Comparing the porcelain line to ITSELF keeps the belt-and-braces reading
+    // — a driver writing the file still moves it — and drops the part that reads another
+    // agent's dirt as this driver's write.
+    const porcelainBefore = execFileSync(
+      'git',
+      ['status', '--porcelain', '--', '.planning/BENCHMARK-RESULTS.md'],
+      { cwd: REPO, encoding: 'utf8' },
+    )
 
     const cwd = await mkdtemp(join(tmpdir(), 'o2-coverage-bench-'))
     let stdout = ''
@@ -998,13 +1016,15 @@ describe('CHURN-05 — the benchmark driver renders coverage only where a job de
     // they were before this ran.
     expect((await stat(join(cwd, '.planning', 'bench'))).isDirectory()).toBe(true)
     expect(readFileSync(published, 'utf8')).toBe(before)
-    // Belt and braces on the one path the driver writes outside its `outDir`.
+    // Belt and braces on the one path the driver writes outside its `outDir` — against the
+    // reading taken before the child ran, so a file another agent had already modified is
+    // not charged to this driver. See `porcelainBefore`.
     expect(
       execFileSync('git', ['status', '--porcelain', '--', '.planning/BENCHMARK-RESULTS.md'], {
         cwd: REPO,
         encoding: 'utf8',
       }),
-    ).toBe('')
+    ).toBe(porcelainBefore)
 
     await rm(cwd, { recursive: true, force: true })
   }, BENCH_BUDGET_MS)
