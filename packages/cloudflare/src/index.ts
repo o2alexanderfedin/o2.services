@@ -56,3 +56,25 @@ export type {
   HostedLibp2pInit,
   HostedRelayInit,
 } from './hosted-libp2p.ts'
+export {
+  CLOSED_AFTER_HIBERNATION,
+  HIBERNATION_CLOSE_REASON,
+  HibernatableSockets,
+  NoInboundUpgradeServiceError,
+  UPGRADE_FAILED,
+  UPGRADE_FAILED_REASON,
+  acceptInboundSocket,
+  isInboundUpgradeTarget,
+} from './hibernatable-socket.ts'
+export type {
+  AcceptInboundInit,
+  FrameOutcome,
+  HibernationCapableState,
+  InboundUpgradeTarget,
+} from './hibernatable-socket.ts'
+export {
+  INBOUND_UPGRADE_TIMEOUT_MS,
+  announcedAddresses,
+  inboundUpgradeService,
+} from './hosted-libp2p.ts'
+export type { InboundUpgradeService } from './hosted-libp2p.ts'

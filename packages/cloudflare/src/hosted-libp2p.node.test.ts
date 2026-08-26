@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { FakeDurableObjectAlarms, FakeDurableObjectStorage } from './do-storage.fixture.ts'
 import {
   NoAnnouncedAddressError,
+  announcedAddresses,
   createHostedFabric,
   hostedAddresses,
   hostedDhtInit,
@@ -150,4 +151,29 @@ describe('steps 6 and 7 are one deliverable — proven as a value, not as a rule
       await second.libp2p.stop()
     }
   }, 30_000)
+})
+
+describe('what the node announces comes from the deployment, never from a visitor', () => {
+  it('splits a comma-separated var and trims it', () => {
+    expect(announcedAddresses('/dns4/a.example/tcp/443/tls/ws , /dns4/b.example/tcp/443/tls/ws')).toEqual([
+      '/dns4/a.example/tcp/443/tls/ws',
+      '/dns4/b.example/tcp/443/tls/ws',
+    ])
+  })
+
+  it('drops empty entries rather than announcing one', () => {
+    // A trailing comma is the ordinary way this var gets edited wrong. Passed through, the
+    // empty string would reach `hostedAddresses` as an address, and the refusal it raises
+    // would then be about the wrong thing. Plant that reddens this: drop the length filter.
+    expect(announcedAddresses('/dns4/a.example/tcp/443/tls/ws,,')).toEqual([
+      '/dns4/a.example/tcp/443/tls/ws',
+    ])
+  })
+
+  it('answers [] for an unset var, so the refusal comes from `hostedAddresses`', () => {
+    // One refusal, in one place, with one message — rather than a second one here that would
+    // say the same thing differently.
+    expect(announcedAddresses(undefined)).toEqual([])
+    expect(() => hostedAddresses(announcedAddresses(undefined))).toThrow(NoAnnouncedAddressError)
+  })
 })

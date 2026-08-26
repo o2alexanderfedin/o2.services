@@ -148,10 +148,17 @@ describe('the emitted bundle — open question 1, and the trap beside it', () =>
     // above are broken and the assertion has a subject.
     //
     // **It was written the other way first, and the build refuted it.** The claim was that a
-    // module nothing CALLS is a module nothing BUNDLES; the emitted worker is 583.94 KiB with
+    // module nothing CALLS is a module nothing BUNDLES; the emitted worker was 583.94 KiB with
     // `noise` appearing 43 times and `pureJsCrypto` twice. Tree-shaking is per-symbol, not
-    // per-module — `kadDHT` and `circuitRelayServer` appear 0 times in that same bundle,
+    // per-module — `kadDHT` and `circuitRelayServer` appeared 0 times in that same bundle,
     // which is what the reasoning had predicted for noise.
+    //
+    // **UPDATED SAME DAY BY PHASE 30, and the subject grew by a factor of three.** The listener
+    // now upgrades a socket, so `createHostedFabric` has a production caller and the whole
+    // stack is reachable: 1 867.80 KiB, 405.69 KiB gzipped, `kadDHT` x11, `circuitRelayServer`
+    // x3. The two assertions below are unchanged and still pass, which is a stronger reading
+    // than the one they passed against — the browser-field mechanism is now being checked over
+    // a bundle carrying the whole of libp2p rather than a corner of it.
     //
     // So open question 1 is ANSWERED, by measurement: wrangler honours the package's legacy
     // top-level `browser` field and bundles the pure-JS path. `diffieHellman` 0,

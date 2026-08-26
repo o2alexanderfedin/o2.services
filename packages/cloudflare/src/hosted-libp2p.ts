@@ -74,13 +74,52 @@ import {
 import type { ProviderRecordPolicy } from '@o2/libp2p'
 import type { NodeIdentity } from '@o2/libp2p'
 import type { PeerInfoMapper, Selectors, Validators } from '@libp2p/kad-dht'
-import type { Libp2p } from '@libp2p/interface'
+import type { Libp2p, MultiaddrConnection, Upgrader } from '@libp2p/interface'
 import type { Datastore } from 'interface-datastore'
 import { DoDatastore } from './do-datastore.ts'
 import { armExpirySweep } from './expiry-alarm.ts'
 import type { ExpirySweep } from './expiry-alarm.ts'
 import { hostedIdentity } from './hosted-identity.ts'
 import type { DurableObjectAlarms, DurableObjectStorage } from './durable-object-storage.d.ts'
+
+/**
+ * The one component this tier needs a handle on that `Libp2p` does not expose.
+ *
+ * An inbound WebSocket has to be handed to `upgrader.upgradeInbound`, and `components` is not
+ * on the public `Libp2p` surface — the ordinary route to it is to BE a transport, whose
+ * listener has components injected. Writing a Cloudflare transport to reach one method would
+ * be a large object for a small need, and libp2p already offers the smaller one: every service
+ * factory is called with `components`. So this registers a service whose entire content is the
+ * upgrader it was handed.
+ *
+ * It is a named export with a docblock rather than an inline lambda because it is the seam
+ * between a public API and an internal one, and a seam nobody can find is a seam nobody
+ * maintains.
+ */
+export interface InboundUpgradeService {
+  upgradeInbound: (connection: MultiaddrConnection, signal?: AbortSignal) => Promise<void>
+}
+
+/**
+ * How long an inbound upgrade may take before it is abandoned.
+ *
+ * `UpgraderOptions` extends `Required<AbortOptions>`, so a signal is not optional and there is
+ * no "no timeout" spelling to fall into by omission. The number is chosen against what this
+ * platform charges for: **billing here is the duration a socket is held, not the messages it
+ * carries**, so an upgrade that never completes is an object kept resident and paid for by a
+ * peer that has gone away. Thirty seconds is far above a Noise handshake measured at 26 ms on
+ * this platform (consult §8) and far below anything an operator would call a leak.
+ */
+export const INBOUND_UPGRADE_TIMEOUT_MS = 30_000
+
+export function inboundUpgradeService(): (components: { upgrader: Upgrader }) => InboundUpgradeService {
+  return (components) => ({
+    upgradeInbound: async (connection, signal) =>
+      components.upgrader.upgradeInbound(connection, {
+        signal: signal ?? AbortSignal.timeout(INBOUND_UPGRADE_TIMEOUT_MS),
+      }),
+  })
+}
 
 /** Thrown when the assembly is given no address to announce — see the file header. */
 export class NoAnnouncedAddressError extends Error {
@@ -239,6 +278,10 @@ export async function createHostedLibp2p(init: HostedLibp2pInit): Promise<Libp2p
       // consult §13, which is what retired the library's "will not work in browsers" note
       // as a statement about hosts rather than about this code.
       relay: circuitRelayServer({ reservations: hostedRelayInit(init.maxReservations) }),
+      // The seam to `components.upgrader` — see `inboundUpgradeService`. Phase 30's listener
+      // is the only caller and it cannot reach the upgrader any other way without this tier
+      // becoming a libp2p transport.
+      inbound: inboundUpgradeService(),
     },
   })
 }
@@ -336,4 +379,25 @@ export async function createHostedFabric(init: HostedFabricInit): Promise<Hosted
     ...(init.maxReservations === undefined ? {} : { maxReservations: init.maxReservations }),
   })
   return { libp2p, sweep, identity, datastore }
+}
+
+/**
+ * The announced addresses, read from deploy configuration.
+ *
+ * **Never from the request.** A `Host` header is visitor-controlled, and deriving the identity
+ * this node publishes from visitor input is the same class of defect Phase 29 criterion 6
+ * closed for object names: it would let a caller decide what the fabric is told to dial. The
+ * value belongs to the deployment, so it comes from `wrangler.jsonc`'s `vars`.
+ *
+ * Comma-separated because a `vars` entry is a string and this tier announces one address per
+ * transport it can be reached on. Empty entries are dropped rather than passed through — an
+ * empty multiaddr is not an address and `hostedAddresses` would refuse the list for the wrong
+ * reason, reporting "nothing announced" about a list that had something in it.
+ */
+export function announcedAddresses(configured: string | undefined): readonly string[] {
+  if (configured === undefined) return []
+  return configured
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
 }

@@ -70,6 +70,20 @@
     }
   ],
 
+  // What this node announces to the fabric — Phase 30.
+  //
+  // **Deliberately EMPTY until the first deploy names a host**, and empty is not a default
+  // that quietly works: `hostedAddresses` REFUSES an empty list, so an upgrade attempt fails
+  // loudly here rather than a relay handing every client an empty reservation with nothing
+  // raised (measured, consult §13). The address is a property of the deployment — this key is
+  // where it belongs, and never the request's `Host` header, which a visitor controls.
+  //
+  // The form the first deploy will take, once `workers_dev` names the subdomain:
+  //   "/dns4/o2-bootstrap.<subdomain>.workers.dev/tcp/443/tls/ws"
+  "vars": {
+    "ANNOUNCE_MULTIADDRS": ""
+  },
+
   // Off, so a build in this repository reports nothing outward. The dry-run guard sets the
   // matching environment variable as well; both exist because either alone is a single point.
   "send_metrics": false

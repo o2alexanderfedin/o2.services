@@ -19,45 +19,44 @@
  * 32 the relay. A route added here "while we are in the file" would be a capability shipped
  * without the phase that measures it, which is the shape `descoped is not satisfied` names.
  *
- * ## What it does NOT do
+ * ## What it does NOT do — SUPERSEDED 2026-08-26 BY PHASE 30
  *
- * It does not upgrade a WebSocket and does not accept a libp2p dial. Criterion 2 is an owner
- * act at the Cloudflare boundary in any case, and the listener's own requirements belong to
- * Phase 30 — Inbound Listener Correctness & Hibernation — by the roadmap's division.
+ * This block said the object *"does not upgrade a WebSocket"* and *"does not construct the
+ * libp2p node"*, with a stated reason: until Phase 30's listener existed a running node could
+ * not be dialled, and an uncalled `fabric()` method on the deployed class would have been the
+ * *"wired is not used"* shape `CLAUDE.md` records being caught three times on the DHT. Both
+ * are now false — {@link BootstrapObject.fetch} upgrades a socket and the node is built on the
+ * first inbound connection and not before. The reading is kept rather than deleted because the
+ * bundle measurements that went with it are what settled a question:
  *
- * **It also does not construct the libp2p node, and that is a decision rather than an
- * omission.** `hosted-libp2p.ts` landed with this commit and `createHostedFabric` is reached
- * from no production path here. The alternative was a `fabric()` method on this class that
- * nothing calls, and an uncalled member on the deployed class is precisely the *"wired is not
- * used"* shape `CLAUDE.md` records being caught three times on the DHT. Until Phase 30's
- * listener exists there is nothing for a running node to do: it cannot be dialled, and a
- * bootstrap that cannot be dialled is not a bootstrap. So the assembly is delivered, proven by
- * spec, and left uncalled **with the reason recorded**.
+ * With only `alarm()` reaching `hosted-libp2p.ts`, the emitted worker was **583.94 KiB** with
+ * `noise` x43 while `kadDHT` and `circuitRelayServer` were **0**. That is what proved esbuild
+ * shakes per SYMBOL and not per module — this block had predicted the opposite and the build
+ * corrected it. With the listener wired the same build emits **1 867.80 KiB, 405.69 KiB
+ * gzipped**, `kadDHT` x11 and `circuitRelayServer` x3.
  *
- * **Uncalled is not the same as unbundled, and this paragraph said otherwise until it was
- * measured.** It read *"`@chainsafe/libp2p-noise` therefore still does not reach this
- * bundle"*, which was a prediction from the fact that nothing calls `createHostedFabric`. The
- * build says the opposite: `wrangler deploy --dry-run` emits 583.94 KiB in which `noise`
- * appears **43 times** and `pureJsCrypto` twice. The reason is ordinary — `alarm()` imports
- * `hostedExpirySweep` from `hosted-libp2p.ts`, and esbuild pulls that module's graph in;
- * only the symbols nothing reaches are shaken out, which is why `kadDHT` and
- * `circuitRelayServer` appear **0** times in the same bundle while noise does not.
+ * **`diffieHellman` and `node:crypto` are still 0 against that much larger subject.** So open
+ * question 1's answer — wrangler honours the package's legacy top-level `browser` field and
+ * bundles the pure-JS path — now rests on a bundle carrying the whole stack rather than a
+ * corner of it, and `hosted-tier-deploy.node.test.ts`'s case reads it live.
  *
- * That makes `hosted-tier-deploy.node.test.ts`'s `diffieHellman` case a **live reading** as of
- * this commit rather than the loud skip it has been, and it passes: `diffieHellman` 0,
- * `node:crypto` 0. Open question 1 — whether wrangler honours the package's legacy top-level
- * `browser` field and bundles the pure-JS path — is answered by measurement instead of by
- * argument, and a regression in that mechanism now arrives red.
+ * What the object still does NOT do is dial out, and Phase 29 criteria 1 and 2 remain owner
+ * acts at the Cloudflare boundary.
  *
- * What this object DOES gain is {@link BootstrapObject.alarm}, which is called by the
- * platform and needs no network stack — see its own doc.
- *
- * **CORRECTED 2026-08-26, same day.** The claim above is wrong about its conclusion and right only about one resolver. `ERR_PACKAGE_PATH_NOT_EXPORTED` is **Node's** ESM resolver refusing a package-specifier import; `exports` is consulted only for package specifiers and a FILE PATH does not go through it at all. Three wrangler builds settled it: by specifier esbuild also fails (*"Could not resolve"*, exit 1); **by path it builds — exit 0, 153.30 KiB, `webSocketToMaConn` three times in the emitted bundle.** The listener is writable today. What was actually done was to measure Node and conclude about wrangler. What is genuinely open is what `STACK.md:146` and `ARCHITECTURE.md:484-506` already recorded: the listener's four requirements — `direction: 'inbound'`, `remoteAddr` from `CF-Connecting-IP`, an explicit `bufferedAmount`, and a hibernation-aware socket — of which three belong to **Phase 30** by the roadmap's own division.
  */
 
 import { HostedNode, stubFor } from './hosted-object.ts'
 import type { HostedObjectName, HostedObjectNamespace } from './hosted-object.ts'
-import { hostedExpirySweep } from './hosted-libp2p.ts'
+import {
+  HibernatableSockets,
+  NoInboundUpgradeServiceError,
+  acceptInboundSocket,
+  isInboundUpgradeTarget,
+} from './hibernatable-socket.ts'
+import { announcedAddresses, createHostedFabric, hostedExpirySweep } from './hosted-libp2p.ts'
+import type { HibernationCapableState } from './hibernatable-socket.ts'
+import type { HostedFabric } from './hosted-libp2p.ts'
+import type { CloudflareWebSocket } from './websocket-connection.ts'
 import type { DurableObjectAlarms, DurableObjectStorage } from './durable-object-storage.d.ts'
 
 /**
@@ -79,9 +78,62 @@ export interface HostedObjectState {
   readonly storage: DurableObjectStorage & DurableObjectAlarms
 }
 
+/**
+ * The object state, which carries the hibernation API beside the storage.
+ *
+ * `acceptWebSocket` and `getWebSockets` live on the state itself rather than on `state.storage`
+ * — declared through {@link HibernationCapableState} so that the two-method slice has one
+ * definition and the fixture that implements it completely is the same one the adapter's spec
+ * uses.
+ */
+export interface HostedObjectStateWithSockets extends HostedObjectState, HibernationCapableState {}
+
 /** The bindings this Worker is deployed with. One namespace, because there is one object. */
 export interface HostedEnv {
   readonly BOOTSTRAP: HostedObjectNamespace<HostedStub>
+  /**
+   * Comma-separated multiaddrs this node announces, from `wrangler.jsonc`'s `vars`.
+   *
+   * **From the deployment and never from the request.** See `announcedAddresses` for why a
+   * `Host` header cannot be the source, and `hostedLibp2pConfig` for what an unannounced relay
+   * was measured doing — handing every client an empty reservation, silently.
+   */
+  readonly ANNOUNCE_MULTIADDRS?: string
+}
+
+/**
+ * The two platform globals the upgrade path needs, declared as narrowly as it uses them.
+ *
+ * `WebSocketPair` is a constructor returning `{0: client, 1: server}`, and a 101 response
+ * carries the client half in an init field no standard `ResponseInit` declares. Both exist only
+ * in workerd, which is why they are declared here rather than imported and why the two lines
+ * that touch them are the only ones in this package no spec can execute.
+ */
+interface WorkerdGlobals {
+  WebSocketPair?: new () => Record<string, CloudflareWebSocket>
+}
+
+/** Thrown when this code is running somewhere that is not workerd. */
+class NoWebSocketPairError extends Error {
+  override readonly name: string = 'NoWebSocketPairError'
+
+  constructor() {
+    super(
+      'WebSocketPair is absent from this global scope — the inbound listener is workerd-only ' +
+        'and there is no portable substitute for it',
+    )
+  }
+}
+
+/**
+ * `ResponseInit` plus the field workerd adds for a 101.
+ *
+ * Declared rather than asserted: the standard type has no `webSocket` member, and widening the
+ * value with an assertion would hide the fact that this line depends on a platform extension.
+ * A declaration says which extension, in one place a reader can check against the docs.
+ */
+interface UpgradeResponseInit extends ResponseInit {
+  webSocket: CloudflareWebSocket
 }
 
 /** What a stub can be asked. `fetch` is the platform's own stub surface. */
@@ -100,11 +152,55 @@ export interface HostedStub {
  */
 export class BootstrapObject {
   readonly #node: HostedNode
-  readonly #state: HostedObjectState
+  readonly #state: HostedObjectStateWithSockets
+  readonly #env: HostedEnv
+  /**
+   * The sockets this INSTANCE holds. Empty on a revived object, which is how a frame for a
+   * session that did not survive is detected — see `hibernatable-socket.ts`.
+   */
+  readonly #sockets = new HibernatableSockets()
+  #fabric: Promise<HostedFabric> | undefined
 
-  constructor(state: HostedObjectState) {
+  constructor(state: HostedObjectStateWithSockets, env: HostedEnv) {
     this.#state = state
+    this.#env = env
     this.#node = new HostedNode(state.storage)
+  }
+
+  /**
+   * The libp2p node, built on the first inbound upgrade and not before.
+   *
+   * A Durable Object is constructed for every request that reaches it, including `GET /self`,
+   * which is answered out of storage alone. Building a network stack for those would be a cost
+   * with no reader. Held as the PROMISE rather than the resolved value so that two concurrent
+   * upgrades cannot each start one.
+   */
+  #fabricOnce(): Promise<HostedFabric> {
+    this.#fabric ??= createHostedFabric({
+      storage: this.#state.storage,
+      alarms: this.#state.storage,
+      announce: announcedAddresses(this.#env.ANNOUNCE_MULTIADDRS),
+    })
+    return this.#fabric
+  }
+
+  /**
+   * A frame on an adopted socket — the hibernation API's delivery path.
+   *
+   * Adopted sockets do not carry event listeners; the platform calls this instead, which is
+   * what makes them survive past the six minutes §17 measured a plain `accept()` socket being
+   * aborted at.
+   */
+  async webSocketMessage(socket: CloudflareWebSocket, message: ArrayBuffer | string): Promise<void> {
+    this.#sockets.message(socket, message)
+  }
+
+  async webSocketClose(socket: CloudflareWebSocket): Promise<void> {
+    this.#sockets.close(socket)
+  }
+
+  async webSocketError(socket: CloudflareWebSocket, error: unknown): Promise<void> {
+    this.#sockets.error(socket, error instanceof Error ? error : new Error(String(error)))
   }
 
   /**
@@ -142,11 +238,50 @@ export class BootstrapObject {
    * that returned three different PeerIds to three consecutive requests.
    */
   async fetch(request: Request): Promise<Response> {
+    if (request.headers.get('Upgrade') === 'websocket') return this.#upgrade(request)
     if (new URL(request.url).pathname !== '/self') {
       return new Response('not found', { status: 404 })
     }
     const identity = await this.#node.identity()
     return Response.json({ peerId: identity.peerId, nodeKey: identity.nodeKey })
+  }
+
+  /**
+   * The inbound listener — Phase 30, and the two untestable lines are here on purpose.
+   *
+   * Everything that decides anything is in `acceptInboundSocket`: the `CF-Connecting-IP`
+   * refusal, the adoption through the hibernation API, and the upgrade that must not be
+   * awaited. What is left here is constructing the pair and returning the 101, which no local
+   * run can execute and which therefore has nothing in it worth hiding.
+   */
+  async #upgrade(request: Request): Promise<Response> {
+    const fabric = await this.#fabricOnce()
+    // The member is declared optional so that the scope narrows in one step, which is the
+    // shape `workerd-shims.ts` uses for `globalThis` and the reason it needs no double cast.
+    const { WebSocketPair } = globalThis as WorkerdGlobals
+    if (WebSocketPair === undefined) throw new NoWebSocketPairError()
+    const pair = new WebSocketPair()
+    const client = pair['0']
+    const server = pair['1']
+    if (client === undefined || server === undefined) {
+      return new Response('the platform returned no socket pair', { status: 500 })
+    }
+
+    const upgrade = fabric.libp2p.services['inbound']
+    if (!isInboundUpgradeTarget(upgrade)) throw new NoInboundUpgradeServiceError()
+
+    acceptInboundSocket({
+      sockets: this.#sockets,
+      state: this.#state,
+      socket: server,
+      request,
+      upgrade,
+      log: fabric.libp2p.logger.forComponent('o2:cloudflare:inbound'),
+    })
+
+    // 101, with the client half handed back through an init field only workerd declares.
+    const init: UpgradeResponseInit = { status: 101, webSocket: client }
+    return new Response(null, init)
   }
 }
 

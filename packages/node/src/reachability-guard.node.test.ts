@@ -633,6 +633,18 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // The standing condition for all of these remains the one the store's rows have
       // carried since 2026-08-25 and it has not moved: *"it closes when the node deploys and
       // dials."*
+      //
+      // 2026-08-26 (Phase 30): 97 -> 103. Six rows, the inbound listener's, each named in
+      // `OPEN_FINDINGS`. Two EXISTING rows moved category in the same pass —
+      // `createHostedFabric` and `remoteAddrFromRequest` both went `'none'` ->
+      // `'unreachable-only'` because the listener that calls them landed. That is the second
+      // time in two days a row's stated closing condition has been satisfied exactly and left
+      // the row where it was, and the reason is the same both times: every caller on this tier
+      // is the PLATFORM. `fetch`, `alarm`, `webSocketMessage` — nothing in this repository
+      // invokes any of them. **So no amount of wiring inside `packages/cloudflare` will empty
+      // this section**, and a reader should stop expecting it to. The condition that closes
+      // these rows is a deploy, which is an owner act, and the tracer has no entry point for
+      // a platform.
     ).toBeLessThanOrEqual(UNREACHABLE_CEILING)
   }, GRAPH_TIMEOUT_MS)
 
@@ -1400,7 +1412,7 @@ interface OpenFinding {
  * symbols; this number exists so a seventh arrival cannot slip in under a bound that was
  * sized for six.
  */
-const UNREACHABLE_CEILING = 97
+const UNREACHABLE_CEILING = 103
 
 const OPEN_FINDINGS: readonly OpenFinding[] = [
   {
@@ -1477,6 +1489,68 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       'when the object is deployed, which is an owner act by ruling.',
   },
   {
+    key: 'cloudflare/acceptInboundSocket',
+    declaredIn: 'packages/cloudflare/src/hibernatable-socket.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Phase 30\'s listener, minus the two lines no local run can execute. It refuses a request '
+      + 'with no `CF-Connecting-IP` BEFORE adopting anything — the ordering matters, because a '
+      + 'refusal after the adopt leaves a socket held by the platform with no session and nobody '
+      + 'to close it — and it starts the libp2p upgrade WITHOUT awaiting it, because no byte '
+      + 'moves until the 101 response is returned and awaiting therefore deadlocks by '
+      + 'construction. Called by `BootstrapObject.fetch`, which the platform invokes.',
+  },
+  {
+    key: 'cloudflare/HibernatableSockets',
+    declaredIn: 'packages/cloudflare/src/hibernatable-socket.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The sockets one INSTANCE holds, keyed by socket identity. The key is the detection: after '
+      + 'an eviction the platform hands a reconstructed object a socket it has never seen, the '
+      + 'lookup misses, and the socket is closed with 1012 rather than resumed — Noise has no '
+      + 'session resumption and yamux no resync, so every alternative to closing is a connection '
+      + 'that lies about being live. Proved able to fail: five plants watched red.',
+  },
+  {
+    key: 'cloudflare/isInboundUpgradeTarget',
+    declaredIn: 'packages/cloudflare/src/hibernatable-socket.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Shape narrowing for the registered upgrade service, on `relay-reservations.ts`\'s stated '
+      + 'reasoning: `libp2p.services` is an index of whatever was registered, so the value is '
+      + 'genuinely unknown at that boundary and an assertion would be a claim about a '
+      + 'registration nobody checked.',
+  },
+  {
+    key: 'cloudflare/NoInboundUpgradeServiceError',
+    declaredIn: 'packages/cloudflare/src/hibernatable-socket.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The named refusal for a node assembled without the upgrade service. Raised at the one '
+      + 'call site and stranded with it, the same shape as `MissingClientAddressError`.',
+  },
+  {
+    key: 'cloudflare/inboundUpgradeService',
+    declaredIn: 'packages/cloudflare/src/hosted-libp2p.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The seam to `components.upgrader`, which is not on the public `Libp2p` surface. The '
+      + 'ordinary route to it is to BE a transport, whose listener has components injected; '
+      + 'writing a Cloudflare transport to reach one method would be a large object for a small '
+      + 'need, and libp2p already calls every service factory with `components`. Registered by '
+      + '`hostedLibp2pConfig` and read by the listener.',
+  },
+  {
+    key: 'cloudflare/announcedAddresses',
+    declaredIn: 'packages/cloudflare/src/hosted-libp2p.ts',
+    callers: 'unreachable-only',
+    reason:
+      'What this node announces, read from `wrangler.jsonc`\'s `vars` and NEVER from the '
+      + 'request. A `Host` header is visitor-controlled, and deriving the identity the fabric is '
+      + 'told to dial from visitor input is the class of defect Phase 29 criterion 6 closed for '
+      + 'object names. Called by `BootstrapObject`, which the platform invokes.',
+  },
+  {
     key: 'cloudflare/armExpirySweep',
     declaredIn: 'packages/cloudflare/src/expiry-alarm.ts',
     callers: 'unreachable-only',
@@ -1522,7 +1596,11 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
   {
     key: 'cloudflare/createHostedFabric',
     declaredIn: 'packages/cloudflare/src/hosted-libp2p.ts',
-    callers: 'none',
+    // 2026-08-26 (Phase 30): 'none' -> 'unreachable-only'. The row below predicted this —
+    // "closes when that listener calls it" — and the listener landed the same day. It moved
+    // one category and did not close, for the reason every row in this package carries: the
+    // caller is `BootstrapObject.fetch`, which the platform invokes.
+    callers: 'unreachable-only',
     reason:
       'ARCHITECTURE steps 6 and 7 as one value: the admitting store is constructed FROM the ' +
       'sweep, so there is no argument order that yields a record-accepting hosted node with ' +
@@ -1668,7 +1746,9 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
   {
     key: 'cloudflare/remoteAddrFromRequest',
     declaredIn: 'packages/cloudflare/src/websocket-connection.ts',
-    callers: 'none',
+    // 2026-08-26 (Phase 30): 'none' -> 'unreachable-only'. `acceptInboundSocket` calls it,
+    // before adopting anything, which is the ordering its own case asserts.
+    callers: 'unreachable-only',
     reason:
       'Derives the remote multiaddr from `CF-Connecting-IP`. The consult calls the absence of ' +
       'this "the most consequential defect found in the listener": without it every inbound ' +
