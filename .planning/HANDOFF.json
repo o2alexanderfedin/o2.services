@@ -10,11 +10,11 @@
   "total_tasks": null,
   "status": "paused",
   "branch": "feature/phase-29-hosted-tier",
-  "head": "2e8c13f",
+  "head": "caa46c6",
   "tree": "clean",
   "lanes": {
-    "node": "206 files / 2948 tests. The record is retaken and slow-specs is GREEN \u2014 commits no longer need O2_SKIP_GUARDS. The retake (13:01) carried one failure, slow-specs itself, which the commit repairs. Contended: real 184.65, ratio 4.680 against a reference 5.35 with user+sys within 1% of it \u2014 one foreign core on eight. vitest.config.ts records why it was used and what supersedes the ratio criterion.",
-    "browser": "RUN for the whole @o2/cloudflare package \u2014 15 files x 3 engines, 306 tests, EXIT=0. The rest of the browser lane was NOT run.",
+    "node": "207 files. slow-specs GREEN \u2014 one file added, inside the tolerance of 5, so the record retaken at 206 still describes this tree and no second retake is due. Targeted guards run green: slow-specs, vocabulary, purity, opt-in-only-sources, job-entry-points, both reachability guards, hosted-tier-deploy. A full lane sweep has NOT been run since the retake.",
+    "browser": "RUN for the whole @o2/cloudflare package \u2014 18 files x 3 engines, 363 tests, EXIT=0.",
     "aot_e2e_perf": "NOT RUN. Nothing in those lanes was touched."
   },
   "completed_tasks": [
@@ -166,8 +166,9 @@
     },
     {
       "id": 20,
-      "name": "Hibernation-aware socket \u2014 Phase 30. ARCHITECTURE.md:506 calls it the largest genuinely-new engineering item on this tier.",
-      "status": "not_started"
+      "name": "CLOSED 2026-08-26 in caa46c6 \u2014 Phase 30 requirement 4. A revived socket is CLOSED with 1012, not resumed: Noise has no session resumption and yamux no resync, so every alternative is a connection that lies about being live. The registry is keyed by socket identity, so the miss IS the detection. FIVE PLANTS WATCHED RED. The route is wired, so createHostedFabric has a production caller \u2014 bundle 583.94 -> 1867.80 KiB, kadDHT 0 -> 11, and diffieHellman/node:crypto STILL 0. \u00a717's claim is deliberately narrowed in the prose: yamux defaults enableKeepAlive at 30 s, so an object under a live connection will not hibernate at all and the proven win is only the six-minute abort. TAMING THE KEEPALIVE IS A NAMED OPEN DECISION, NOT TAKEN \u2014 a peer that never sends cannot detect a dead path. Also open and reported: whether workerd accepts 1012 (1011 is known accepted), and whether binaryType may be assigned on a hibernatable socket, deliberately not asserted either way. Phase 30 criteria 1-3 need >5 distinct clients against a deployed node and stay owner acts.",
+      "status": "done",
+      "commit": "caa46c6"
     },
     {
       "id": 21,
@@ -227,6 +228,6 @@
     }
   ],
   "uncommitted_files": [],
-  "next_action": "Task 20 \u2014 the hibernation-aware socket (Phase 30). It is what gives worker.ts a reason to construct a node, which closes three reachability rows and is the listener's largest genuinely-new item. Before that, note that the owner-owned gate is unchanged: Cloudflare billing alert, then the first deploy. Phase 29 criteria 1 and 2 remain OPEN and are to be reported open.",
+  "next_action": "Tasks 21 and 22, both in speculation-agents and both NAMED RATHER THAN FIXED \u2014 21 is a ninth mode whose cause is unverified, 22 is a judgedAt over-inclusion bias. Neither touches the hosted tier. The owner-owned gate is unchanged and is what everything hosted now waits on: Cloudflare billing alert, then the first deploy. Phase 29 criteria 1 and 2 and Phase 30 criteria 1-3 are all deploy-gated and are to be reported OPEN.",
   "context_notes": "The session's redirect is the finding: the recorded next action was task 19, and task 19's OWN first instruction \u2014 read ARCHITECTURE.md:470-506 \u2014 reorders it. Steps 1-3 are Group A, provable in the node lane today; step 6 is Group B and needs the owner's deploy. Doing the ordered work surfaced three things nothing had asked for: a latent [a-z]+ regex that closed the reachability register to the libp2p barrel, DoDatastore's refusal of the exact prefixes the sweep walks, and mortice's browser build being the WRONG remedy for gap 2. Five plants across three modules were retracted for proving nothing \u2014 one ReferenceError, two aimed at a mechanism they left in place \u2014 and each was redone and recorded rather than quietly replaced. The pause itself produced one more instance of the family: writing a bracketed section name into a replacement body made the NEXT replacement match that mention instead of the real tag, deleting four sections between them. Caught by the line count falling 263 -> 206 rather than by any check, restored from the last commit, and redone with every span computed against the original string before any substitution."
 }
