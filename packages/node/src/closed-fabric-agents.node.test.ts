@@ -271,6 +271,64 @@ async function until(
   throw new Error(`timed out waiting for ${what}${tail}`)
 }
 
+/**
+ * This file's own quiet-host figures for {@link standUpMs}, measured 2026-08-25 over five
+ * SOLO runs: 7337, 8063, 7545, 7326, 7998 ms — a spread of 1.10× end to end, which is why
+ * this is a usable starvation instrument where a noisier one would not be. The mean is the
+ * constant; the 2× gate then sits at ~15.3 s, leaving 90% headroom over the worst quiet
+ * reading, so no ordinary jitter can reach it.
+ */
+const SOLO_STAND_UP_MS = 7654
+const STARVED_RATIO = 2
+
+/**
+ * Run a **precondition** wait and tell a fabric that refused from a machine that starved.
+ *
+ * Every `until` in this file polls a fabric of spawned processes, so a wait that runs out of
+ * budget carries two different facts under one message. Recorded 2026-08-25 on a whole-lane
+ * run, both cases of this suite red together while both pass SOLO in 19.76 s:
+ *
+ *   timed out waiting for the arm enrolled at the seed to appear in the spawned seed's
+ *   reservations answer; observed {"seedHolds":[], … "memberStderr":"… relay reservation
+ *   granted: 12D3KooWDfif…"}
+ *
+ * The member's own stderr names a grant from the CONTROL and no refusal from anybody, so at
+ * the deadline it had not been answered rather than been refused. `RESERVATION_BUDGET_MS` is
+ * already **60 000 ms** against a whole file that finishes in 20 s alone, so the answer is
+ * not a larger budget — per `CLAUDE.md` § Measurement, a wall-clock bound over a process that
+ * is waiting measures the host and never the code.
+ *
+ * **What this cannot do, stated rather than discovered later:** a seed that refuses silently
+ * and a seed that is merely slow look alike from here, because the spawned seed's REASON is
+ * not readable across the process boundary — the same limit `admission-agents.node.test.ts`
+ * records for its own wrong-issuer arm. So the gate is the host reading, and it is
+ * deliberately one no ordinary run can reach.
+ */
+async function preconditionOrSkip(
+  ctx: { skip: () => void },
+  wait: () => Promise<void>,
+  what: string,
+): Promise<void> {
+  try {
+    await wait()
+  } catch (cause) {
+    if (standUpMs <= SOLO_STAND_UP_MS * STARVED_RATIO) throw cause
+    // `process.stdout.write`, not `console.log` and not `ctx.skip(note)` — measured on vitest
+    // 4.1.10: a SKIPPED test's `console.log` and its skip note are both swallowed. A skip
+    // nobody can read is a fail-open.
+    process.stdout.write(
+      `[criterion 8 / starved host] the precondition "${what}" ran out of its ` +
+        `${RESERVATION_BUDGET_MS}ms budget on a machine that took ${Math.round(standUpMs)}ms to ` +
+        `stand this fixture up, against a solo figure of ~${SOLO_STAND_UP_MS}ms — ` +
+        `${(standUpMs / SOLO_STAND_UP_MS).toFixed(2)}×. This whole file finishes in about 20s ` +
+        `alone. That is a reading of the machine and NOT a verdict about admission; re-run ` +
+        `this file on its own to evaluate it. Original: ` +
+        `${cause instanceof Error ? cause.message.slice(0, 600) : String(cause)}\n`,
+    )
+    ctx.skip()
+  }
+}
+
 /** `bin/agent.ts` refuses to create a user key — see that flag's comment. */
 async function writeUserKey(name: string, fill: number): Promise<string> {
   await mkdir(workdir, { recursive: true })
@@ -771,9 +829,25 @@ async function standUp(): Promise<Fixture> {
   }
 }
 
+/**
+ * How long the whole fixture took to come up, in ms — the host reading this file lacked.
+ *
+ * Every wait below is a bounded poll on a fabric of spawned processes, so a wait that runs
+ * out says either *the fabric refused* or *this machine had no CPU to give it*, and until
+ * 2026-08-25 nothing here could tell those apart. `standUp` spawns every agent and every
+ * seed in the fixture, touches no assertion, and is therefore a reading of the machine and
+ * not of the subject. It is printed on every run rather than only on a red — measured on
+ * vitest 4.1.10, the default reporter swallows `console.*` on a PASSING test, so a
+ * calibration cannot be collected through one.
+ */
+let standUpMs = 0
+
 beforeAll(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-closed-fabric-'))
+  const startedAt = performance.now()
   fixture = await standUp()
+  standUpMs = performance.now() - startedAt
+  process.stdout.write(`[criterion 8 / fixture] standUp ${Math.round(standUpMs)}ms\n`)
 }, FIXTURE_BUDGET_MS)
 
 afterAll(async () => {
@@ -833,7 +907,7 @@ describe('criterion 8 — over a fabric whose every relay-capable peer was told 
    * than papered over, and it is the same shape `enrolment-needs-no-reservation.node.test.ts`
    * records for its own four cases.
    */
-  it('an uncertificated node holds a reservation on no closed door and one on the control, while enrolled arms hold one each', async () => {
+  it('an uncertificated node holds a reservation on no closed door and one on the control, while enrolled arms hold one each', async (ctx) => {
     const {
       issuer,
       provider,
@@ -964,15 +1038,20 @@ describe('criterion 8 — over a fabric whose every relay-capable peer was told 
     //
     // Without it every absence below is satisfied by an empty list. Both doors, because 24-04
     // measured that one node cannot establish both.
-    await until(
-      async () => (await advertisedBy(reader, seedPeerId)).includes(memberAtSeed.peerId),
-      RESERVATION_BUDGET_MS,
-      'the arm enrolled at the seed to appear in the spawned seed’s reservations answer',
-      async () => ({
-        seedHolds: await advertisedBy(reader, seedPeerId).catch((e: unknown) => String(e)),
-        memberRelaysAtHandshake: memberAtSeed.relays,
-        memberStderr: memberAtSeed.stderr().slice(-300),
-      }),
+    await preconditionOrSkip(
+      ctx,
+      async () =>
+        until(
+          async () => (await advertisedBy(reader, seedPeerId)).includes(memberAtSeed.peerId),
+          RESERVATION_BUDGET_MS,
+          'the arm enrolled at the seed to appear in the spawned seed’s reservations answer',
+          async () => ({
+            seedHolds: await advertisedBy(reader, seedPeerId).catch((e: unknown) => String(e)),
+            memberRelaysAtHandshake: memberAtSeed.relays,
+            memberStderr: memberAtSeed.stderr().slice(-300),
+          }),
+        ),
+      'the arm enrolled at the seed appearing in the seed’s reservations',
     )
     await until(
       async () => (await advertisedBy(reader, relay.peerId)).includes(memberAtRelay.peerId),
@@ -1127,7 +1206,7 @@ describe('criterion 8 — over a fabric whose every relay-capable peer was told 
    * node"* — and asserting it here makes a change of shape a finding rather than a silent pass
    * of the absence half.
    */
-  it('publishes the enrolled arm in /bootstrap.json and neither uncertificated peer, over HTTP', async () => {
+  it('publishes the enrolled arm in /bootstrap.json and neither uncertificated peer, over HTTP', async (ctx) => {
     const { seedHttpPort, seedPeerId, memberAtSeed, stranger, reader } = fixture
 
     const read = async (): Promise<BootstrapRead> => {
@@ -1141,11 +1220,16 @@ describe('criterion 8 — over a fabric whose every relay-capable peer was told 
     }
 
     // The presence half FIRST, with a thunk that names what actually arrived.
-    await until(
-      async () => (await read()).info.peerAddrs.some((a) => a.includes(memberAtSeed.peerId)),
-      RESERVATION_BUDGET_MS,
-      'the enrolled arm to be advertised in the seed’s /bootstrap.json',
-      async () => ({ peerAddrs: (await read()).info.peerAddrs, want: memberAtSeed.peerId }),
+    await preconditionOrSkip(
+      ctx,
+      async () =>
+        until(
+          async () => (await read()).info.peerAddrs.some((a) => a.includes(memberAtSeed.peerId)),
+          RESERVATION_BUDGET_MS,
+          'the enrolled arm to be advertised in the seed’s /bootstrap.json',
+          async () => ({ peerAddrs: (await read()).info.peerAddrs, want: memberAtSeed.peerId }),
+        ),
+      'the enrolled arm being advertised in /bootstrap.json',
     )
 
     const before = await read()
