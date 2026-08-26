@@ -1,4 +1,8 @@
-import type { DurableObjectListOptions, DurableObjectStorage } from './durable-object-storage.d.ts'
+import type {
+  DurableObjectAlarms,
+  DurableObjectListOptions,
+  DurableObjectStorage,
+} from './durable-object-storage.d.ts'
 
 /**
  * A complete in-process implementation of {@link DurableObjectStorage}.
@@ -89,5 +93,39 @@ export class FakeDurableObjectStorage implements DurableObjectStorage {
       listed.set(name, this.#values.get(name))
     }
     return listed
+  }
+}
+
+/**
+ * A complete in-process implementation of {@link DurableObjectAlarms}.
+ *
+ * Separate from {@link FakeDurableObjectStorage} for the reason the declaration gives: the
+ * datastore arms nothing, and a fake carrying members its subject cannot reach is a fake
+ * nobody has checked. A spec that needs both hands the same object to neither — it passes
+ * one of each, which is what the real `state.storage` satisfies too.
+ *
+ * **`setAlarm` overwrites, because the platform's does.** That is the behaviour the arming
+ * path's `getAlarm()` check exists to avoid triggering, so a fake that appended instead of
+ * replacing would make the defect it guards against untestable.
+ */
+export class FakeDurableObjectAlarms implements DurableObjectAlarms {
+  #scheduled: number | null = null
+
+  /** Every time `setAlarm` was called with, in call order — the schedule's whole history. */
+  readonly setCalls: number[] = []
+
+  async getAlarm(): Promise<number | null> {
+    return this.#scheduled
+  }
+
+  async setAlarm(scheduledTime: number): Promise<void> {
+    this.setCalls.push(scheduledTime)
+    this.#scheduled = scheduledTime
+  }
+
+  /** Fire the pending alarm the way the platform does: clear it, then call the handler. */
+  async fire(handler: () => Promise<unknown>): Promise<void> {
+    this.#scheduled = null
+    await handler()
   }
 }

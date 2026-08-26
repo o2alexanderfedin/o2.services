@@ -31,3 +31,28 @@ export type {
   CloudflareWebSocket,
   CloudflareWebSocketConnectionInit,
 } from './websocket-connection.ts'
+export {
+  EXPIRY_SWEEP_INTERVAL_MS,
+  ExpirySweep,
+  UnarmedSweepError,
+  armExpirySweep,
+} from './expiry-alarm.ts'
+export type { ExpirySweepInit } from './expiry-alarm.ts'
+export type { DurableObjectAlarms } from './durable-object-storage.d.ts'
+export {
+  NoAnnouncedAddressError,
+  createHostedFabric,
+  createHostedLibp2p,
+  hostedAddresses,
+  hostedDhtInit,
+  hostedExpirySweep,
+  hostedRelayInit,
+} from './hosted-libp2p.ts'
+export type {
+  HostedAddresses,
+  HostedDhtInit,
+  HostedFabric,
+  HostedFabricInit,
+  HostedLibp2pInit,
+  HostedRelayInit,
+} from './hosted-libp2p.ts'

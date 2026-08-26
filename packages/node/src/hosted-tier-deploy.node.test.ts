@@ -141,6 +141,24 @@ describe('the emitted bundle — open question 1, and the trap beside it', () =>
     //   3. so no connection encrypter is bundled;
     //   4. so this assertion has no subject.
     //
+    // **THE SKIP ABOVE IS HISTORY AS OF 2026-08-26 — THIS CASE NOW READS A REAL BUNDLE.**
+    // ARCHITECTURE steps 6+7 landed `packages/cloudflare/src/hosted-libp2p.ts`, which calls
+    // `createLibp2p`, and `worker.ts`'s `alarm()` imports `hostedExpirySweep` from it. That
+    // one import is enough: esbuild pulls the module's graph in, so links 2-4 of the chain
+    // above are broken and the assertion has a subject.
+    //
+    // **It was written the other way first, and the build refuted it.** The claim was that a
+    // module nothing CALLS is a module nothing BUNDLES; the emitted worker is 583.94 KiB with
+    // `noise` appearing 43 times and `pureJsCrypto` twice. Tree-shaking is per-symbol, not
+    // per-module — `kadDHT` and `circuitRelayServer` appear 0 times in that same bundle,
+    // which is what the reasoning had predicted for noise.
+    //
+    // So open question 1 is ANSWERED, by measurement: wrangler honours the package's legacy
+    // top-level `browser` field and bundles the pure-JS path. `diffieHellman` 0,
+    // `node:crypto` 0. The skip branch is kept rather than deleted because it is what makes
+    // this reading non-vacuous — if a future change strands noise out of the bundle again,
+    // this case says so out loud instead of passing over an empty file.
+    //
     // It is skipped LOUDLY rather than asserted, and it flips to a real reading the moment
     // the assembly pulls noise in — at which point a regression in the browser-field
     // mechanism reddens here, which is what the consult asked for.
@@ -148,10 +166,11 @@ describe('the emitted bundle — open question 1, and the trap beside it', () =>
       process.stdout.write(
         '[criterion 29 / open question 1] `@chainsafe/libp2p-noise` is not in the emitted ' +
           'bundle at all, so "diffieHellman is absent" would be vacuously true. The assembly ' +
-          'that would pull it in is blocked on `webSocketToMaConn`, which the pinned ' +
-          '@libp2p/websockets@10.1.17 does not export — see `hosted-object.ts`. This case ' +
-          'becomes a real reading as soon as the node is constructed, and it is NOT a ' +
-          'statement that the bundle is clean.\n',
+          'exists as of 2026-08-26 (`hosted-libp2p.ts`) but `worker.ts` deliberately does ' +
+          'not reach it: without Phase 30\u2019s listener a running node cannot be dialled, ' +
+          'and an uncalled method on the deployed class is the "wired is not used" shape. ' +
+          'This case becomes a real reading when that listener gives worker.ts a reason to ' +
+          'construct a node, and it is NOT a statement that the bundle is clean.\n',
       )
       ctx.skip()
     }

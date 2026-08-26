@@ -2,6 +2,9 @@ import { BaseDatastore } from 'datastore-core'
 import { Key } from 'interface-datastore'
 import type { KeyQuery, Pair, Query } from 'interface-datastore'
 import type { DurableObjectStorage } from './durable-object-storage.d.ts'
+// Type-only, and the dependency runs one way: `expiry-alarm.ts` does not import this
+// file, so the pair cannot form a cycle at run time.
+import type { ExpirySweep } from './expiry-alarm.ts'
 
 /**
  * The key namespaces {@link DoDatastore.put} refuses, as one named source.
@@ -260,10 +263,46 @@ export type RefusedNamespace = (typeof REFUSED_NAMESPACE)[keyof typeof REFUSED_N
  */
 export class DoDatastore extends BaseDatastore {
   readonly #storage: DurableObjectStorage
+  readonly #sweptBy: ExpirySweep | undefined
 
-  constructor(storage: DurableObjectStorage) {
+  /**
+   * `sweptBy` is what lifts the `/dht/` refusal, and it is an object rather than a flag.
+   *
+   * The only producer of an {@link ExpirySweep} is `armExpirySweep`, which arms the Durable
+   * Object alarm before it returns one — so a store that holds one is a store whose records
+   * have somewhere to go. A boolean would hand the caller this class's own docblock warns
+   * about a one-word key to the thing the refusal exists for, and it would not survive
+   * eviction: a proof cannot be carried into a fresh instance, so every instantiation has to
+   * arm again to get one.
+   *
+   * **Only `/dht/` is lifted. `/o2/` stays refused whatever is passed here**, and that is not
+   * an oversight to tidy up later. The sweep walks `${prefix}/record` and
+   * `${prefix}/provider` — both under `/dht` — because `/o2/<nodeKey>` names are DHT *keys*,
+   * hashed into `/dht/record/<base32>` before they reach any datastore. A correctly-wired
+   * kad-dht never presents a `/o2/` datastore key even at full operation, so the reason that
+   * refusal was written survives the sweep landing intact, and admitting it would widen the
+   * store by more than the alarm justifies.
+   */
+  constructor(storage: DurableObjectStorage, sweptBy?: ExpirySweep) {
     super()
     this.#storage = storage
+    this.#sweptBy = sweptBy
+  }
+
+  /** Whether this store may hold DHT records — true exactly when a sweep was supplied. */
+  get admitsRecords(): boolean {
+    return this.#sweptBy !== undefined
+  }
+
+  /**
+   * Whether a classified namespace is one this store's sweep covers.
+   *
+   * Written as a membership test against one named namespace rather than as
+   * `this.#sweptBy !== undefined`, so that adding a third refused namespace does not
+   * silently inherit the lift. A new namespace is admitted only by naming it here.
+   */
+  #admits(namespace: RefusedNamespace): boolean {
+    return this.#sweptBy !== undefined && namespace === REFUSED_NAMESPACE.dhtDatastore
   }
 
   /**
@@ -328,7 +367,11 @@ export class DoDatastore extends BaseDatastore {
    */
   override async put(key: Key, val: Uint8Array): Promise<Key> {
     const refused = DoDatastore.refusedPrefixFor(key)
-    if (refused !== undefined) {
+    // The classification is unchanged and still runs — what a sweep changes is the verdict
+    // on ONE of the two namespaces, not whether the key is looked at. Keeping
+    // `refusedPrefixFor` on the path means the admitting store and the refusing store agree
+    // about what a key IS, and differ only about what may be done with it.
+    if (refused !== undefined && !this.#admits(refused)) {
       throw new RecordShapedKeyRefusedError(key.toString(), refused)
     }
     // A copy, not the caller's view — see the class doc on structured clone and subarrays.

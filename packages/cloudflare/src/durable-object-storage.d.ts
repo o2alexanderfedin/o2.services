@@ -69,3 +69,20 @@ export interface DurableObjectStorage {
   delete(key: string): Promise<boolean>
   list(options?: DurableObjectListOptions): Promise<Map<string, unknown>>
 }
+
+/**
+ * The alarm half of the platform's storage API — the whole of what `expiry-alarm.ts` uses.
+ *
+ * Separate from {@link DurableObjectStorage} rather than merged into it, because the two
+ * are used by different things and merging them would put alarms into `DoDatastore`'s
+ * fixture, which does not arm any. The real platform object carries both, so a caller that
+ * needs both declares a parameter of both types and the same `state.storage` satisfies it.
+ *
+ * `getAlarm()` answers `null` when none is scheduled — the platform's own spelling, and the
+ * distinction the arming path reads: an alarm that is already set must not be pushed
+ * forward on every request, or a busy object never sweeps.
+ */
+export interface DurableObjectAlarms {
+  getAlarm(): Promise<number | null>
+  setAlarm(scheduledTime: number): Promise<void>
+}

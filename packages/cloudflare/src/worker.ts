@@ -25,12 +25,40 @@
  * act at the Cloudflare boundary in any case, and the listener's own requirements belong to
  * Phase 30 — Inbound Listener Correctness & Hibernation — by the roadmap's division.
  *
+ * **It also does not construct the libp2p node, and that is a decision rather than an
+ * omission.** `hosted-libp2p.ts` landed with this commit and `createHostedFabric` is reached
+ * from no production path here. The alternative was a `fabric()` method on this class that
+ * nothing calls, and an uncalled member on the deployed class is precisely the *"wired is not
+ * used"* shape `CLAUDE.md` records being caught three times on the DHT. Until Phase 30's
+ * listener exists there is nothing for a running node to do: it cannot be dialled, and a
+ * bootstrap that cannot be dialled is not a bootstrap. So the assembly is delivered, proven by
+ * spec, and left uncalled **with the reason recorded**.
+ *
+ * **Uncalled is not the same as unbundled, and this paragraph said otherwise until it was
+ * measured.** It read *"`@chainsafe/libp2p-noise` therefore still does not reach this
+ * bundle"*, which was a prediction from the fact that nothing calls `createHostedFabric`. The
+ * build says the opposite: `wrangler deploy --dry-run` emits 583.94 KiB in which `noise`
+ * appears **43 times** and `pureJsCrypto` twice. The reason is ordinary — `alarm()` imports
+ * `hostedExpirySweep` from `hosted-libp2p.ts`, and esbuild pulls that module's graph in;
+ * only the symbols nothing reaches are shaken out, which is why `kadDHT` and
+ * `circuitRelayServer` appear **0** times in the same bundle while noise does not.
+ *
+ * That makes `hosted-tier-deploy.node.test.ts`'s `diffieHellman` case a **live reading** as of
+ * this commit rather than the loud skip it has been, and it passes: `diffieHellman` 0,
+ * `node:crypto` 0. Open question 1 — whether wrangler honours the package's legacy top-level
+ * `browser` field and bundles the pure-JS path — is answered by measurement instead of by
+ * argument, and a regression in that mechanism now arrives red.
+ *
+ * What this object DOES gain is {@link BootstrapObject.alarm}, which is called by the
+ * platform and needs no network stack — see its own doc.
+ *
  * **CORRECTED 2026-08-26, same day.** The claim above is wrong about its conclusion and right only about one resolver. `ERR_PACKAGE_PATH_NOT_EXPORTED` is **Node's** ESM resolver refusing a package-specifier import; `exports` is consulted only for package specifiers and a FILE PATH does not go through it at all. Three wrangler builds settled it: by specifier esbuild also fails (*"Could not resolve"*, exit 1); **by path it builds — exit 0, 153.30 KiB, `webSocketToMaConn` three times in the emitted bundle.** The listener is writable today. What was actually done was to measure Node and conclude about wrangler. What is genuinely open is what `STACK.md:146` and `ARCHITECTURE.md:484-506` already recorded: the listener's four requirements — `direction: 'inbound'`, `remoteAddr` from `CF-Connecting-IP`, an explicit `bufferedAmount`, and a hibernation-aware socket — of which three belong to **Phase 30** by the roadmap's own division.
  */
 
 import { HostedNode, stubFor } from './hosted-object.ts'
 import type { HostedObjectName, HostedObjectNamespace } from './hosted-object.ts'
-import type { DurableObjectStorage } from './durable-object-storage.d.ts'
+import { hostedExpirySweep } from './hosted-libp2p.ts'
+import type { DurableObjectAlarms, DurableObjectStorage } from './durable-object-storage.d.ts'
 
 /**
  * The two members of the platform's object state that this tier uses.
@@ -41,7 +69,14 @@ import type { DurableObjectStorage } from './durable-object-storage.d.ts'
  * that can honestly claim to model the platform.
  */
 export interface HostedObjectState {
-  readonly storage: DurableObjectStorage
+  /**
+   * Both halves of the platform's storage API, because this object uses both.
+   *
+   * The real `state.storage` carries them together; they are declared apart
+   * (`durable-object-storage.d.ts`) so that `DoDatastore`'s fixture is not made to arm
+   * alarms it never touches. An intersection here is what says this object needs both.
+   */
+  readonly storage: DurableObjectStorage & DurableObjectAlarms
 }
 
 /** The bindings this Worker is deployed with. One namespace, because there is one object. */
@@ -65,9 +100,36 @@ export interface HostedStub {
  */
 export class BootstrapObject {
   readonly #node: HostedNode
+  readonly #state: HostedObjectState
 
   constructor(state: HostedObjectState) {
+    this.#state = state
     this.#node = new HostedNode(state.storage)
+  }
+
+  /**
+   * The Durable Object alarm — ARCHITECTURE step 7 arriving on the platform's own timer.
+   *
+   * **Nothing is memoised across this call and that is the design.** Cloudflare evicts the
+   * instance that armed an alarm and constructs a fresh one to handle it, so an
+   * `ExpirySweep` captured at assembly time would be gone by the time it was needed.
+   * `hostedExpirySweep` arms from nothing on every call, which makes the schedule
+   * self-repairing rather than dependent on a construction that happened once.
+   *
+   * It does **not** construct libp2p. Sweeping needs a datastore, an alarm surface and this
+   * node's own peer id; waking a network stack to delete expired rows would make the
+   * cheapest thing this object does the most expensive one.
+   *
+   * That an alarm survives eviction and fires on a fresh instance is the one claim here no
+   * local run settles — ARCHITECTURE's *"request, fire, evict, re-read from a new
+   * instance"* is an owner act at the Cloudflare boundary and is reported open.
+   */
+  async alarm(): Promise<void> {
+    const sweep = await hostedExpirySweep({
+      storage: this.#state.storage,
+      alarms: this.#state.storage,
+    })
+    await sweep.run()
   }
 
   /**
