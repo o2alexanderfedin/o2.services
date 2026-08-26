@@ -50,7 +50,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 1: Portable Kernel & Loopback Map Slice
-**Goal**: A complete job — shard, execute redundantly, verify, return a result CID — runs end to end inside one process on all three targets, with no networking whatsoever
+**Goal**: As a job requestor, I want a complete job — shard, execute redundantly, verify, return a result CID — to run end to end inside one process on all three targets, so that I get a verified result CID back with no networking whatsoever.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A complete job — shard, execute redundantly, verify, return a result CID — runs end to end inside one process on all three targets, with no networking whatsoever
 **Mode:** mvp
 **Depends on**: Nothing (first phase)
 **Requirements**: DET-05, DET-06, DET-07, VER-01, VER-02, VER-05, VER-06, DATA-01, MR-01, SCHED-04
@@ -65,7 +66,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: TBD
 
 ### Phase 2: Real Network, Node ↔ Node
-**Goal**: The same job runs across two real operating-system processes over a real network transport, proving the port boundary was drawn in the right place
+**Goal**: As a node operator, I want the same job to run across two real operating-system processes over a real network transport, so that the job I ran on one machine still completes when it is split across two.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): The same job runs across two real operating-system processes over a real network transport, proving the port boundary was drawn in the right place
+**What the user-story form did not carry:** The original's closing clause — *proving the port boundary was drawn in the right place* — is an architectural proof about the codebase, not an outcome any actor experiences, so it survives only in the original wording above.
 **Mode:** mvp
 **Depends on**: Phase 1
 **Requirements**: NET-01, NET-07
@@ -77,7 +80,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: complete — see `phases/phase-2-real-network/SUMMARY.md`
 
 ### Phase 3: Browser Tier & Backbone Relay
-**Goal**: Two browsers — or two isolated browser contexts — on one machine run a distributed, redundant job against a self-hosted backbone that requires no manual certificate operations — the project's core bet, demonstrated
+**Goal**: As a browser visitor, I want two browsers — or two isolated browser contexts — on one machine to run a distributed, redundant job against a self-hosted backbone that requires no manual certificate operations, so that the project's core bet is demonstrated on the machine in front of me.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): Two browsers — or two isolated browser contexts — on one machine run a distributed, redundant job against a self-hosted backbone that requires no manual certificate operations — the project's core bet, demonstrated
 **Mode:** mvp
 **Depends on**: Phase 2
 **Requirements**: NET-02, NET-03, NET-04, NET-05, DATA-02, BROW-03, BROW-05
@@ -109,7 +113,8 @@ keeping it on the record rather than replacing it.
 AutoTLS needs a publicly reachable host — a hosting decision this ruling does not touch.
 
 ### Phase 4: Sovereignty, Authorization & Artifact Signing
-**Goal**: Owner-pinned data becomes a hard scheduling constraint the placer has no code path to relax, and every artifact the fabric executes is resolved through a signed name rather than a bare CID
+**Goal**: As a data owner, I want owner-pinned data to be a hard scheduling constraint the placer has no code path to relax, and every artifact the fabric executes to be resolved through a signed name rather than a bare CID, so that my data cannot be scheduled off my node and the code that touches it has provenance and not merely integrity.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): Owner-pinned data becomes a hard scheduling constraint the placer has no code path to relax, and every artifact the fabric executes is resolved through a signed name rather than a bare CID
 **Mode:** mvp
 **Depends on**: Phase 3
 **Requirements**: DATA-03, DATA-04, DATA-05, DATA-06, DATA-07, DATA-08, DATA-09, DET-03, AUTH-03
@@ -124,7 +129,8 @@ AutoTLS needs a publicly reachable host — a hosting decision this ruling does 
 **Plans**: complete — see `phases/phase-4-sovereignty/SUMMARY.md`
 
 ### Phase 5: Decomposable Tree-Reduce
-**Goal**: Cross-owner aggregation happens up a hierarchical tree that every participant derives identically — no all-to-all shuffle, no consensus, no leader election, and no state to migrate when an aggregator disappears
+**Goal**: As a job requestor, I want cross-owner aggregation to happen up a hierarchical tree that every participant derives identically, so that my job aggregates with no all-to-all shuffle, no consensus, no leader election, and no state to migrate when an aggregator disappears.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): Cross-owner aggregation happens up a hierarchical tree that every participant derives identically — no all-to-all shuffle, no consensus, no leader election, and no state to migrate when an aggregator disappears
 **Mode:** mvp
 **Depends on**: Phase 4
 **Requirements**: MR-02, MR-03, MR-04, MR-05, MR-06, MR-07
@@ -145,7 +151,8 @@ lease duration and in the visibility governor already built in Phase 3 — not i
 that demotes an entire tier.
 
 ### Phase 6: Discovery, Placement & Enrollment
-**Goal**: The static peer list the previous phases leaned on disappears — nodes find each other and decide where work runs from local information, under identity and diversity constraints that make a forged quorum expensive
+**Goal**: As a node operator, I want the static peer list the previous phases leaned on to disappear, so that nodes find each other and decide where work runs from local information, under identity and diversity constraints that make a forged quorum expensive.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): The static peer list the previous phases leaned on disappears — nodes find each other and decide where work runs from local information, under identity and diversity constraints that make a forged quorum expensive
 **Mode:** mvp
 **Depends on**: Phase 5
 **Status**: COMPLETE — 7 of 7 criteria. See `phases/phase-6-discovery-enrollment/SUMMARY.md`
@@ -162,7 +169,8 @@ that demotes an entire tier.
 **Plans**: executed directly; artifacts in `phases/phase-6-discovery-enrollment/`
 
 ### Phase 7: Churn, Stragglers & Coordinator Survival
-**Goal**: A job finishes correctly when the machines running it — including the machine that submitted it — go away mid-flight
+**Goal**: As a job requestor, I want my job to finish correctly when the machines running it — including the machine that submitted it — go away mid-flight, so that churn costs me a wait rather than a result.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A job finishes correctly when the machines running it — including the machine that submitted it — go away mid-flight
 **Mode:** mvp
 **Depends on**: Phase 6
 **Status**: COMPLETE — 6 of 6 criteria. See `phases/phase-7-churn/SUMMARY.md`
@@ -178,7 +186,8 @@ that demotes an entire tier.
 **Plans**: TBD
 
 ### Phase 8: Benchmark Harness
-**Goal**: The scaling claim becomes a reproducible published number with its costs included rather than excluded — a separate and harder claim than "it works"
+**Goal**: As the project owner, I want the scaling claim to become a reproducible published number with its costs included rather than excluded, so that I can publish a claim that is separate from and harder than "it works".
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): The scaling claim becomes a reproducible published number with its costs included rather than excluded — a separate and harder claim than "it works"
 **Mode:** mvp
 **Depends on**: Phase 5 (dispatch API frozen). Runs in parallel with Phases 6-7
 **Status**: COMPLETE — 4 of 5 criteria; BENCH-06's distinct-machine half was descoped to one host on 2026-07-28 and stays **unmeasured, not met**. See `phases/phase-8-benchmark/SUMMARY.md`
@@ -193,7 +202,9 @@ that demotes an entire tier.
 **Plans**: TBD
 
 ### Phase 9: Public Demo, Consent UX & Disclosure Gate
-**Goal**: A visitor opens a page, understands exactly what will run, chooses to allow it, and contributes to a job someone actually cares about — while publication remains a deliberate human action rather than a consequence of a phase completing
+**Goal**: As a browser visitor, I want to open a page, understand exactly what will run, choose to allow it, and contribute to a job someone actually cares about, so that nothing runs on my machine that I did not knowingly allow.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A visitor opens a page, understands exactly what will run, chooses to allow it, and contributes to a job someone actually cares about — while publication remains a deliberate human action rather than a consequence of a phase completing
+**What the user-story form did not carry:** The original's closing clause — *publication remains a deliberate human action rather than a consequence of a phase completing* — is the project owner's disclosure gate and belongs to a different actor than the visitor this story names; it survives only in the original wording above and in success criteria.
 **Mode:** mvp
 **Depends on**: Phase 7 and Phase 8
 **Research**: Standard patterns — the consent-UX pattern set is fully documented by BOINC's shipped controls and the Coinhive post-mortems. It needs care and vocabulary discipline, not research
@@ -213,7 +224,8 @@ plain-language policy page written for a human blocklist reviewer, and pre-regis
 appeal paths, ship with the demo.
 
 ### Phase 10: elfconv AOT Native→WASM Pipeline
-**Goal**: A statically-linked native binary becomes a fabric-executable artifact under the same admission checks, signing, and verification as a source-compiled module
+**Goal**: As a publisher of signed artifacts, I want a statically-linked native binary to become a fabric-executable artifact, so that it is admitted, signed, and verified by exactly the same checks as a source-compiled module.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A statically-linked native binary becomes a fabric-executable artifact under the same admission checks, signing, and verification as a source-compiled module
 **Mode:** mvp
 **Depends on**: Phase 4 (signed `key → CID` infrastructure). Fully parallelizable from Phase 3 onward — a C++/LLVM/Remill build-time toolchain in `tools/aot/` with zero TypeScript coupling
 **Requirements**: AOT-01, AOT-02, AOT-03, AOT-04, AOT-05
@@ -344,7 +356,8 @@ them to make a tool report progress; that is the move RULING A exists to prevent
 - [ ] **Phase 28: One Cryptographic Implementation, and the Facades Ledgered** - `packages/core` holds exactly one Ed25519 implementation rather than two
 
 ### Phase 11: Explicit serveAgent Hook Contract
-**Goal**: Every `serveAgent` call site states an explicit value for all six hooks — `authorize`, `index`, `capacity`, `ledger`, `reservations`, `onDispatch` — so an omission is a compile error a developer sees at the call site, not a default nobody noticed
+**Goal**: As a developer, I want every `serveAgent` call site to state an explicit value for all six hooks — `authorize`, `index`, `capacity`, `ledger`, `reservations`, `onDispatch` — so that an omission is a compile error I see at the call site, not a default nobody noticed.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): Every `serveAgent` call site states an explicit value for all six hooks — `authorize`, `index`, `capacity`, `ledger`, `reservations`, `onDispatch` — so an omission is a compile error a developer sees at the call site, not a default nobody noticed
 **Mode:** mvp
 **Depends on**: Nothing new — builds directly on the v1.0 codebase. Sequenced first within v1.1, ahead of every other phase in this milestone, because it is the structural cause the other 35 unwired requirements share: making the hooks non-optional turns each remaining capability into a build failure at its call site rather than a fact someone has to go looking for
 **Requirements**: WIRE-01
@@ -361,7 +374,8 @@ Plans:
 - [x] 11-01-PLAN.md — Define the required six-hook AgentOptions contract, sweep all 4 production and 6 test call sites, and build the compile-failure + sentinel-count guards proving criteria 1 and 2
 
 ### Phase 12: Sovereignty-Pinned Placement
-**Goal**: A sovereignty label travels with its data and pins its map task to the owner's node on the one live job path, with pushdown and backbone execution-ineligibility enforced — not only in a test that builds its own fabric by hand
+**Goal**: As a data owner, I want a sovereignty label to travel with my data and pin its map task to my node on the one live job path, so that pushdown and backbone execution-ineligibility are enforced where real jobs run — not only in a test that builds its own fabric by hand.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A sovereignty label travels with its data and pins its map task to the owner's node on the one live job path, with pushdown and backbone execution-ineligibility enforced — not only in a test that builds its own fabric by hand
 **Mode:** mvp
 **Depends on**: Phase 11
 **Requirements**: DATA-03, DATA-04, DATA-07, DATA-09
@@ -381,7 +395,8 @@ Plans:
 
 
 ### Phase 13: Egress Manifest Completeness
-**Goal**: Both `FabricNode` and the browser node construct their `RpcEndpoint` over an `EgressGuard`-wrapped transport instead of the raw `Libp2pTransport`, so the egress manifest is complete by construction on a real job
+**Goal**: As a data owner, I want both `FabricNode` and the browser node to construct their `RpcEndpoint` over an `EgressGuard`-wrapped transport instead of the raw `Libp2pTransport`, so that the egress manifest recording what left my node is complete by construction on a real job.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): Both `FabricNode` and the browser node construct their `RpcEndpoint` over an `EgressGuard`-wrapped transport instead of the raw `Libp2pTransport`, so the egress manifest is complete by construction on a real job
 **Mode:** mvp
 **Depends on**: Phase 11
 **Requirements**: DATA-05, DATA-06
@@ -436,7 +451,8 @@ Plans:
 - [x] 13-07-PLAN.md — Release a sovereign registration from the serve path once its reply frame has settled, so scan cost is bounded by in-flight tasks rather than node uptime
 
 ### Phase 13.1: Node-Side Admission & Transport Bounds (INSERTED)
-**Goal**: A node refuses work it cannot run, with a stated reason, and neither side of the wire can be driven past a bound by a peer — closing three defects measured against the real stack rather than inferred
+**Goal**: As a node operator, I want my node to refuse work it cannot run with a stated reason, and neither side of the wire to be drivable past a bound by a peer, so that three defects measured against the real stack rather than inferred are closed.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A node refuses work it cannot run, with a stated reason, and neither side of the wire can be driven past a bound by a peer — closing three defects measured against the real stack rather than inferred
 **Mode:** mvp
 **Depends on**: Phase 13
 **Requirements**: SCHED-06 (new), NET-08 (new), NET-09 (new), NET-10 (new), DATA-10 (new)
@@ -483,7 +499,8 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
 **How these were found.** A subagent was told to refute the claim that the fabric had no backpressure gap, and did, at a named site with a reproduction. Two of the claim's three legs broke. The leg that broke worst was the assertion that `over-committed: N of M slots in use` proved the project had chosen refusal deliberately — that string cannot be produced by any running node, because the only thing that emits it is constructed nowhere outside tests. A well-built mechanism was read and its wiring assumed. That is the defect this milestone exists to remove, reproduced in the course of arguing about it.
 
 ### Phase 14: Signed Artifact Resolution
-**Goal**: A production node resolves a task's module through a `key → CID` mapping signed by a trusted build authority — never a bare CID — on the live dispatch path
+**Goal**: As a node operator, I want my production node to resolve a task's module through a `key → CID` mapping signed by a trusted build authority — never a bare CID — on the live dispatch path, so that I only execute code a trust anchor I pinned has vouched for.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A production node resolves a task's module through a `key → CID` mapping signed by a trusted build authority — never a bare CID — on the live dispatch path
 **Mode:** mvp
 **Depends on**: Phase 11
 **Requirements**: DET-03, DATA-08
@@ -495,7 +512,9 @@ The apparent ceiling of 256 with one peer is the **sender's** `maxOutboundStream
 **Plans**: TBD
 
 ### Phase 15: Capability-Chained Dispatch
-**Goal**: A task dispatched between two live nodes carries a capability chain rooted at the data owner's key, and the receiving node's `authorize` hook verifies it before `WebAssembly.instantiate` — the serving end wired and verified end to end; the requestor end wired to a required constructor argument that every production call site declines, so its supplier branch has no entry-point caller
+**Goal**: As a data owner, I want a task dispatched between two live nodes to carry a capability chain rooted at my key, verified by the receiving node's `authorize` hook before `WebAssembly.instantiate`, so that nothing reaches my data without authorization I granted — the serving end wired and verified end to end.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A task dispatched between two live nodes carries a capability chain rooted at the data owner's key, and the receiving node's `authorize` hook verifies it before `WebAssembly.instantiate` — the serving end wired and verified end to end; the requestor end wired to a required constructor argument that every production call site declines, so its supplier branch has no entry-point caller
+**What the user-story form did not carry:** The original's closing clause — *the requestor end wired to a required constructor argument that every production call site declines, so its supplier branch has no entry-point caller* — records the phase's wiring state rather than any actor's capability, so it does not translate into the story and survives only in the original wording above (and in the dated AMENDED note further down this entry, which supersedes it).
 **Mode:** mvp
 **Depends on**: Phase 11
 **Requirements**: AUTH-03
@@ -553,7 +572,8 @@ hits first and this file is the one an auditor greps.
 **AMENDED 2026-08-22 — the Goal's closing clause is now the phase's entry premise, not the tree's state.** That clause reads *"the requestor end wired to a required constructor argument that every production call site declines, so its supplier branch has no entry-point caller."* It was true at this phase's close on 2026-07-31, and the note above is the record of why. It is false today, and the correction is recorded here rather than only in a later phase's summary because this is the entry an auditor greps. `bin/agent.ts` builds `sovereignSupplierFor` (`:2222`), which mints a chain with `delegate(seed, {…})` (`:2236`) rooted at the task's own owner and audienced to `audienceKeyOf(nodeId)`, and passes it as `dispatch:` to `discoverCandidates` (`:2310`); `discoverCandidates` hands it to every `RemoteExecutor` it constructs (`packages/net/src/discover-candidates.ts:218-223`), so the supplier branch of `RemoteExecutor.execute` is reached from an entry point. `bin/bench.ts` does the same on its `--sovereign` arm — `dispatch:` at `:1575`, `delegate` at `:1031`, `:1081` and `:1166` — which is Phase 23 criterion 5, delivered 2026-08-06, exactly the destination the owner ruling above sent it to. Both legs sit behind flags and both rulings on those flags are on record: `bench.ts`'s needs `--discover --sovereign`, and `agent.ts`'s `--sovereign-owner` was ruled a role selector rather than a feature gate on 2026-08-18 (`.planning/consults/2026-08-18-owner-ruling-role-selector-vs-feature-gate.md`), which is what let `REQUIREMENTS.md` move AUTH-03 from *Partial* to **Done — CLOSED 2026-08-19**. `packages/net/src/remote-executor.ts:35` already records the substance — *"AUTH-03: the minting side **is reached from production**, as of Phase 23"* — while its `:61` trailing "AUTH-03 stays `Partial` until that guard runs" is the 2026-08-06 state; by this repository's own rule the requirement row wins and the comment gets fixed. **Phase 15 still closes its serving half only.** What changed is that the requestor half acquired entry-point callers in Phases 18 and 23, not that this phase supplied them, and the "may not tick it" ruling above stands as written.
 
 ### Phase 16: Decomposable Tree-Reduce Wiring
-**Goal**: A live multi-node job merges its shard partials by walking `executeReduce`'s derived tree, replacing the demo's linear scan
+**Goal**: As a job requestor, I want a live multi-node job to merge its shard partials by walking `executeReduce`'s derived tree, so that my job's real reduce runs instead of the demo's linear scan.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A live multi-node job merges its shard partials by walking `executeReduce`'s derived tree, replacing the demo's linear scan
 **Mode:** mvp
 **Depends on**: Phase 12
 **Requirements**: MR-02, MR-03, MR-04, MR-05, MR-06, MR-07
@@ -566,7 +586,8 @@ hits first and this file is the one an auditor greps.
 **Plans**: TBD
 
 ### Phase 17: Node Identity & Enrollment
-**Goal**: A node generates its identity key on-device and completes a rate-limited, provider-signed enrollment before it is treated as a peer, and a peer verifies that certificate offline
+**Goal**: As a node operator, I want my node to generate its identity key on-device and complete a rate-limited, provider-signed enrollment before it is treated as a peer, so that any peer can verify my certificate offline and my private key never leaves the machine.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A node generates its identity key on-device and completes a rate-limited, provider-signed enrollment before it is treated as a peer, and a peer verifies that certificate offline
 **Mode:** mvp
 **Depends on**: Phase 11
 **Requirements**: AUTH-01, AUTH-02, AUTH-04
@@ -578,7 +599,8 @@ hits first and this file is the one an auditor greps.
 **Plans**: TBD
 
 ### Phase 18: Discovery, Capacity & Placement
-**Goal**: A requestor with no static peer list finds candidates by querying real content-CID providers, samples and selects by load, and an over-committed node refuses work with a stated reason — on a real job, not a hand-built fabric
+**Goal**: As a job requestor with no static peer list, I want to find candidates by querying real content-CID providers and to sample and select by load, so that my work lands on a node that can take it while an over-committed node refuses with a stated reason — on a real job, not a hand-built fabric.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A requestor with no static peer list finds candidates by querying real content-CID providers, samples and selects by load, and an over-committed node refuses work with a stated reason — on a real job, not a hand-built fabric
 **Mode:** mvp
 **Depends on**: Phase 17 (node identity feeds capability records), Phase 12 (owner label needed for the sovereignty-vs-cost ordering)
 **Requirements**: SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05, NET-05
@@ -724,7 +746,9 @@ Criterion 6 needs no plan — it landed on `develop` as `351bde1` before this ph
 
 
 ### Phase 19: Quorum Composition & Owner-Domain Attestation
-**Goal**: Verification quorums compose under anti-affinity with a backbone-anchored replica, owner-domain agreement is labelled distinctly from independent-operator agreement, and two browser tabs on a static bundle find each other with nothing dialed by a harness
+**Goal**: As a job requestor, I want verification quorums to compose under anti-affinity with a backbone-anchored replica and owner-domain agreement to be labelled distinctly from independent-operator agreement, so that I can tell how strong my result's agreement actually is rather than reading one number for two different things.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): Verification quorums compose under anti-affinity with a backbone-anchored replica, owner-domain agreement is labelled distinctly from independent-operator agreement, and two browser tabs on a static bundle find each other with nothing dialed by a harness
+**What the user-story form did not carry:** The original's third clause — *two browser tabs on a static bundle find each other with nothing dialed by a harness* — is a browser visitor's capability, not the job requestor's, and a single story cannot honestly carry both actors; it survives only in the original wording above and in this phase's success criteria.
 **Mode:** mvp
 **Depends on**: Phase 18, Phase 17
 **Requirements**: AUTH-04, AUTH-05, NET-06, VER-03, VER-04, VER-08, VER-09, VER-10, WIRE-03
@@ -977,7 +1001,8 @@ Plans:
      does. -->
 
 ### Phase 20: Single Job Path, Ledger & Churn Resilience
-**Goal**: `submitJob` becomes the one job path — lease renewal, speculation, and coverage accounting live inside it, not in a second uncalled implementation — and the peer ledger records real cross-node outcomes instead of discarding them
+**Goal**: As a job requestor, I want `submitJob` to be the one job path, with lease renewal, speculation, and coverage accounting living inside it rather than in a second uncalled implementation, so that the resilience I was promised actually runs on my job and the peer ledger records real cross-node outcomes instead of discarding them.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): `submitJob` becomes the one job path — lease renewal, speculation, and coverage accounting live inside it, not in a second uncalled implementation — and the peer ledger records real cross-node outcomes instead of discarding them
 **Mode:** mvp
 **Depends on**: Phase 18, Phase 19
 **Requirements**: WIRE-04, CHURN-01, CHURN-02, CHURN-03, CHURN-04, CHURN-05, CHURN-06, BROW-02, AUTH-04
@@ -1071,7 +1096,8 @@ Plans:
 This phase is where the clause becomes measurable: it owns the recovery path, so a recovered node's late result finally has somewhere to arrive. **Phase 16 keeps MR-04 open on this account** — the criterion was scheduled rather than rewritten, on the same principle that sent AUTH-03's requestor half to Phase 23: lowering a bar is not clearing it.
 
 ### Phase 21: AOT Translation Signing & Runtime
-**Goal**: `translationCid` is called by the lift pipeline itself and the CLI emits the CID it produces; a production node constructs a real `WasiExecutor` so a translated artifact dispatched to a running node executes instead of failing at instantiate
+**Goal**: As a publisher of signed artifacts, I want `translationCid` to be called by the lift pipeline itself with the CLI emitting the CID it produces, and a production node to construct a real `WasiExecutor`, so that an artifact I lift executes when it is dispatched to a running node instead of failing at instantiate.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): `translationCid` is called by the lift pipeline itself and the CLI emits the CID it produces; a production node constructs a real `WasiExecutor` so a translated artifact dispatched to a running node executes instead of failing at instantiate
 **Mode:** mvp
 **Depends on**: Phase 11. Otherwise independent of Phases 12-20 and runs in parallel with them, mirroring how Phase 10 ran parallel to Phases 4-9 in v1.0
 **Requirements**: AOT-02, AOT-04
@@ -1131,7 +1157,8 @@ Three consequences the planner must price:
 - **The ~43 ms lifted-startup floor is not a distribution problem and a gateway will not touch it.** Measured 2026-07-31: the lifted `_start` alone is 42.83 ms against 42.65 ms for instantiate+start — indistinguishable, so the whole floor executes *inside* the guest in elfconv's emulated machine-state init, and is re-paid per task. Content addressing fully solves distributing the 5.40 MiB; the floor stays.
 
 ### Phase 22: Reachability Guard
-**Goal**: A guard test fails when a capability exported from a package barrel has no traced call path from any of the five runnable entry points — the class of defect this milestone exists to fix, made permanent
+**Goal**: As a developer, I want a guard test to fail when a capability exported from a package barrel has no traced call path from any of the five runnable entry points, so that the class of defect this milestone exists to fix cannot silently return.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A guard test fails when a capability exported from a package barrel has no traced call path from any of the five runnable entry points — the class of defect this milestone exists to fix, made permanent
 **Mode:** mvp
 **Depends on**: Phases 11-21, **and Phase 24** — runs last because it verifies what every other phase claims to have wired. **Owner ruling 2026-08-05 put Phase 24 ahead of it too** (see the scheduling note in the Phase 24 block): a reachability guard that runs before admission is gated certifies a fabric with an open door. Order is **23 → 24 → 22**. If Phase 24 does not land inside the milestone, Phase 22 runs anyway and its verification says what it could not cover — ordering must not be the mechanism that hides a known gap
 **Requirements**: WIRE-02
@@ -1252,7 +1279,8 @@ Parallel tracks (config `parallelization: true`):
 | 24. Certificate-Gated Admission | 8/8 | **Complete — 1 of 1.** Criterion 8 verified **PARTIAL** on 2026-08-06 (0 of 1) because the criterion says *"the fabric"* while the evidence read *"a relay that has been told to close"*, and `bin/seed.ts` could not be told to close at all — so the bound was **structural**, not a posture an operator could remove. Four gap-closure plans and a dated amendment (`580e461`) changed that: 24-05 measured the bootstrap paradox **false** (enrolment runs over a plain dial, no reservation in its path), 24-06 built the knob, 24-07 read the absence over **every** door with a control that can fail, 24-08 read the browser tier in three engines. **MET with a stated bound**: the default posture of the binaries stays open and must — 19 + 3 argv sites, with `reservation-exhaustion` arm A a live guard on it. Criterion 8's wording is unedited. **Phase 17 criterion 3 and Phase 19 criterion 5 were both carried into criterion 8. 19 CLOSED at 5/5 (`ac7b214`) carrying the bound verbatim; 17 DECLINED and stays 2/3 (`a3d2215`).** This row said both "can now close" — an actual attempt falsified that for 17 within the hour. Criterion 3 needs a third link neither criterion names, one certificate admitting exactly one identity, and no test observes it. This row's closing clause read **"the two verdicts arguably rest on the same unguarded binding and disagree — an owner adjudication"**. **That adjudication was answered by code rather than by a ruling, 2026-08-07**: the binding is now guarded at the door (`8719029`, M68), 17 re-verified and **closed at 3/3**, and the two verdicts agree. The disagreement was never about the criteria — it was about whether the shared premise was observed by anything, and it was not | 2026-08-07 |
 
 ### Phase 23: Multi-Process Benchmark Driver
-**Goal**: The benchmark harness spawns N real operating-system processes instead of N `FabricNode`s on one event loop, so a parallel speedup is measurable at all — and the project's central scaling claim stops being unmeasured
+**Goal**: As the project owner, I want the benchmark harness to spawn N real operating-system processes instead of N `FabricNode`s on one event loop, so that a parallel speedup is measurable at all and the project's central scaling claim stops being unmeasured.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): The benchmark harness spawns N real operating-system processes instead of N `FabricNode`s on one event loop, so a parallel speedup is measurable at all — and the project's central scaling claim stops being unmeasured
 **Mode:** mvp
 **Depends on**: Phase 8 (the existing harness), Phase 12 (the spawn pattern), Phase 15 (AUTH-03's requestor half — see criterion 5)
 **Requirements**: BENCH-07 (new), AUTH-03 (requestor half, routed here by owner ruling 2026-07-31)
@@ -1285,7 +1313,8 @@ It lands **here** rather than in Phase 15 for one reason: this phase already rew
 ## Requirement Coverage
 
 ### Phase 24: Certificate-Gated Admission
-**Goal**: The network's front door is locked — a node that cannot present a provider-issued certificate cannot reserve a circuit, be advertised, or be dialled, so an identity that was never issued buys nothing
+**Goal**: As a relay operator, I want the network's front door locked so a node that cannot present a provider-issued certificate cannot reserve a circuit, be advertised, or be dialled, so that an identity that was never issued buys nothing on my infrastructure.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): The network's front door is locked — a node that cannot present a provider-issued certificate cannot reserve a circuit, be advertised, or be dialled, so an identity that was never issued buys nothing
 **Mode:** mvp
 **Depends on**: Phase 19 (which opened the clause), and see the scheduling note below on Phase 22
 **Requirements**: AUTH-02, AUTH-04
@@ -2247,7 +2276,8 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
 - [ ] **Phase 41: Cross-Host Determinism for the AOT Track** - The same lift on two distinct hosts is byte-identical, or the divergence is reported — and `AOTW-06` stays gated on a compiler nobody has built
 
 ### Phase 29: Hosted Tier Assembly & First Deploy
-**Goal**: A third workspace package — `packages/cloudflare/`, beside `packages/browser` and `packages/node` and not a branch inside `fabric-node.ts` — assembles a libp2p node that deploys to a Durable Object and is dialable by an ordinary peer over WSS at an identity that survives eviction and redeploy, with the money and the siting made irreversible-safe before the first object exists
+**Goal**: As a fabric operator, I want a third workspace package — `packages/cloudflare/`, beside `packages/browser` and `packages/node` and not a branch inside `fabric-node.ts` — that assembles a libp2p node deployable to a Durable Object and dialable by an ordinary peer over WSS at an identity that survives eviction and redeploy, so that I can stand up a hosted node with the money and the siting made irreversible-safe before the first object exists.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A third workspace package — `packages/cloudflare/`, beside `packages/browser` and `packages/node` and not a branch inside `fabric-node.ts` — assembles a libp2p node that deploys to a Durable Object and is dialable by an ordinary peer over WSS at an identity that survives eviction and redeploy, with the money and the siting made irreversible-safe before the first object exists
 **Mode:** mvp
 **Depends on**: Nothing new — builds on the v1.1 tree. First in this milestone because every other hosted-tier phase needs an object that deploys, and because two of its criteria are irreversible once wrong: an object's location is fixed by its very first `get()`, and Cloudflare has no hard spending ceiling
 **Requirements**: HOST-01, HOST-05, HOST-08, HOST-10, HOST-11, HOST-12, NET-03 (carried from Phase 3)
@@ -2264,7 +2294,8 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
 **Plans**: TBD
 
 ### Phase 30: Inbound Listener Correctness & Hibernation
-**Goal**: The hosted node's inbound listener declares the two fields libp2p needs in order to admit more than five connections a second, and holds its socket against the hibernation API with a defined answer for the absent `bufferedAmount` — the two defects that each produce a node which looks healthy and silently refuses to work or to scale
+**Goal**: As a fabric operator, I want the hosted node's inbound listener to declare the two fields libp2p needs in order to admit more than five connections a second, and to hold its socket against the hibernation API with a defined answer for the absent `bufferedAmount`, so that I am not running a node which looks healthy while it silently refuses to work or to scale — the two defects that each produce exactly that.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): The hosted node's inbound listener declares the two fields libp2p needs in order to admit more than five connections a second, and holds its socket against the hibernation API with a defined answer for the absent `bufferedAmount` — the two defects that each produce a node which looks healthy and silently refuses to work or to scale
 **Mode:** mvp
 **Depends on**: Phase 29. Sequenced **before** the relay in Phase 32 and before anything that carries cohort load, because both defects fail silently and neither can be surfaced by one or two peers
 **Requirements**: NET-11, HOST-15
@@ -2277,7 +2308,8 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
 **Plans**: TBD
 
 ### Phase 31: Hosted Record Store, Its Expiry, and the Capability It Never Advertises
-**Goal**: The hosted node holds and answers records on the fabric's private keyspace `/o2/kad/1.0.0` — with the sweep that bounds them landing in the **same** phase, driven by a Durable Object alarm rather than a `setInterval` that cannot fire there, and with execution omitted from every record it publishes
+**Goal**: As a fabric operator, I want the hosted node to hold and answer records on the fabric's private keyspace `/o2/kad/1.0.0`, with the sweep that bounds them landing in the **same** phase and driven by a Durable Object alarm rather than a `setInterval` that cannot fire there, so that the records I serve actually expire and execution is omitted from every record the hosted node publishes.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): The hosted node holds and answers records on the fabric's private keyspace `/o2/kad/1.0.0` — with the sweep that bounds them landing in the **same** phase, driven by a Durable Object alarm rather than a `setInterval` that cannot fire there, and with execution omitted from every record it publishes
 **Mode:** mvp
 **Depends on**: Phase 29 (an object that deploys and a datastore), Phase 30 (a listener that admits more than five peers a second)
 **Requirements**: HOST-03, HOST-04, HOST-09, HOST-13, HOST-14
@@ -2291,7 +2323,8 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
 **Plans**: TBD
 
 ### Phase 32: The Relay Role and the Two Counters
-**Goal**: The hosted node runs a Circuit Relay v2 server that two browsers use to find each other and then drop out of, and the peer-to-peer/relayed split is counted from before the first browser reservation is accepted — so the fabric cannot become hosted-in-practice while every document still calls it peer-to-peer
+**Goal**: As a relay operator, I want the hosted node to run a Circuit Relay v2 server that two browsers use to find each other and then drop out of, with the peer-to-peer/relayed split counted from before the first browser reservation is accepted, so that the fabric cannot become hosted-in-practice while every document still calls it peer-to-peer.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): The hosted node runs a Circuit Relay v2 server that two browsers use to find each other and then drop out of, and the peer-to-peer/relayed split is counted from before the first browser reservation is accepted — so the fabric cannot become hosted-in-practice while every document still calls it peer-to-peer
 **Mode:** mvp
 **Depends on**: Phase 30 (a listener that does not cap at five a second), Phase 31 (records, so a browser can find the relay through the keyspace rather than a hardcoded address)
 **Requirements**: HOST-02, NET-14
@@ -2304,7 +2337,8 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
 **Plans**: TBD
 
 ### Phase 33: Three Regions, and a Relay Killed on Purpose
-**Goal**: `bootstrap-us`, `bootstrap-eu` and `bootstrap-sam` exist as three identities in three objects under the closed name set, nothing anywhere claims where any of them actually runs, and a scheduled, repeated drill measures what a region's loss costs instead of discovering it during the run
+**Goal**: As a fabric operator, I want `bootstrap-us`, `bootstrap-eu` and `bootstrap-sam` to exist as three identities in three objects under the closed name set, with nothing anywhere claiming where any of them actually runs, so that a scheduled, repeated drill measures what a region's loss costs instead of my discovering it during the run.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): `bootstrap-us`, `bootstrap-eu` and `bootstrap-sam` exist as three identities in three objects under the closed name set, nothing anywhere claims where any of them actually runs, and a scheduled, repeated drill measures what a region's loss costs instead of discovering it during the run
 **Mode:** mvp
 **Depends on**: Phase 32 (one relay working before three)
 **Requirements**: HOST-06, HOST-07, NET-15
@@ -2317,7 +2351,8 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
 **Plans**: TBD
 
 ### Phase 34: Two Fallback Rungs Below Direct WebRTC
-**Goal**: A pair that cannot connect directly falls to TURN, and a pair that cannot use TURN falls to a relayed connection whose budget is written down at 64 KiB **each way** and tested on the relayed path — so no design assumes twice the room it has
+**Goal**: As a browser visitor, I want a pair that cannot connect directly to fall to TURN, and a pair that cannot use TURN to fall to a relayed connection whose budget is written down at 64 KiB **each way** and tested on the relayed path, so that my tab still joins and no design assumes twice the room it has.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A pair that cannot connect directly falls to TURN, and a pair that cannot use TURN falls to a relayed connection whose budget is written down at 64 KiB **each way** and tested on the relayed path — so no design assumes twice the room it has
 **Mode:** mvp
 **Depends on**: Phase 32 (the relay), Phase 33 (three regions to shard against)
 **Requirements**: NET-12, NET-13
@@ -2330,7 +2365,8 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
 **Plans**: TBD
 
 ### Phase 35: Conditions of Entry in the Browser
-**Goal**: A visitor sees what will run, what leaves their device and what it costs before anything is fetched; knows the tab is computing even when it is not the tab they are looking at; and can stop it in a way that drops CPU to zero and closes the socket the operator is billed for
+**Goal**: As a browser visitor, I want to see what will run, what leaves my device and what it costs before anything is fetched, to know the tab is computing even when it is not the tab I am looking at, and to stop it in a way that drops CPU to zero and closes the socket the operator is billed for, so that my machine is never working for someone else without my informed and revocable consent.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A visitor sees what will run, what leaves their device and what it costs before anything is fetched; knows the tab is computing even when it is not the tab they are looking at; and can stop it in a way that drops CPU to zero and closes the socket the operator is billed for
 **Mode:** mvp
 **Depends on**: Phase 29 (a hosted tier for a tab to hold a socket to). Ahead of Phase 39, which gates on this phase's five requirements
 **Requirements**: BROW-06, BROW-07, BROW-08, BROW-09, BROW-10
@@ -2344,7 +2380,9 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
 **Plans**: TBD
 
 ### Phase 36: The Kill Switch and a Status Page
-**Goal**: The cohort can be told to stop admitting new tasks with no redeploy, sliced by region and by client version rather than all at once, and a volunteer can see both that control and the fabric's state without being given operator access
+**Goal**: As a fabric operator, I want to tell the cohort to stop admitting new tasks with no redeploy, sliced by region and by client version rather than all at once, so that I can halt exactly the slice that is misbehaving instead of the whole fabric.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): The cohort can be told to stop admitting new tasks with no redeploy, sliced by region and by client version rather than all at once, and a volunteer can see both that control and the fabric's state without being given operator access
+**What the user-story form did not carry:** The original's closing clause — *a volunteer can see both that control and the fabric's state without being given operator access* — is a volunteer's capability, a second actor the operator's story cannot speak for; it survives only in the original wording above and in this phase's success criteria.
 **Mode:** mvp
 **Depends on**: Phase 35 (a node in a tab that can be stopped), Phase 31 (records the status page reads)
 **Requirements**: RUN-02, RUN-03
@@ -2357,7 +2395,8 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
 **Plans**: TBD
 
 ### Phase 37: The Six-Stage Funnel and a Frozen Telemetry Schema
-**Goal**: Every visitor's progress from page load to first task executed is counted at six named stages and reporting live before anyone is recruited, on a schema designed backward from exactly three questions, frozen before recruitment, aggregate-only, and discarding raw IP at collection
+**Goal**: As the project owner, I want every visitor's progress from page load to first task executed counted at six named stages and reporting live before anyone is recruited, on a schema designed backward from exactly three questions, frozen before recruitment, aggregate-only, and discarding raw IP at collection, so that I can see where the funnel leaks without holding data about who leaked out of it.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): Every visitor's progress from page load to first task executed is counted at six named stages and reporting live before anyone is recruited, on a schema designed backward from exactly three questions, frozen before recruitment, aggregate-only, and discarding raw IP at collection
 **Mode:** mvp
 **Depends on**: Phase 35 (consent, which is where stage two is), Phase 32 (a relay, which is where stage four's classification comes from)
 **Requirements**: RUN-04, RUN-05
@@ -2371,7 +2410,8 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
 **Plans**: TBD
 
 ### Phase 38: Reaching the Cohort — Telegram's WebView and What the Copy Promises
-**Goal**: A visitor arriving from a Telegram message lands somewhere that works, and the copy that brought them there promises exactly what the licensing ruling will still support a year later — with the contribution posture written down before the first outside pull request arrives
+**Goal**: As a browser visitor arriving from a Telegram message, I want to land somewhere that works, with the copy that brought me there promising exactly what the licensing ruling will still support a year later, so that what I was promised is what I actually get — with the contribution posture written down before the first outside pull request arrives.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): A visitor arriving from a Telegram message lands somewhere that works, and the copy that brought them there promises exactly what the licensing ruling will still support a year later — with the contribution posture written down before the first outside pull request arrives
 **Mode:** mvp
 **Depends on**: Phase 35 (the page the link opens)
 **Requirements**: RUN-06, DEMO-05, DEMO-06
@@ -2385,7 +2425,8 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
 **Plans**: TBD
 
 ### Phase 39: The Public Run
-**Goal**: The first invite goes out only after seven conditions hold on a dated checklist with named evidence for each; invites go out in stages by region and by cohort slice with the funnel read between them; and the fabric's headline claim is finally measured on hundreds of independently-owned devices
+**Goal**: As the project owner, I want the first invite to go out only after seven conditions hold on a dated checklist with named evidence for each, and invites to go out in stages by region and by cohort slice with the funnel read between them, so that the fabric's headline claim is finally measured on hundreds of independently-owned devices rather than asserted.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): The first invite goes out only after seven conditions hold on a dated checklist with named evidence for each; invites go out in stages by region and by cohort slice with the funnel read between them; and the fabric's headline claim is finally measured on hundreds of independently-owned devices
 **Mode:** mvp
 **Depends on**: **Phases 35, 36, 37 and 38 — all four**, because criterion 1 is a gate over their outputs and not a summary of them. Also Phase 33 (three regions) and Phase 34 (both fallback rungs verified before the cohort arrives)
 **Requirements**: RUN-01, RUN-07, BENCH-06 (carried from Phase 8)
@@ -2399,7 +2440,8 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
 **Plans**: TBD
 
 ### Phase 40: The Numbers Only the Run Can Produce
-**Goal**: Two figures that did not exist before this milestone are published under the discipline the `BENCH-` family already carries — the WebRTC connection-failure rate segmented by country and by network class, and a diurnal churn curve per region
+**Goal**: As the project owner, I want two figures that did not exist before this milestone published under the discipline the `BENCH-` family already carries — the WebRTC connection-failure rate segmented by country and by network class, and a diurnal churn curve per region — so that the two measurements only a real public run can produce are on the record.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): Two figures that did not exist before this milestone are published under the discipline the `BENCH-` family already carries — the WebRTC connection-failure rate segmented by country and by network class, and a diurnal churn curve per region
 **Mode:** mvp
 **Depends on**: Phase 39 (the run), Phase 37 (the funnel that supplies the denominator)
 **Requirements**: BENCH-08, BENCH-09
@@ -2412,7 +2454,8 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
 **Plans**: TBD
 
 ### Phase 41: Cross-Host Determinism for the AOT Track
-**Goal**: The elfconv track's two open cross-host questions are answered by running them on two distinct machines — or reported unanswered with the blocker named — rather than carried for another milestone as a word that reads like a hardware wall and is not one
+**Goal**: As a publisher of signed artifacts, I want the elfconv track's two open cross-host questions answered by running them on two distinct machines — or reported unanswered with the blocker named — so that I know whether a lifted artifact reproduces across hosts, rather than carrying the question for another milestone as a word that reads like a hardware wall and is not one.
+**The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): The elfconv track's two open cross-host questions are answered by running them on two distinct machines — or reported unanswered with the blocker named — rather than carried for another milestone as a word that reads like a hardware wall and is not one
 **Mode:** mvp
 **Depends on**: **Nothing in this milestone.** A parallel track with a different skill surface, runnable alongside Phases 29-40. The hosted tier does not help it: both ids need execution across two hosts, and execution is exactly what a Worker refuses by ruling
 **Requirements**: AOT-03 (carried from Phase 10), AOTW-06 (carried from Phase 26)
