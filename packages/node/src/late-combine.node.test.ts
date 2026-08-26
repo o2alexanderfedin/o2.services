@@ -1206,14 +1206,54 @@ describe('MR-04 — a paused process answers after the request that asked for it
     // `ce34171`'s two discriminators are downstream of this line and are never reached when
     // it fires, which is why the rule has to be stated again here rather than inherited.
     const timedOut = cold.filter((sample) => sample.product === null)
-    if (timedOut.length === cold.length && hostStarved) {
+    // **AMENDED 2026-08-26, and it is the `&&`->`||` finding of the same night in a second
+    // place: the assertion below is STRICTER THAN ITS OWN STATED REASON.** The reason it gives
+    // is that *"a floor taken over the survivors would be the one case where it must not be
+    // taken"* — a claim about BIAS. But the floor is `coldSpans[0]`, the MINIMUM, and a
+    // censored sample sits at `RPC_TIMEOUT_MS` by construction, which is the top of the
+    // distribution. A censored slow sample therefore cannot be the minimum and cannot move the
+    // floor. What it can do is say the host could not complete one combine inside the budget,
+    // which is a reading of the machine.
+    //
+    // Observed on a whole-lane run the same night: ONE of six censored, the case red, and the
+    // reading it produced was about the laptop. So the three states are separated by what each
+    // actually threatens:
+    //
+    // - **not starved, any censored** — a healthy host that cannot complete a cold combine
+    //   inside the budget IS the defect. Falls through and fails, unchanged.
+    // - **starved, ALL censored** — no floor exists at all, so nothing downstream can be
+    //   computed. Skipped, as it has been since this discriminator landed.
+    // - **starved, SOME censored** — a floor exists, is the fastest surviving combine, and is
+    //   unaffected by the censoring for the reason above. Proceeds, and says so out loud so a
+    //   run that leaned on this is not silent about it.
+    // **And the FIRST sample must be one of the survivors, which a plant found rather than a
+    // reading.** `cold[0]` is `task` on the understudy — the specific pair the two assertions
+    // below are about, `first.executorId` and the CID equality. Censoring it leaves those with
+    // no subject at all, and the case failed at `expect(healthyProduct).not.toBeNull()` with
+    // *"expected null not to be null"* — a message that names neither the censoring nor the
+    // host. So a run whose first sample was the one that timed out is in the same position as
+    // one where every sample did: unmeasurable, not defective.
+    const firstSurvived = cold[0]?.product != null
+    const censoringExcused =
+      timedOut.length > 0 && timedOut.length < cold.length && hostStarved && firstSurvived
+    if (censoringExcused) {
+      process.stdout.write(
+        `[criterion 6 / partial censoring] ${timedOut.length} of ${cold.length} cold combines ` +
+          `hit the ${RPC_TIMEOUT_MS}ms budget on a starved host — standUp ` +
+          `${Math.round(standUpMs)}ms (solo ~${SOLO_STAND_UP_MS}), map ${Math.round(mapMs)}ms ` +
+          `(solo ~${SOLO_MAP_MS}). The floor is the FASTEST surviving combine and a censored ` +
+          `sample sits at the budget by construction, so the censoring cannot have moved it. ` +
+          `Proceeding on ${cold.length - timedOut.length} survivors.\n`,
+      )
+    } else if (timedOut.length > 0 && !firstSurvived && hostStarved) {
       // `process.stdout.write`, not `console.log` and not `ctx.skip(note)` — measured on
       // vitest 4.1.10, and the reason is written out at the MR-04 discriminator below.
       process.stdout.write(
-        `[criterion 6 / no baseline] every one of the ${cold.length} cold combines hit the ` +
-          `${RPC_TIMEOUT_MS}ms budget — spans ` +
+        `[criterion 6 / no baseline] ${timedOut.length} of ${cold.length} cold combines hit the ` +
+          `${RPC_TIMEOUT_MS}ms budget, INCLUDING the first — spans ` +
           `${cold.map((sample) => Math.round(sample.ms)).join(', ')}ms — so this run holds no ` +
-          `unpaused baseline for a paused combine to be late relative to. The host reading ` +
+          `unpaused baseline for a paused combine to be late relative to, and the first sample ` +
+          `is the one the CID comparison below is about. The host reading ` +
           `agrees and is what separates this from a broken combine path: standUp ` +
           `${Math.round(standUpMs)}ms (solo ~${SOLO_STAND_UP_MS}), map ${Math.round(mapMs)}ms ` +
           `(solo ~${SOLO_MAP_MS}). Re-run this file alone; the samples complete there. This ` +
@@ -1221,11 +1261,26 @@ describe('MR-04 — a paused process answers after the request that asked for it
       )
       ctx.skip()
     }
-    // Byte-identical to what it was: what changed is when it is reached. A partly-censored
-    // sample still fails here, and so does a wholly-censored one on a host that is not
-    // starved.
-    expect(cold.filter((sample) => sample.product === null)).toEqual([])
-    const coldSpans = [...cold.map((sample) => sample.ms)].sort((a, b) => a - b)
+    // **One assertion over the disjunction, not a bare `if` around the old one.** A guard
+    // wrapped in a condition is a guard that can go quiet; written this way the excused case is
+    // inside what is asserted, so a change that made `censoringExcused` true unconditionally
+    // reddens the anti-vacuity case below rather than emptying this line. On a fully-green run
+    // `censoringExcused` is false and `timedOut` is empty, so this demands exactly what the
+    // original `toEqual([])` demanded.
+    expect(
+      censoringExcused || timedOut.length === 0,
+      `${timedOut.length} of ${cold.length} cold combines hit the ${RPC_TIMEOUT_MS}ms budget ` +
+        `on a host this file does not read as starved — standUp ${Math.round(standUpMs)}ms ` +
+        `(solo ~${SOLO_STAND_UP_MS}), map ${Math.round(mapMs)}ms (solo ~${SOLO_MAP_MS}). An ` +
+        'unpaused combine that cannot finish inside the budget on a healthy machine is the ' +
+        'defect, not the machine.',
+    ).toBe(true)
+    // Over the SURVIVORS, which on a fully-green run is every sample and is byte-identical to
+    // what this line always computed. On the partially-censored path above it is what makes
+    // the floor the fastest *completed* combine rather than including a timeout's elapsed.
+    const coldSpans = [...cold.filter((sample) => sample.product !== null).map((sample) => sample.ms)].sort(
+      (a, b) => a - b,
+    )
     const healthyCombineMs = coldSpans[0] as number
 
     // The first sample is `task` on the understudy — the pair the two assertions below
