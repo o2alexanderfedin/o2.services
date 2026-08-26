@@ -693,8 +693,29 @@ describe('each edge class is load-bearing — one ablation per class', () => {
       const id = nodeId(relativeToRoot(one.declaredIn), one.name)
       if (reachedOn.has(id) && !reachedOff.has(id)) lost.push(`${one.barrel}/${one.name}`)
     }
+    // ## Four became six on 2026-08-26, and the two that arrived came in by a THIRD door
+    //
+    // `libp2p/holdsReservations` and `libp2p/reservedPeerIds` were a private helper and an
+    // inline body in `fabric-node.ts` until the hosted tier needed the same answer; they moved
+    // to `@o2/libp2p` so the two tiers cannot answer `{kind:'reservations'}` differently.
+    //
+    // **Their call sites are plain calls by name, which the reference class covers — and they
+    // are lost anyway.** The reason is one level up: every one of those calls is inside a
+    // `FabricNode` GETTER — `get relays` (:3337), `get capacity` (:3369) and `get reservedPeerIds`
+    // (:3408), each confirmed by reading the nearest enclosing member above the call — and a
+    // getter is reached only by being read. Take member edges away and the getters are
+    // unreachable, so their bodies never run and nothing they call is reached. The two above
+    // are lost at their own call site; these two are lost at their caller's.
+    //
+    // They were not on this list before the move for a reason that is bookkeeping rather than
+    // behaviour: this list walks callable BARREL EXPORTS, and a private module-local function
+    // is not one. Promoting a helper to a shared export is what puts it in the corpus, so the
+    // list growing here is the cost of the deduplication being visible — which is the shape
+    // this case exists to make visible.
     expect(lost.toSorted()).toStrictEqual([
+      'libp2p/holdsReservations',
       'libp2p/publishRecords',
+      'libp2p/reservedPeerIds',
       'net/encodeNodeRecords',
       'node/lanAddresses',
       'node/localHostname',

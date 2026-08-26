@@ -105,6 +105,11 @@ export type {
   RecordVerifier,
 } from './dht-record-index.ts'
 
+// One definition of "who holds a reservation here", so the Node tier and the hosted tier
+// cannot answer `{kind:'reservations'}` differently.
+export { holdsReservations, reservedPeerIds } from './relay-reservations.ts'
+export type { ReservationHolder, ReservationStore } from './relay-reservations.ts'
+
 // The storage half of the expiry ruling — the read path already refuses an expired record,
 // but nothing removes it, and on a Durable Object nothing is ever discarded either.
 export {
