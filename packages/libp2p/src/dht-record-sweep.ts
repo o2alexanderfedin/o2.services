@@ -29,6 +29,34 @@
  * routes every DHT-sourced record through it. A record this sweep has not yet reached is
  * already unusable; what it cannot be is *unstored*. So this module bounds bytes, not truth.
  *
+ * ## What this unblocks, stated as code rather than as a plan
+ *
+ * `DoDatastore` today **refuses** both of the prefixes this module walks —
+ * `REFUSED_NAMESPACE` is `{dhtDatastore: '/dht/', fabricKeyspace: '/o2/'}`
+ * (`packages/cloudflare/src/do-datastore.ts:17-22`) — and its own header gives the reason:
+ * *"until it does, a hosted object that accepted DHT records would accumulate them with
+ * nothing ever deleting one."* So the hosted tier cannot run a DHT at all while that refusal
+ * stands, and the refusal's stated precondition is this file.
+ *
+ * **It is only half satisfied by this file, and the other half is why the assembly and the
+ * alarm are one deliverable rather than two.** A sweep nothing calls deletes nothing. The
+ * refusal may be lifted when `expiry-alarm.ts` calls {@link sweepDhtRecords} from `alarm()`
+ * — not when this module exists. That is `ARCHITECTURE.md:510-517`'s *"no safe intermediate
+ * state where 6 exists alone"* arriving as a value check in a different package, which is a
+ * stronger form of the same claim than the document makes for itself.
+ *
+ * ## Deleting while iterating is safe, and it is safe structurally
+ *
+ * The walk below deletes inside `for await (… of datastore.query(…))`. That is a cursor
+ * hazard in general — a delete can invalidate a streaming listing and silently skip entries,
+ * which here would present as clean counts over an unbounded store, the exact failure this
+ * module exists to prevent. It does not arise on any store this fabric uses, and for one
+ * reason in all three: **the listing is materialised before the first yield.**
+ * `DoDatastore.#pairs` iterates `await this.#storage.list(...)`, a Map
+ * (`do-datastore.ts:385-398`); `FsDatastore.#pairs` iterates `readdirSync`, an array; and
+ * `MemoryDatastore` holds a Map. Recorded here rather than assumed, because a future store
+ * that paginates lazily would break this walk without failing a single case above.
+ *
  * Nothing here is Cloudflare-specific and nothing here schedules itself. It is a pure walk
  * over an `interface-datastore` with an injected clock, which is what makes it provable in
  * `--project node` against a real store with no deployment in existence — the split
