@@ -1115,11 +1115,43 @@ describe('MR-04 — a paused process answers after the request that asked for it
     // and in the header table. The 2× gate is a judgement and is deliberately loose: at 1×
     // ordinary jitter would suppress the case, and the observed starved run was 3.0× on
     // standUp and 56× on map, so nothing near the boundary was being decided.
+    //
+    // **CORRECTED 2026-08-25 — the conjunction was `&&` and the rule this file states is an
+    // OR. NO CONSTANT MOVES.** Quoted from the failure message a hundred lines below, which
+    // has always been the specification: *"ALL THREE inflated together is a starved host …
+    // A floor that has moved **while standUp and map have NOT** is the combine."* The defect
+    // case requires BOTH of them near 1×, so the host case is the negation of that — **at
+    // least one has moved** — and `&&` demanded both. `&&` is therefore stricter than the
+    // rule it implements, and the gap is not theoretical: a whole-lane run on 2026-08-25
+    // read standUp **1.89×**, map **4.29×**, floor **8.74×** and did not skip, because
+    // standUp missed the gate by 144 ms while map was four times over it.
+    //
+    // **Measured before changing it, five SOLO runs on a quiet host**, because an `||` is
+    // only safe if neither term reaches the gate on its own by ordinary jitter:
+    //
+    // | run | standUp | ×    | map   | ×    | floor |
+    // |-----|---------|------|-------|------|-------|
+    // | 1   | 1758 ms | 1.32 | 360ms | 1.31 | 27 ms |
+    // | 2   | 1320 ms | 0.99 | 262ms | 0.96 | 24 ms |
+    // | 3   | 1353 ms | 1.02 | 268ms | 0.98 | 21 ms |
+    // | 4   | 1170 ms | 0.88 | 268ms | 0.98 | 24 ms |
+    // | 5   | 1393 ms | 1.05 | 278ms | 1.01 | 22 ms |
+    //
+    // Solo maxima are 1.32× and 1.31×, so the 2× gate keeps 51% headroom over the worst
+    // quiet reading on either term and no single-reading blip reaches it. And the reason
+    // `&&` looked reasonable is visible in the same table: **standUp is a poor starvation
+    // instrument.** Its quiet spread is 1.50× end to end while starvation moved it only
+    // 1.89× and 3.0× on the two runs ever observed — the two ranges nearly touch. `map`
+    // separates cleanly: quiet ≤1.31×, starved 4.29× and 56×.
+    //
+    // The skip still cannot fire on this alone: `budgetUnreachable` must ALSO hold, which
+    // means the floor itself blew past the budget. A genuine combine regression on a quiet
+    // host leaves standUp and map at ~1×, both terms false, and the assertion runs.
     const SOLO_STAND_UP_MS = 1331
     const SOLO_MAP_MS = 274
     const STARVED_RATIO = 2
     const hostStarved =
-      standUpMs > SOLO_STAND_UP_MS * STARVED_RATIO && mapMs > SOLO_MAP_MS * STARVED_RATIO
+      standUpMs > SOLO_STAND_UP_MS * STARVED_RATIO || mapMs > SOLO_MAP_MS * STARVED_RATIO
 
     const tree = await deriveTree(job, submitter.store)
     // A tree, not a one-level merge: two level-1 combines and a root above them.
@@ -1235,7 +1267,7 @@ describe('MR-04 — a paused process answers after the request that asked for it
     // Printed rather than only asserted, so the reading is available on every run instead
     // of surviving as a note somebody took once — `capability-dispatch.node.test.ts`'s
     // precedent, for the same reason.
-    console.log(
+    process.stdout.write(
       `[criterion 6 / arrival] standUp ${Math.round(standUpMs)}ms, map ${Math.round(mapMs)}ms, ` +
         `exec dispatches [${execSpans.map((ms) => Math.round(ms)).join(',')}]ms ` +
         `slowest ${Math.round(slowestExecMs)}ms of ${MAP_RPC_TIMEOUT_MS}, ` +
@@ -1246,7 +1278,7 @@ describe('MR-04 — a paused process answers after the request that asked for it
         `against rpcTimeoutMs ${RPC_TIMEOUT_MS}, pause ${Math.round(pauseMs)}ms, ` +
         `late replies ${late.length} at +${late.map((f) => Math.round(f.atMs - timedOutAt)).join(',')}ms, ` +
         `send window ${Math.round(sendWindowMs)}ms of ${DEFAULT_SEND_TIMEOUT_MS}, ` +
-        `frames from the paused peer [${fromVictim.map((f) => String(f.kind)).join(',')}]`,
+        `frames from the paused peer [${fromVictim.map((f) => String(f.kind)).join(',')}]\n`,
     )
 
     // A zero here used to be reported as *"the stream did not survive the pause"* and the
