@@ -529,6 +529,41 @@ Nothing was ticked. `.planning/REQUIREMENTS.md` lines 232-243 are left exactly a
 | MR-06 | **Established for the aggregation path only** | Criterion 2's SIGKILL evidence above. Same demo-half deferral. |
 | MR-07 | **Partially established** | Dedupe measured; "arriving late" not expressible — see criterion 3. Same demo-half deferral. |
 
+**Note on MR-02, added 2026-08-25 — a three-way disagreement that turns out to be about
+wording rather than about facts.** Three documents appear to contradict each other on this
+row: the table above says **NOT established**; `.planning/REQUIREMENTS.md:614` carries
+`- [x] **MR-02**`; and REQUIREMENTS.md's own history (`:100`) records *"`MR-02` closed again
+on 2026-08-19, over a different call site — `bin/agent.ts`'s sovereign coordinator leg,
+which is `reduceSovereignJob`'s second production caller and the first with no flag in front
+of it."*
+
+**Nothing here is wrong and nothing needs to change.** The two statements are about different
+subjects, and the table's own reason says so if it is read closely: *"No partial **in this
+phase** was computed over an owner's own data."* That is a verdict on Phase 16's work. The
+requirement closed later, on a call site Phase 16 did not build and could not have read. A
+phase verification is a reading taken on its own date about its own phase; it does not become
+false when a later phase closes the row, and rewriting it to agree would destroy the record of
+what this phase did and did not establish.
+
+**What IS worth recording is the sequence, because the row moved four times and the shape is
+easy to misread as churn**: wired 2026-08-14 (`bin/bench.ts --sovereign`), unticked 2026-08-18
+under the owner's flag ruling of 2026-08-15 (*"It must work with no flag"*), closed again
+2026-08-19 over `bin/agent.ts`'s flagless leg. The untick was never a regression in the code —
+nothing was removed — it was the standard for *shipped* being tightened. This file's frontmatter
+was amended on that same 2026-08-19 for its `gaps:` entries and this table was left as written,
+which is why the disagreement looked live for six days.
+
+**The table's citation of `acceptance-traceability.node.test.ts` is also stale, and it was
+checked rather than assumed.** The row above says that spec *"spot-checks MR-02 as **open**;
+ticking it would turn `develop` red"*. It no longer does. The spec's own comment records the
+change on the day it happened: *"`MR-02` stood on this line until 2026-08-19 and it is
+REPLACED rather than flipped … `NET-03` takes its place and is a better anchor than the id it
+replaces: it is one of the three rows that have been `[ ]` in **every** revision of the
+ledger, so it will not quietly close underneath this line the way `MR-02` did."* The line now
+reads `expect(locate('NET-03')?.satisfied).toBe(false)`. So the danger the table names —
+ticking MR-02 turning the tree red — was real when written and was retired by the same
+2026-08-19 work that closed the row. Nothing is left to do about it here.
+
 **Note on MR-03's wording (INFO, pre-existing, not this phase's to fix):**
 REQUIREMENTS.md:234-235 says *"associative, **commutative** combine"*. No production
 source in `packages/*/src` makes a commutativity claim — I grepped, zero matches — and
