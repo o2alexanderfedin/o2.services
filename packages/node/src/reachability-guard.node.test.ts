@@ -529,10 +529,14 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(
       found.length,
-      `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-18 was 66. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
-        `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
-        'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
+      `the guard found ${found.length} unreachable callable barrel exports against a bound of ` +
+        `${UNREACHABLE_CEILING}. A HIGHER number means a new exported-but-uncalled symbol ` +
+        'arrived — run the guard and read the list. A LOWER number is wiring work landing and ' +
+        "the bound should be lowered to match it, which is 22-03's register rather than an edit " +
+        'here. **The bound is named once and read here, as of 2026-08-26.** This sentence used ' +
+        "to carry the literal `66` while the assertion below read `74`: the number was written " +
+        'twice, the two drifted apart across four raises, and every one of those runs printed a ' +
+        'bound that was not the one being applied.',
       // **RAISED 66 -> 67 on 2026-08-20, and the raise is one symbol with a named cause.**
       // AUTH-03's browser half landed: `browser/chainsForOwner` is called only from
       // `demo/main.ts`'s `sovereignChainsFor`, which this graph reaches solely through the
@@ -575,7 +579,28 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // lands the store has no caller for a reason that is scheduled rather than unscoped. So
       // this raise is expected to be REVERSED by wiring within the milestone, not carried; if
       // Phase 29 closes with these three still here, that is a finding about the phase.
-    ).toBeLessThanOrEqual(74)
+      // 2026-08-26: 74 -> 80. Six rows, all in `packages/cloudflare/src/`, all named in
+      // `OPEN_FINDINGS` above: `HostedNode`, `hostedIdentity`, `loadOrCreateHostedSeed`,
+      // `MalformedStoredSeedError`, `stubFor`, `UnknownHostedObjectNameError`. Raised by
+      // exactly the six that arrived, so the bound still cannot absorb a seventh silently.
+      //
+      // **THE RAISE ABOVE PREDICTED A REVERSAL AND GOT AN INCREASE, AND THAT IS THE READING
+      // TO TAKE, NOT A NUMBER TO SMOOTH.** The 2026-08-25 note says the three `do-datastore.ts`
+      // rows *"are expected to be REVERSED by wiring within the milestone"* and that *"if Phase
+      // 29 closes with these three still here, that is a finding about the phase."* The wiring
+      // those rows named — *"a Durable Object class constructing `DoDatastore` over its own
+      // `state.storage`"* — landed on 2026-08-26 and the three did not move. The reason is in
+      // the second half of that same row's sentence, which was written before the wiring and
+      // held: *"it closes when the node deploys and dials."* Nothing deploys. Phase 29 criteria
+      // 1 and 2 are owner acts at the Cloudflare boundary by owner ruling of 2026-08-25, and
+      // the assembly's own symbols joined the register for exactly the reason the store's did.
+      //
+      // **Why they are not dispositioned instead**, which would have kept this number at 74:
+      // a `DISPOSITIONS` cause says a symbol has a real production caller behind a hop the
+      // tracer cannot follow, and `global-object-hop`'s symbols do — the demo page runs. These
+      // have a caller in `worker.ts` that NOTHING INVOKES, because nothing is deployed. Moving
+      // them would have made this number look like wiring and read like progress.
+    ).toBeLessThanOrEqual(UNREACHABLE_CEILING)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
@@ -1333,6 +1358,17 @@ interface OpenFinding {
  * was re-caused, and the count did not move: what changed is that each of them now has to be
  * written down, and symbol #25 arrives red and named instead of arriving under a bound.
  */
+/**
+ * The bound the unreachable count is held under — named ONCE and read in both places.
+ *
+ * It was a literal in the assertion and a different literal in that assertion's own message,
+ * and across four raises the two drifted to `74` and `66`. Every run in between printed a
+ * bound that was not the one being applied. The register above is what actually holds these
+ * symbols; this number exists so a seventh arrival cannot slip in under a bound that was
+ * sized for six.
+ */
+const UNREACHABLE_CEILING = 80
+
 const OPEN_FINDINGS: readonly OpenFinding[] = [
   {
     key: 'cloudflare/DoDatastore',
@@ -1354,7 +1390,16 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       'separate stream. The nameable wiring that closes this row is exactly that — a Durable ' +
       'Object class constructing `DoDatastore` over its own `state.storage` and handing it to ' +
       'the node factory. This must not be closed by exporting a caller; it closes when the ' +
-      'node deploys and dials.',
+      'node deploys and dials. ' +
+      '**THE NAMED WIRING LANDED 2026-08-26 AND THE ROW STAYS OPEN, which is the sentence ' +
+      'above doing its job rather than an oversight.** `HostedNode` constructs this store over ' +
+      "a Durable Object's `state.storage` and `BootstrapObject` constructs `HostedNode` — " +
+      'exactly the wiring this row demanded. What has NOT happened is the second half of the ' +
+      'same sentence: nothing deploys and nothing dials, because Phase 29 criteria 1 and 2 are ' +
+      'owner acts at the Cloudflare boundary by ruling. Moving this row to `DISPOSITIONS` on ' +
+      'the strength of a source-level caller would be closing it by exporting a caller, which ' +
+      'is the one repair this row forbids in advance. The six symbols the assembly added are ' +
+      'below, in the same position and for the same reason.',
   },
   {
     key: 'cloudflare/RecordShapedKeyRefusedError',
@@ -1381,6 +1426,80 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       'its reads through a caller-chosen generic, which is an assertion wearing a type ' +
       'parameter — so the value is PROVED to be bytes at runtime instead of being declared to ' +
       'be. Same thrower and same closing condition as the two rows above.',
+  },
+  {
+    key: 'cloudflare/HostedNode',
+    declaredIn: 'packages/cloudflare/src/hosted-object.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Phase 29 criteria 2 and 3, landed 2026-08-26 — the assembly the three rows above named ' +
+      'as their closing condition. It constructs `DoDatastore` over a Durable Object\'s own ' +
+      'storage and derives the node identity from a seed persisted in it. Its caller is ' +
+      '`BootstrapObject`, the deployed Durable Object class in `worker.ts`, which is an ENTRY ' +
+      'POINT of this walk as of the same day. It is still unreachable for a reason the walk is ' +
+      'right about: the Workers runtime invokes the class and the default export, and no call ' +
+      'expression in this repository does — the same shape as `global-object-hop`, and the ' +
+      'reason that cause exists. It is NOT dispositioned under a mechanism, because those ' +
+      'symbols have a caller that RUNS and these do not: nothing deploys yet. The row closes ' +
+      'when the object is deployed, which is an owner act by ruling.',
+  },
+  {
+    key: 'cloudflare/hostedIdentity',
+    declaredIn: 'packages/cloudflare/src/hosted-identity.ts',
+    callers: 'unreachable-only',
+    reason:
+      "The hosted node's identity, derived from a seed persisted in Durable Object storage. " +
+      'Called by `HostedNode.identity`, which is stranded for the reason in the row above. It ' +
+      'is what makes criterion 2 possible at all: a plain Worker returned THREE DIFFERENT ' +
+      'PeerIds to three consecutive requests because each landed in a fresh isolate, and an ' +
+      'address derived from a key that changes per restart is an address nobody can publish. ' +
+      'Same closing condition as `HostedNode`.',
+  },
+  {
+    key: 'cloudflare/loadOrCreateHostedSeed',
+    declaredIn: 'packages/cloudflare/src/hosted-identity.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The load-or-mint half of the identity, one hop behind `hostedIdentity`. Separate from ' +
+      'it because the SEED is what has to survive an eviction and the derivation is pure — ' +
+      'the same split `packages/node/src/identity-store.ts` makes between `loadOrCreateSeed` ' +
+      'and `identityFromSeed`. Same closing condition.',
+  },
+  {
+    key: 'cloudflare/MalformedStoredSeedError',
+    declaredIn: 'packages/cloudflare/src/hosted-identity.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Raised when the stored seed is not exactly 32 bytes. It is a named typed outcome ' +
+      'rather than a silent re-mint because the silent behaviour is the dangerous one: a ' +
+      'short read reinterpreted as a new identity drops the node out of every peer\'s ' +
+      'verified set and out of every bootstrap list naming it, with nothing reporting why. ' +
+      'Thrown inside `loadOrCreateHostedSeed`, so it is stranded with it. Proved able to ' +
+      'fail: `hosted-identity.test.ts` asserts the rejection and asserts that the malformed ' +
+      'bytes are still in the store afterwards.',
+  },
+  {
+    key: 'cloudflare/stubFor',
+    declaredIn: 'packages/cloudflare/src/hosted-object.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Phase 29 criteria 4 and 6 — THE one call site in this repository that may obtain a ' +
+      "Durable Object stub. An object's location is fixed by its very first `get()` and never " +
+      'changes, so a second call site would site an object permanently and the only repair is ' +
+      'a new name. Its only caller is the default export of `worker.ts`, invoked by the ' +
+      'Workers runtime and by nothing in this tree. Same closing condition.',
+  },
+  {
+    key: 'cloudflare/UnknownHostedObjectNameError',
+    declaredIn: 'packages/cloudflare/src/hosted-object.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The refusal `stubFor` raises for a name outside the closed enumeration — criterion 6. ' +
+      'The runtime check is not redundant beside the type: a name that arrived from a request ' +
+      'is a `string`, the type is erased at exactly that boundary, and only a value check can ' +
+      'refuse it. Thrown inside `stubFor` and stranded with it. Proved able to fail: deleting ' +
+      "the check turns `hosted-identity.test.ts`'s undeclared-name case red, and that case " +
+      'asserts NOTHING WAS SITED rather than only that a throw happened.',
   },
   {
     key: 'core/keyCommitment',

@@ -249,10 +249,16 @@ describe('the corpus: every callable export the eight barrels publish', () => {
     expect(homeless).toEqual([])
   }, GRAPH_TIMEOUT_MS)
 
-  it('names five entry-point modules that exist on disk', () => {
+  it('names six entry-point modules that exist on disk', () => {
     // Task 2 roots its graph here. A typo in one of these paths would silently remove a root
     // and turn a large part of the tree unreachable, which reads exactly like a real finding.
-    expect(ENTRY_POINTS.length).toBe(5)
+    //
+    // **5 -> 6 on 2026-08-26**, `packages/cloudflare/src/worker.ts`, Phase 29's hosted tier.
+    // Added under the rule `reachability.ts` states for the three runnable modules it leaves
+    // OUT — they are defensible because *"adding them changes no barrel verdict"* — which is
+    // false for the Worker: it is the only caller `@o2/cloudflare`'s barrel has. The count is
+    // asserted rather than derived so that a sixth arriving by accident is as loud as a typo.
+    expect(ENTRY_POINTS.length).toBe(6)
     for (const entry of ENTRY_POINTS) {
       expect(existsSync(join(ROOT, entry)), `${entry} is named as an entry point but is not on disk`).toBe(true)
     }
@@ -465,7 +471,7 @@ describe('the call graph: a path through functions, not through modules', () => 
     expect(built.files.length).toBeGreaterThanOrEqual(FILE_FLOOR)
     expect(built.nodes.size).toBeGreaterThanOrEqual(NODE_FLOOR)
     expect(built.calls.size).toBeGreaterThanOrEqual(CALLER_FLOOR)
-    expect(built.roots.length).toBe(5)
+    expect(built.roots.length).toBe(6) // 5 -> 6 on 2026-08-26; see the entry-point case above
     // Specs are outside the graph on purpose: a test calling something does not make it
     // entry-point reachable, and counting it would make this whole file vacuous.
     expect(built.files.filter((file) => file.endsWith('.test.ts'))).toEqual([])
@@ -571,7 +577,19 @@ describe('the call graph: a path through functions, not through modules', () => 
     // #verifyEd25519; `core/transport/memory.ts#peers`; `node/bin/bench.ts#acquire`;
     // `tools/aot/bench-lifted.ts` #fd_fdstat_get / #fd_write.
     const built = graph()
-    expect(built.collisions.length).toBeLessThanOrEqual(16)
+    // **16 -> 17 on 2026-08-26, and the seventeenth was ATTRIBUTED BY PLANT rather than by
+    // inspection.** `packages/cloudflare/src/worker.ts` declares `fetch` twice: once as the
+    // Durable Object class's request handler and once as the member of the module's default
+    // export. Renaming the class method to `fetchProbe` and re-running this case dropped the
+    // count back under 16, which is what says these two are the pair rather than something
+    // else that arrived the same day.
+    //
+    // **Neither name is ours to choose**, which is why this is the adapter shape the entries
+    // below describe and not an accident: the Workers module format names the default export's
+    // handler `fetch`, and a Durable Object's request handler is `fetch` as well. Renaming
+    // either to dodge this bound would distort a platform contract to please a guard — the
+    // objection this case's own history already records twice.
+    expect(built.collisions.length).toBeLessThanOrEqual(17)
     expect(built.collisions).toContain('packages/core/src/discovery.ts#providers')
     // The entries that moved the bound, pinned by name so a future raise cannot hide behind them.
     expect(built.collisions).toContain('packages/core/src/ed25519-backend.ts#signEd25519')
@@ -727,7 +745,12 @@ describe('each edge class is load-bearing — one ablation per class', () => {
     expect(reached.has('packages/demo/src/pi.ts#estimatePi')).toBe(false)
   }, ABLATION_TIMEOUT_MS)
 
-  it('THE FIVE-MODULE ENTRY SET NO LONGER HOLDS SILENTLY — it is now an owner question', () => {
+  it('THE ENTRY SET NO LONGER HOLDS SILENTLY — it is now an owner question, and it moved to six', () => {
+    // **Retitled 2026-08-26.** It read "THE FIVE-MODULE ENTRY SET" and the set is six. The
+    // case's subject never was the number — it is the DIFFERENCE between the declared set and
+    // a wider one, so that neither the count nor the membership can drift without saying so —
+    // and leaving "five" in the title while the array held six would have been this file
+    // asserting one thing and naming another.
     // 22-CONTEXT.md pinned this reading on 2026-08-04: adding the three runnable-but-unnamed
     // modules "gains 4 modules and ZERO exclusive callable barrel exports, so no verdict changes
     // today", and instructed that when it stopped being true the pin should redden and the entry
@@ -747,7 +770,9 @@ describe('each edge class is load-bearing — one ablation per class', () => {
         'tools/aot/measure-wasi.ts',
       ],
     })
-    expect(wider.roots.length).toBe(8)
+    // 8 -> 9 on 2026-08-26: `ENTRY_POINTS` gained `packages/cloudflare/src/worker.ts` and
+    // this graph is that set plus the same three runnable-but-absent modules.
+    expect(wider.roots.length).toBe(9)
 
     const reachedWide = reachableFrom(wider.calls, wider.roots)
     const reachedFive = reachableFrom(graph().calls, graph().roots)
