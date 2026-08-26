@@ -827,18 +827,86 @@ describe('criterion 2, bounded — a fabric with no free node, and the control t
     // `trustedIssuers`, never in the requestor's peer gate — is what makes a fourth
     // executor exist. Criterion 1's reading of the issuer gate is a different call
     // with a different set and is untouched by this one.
-    const found = await discoverCandidates(
-      { inputCid: fixture.inputCid },
-      {
-        rpc: requestor.rpc,
-        peers: () => requestor.transport.peers,
-        index: 'asks-connected-peers-only',
-        trustedIssuers: new Set([fixture.p.issuerKey as string, fixture.p2.issuerKey as string]),
-        now: () => Date.now(),
-        peerIdFor: peerIdForNodeKey,
-        dispatch: 'dispatches-unauthenticated' as const,
-      },
-    )
+    const discover = async (): Promise<Awaited<ReturnType<typeof discoverCandidates>>> =>
+      discoverCandidates(
+        { inputCid: fixture.inputCid },
+        {
+          rpc: requestor.rpc,
+          peers: () => requestor.transport.peers,
+          index: 'asks-connected-peers-only',
+          trustedIssuers: new Set([fixture.p.issuerKey as string, fixture.p2.issuerKey as string]),
+          now: () => Date.now(),
+          peerIdFor: peerIdForNodeKey,
+          dispatch: 'dispatches-unauthenticated' as const,
+        },
+      )
+
+    // ---- The roster, BY NAME, because the two short-count causes are opposites ------
+    //
+    // **Added 2026-08-25.** This read `expect(found.executors).toHaveLength(4)` and was
+    // observed failing at *"expected length 4, got 3"*. A count cannot be acted on here,
+    // because the two ways to be one short want opposite verdicts:
+    //
+    // - **E missing** is the ISSUER GATE. E differs from A, B and C in exactly one thing,
+    //   its issuer, and this call trusts P2 in its own `trustedIssuers`. E absent means a
+    //   node whose issuer was trusted was refused anyway — a real defect, and the one this
+    //   whole fixture exists to make visible. It must fail and it must say so.
+    // - **A, B or C missing** is the fixture not being ready. The `until` above waits for
+    //   the peer GATE to settle; nothing waits for a holder to finish ANNOUNCING itself as
+    //   a provider of the input block, which is a separate asynchronous settling. On a
+    //   loaded host one holder has not got there yet.
+    //
+    // **So this waits rather than skips, and that is the better answer of the two.** A
+    // skip on a short count would swallow the issuer-gate regression, which was the
+    // objection recorded against doing it that way. A bounded wait on the ROSTER is
+    // fail-closed instead: a holder that is merely late arrives and the case proceeds
+    // unchanged, while E — which is refused rather than late — never arrives, the wait
+    // spends its whole budget, and the failure NAMES E. `dht-registration`'s fix has the
+    // same shape: a wait whose condition finally says what its message always said.
+    // Keyed through `peerIdForNodeKey`, the SAME derivation the discovery call above is
+    // handed, so the two sides cannot disagree about what a node is called.
+    // `peerIdForNodeKey` is honestly typed `string | null`, so the null is handled rather
+    // than asserted away: a fixture agent whose key yields no peer id is a broken fixture
+    // and says so here, instead of becoming a silently absent roster entry that would read
+    // as the issuer gate refusing it.
+    const peerIdOf = (agent: Agent, name: string): string => {
+      const peerId = peerIdForNodeKey(agent.nodeKey)
+      if (peerId === null) {
+        throw new Error(`the fixture's ${name} has a node key no peer id derives from`)
+      }
+      return peerId
+    }
+    const roster: readonly (readonly [string, string])[] = [
+      ['a (issued by P)', peerIdOf(fixture.holders[0], 'a')],
+      ['b (issued by P)', peerIdOf(fixture.holders[1], 'b')],
+      ['c (issued by P)', peerIdOf(fixture.holders[2], 'c')],
+      ['e (issued by P2 — the issuer gate)', peerIdOf(fixture.foreign, 'e')],
+    ]
+    const missingFrom = (
+      result: Awaited<ReturnType<typeof discoverCandidates>>,
+    ): readonly string[] => {
+      const qualified = new Set(result.executors.map((executor) => executor.nodeId))
+      return roster.filter(([, peerId]) => !qualified.has(peerId)).map(([name]) => name)
+    }
+
+    let found = await discover()
+    const rosterDeadline = Date.now() + VERDICT_DEADLINE_MS
+    while (missingFrom(found).length > 0 && Date.now() < rosterDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      found = await discover()
+    }
+    // The exclusions are carried into the message because they are the only place that
+    // says WHY a node did not qualify, and the logs truncate the executor array — which
+    // is how the first recorded instance of this failure left the cause unrecoverable.
+    expect(
+      missingFrom(found),
+      `after ${VERDICT_DEADLINE_MS}ms of re-querying, the fixture's four executable ` +
+        `holders were not all discoverable. A node issued by P that is merely late will ` +
+        `have arrived by now; E is issued by P2 and is trusted BY THIS CALL, so E among ` +
+        `the missing is the issuer gate refusing a trusted issuer and is a defect rather ` +
+        `than a slow host. Providers considered: ${found.providers}. Excluded: ` +
+        `${found.excluded.map((exclusion) => exclusion.detail).join(' | ') || '(none)'}`,
+    ).toEqual([])
     expect(found.executors).toHaveLength(4)
     // Asserted rather than assumed, because it is the precondition the bound is read
     // against: a fabric no larger than the cap cannot tell the two exits apart.
