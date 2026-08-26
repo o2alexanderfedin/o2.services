@@ -1015,12 +1015,32 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
       .map((d) => (d.settledAt as number) - d.startedAt)
     const medianHealthyMs = median(healthyMs)
     const stragglerThresholdMs = DEFAULT_STRAGGLER_FACTOR * medianHealthyMs
-    const durationOf = (d: Dispatch): number => (d.settledAt as number) - d.startedAt
+    /**
+     * How long a dispatch ran, or `null` for one that never answered.
+     *
+     * **This read `(d.settledAt as number) - d.startedAt` until 2026-08-25, and the cast was
+     * false.** `Dispatch.settledAt` is declared `number | null` and the null case is not
+     * exotic here — it is CHURN-02's own subject: a SIGSTOPped node whose duplicate answers
+     * first, and which is never resumed inside the job's life, has no settle instant at all.
+     * `null - startedAt` is `-startedAt`, so the reading printed **`frozen public shard
+     * -3722ms`** and nothing objected to a negative duration; the same cast three lines into
+     * the assertions then reached `expect(x).toBeLessThan(null)`, which throws
+     * `TypeError: expected value must be number or bigint, received "object"` and names
+     * neither the shard nor the claim. Observed on a SOLO run on a quiet host, so it is not
+     * a load artefact and no discriminator would have addressed it.
+     */
+    const durationOf = (d: Dispatch): number | null =>
+      d.settledAt === null ? null : d.settledAt - d.startedAt
+    /** A duration for a human, with the never-answered case said rather than arithmetic'd. */
+    const describeDuration = (d: Dispatch): string => {
+      const ms = durationOf(d)
+      return ms === null ? 'never settled' : `${Math.round(ms)}ms`
+    }
 
     // Printed rather than only asserted, so the readings are available on every run rather
     // than surviving as a note somebody took once — `late-combine.node.test.ts`'s
     // precedent. **None of these numbers is asserted against a threshold**; see the header.
-    console.log(
+    process.stdout.write(
       `[criterion 3 / speculation] standUp ${Math.round(standUpMs)}ms for ${AGENT_COUNT} agents, ` +
         `off arm ${Math.round(offMs)}ms, on arm ${Math.round(onMs)}ms; ` +
         `allowance ${ALLOWANCE} over ${SHARDS} shards (the shipped fraction would have ` +
@@ -1031,10 +1051,10 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
         `frozen worker held ${victimShards.length} public shard(s); ` +
         `median healthy dispatch ${Math.round(medianHealthyMs)}ms over ${healthyMs.length} ` +
         `samples, straggler threshold ${Math.round(stragglerThresholdMs)}ms; ` +
-        `frozen public shard ${Math.round(durationOf(trackedPrimary))}ms, paired-owner shard ` +
-        `${Math.round(durationOf(pairedCall))}ms, solo-owner shard ` +
-        `${Math.round(durationOf(soloCall))}ms; compare grace ${compareGraceMs}ms; ` +
-        `losing copies [${on.shards.flatMap((s) => s.copies.map((c) => c.outcome)).join(',')}]`,
+        `frozen public shard ${describeDuration(trackedPrimary)}, paired-owner shard ` +
+        `${describeDuration(pairedCall)}, solo-owner shard ` +
+        `${describeDuration(soloCall)}; compare grace ${compareGraceMs}ms; ` +
+        `losing copies [${on.shards.flatMap((s) => s.copies.map((c) => c.outcome)).join(',')}]\n`,
     )
 
     // If speculation did not fire, say **why** rather than reaching for a longer delay.
@@ -1043,7 +1063,7 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
       `completed-before-judgement ${healthyMs.length} against MIN_SAMPLES ${MIN_SAMPLES}; ` +
       `budget spent ${on.speculationSpent} of ${ALLOWANCE}; eligible untried nodes existed ` +
       `(public → ${publicDuplicateTarget.nodeId}, paired → ${paired[1].peerId}); the frozen ` +
-      `public dispatch ran ${Math.round(durationOf(trackedPrimary))}ms against a threshold of ` +
+      `public dispatch ran ${describeDuration(trackedPrimary)} against a threshold of ` +
       `${Math.round(stragglerThresholdMs)}ms\n${describeShards(on)}`
     expect(duplicates.length, `no duplicate was dispatched. ${diagnosis}`).toBeGreaterThanOrEqual(2)
 
@@ -1053,7 +1073,23 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
       const primary = primaryOf(duplicate.partitionIndex)
       expect(duplicate.nodeId).not.toBe(primary.nodeId)
       expect(duplicate.startedAt).toBeGreaterThan(primary.startedAt)
-      expect(duplicate.startedAt).toBeLessThan(primary.settledAt as number)
+      // **A primary that never settled is the STRONGEST form of what this asserts, not an
+      // exception to it.** The claim is that the copy went out while the first was still
+      // running; a first copy that is still running when the job ends was running at every
+      // instant, this one included. The line read `.toBeLessThan(primary.settledAt as
+      // number)` until 2026-08-25 and threw `TypeError: expected value must be number or
+      // bigint, received "object"` on exactly that case — a crash naming neither the shard
+      // nor the claim, on the case the claim most clearly holds for. Written as one
+      // assertion over the disjunction rather than as an `if`, so the null arm cannot go
+      // quiet: a bare guard would let a duplicate that DID go out late pass unread whenever
+      // its primary happened never to answer.
+      expect(
+        primary.settledAt === null || duplicate.startedAt < primary.settledAt,
+        `the duplicate for partition ${duplicate.partitionIndex} went out at ` +
+          `${Math.round(duplicate.startedAt)} and its primary had already settled at ` +
+          `${primary.settledAt === null ? 'never' : Math.round(primary.settledAt)}, so this ` +
+          'was a re-dispatch after the fact and not a live duplicate',
+      ).toBe(true)
     }
     const trackedDuplicate = duplicates.find((d) => d.partitionIndex === trackedIndex) as Dispatch
     const pairedDuplicate = duplicates.find((d) => d.partitionIndex === PAIRED_INDEX) as Dispatch
@@ -1288,9 +1324,12 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
         .join(', ') +
       `; settled relative to judgement ` +
       frozenDispatches
-        .map(([name, d]) => `${name} ${Math.round((d.settledAt as number) - judgedAt)}ms`)
+        .map(
+          ([name, d]) =>
+            `${name} ${d.settledAt === null ? 'never settled' : `${Math.round(d.settledAt - judgedAt)}ms`}`,
+        )
         .join(', ')
-    console.log(`[criterion 3 / straggler rule] ${judgementReading}`)
+    process.stdout.write(`[criterion 3 / straggler rule] ${judgementReading}\n`)
     // **`stragglers` takes tasks that are in flight, and cannot check that they are.** It
     // reads `now - startedAt` and nothing else, so a dispatch that had already answered
     // would be named on the strength of its start time alone — the elapsed it computes is
@@ -1301,11 +1340,15 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     // the solo shard was *still running* when the scheduler looked, and had been running
     // long enough to clear the threshold. Either half alone proves nothing.
     for (const [name, d] of frozenDispatches) {
+      // Same null as `durationOf` above and the same reading of it: a dispatch that never
+      // settled was in flight at **every** instant, so it was in flight at judgement. The
+      // cast here would have thrown `TypeError` on that case rather than reporting it,
+      // which is why the disjunction is asserted instead of the number.
       expect(
-        d.settledAt as number,
+        d.settledAt === null || d.settledAt > judgedAt,
         `the ${name} frozen dispatch had already settled when the first duplicate went out, ` +
           `so it was not in flight to be judged. ${judgementReading}`,
-      ).toBeGreaterThan(judgedAt)
+      ).toBe(true)
     }
     const judgedStragglers = stragglers(inFlightAtJudgement, judgedAt, {
       completed: completedByJudgement,
