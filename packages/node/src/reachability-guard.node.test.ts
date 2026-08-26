@@ -2128,7 +2128,24 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
 // COMPLETE implementation of the storage interface rather than a partial mock, which is why it
 // is a module rather than an inline object. Neither is production code that forgot to be
 // wired, and the first is expected to leave this list inside the milestone.
-const ORPHAN_MODULE_CEILING = 30
+// 2026-08-26: 30 → 31, raised by exactly one and named.
+// `packages/cloudflare/src/workerd-shims.ts` fills the two globals workerd lacks that stop
+// js-libp2p constructing — `process.versions.node` and `BroadcastChannel`, both found by
+// RUNNING (`.planning/consults/2026-08-24-cloudflare-as-a-fabric-node-measured.md` §8). It is
+// a module imported for its SIDE EFFECT, and `ARCHITECTURE.md:119-122` requires that import
+// to happen before `libp2p` is imported at all. Its importer is the Durable Object assembly,
+// which does not exist yet.
+//
+// **It is deliberately not barrel-exported, and that is the choice this entry records.**
+// Adding it to `index.ts` would take it off this list and put five symbols on the OTHER
+// register — symbols no production caller will have even after the assembly lands, because
+// the assembly imports the module for its effect rather than for its names. That would trade
+// one honest orphan for five rows that read like unwired features and are not. The same
+// argument `capability-fixture.ts` makes above for staying out of a barrel.
+//
+// Closing condition, checkable and with no forecast attached: `cloudflare-node.ts` importing
+// `'./workerd-shims.ts'`.
+const ORPHAN_MODULE_CEILING = 31
 
 /**
  * A production module that reaches **no barrel at all**, named by path.
