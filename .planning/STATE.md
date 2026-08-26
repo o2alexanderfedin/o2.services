@@ -2,26 +2,33 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Open the Doors
-status: ready-to-execute
-last_updated: "2026-08-25T10:19:00.000Z"
-last_activity: 2026-08-25
+status: executing
 stopped_at: >-
-  Phase 29 "Hosted Tier Assembly & First Deploy" is under way on
-  feature/phase-29-hosted-tier. Criterion 3 has landed — packages/cloudflare,
-  a hand-written DoDatastore binding Durable Object storage to
-  interface-datastore, refusing every DHT-record-shaped key until Phase 31
-  lands the sweep. Open question 1 is settled by measurement and turned out
-  to be the wrong question: no wrangler alias is needed at all.
-  Two owner rulings of 2026-08-25 govern what follows. DEMO-04 is REPURPOSED
-  rather than retired, its rationale replaced by "deploying a paid tier does
-  not happen by itself". And autonomous execution stops at the Cloudflare
-  boundary, so criteria 1 and 2 (the billing alert and the first deploy) stay
-  open and MUST BE REPORTED OPEN. Not built yet, all in this phase — the
-  libp2p node assembly (criteria 2, 7) and three guards (criteria 4, 5, 6).
-  This field was absent from the frontmatter from the v2.0 milestone switch
-  until 2026-08-25 and nothing caught it, because state-frontmatter is not
-  one of the six cheap guards and only runs in a full --project node sweep.
-  It is a block scalar because a plain one cannot carry ": ".
+  CORRECTED BY HAND 2026-08-25. The tooling rewrote this frontmatter after the
+  session's commits and wrote four things that were false. `status` read
+  `completed` — a value that is not in this file's own vocabulary (its history
+  holds only planning / ready-to-execute / executing / verifying /
+  milestone_complete) and untrue besides, with all 13 v2.0 phases unstarted;
+  it is `executing`, because Phase 29 criterion 3 has landed. `total_phases`
+  read 42 against a milestone of 13. `milestone_name` had grown a leading
+  em-dash. And `stopped_at` read "context exhaustion at 84%", which the
+  tooling took from a claim I made and the owner immediately refuted —
+  a third of the window was left. THE GUARD DID NOT CATCH ANY OF IT:
+  `state-frontmatter.node.test.ts` checks that the eight keys are PRESENT,
+  not that their values are true, and it passed 6/6 over this.
+  Where the work actually stands: Phase 29 has criterion 3 (packages/cloudflare,
+  a DoDatastore over Durable Object storage) and nothing else; criteria 1 and 2
+  are owner acts at the Cloudflare boundary and stay open by ruling. Landed this
+  session beyond that: the audit findings F-44/F-45/F-46, the `aot` test lane
+  that closed Phase 21's W1 by serialising rather than by a larger budget,
+  BENCH-06 re-read and re-recorded, and all 38 mvp-mode phase goals restated as
+  user stories by owner ruling. Still open and owner-owned: the live multi-machine
+  run (Phase 39 criterion 4), whose only remaining gate is giving the tester
+  cohort a build. Still open and mine: the load-sensitive multi-process specs —
+  late-combine is fixed, admission-agents, coverage-agents, dht-registration,
+  discovery-agents and speculation-agents are not.
+last_updated: "2026-08-26T03:10:00.000Z"
+last_activity: 2026-08-25 — audit fixes, the aot lane, user-story goals
 progress:
   total_phases: 13
   completed_phases: 0
@@ -158,7 +165,6 @@ and has no flag mechanism — and leaving it open is a deliberate trade with a s
 `relayAdmissionGate`'s own header records that 24-02's pre-gate baseline *"stays comparable only
 while that remains true."*
 
-
 **Phase 13.1 joined on 2026-08-02**: it was verified 2026-07-31 at `gaps_found` 6/7 with DATA-10
 open, and criterion 7's at-rest half has now landed — a durable per-node sovereign-CID set
 (`sovereign-cids.ts`, `idb-sovereign-cids.ts`) registered at `submit.ts`'s blockstore-put and
@@ -190,6 +196,7 @@ closed requirements and must never be reconciled against one.**
 
 - **Phase 14** — `passed`, 3/3, both mutation probes re-run independently and both red;
   DET-03 and DATA-08 ticked and moved off *Built, not wired*.
+
 - **Phase 15** — 3/3 on criteria. The verifier returned `human_needed` on three
   escalations, **all three since closed**: a production comment naming a function this
   repository does not have, a SUMMARY frontmatter claiming AUTH-03 complete, and an
@@ -251,6 +258,7 @@ the shipped source at `get-shit-done-cc/sdk/src/query/progress.ts`:
   103` above is scoped to) + 21 (phases 25-28, planned after v1.1 was scoped) + 1 (phase-9's
   lone v1.0 plan). **Only +1 of the +22 plan inflation comes from the v1.0 directories** —
   attributing the divergence to them is backwards today.
+
 - **The numerator is the raw `*-SUMMARY.md` count with no pairing to a plan** —
   `completed: totalSummaries` at `progress.ts:145`. Summaries exceed plans by 16: +8 from the
   eight v1.0 directories holding a bare `SUMMARY.md` and no plan (phases 2-8 and 10), and +8
@@ -280,18 +288,22 @@ same stale-claim defect the list exists to record, committed in the list's own h
 
 - `gsd-sdk query state.begin-phase` — overwrites this block from that same bad count
   (2026-07-28: rewrote 25% to 62%) and mangles the Current focus paragraph.
+
 - The `pause-work` workflow's own state update (2026-08-01) — rewrote `total_phases`
   14 to 24, reset `completed_phases`, regressed `last_activity` by a day, and mangled
   `milestone_name` to "— Wire What Was Built".
+
 - `gsd-sdk query state.record-metric` (2026-08-01, found by plan 18-03) — asked for a
   single metrics row, it *also* rewrote `status` and `stopped_at`, regressed
   `last_activity`, and rewrote every progress count: **percent 36 to 74**.
+
 - `gsd-sdk query state.planned-phase` (2026-08-09) — **the worst of the four so far.** Asked
   to record that Phase 25 is planned, it reported `{"updated": ["Status", "Last Activity"]}`
   and wrote a diff of **51 insertions against 103 deletions**, deleting the whole `stopped_at`
   block: four owner rulings, the AOT-06 located negative, the Phase 17 close, all of it. It
   did not error. Caught by the `git diff` this very list prescribes, reverted whole-file, and
   the two fields it was asked for were then written by hand.
+
 - `gsd-sdk query state.record-session` (2026-08-09, Plan 25-04's executor, run right after
   `state.record-metric` above) — **the fifth writer, same family.** Asked only for
   `--stopped-at`/`--resume-file`, it reported success and wrote a diff of **57 insertions
@@ -1401,17 +1413,14 @@ Sampling found four passages from it that appear nowhere else.
   instruction — feature into `develop` (`f874f95`), `develop` into `main` (`e75d39f`), both
   `--no-ff` so the history says which branch carried what.
 
-
   **All three branches point at one tree, `50599689`, and it is the tree the suites below were
   run on.** That is asserted rather than assumed: the hashes were compared after each merge.
   Merging `develop` into the feature branch first changed **no file at all** — those twelve
   commits were merge commits of material already present at the branch point — so the
   confirmation taken before the merges is a confirmation of exactly what landed.
 
-
   **94 commits are unpushed on both `main` and `develop`.** Pushing was not done: it is an
   action outward and was not asked for.
-
 
   **This file's frontmatter was found wrong and is restored.** An orphaned working-tree write —
   from a process the 2026-08-24 reboot ended, and machine-shaped rather than hand-written — had
@@ -1424,7 +1433,6 @@ Sampling found four passages from it that appear nowhere else.
   working copy was 2 222 lines. It is preserved outside the repo rather than merged in, and the
   figures below are the measured ones.
 
-
   **AUTH-04 — a certificate now outlives its first issue.** Nothing renewed one: it was
   obtained once at start and the only route to another was a restart, so a process outliving
   its certificate kept running while every peer demoted it. Three snapshots had to stop being
@@ -1433,7 +1441,6 @@ Sampling found four passages from it that appear nowhere else.
   aliased to `lease.ts`, and deliberately stays true after expiry, where `shouldRenew` goes
   false. The renewal timer is clamped to 2^31-1 ms, because `setTimeout` overflows to one
   millisecond rather than saturating.
-
 
   **Owner rulings taken 2026-08-24, all three implemented.** Certificate lifetime 30 days to
   **1 hour**, reversing the 2026-08-02 correction recorded in `enrollment.ts`'s own header —
@@ -1444,13 +1451,11 @@ Sampling found four passages from it that appear nowhere else.
   issuer's signature — the format lands now because the alternative is changing a signed format
   with certificates in circulation.
 
-
   **One certificate system, not two.** `cert-lifecycle.ts` — 775 lines, tested, imported by
   nothing — was deleted by owner ruling, closing what CRYPTO-03 had explicitly left open. Its
   delegation half duplicated `capability.ts`, its identity half `enrollment.ts`, its
   crypto-backend selection was already merged into `ed25519-backend.ts` by Phase 28, and its
   revocation half is refused by standing ruling.
-
 
   **DATA-08 — a node with a durable directory now keeps its libp2p state**, and the diagnosis
   that had blocked it for a week was falsified rather than confirmed: ten sound eliminations had
@@ -1459,12 +1464,10 @@ Sampling found four passages from it that appear nowhere else.
   no longer re-asked, and the cache cannot widen what is accepted because a cached certificate
   takes the same `#accept` a fresh one does.
 
-
   **Suite at HEAD:** node 208/208 files and 3 032 tests at `(user+sys)/real` 1.36; browser
   315/315 and 5 286 tests; e2e 38/38 files and 235 tests, all three read at this tree. The `tools/aot` Docker gates fail
   as a group below a CPU ratio of about 1.0 and pass individually — a property of this host under
   contention, measured across five full runs, not a defect in them.
-
 
   RECONCILED 2026-08-20, AND THE HEADLINE BELOW IS THE ONE THING THAT WAS WRONG. **THE COUNT IS 15
   OF 15, NOT 12.** All three carried phases closed on 2026-08-18, each by a dated amendment to its
@@ -1710,7 +1713,6 @@ the pending rulings in particular — belongs in the v2.0 requirements as an exp
 
 <details>
 <summary>v1.1 Current Position, verbatim</summary>
-
 
 **THE COUNT IS 12 OF 15**, as of 2026-08-07 *(SUPERSEDED 2026-08-22 — read this as WAS, like
 the paragraph further down this section that already does. The count is 15 of 15 and v1.1 is
@@ -2015,10 +2017,12 @@ in-page assertion stays green** — 1 failed, 5 passed, which is the whole conte
 criterion 3's browser half.
 
 **Three findings outlived the phase and are tracked rather than fixed:**
+
 - **`admit:` at `bin/bench.ts:723` is guarded by nothing.** Deleting it moves `submitJob`
   from `planWithOffers` to `planPlacement`, and on a rig where nothing refuses the two place
   identically. It is the **sole production caller** behind SCHED-02's runnable-entry-point
   claim. Closing it needs a rig where a node actually refuses.
+
 - **`tools/aot/lift.node.test.ts` failed WORSE alone on a quiet host** (12 failures, ten
   60 s timeouts, 850 s against the config's recorded 217 s) than under suite load, so
   `deferred-items.md` item 2's *"passes in isolation"* diagnosis is false. **CLOSED 2026-08-04.**
@@ -2035,6 +2039,7 @@ criterion 3's browser half.
   two arms of one case, 400 ms against 2 000 ms of budget, reading the difference so spawn cost
   cancels algebraically — and it reds below 800 ms or above 3 200 ms against a worst measured
   drift of ~300 ms.
+
 - **23 of ~45 ledger citations had outrun the tree**, nine of them introduced by the very
   plan written to correct drift. A blanket offset would have been wrong twice over — one
   citation was out by 117, and five were already exact. A cheap guard was **measured and
@@ -2062,10 +2067,12 @@ destination as Phase 19 criterion 5, and the same reason: a bound made durable i
 rising price. **AUTH-01, AUTH-02 and AUTH-04 all stay open**; nothing ticked.
 
 **Two halves were scheduled rather than lowered** (owner rulings 2026-08-01):
+
 - **Phase 18 criterion 2d** — a flag that makes a spawned agent dial a named peer, plus a
   cross-process proof of *acceptance*. `bin/agent.ts` parses eleven flags and none dials a
   peer, so a spawned verifier can reach only `no-records`. Until such a flag exists **no
   phase can prove any peer-to-peer acceptance cross-process**, not just this one.
+
 - **Phase 19 criterion 5** — enrolling must cost something an attacker cannot mint free.
   AUTH-04's rate limit is fully proven; what it does not buy is the cost clause. The limit
   is keyed on `userKey`, which is one `ed25519.keygen()`, and the budget is per provider
@@ -2403,7 +2410,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-25T09:39:00Z — **resumed via `/gsd-resume-work`; nothing was in flight,
+Last session: 2026-08-26T01:35:53.218Z
 no interrupted agent, no `.continue-here` under any phase directory.**
 
 Verified on resume rather than quoted — and this matters, because the handoff was wrong about
@@ -2445,7 +2452,7 @@ is safe now.** It discovered 16 phases, all v1.0/v1.1, fifteen of them already c
 behind an unticked box; it now discovers exactly the 13 v2.0 phases.
 
 Last session: 2026-08-20T09:20:00.000Z — **resumed via `/gsd-resume-work`, nothing was in flight.**
-Resume file: `.planning/.continue-here.md`. `.planning/HANDOFF.json` was consumed and deleted on
+Resume file: None
 this resume; it is a one-shot artifact and leaving it on disk makes the *next* resume read a stale
 handoff as if it were live.
 
@@ -2626,7 +2633,7 @@ this roadmap, and `phase.add` numbers from directories (it returned 25 for what 
 
 ### Prior session (2026-08-08T13:23:00.000Z)
 
-Stopped at: **Session resumed at `d7b52e3`. Context is the v1.1 MILESTONE AUDIT-FIX, not phase
+Stopped at: context exhaustion at 84% (2026-08-26)
 work** — all 15 v1.1 phases have verifications, Phase 22 included (2/3, `fee26c2`). Open work is
 `.planning/v1.1-MILESTONE-AUDIT.md`: **9 of 17 findings closed**, 5 auto-fixable remaining
 (G1 blocker, G3, G6, G7, G13) and 4 needing an owner call (G4, G5, L3, the 42-symbol residue).

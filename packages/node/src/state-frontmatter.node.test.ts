@@ -223,4 +223,49 @@ describe('.planning/STATE.md frontmatter stays parseable', () => {
     expect(REQUIRED_KEYS.length).toBe(8)
     expect(keys).toEqual(expect.arrayContaining([...REQUIRED_KEYS]))
   })
+
+  /**
+   * **PRESENT IS NOT TRUE — added 2026-08-25, and the gap was live when it was added.**
+   *
+   * Every case above this one checks that the block PARSES and that the eight keys are
+   * THERE. On 2026-08-25 a writer rewrote this frontmatter and put four false values in
+   * it — `status: completed` with all thirteen phases of the milestone unstarted,
+   * `total_phases: 42` against a milestone of thirteen, a `milestone_name` that had grown
+   * a leading em-dash, and a `stopped_at` quoting a claim about remaining context that
+   * was wrong by a third of the window. **This file passed 6/6 over all four**, because
+   * a key that is present and well-formed satisfies every check above.
+   *
+   * These two are the cheapest true-value checks available and they are deliberately
+   * narrow: a closed vocabulary, and a count against the roadmap the number describes.
+   * Neither can verify the prose, and nothing here pretends to — what they catch is a
+   * writer inventing a value outside the set, which is exactly what happened.
+   */
+  it('states a status this project actually uses, not one a writer invented', () => {
+    // The set is this file's own history, taken from `git log -p` over its `status:` line:
+    // planning -> ready-to-execute -> executing -> verifying -> milestone_complete. The
+    // value written on 2026-08-25 was `completed`, which is in none of them and reads as
+    // a milestone finishing.
+    const KNOWN_STATUS = ['planning', 'ready-to-execute', 'executing', 'verifying', 'milestone_complete']
+    const status = FIELDS.find((field) => field.key === GSD_FRONTMATTER_KEY.status)?.raw ?? ''
+    // Anti-vacuity: an empty or truncated vocabulary would let anything through.
+    expect(KNOWN_STATUS.length).toBe(5)
+    expect(KNOWN_STATUS).toContain(status.trim().split(/\s+#/)[0]?.trim())
+  })
+
+  it('counts the phases the roadmap holds, not a number from somewhere else', () => {
+    // `total_phases` describes the CURRENT milestone, which is the last `## Milestone`
+    // heading in ROADMAP.md and the phases under it. Counted from the file rather than
+    // trusted, for the reason this repository has already paid for once: a count written
+    // by subtraction from a stale total is wrong by everything that arrived since.
+    const roadmap = readFileSync(join(ROOT, '.planning/ROADMAP.md'), 'utf8')
+    const lastMilestone = roadmap.lastIndexOf('\n## Milestone')
+    expect(lastMilestone).toBeGreaterThan(-1)
+    // `\d` is load-bearing: the milestone also opens with a `### Phase Checklist` heading,
+    // and counting it read 14 against a true 13 — caught by this case on its first run,
+    // against a `total_phases` I had just written by hand and believed.
+    const phases = roadmap.slice(lastMilestone).match(/^### Phase \d/gm)?.length ?? 0
+    expect(phases).toBeGreaterThan(0)
+    const declared = Number(/total_phases:\s*(\d+)/.exec(FRONTMATTER)?.[1] ?? NaN)
+    expect(declared).toBe(phases)
+  })
 })
