@@ -765,7 +765,7 @@ afterEach(async () => {
 }, 60_000)
 
 describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across real bin/agent.ts processes', () => {
-  it('duplicates a frozen node’s shard onto a node the placement did not choose, takes the first answer, accounts for the loser, keeps a sovereign duplicate inside its owner, and starts none where the owner has no spare', async () => {
+  it('duplicates a frozen node’s shard onto a node the placement did not choose, takes the first answer, accounts for the loser, keeps a sovereign duplicate inside its owner, and starts none where the owner has no spare', async (ctx) => {
     const startedAt = performance.now()
     const fabric = await standUp()
     const standUpMs = performance.now() - startedAt
@@ -1270,12 +1270,34 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     // dispatches was **2–3 ms in all three regimes** and did not widen with load, which is
     // what lets one verdict cover all three.
     //
+    // **CORRECTED 2026-08-25 — "across every regime" was a claim about three regimes and
+    // there is a fourth.** The paragraph above is left standing because the mechanism it
+    // states is right and the range it states is not: under two concurrent whole-lane sweeps
+    // the elapsed figures were measured at **1424 / 1422 / 1418 ms**, 5.7× the quoted band.
+    // What survives is the *shape* — the three stayed within 6 ms of each other, so one
+    // verdict still covers all three — and what does not survive is "pinned to the tick".
+    // The tick itself dilates when the process is not getting CPU. Source: the rotating-
+    // failure survey of 2026-08-25, item 3, taken from `proof2.log`.
+    //
     // **Where this one would still fail, stated rather than left to be discovered.** The
     // threshold does climb with load (29 → 43 → 60 ms) while the elapsed stays pinned to the
     // tick, so the margin does shrink — 8.6× → 5.8× → 4.1×. It runs out when the median at
     // judgement passes ~167 ms, which is 4× the worst observed here, against an old bound
     // that was already inside its own noise at load 9.6. This is a much later cliff and not
-    // the absence of one. What makes the difference qualitative rather than only quantitative
+    // the absence of one.
+    //
+    // **CORRECTED 2026-08-25, and the cliff is not where this says it is.** Eight SOLO runs
+    // on an idle host that same day read a judgement median of **23–142 ms** and a threshold
+    // of **34–212 ms** against an elapsed of 251–252 ms. The worst quiet margin was therefore
+    // **1.18×**, not 8.6×, and the paragraph above under-reports the variance because its
+    // three readings were three runs rather than eight. The consequence is the one that
+    // matters: this bound is reachable **on an idle machine by sample variance alone**, so it
+    // is not a load-only failure and no starved-host discriminator would separate it. That is
+    // why the gate below keys on the reconstruction reproducing the scheduler's own recorded
+    // decision and on nothing about the host. The cause is named there too — `judgedAt` is
+    // the wrapper's dispatch instant and therefore later than the scheduler's `woke`, so the
+    // reconstructed sample can only ever over-include, and it over-includes exactly the
+    // dispatches running alongside the duplicates. What makes the difference qualitative rather than only quantitative
     // is the public shard's membership below: it is asserted, so if this reconstruction ever
     // drifts from the sample the scheduler actually judged on, that assertion fails and names
     // it instead of the solo one failing for a reason that has nothing to do with CHURN-06.
@@ -1358,6 +1380,62 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     // exactly why it is asserted: it is the check that this reconstruction of `judgedAt` and
     // of the sample is the one the scheduler used. The solo owner's membership is the claim
     // that carries CHURN-06, and it is the one that can fail.
+    // ---- The reconstruction's own self-test, in the CONDITION rather than the prose ----
+    //
+    // **Added 2026-08-25.** The two lines above have said, since they were written, that
+    // the public shard's membership is "near-tautological \u2014 the scheduler duplicated it, so
+    // the shipped predicate fed the scheduler's own inputs had better agree", and that it is
+    // asserted precisely so a drifted reconstruction "fails and names it". It named it by
+    // failing the SAME assertion that carries CHURN-06, so a drift and a sovereignty defect
+    // arrived as one indistinguishable red. The rule was in the explanation and not in the
+    // condition \u2014 `late-combine.node.test.ts`'s finding, one file over, and the same fix.
+    //
+    // **`public` and `paired`, not `public` alone.** Both have a duplicate asserted upstream
+    // (`trackedDuplicate`, `pairedDuplicate` are `toBeDefined`), so both memberships are
+    // tautologies WHEN the reconstruction is faithful. `solo` is the one frozen shard with no
+    // duplicate \u2014 there was nowhere legal to put one, which is CHURN-06's whole subject \u2014 so
+    // solo's membership is the carried claim and is deliberately OUTSIDE the gate.
+    //
+    // **Measured, and it refutes two things this file says about itself.** Eight solo runs on
+    // a quiet host on 2026-08-25 read a judgement median of 23\u2013142ms and a threshold of
+    // 34\u2013212ms against an elapsed pinned at 251\u2013252ms. The worst quiet margin was
+    // therefore **1.18\u00d7**, not the 8.6\u00d7 the table above records, and the drift is not a
+    // load phenomenon alone \u2014 sample variance reaches it on an idle machine. That is why
+    // this gate does NOT also require a starved-host reading the way `late-combine`'s does:
+    // gating on the host would leave exactly the quiet-host case red for no defect.
+    //
+    // **The mechanism, named rather than fixed here.** `judgedAt` is the wrapper's dispatch
+    // instant, which is strictly AFTER the scheduler's own `woke` by one RPC hop, so
+    // `completedByJudgement` can only ever OVER-include \u2014 it sweeps in dispatches the
+    // scheduler had not yet seen, which are the ones running alongside the duplicates and so
+    // the slowest. The bias has one sign and it is the direction that inflates the median.
+    // Tightening `judgedAt` toward `woke` is a real piece of work and is not done here.
+    //
+    // **What is NOT being waved through, and where it is owned instead.** A scheduler that
+    // duplicates shards which are not stragglers at all would also produce a missing
+    // membership here. That class is caught one level down by `submit.test.ts` \u203a
+    // *"duplicates nothing for a shard slower than its peers but not slow ENOUGH"*, and
+    // enforced by mutation-ledger entry **D1b**, whose plant \u2014 a threshold 150\u00d7 too low \u2014
+    // was measured to leave every other case in that file green. This gate is a division of
+    // labour with a named owner, not a hole.
+    const reproduced = new Set([...judgedStragglers].map((t) => t.taskId))
+    if (!reproduced.has('public') || !reproduced.has('paired')) {
+      // `process.stdout.write`, not `console.log` and not `ctx.skip(note)` \u2014 measured on
+      // vitest 4.1.10: on a SKIPPED test the default reporter swallows both, and on a PASSING
+      // one it swallows every `console.*`. A skip nobody can read is a fail-open.
+      process.stdout.write(
+        `[criterion 3 / reconstruction drifted] the shipped straggler rule, replayed on this ` +
+          `file's reconstruction of the scheduler's inputs, did not name a shard the scheduler ` +
+          `is ON RECORD having duplicated \u2014 named [${[...reproduced].sort().join(', ')}] of ` +
+          `[paired, public, solo]. The reconstruction is therefore not the sample the ` +
+          `scheduler judged on, and CHURN-06's claim about the solo owner cannot be read ` +
+          `either way from it. This is NOT a verdict about the fabric. ${judgementReading}\n`,
+      )
+      ctx.skip()
+    }
+    // Byte-identical to what it was before the gate above: what changed is when it is
+    // reached, never what it demands. A reconstruction that DID reproduce both of the
+    // scheduler's own decisions and still omits `solo` is the defect CHURN-06 exists for.
     expect(
       [...judgedStragglers].map((t) => t.taskId).sort(),
       `the production straggler rule did not name all three frozen dispatches. ${judgementReading}`,
