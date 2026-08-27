@@ -463,6 +463,95 @@ function deploys(source: string): boolean {
  * The negative lookahead is what encodes that, and it is the reason CI may run the same
  * bundle check the local guards run.
  */
+describe('every workflow file is one GitHub will actually accept', () => {
+  /**
+   * **The check that was missing, and its absence cost a CI run that failed before any job
+   * started.**
+   *
+   * On 2026-08-27 the `aot` lane was removed from `ci.yml` and its `runs-on:` was left
+   * behind, landing inside the `node` job which already had one. The file still parsed —
+   * `yaml.safe_load` takes the LAST of a duplicate pair silently — so a check that merely
+   * loaded the file and read back the job names reported everything correct. **I ran exactly
+   * that check and it passed.** GitHub does not accept duplicate keys: the run came back
+   * named `.github/workflows/ci.yml` instead of `CI`, with `total_count: 0` jobs and
+   * *"this run likely failed because of a workflow file issue"*.
+   *
+   * So a permissive parse is not evidence that a workflow is valid, and this case exists
+   * because the failure mode is invisible to the obvious test.
+   */
+  it('has no duplicate key in any mapping, which a permissive YAML parser hides', () => {
+    for (const path of workflowFiles()) {
+      const source = readFileSync(join(ROOT, path), 'utf8')
+
+      // A hand-written scan rather than a parser, because every YAML library in reach
+      // resolves duplicates instead of reporting them — which is the whole defect. Keys are
+      // grouped by their indentation and by the block they sit in; a key repeating at the
+      // same indentation before the block closes is the shape GitHub rejects.
+      const seen = new Map<string, number>()
+      const lines = source.split('\n')
+      for (const [index, line] of lines.entries()) {
+        const match = /^(\s*)(-\s+)?([A-Za-z_][A-Za-z0-9_-]*):/.exec(line)
+        if (match === null) continue
+        const [, indentText = '', dash, key = ''] = match
+        // **A list item's depth is where its DASH sits, not where its first key sits.**
+        // `      - uses:` and `        with:` both put a key at column 8, so measuring the
+        // key's column made them siblings and `with` looked like a duplicate of the previous
+        // step's. Measured against this repository's own `ci.yml`, which is what caught it.
+        const indent = indentText.length
+        // A shallower key closes every deeper block, so their keys are forgotten.
+        for (const [recorded] of seen) {
+          if (Number(recorded.split('\u0000')[0]) > indent) seen.delete(recorded)
+        }
+        // **A list item starts a NEW mapping, so every key deeper than it is forgotten.**
+        // Caught by this guard's own first run: two `- uses:` steps each carrying a `with:`
+        // were reported as a duplicate `with`, which they are not — they are one key in each
+        // of two mappings. `continue` alone was not enough; the deeper scopes have to be
+        // cleared, or the second step inherits the first's keys.
+        if (dash !== undefined) {
+          // Everything at or below the dash's own column belonged to the previous item.
+          for (const [recorded] of seen) {
+            if (Number(recorded.split('\u0000')[0]) >= indent) seen.delete(recorded)
+          }
+          continue
+        }
+        const scope = `${String(indent)}\u0000${key}`
+        const previous = seen.get(scope)
+        expect(
+          previous,
+          `${path}: duplicate key '${key}' at line ${String(index + 1)}, first seen at line ` +
+            `${String((previous ?? 0) + 1)}. A YAML parser resolves this silently and GitHub ` +
+            `refuses the file — the run comes back named after the path with zero jobs.`,
+        ).toBeUndefined()
+        seen.set(scope, index)
+      }
+    }
+  })
+
+  it('gives every job a runner and at least one step, so no job is a comment husk', () => {
+    // The other half of the same removal hazard: deleting a lane can leave a job key with a
+    // body that is entirely comments, which parses to `null` and fails only at dispatch.
+    for (const path of workflowFiles()) {
+      const source = readFileSync(join(ROOT, path), 'utf8')
+      const jobsAt = source.search(/^jobs:\s*$/m)
+      expect(jobsAt, `${path} declares no jobs:`).toBeGreaterThan(-1)
+      const jobNames = [...source.slice(jobsAt).matchAll(/^ {2}([A-Za-z_][A-Za-z0-9_-]*):\s*$/gm)]
+        .map((m) => m[1])
+        .filter((n): n is string => n !== undefined)
+      expect(jobNames.length, `${path} declares jobs: with nothing under it`).toBeGreaterThan(0)
+
+      // One `runs-on` and one `steps` per job, counted rather than assumed.
+      const runsOn = [...source.matchAll(/^ {4}runs-on:/gm)].length
+      const steps = [...source.matchAll(/^ {4}steps:/gm)].length
+      expect(runsOn, `${path}: ${String(runsOn)} runs-on for ${String(jobNames.length)} jobs`).toBe(
+        jobNames.length,
+      )
+      expect(steps, `${path}: ${String(steps)} steps for ${String(jobNames.length)} jobs`).toBe(
+        jobNames.length,
+      )
+    }
+  })
+})
+
 describe('a deploying workflow runs only on a release tag — never on a push or a pull request', () => {
   it('finds workflows by content, so a renamed directory does not hide one', () => {
     // The anti-vacuity check for everything below: if this list is empty, every assertion in

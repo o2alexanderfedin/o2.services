@@ -65,7 +65,6 @@ jobs:
     #
     # The honest reading of this lane: CI covers the ~2200 cases that measure CODE. The ~800
     # that measure a HOST are the developer machine's, and saying so is the point.
-    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
