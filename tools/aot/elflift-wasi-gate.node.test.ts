@@ -673,10 +673,41 @@ describe.skipIf(MISSING !== null)(
         )
         .sort((a, b) => a.reading.localeCompare(b.reading) || a.family.localeCompare(b.family))
 
-      expect(live.map((r) => `${r.reading}/${r.family}`)).toEqual(
-        RECORDED_CLASSIFICATION.map((r) => `${r.reading}/${r.family}`),
+      /**
+       * **The comparison is over the readings that are ALIVE, and `readingCNull` is what
+       * licenses dropping C — never the mere absence of rows.**
+       *
+       * Reading C reads symbols out of a real wasm compilation of LLVM that exists on the
+       * developer host and NOT in the image — `WASM_LLVM_DIR`, whose docblock already states
+       * the rule this case was violating: *"its absence must narrow the verdict, not break
+       * the run"*. On GitHub Actions the directory is absent, the harness correctly recorded
+       * `readings.C === null`, and this comparison then failed for a reason that is about
+       * the host rather than about residue — measured 2026-08-27, `expected [ 13 rows ] to
+       * deeply equal [ 23 rows ]`, the ten missing ones all `C/*`.
+       *
+       * **Narrowing, not widening.** The expectation set is filtered by the SAME liveness
+       * signal the harness publishes, so a reading that is alive and has lost rows still
+       * fails — and a reading that went null WITHOUT `readingCNull` being set fails the
+       * liveness case two cases above, which is where that belongs. What is not permitted is
+       * a row silently vanishing.
+       */
+      const aliveReadings = new Set(
+        Object.entries(gate.readings)
+          .filter(([, r]) => r !== null)
+          .map(([label]) => label),
       )
-      for (const [index, recorded] of RECORDED_CLASSIFICATION.entries()) {
+      const expected = RECORDED_CLASSIFICATION.filter((r) => aliveReadings.has(r.reading))
+
+      // Anti-vacuity: at least the two readings that need no host-specific directory must be
+      // alive, or this whole case is a comparison of two empty lists.
+      expect(aliveReadings.has('A'), 'reading A is not alive — the harness read nothing').toBe(true)
+      expect(aliveReadings.has('B'), 'reading B is not alive — the harness read nothing').toBe(true)
+      expect(expected.length).toBeGreaterThan(0)
+
+      expect(live.map((r) => `${r.reading}/${r.family}`)).toEqual(
+        expected.map((r) => `${r.reading}/${r.family}`),
+      )
+      for (const [index, recorded] of expected.entries()) {
         expect(live[index]?.count, `${recorded.reading}/${recorded.family}`).toBe(recorded.count)
       }
       // Truncation, if any, is stated with its cut rather than performed silently.
@@ -694,6 +725,11 @@ describe.skipIf(MISSING !== null)(
       // Only the alive readings are examined, which is what the liveness case above bought.
       for (const [label, expectedFamilies] of Object.entries(RECORDED_NAMED_RESIDUE)) {
         const reading = gate.readings[label]
+        // Same rule as the case above: a reading the harness declared null with a stated
+        // reason narrows what this file can speak for. `readingCNull` is checked in the
+        // liveness case; here its consequence is that C's rows are not demanded of a host
+        // that has no wasm LLVM tree. Every other reading is still required to be alive.
+        if (reading === null && label === 'C' && gate.readingCNull !== null) continue
         expect(reading, `reading ${label}`).not.toBeNull()
         expect(reading?.alive, `reading ${label} alive`).toBe(true)
         for (const [family, members] of Object.entries(expectedFamilies)) {
