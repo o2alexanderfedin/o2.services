@@ -57,7 +57,18 @@ jobs:
       - run: npm run test:node
 
   aot:
-    runs-on: ubuntu-latest
+    # ARM64, and this is a HARD requirement rather than a preference. Measured on the first
+    # CI run, 2026-08-27: on `ubuntu-latest` (x86) the elfconv image pulls, warns
+    # "the requested image's platform (linux/arm64) does not match the detected host platform
+    # (linux/amd64/v4)", and then every exec into it dies with `exec /bin/bash: exec format
+    # error`. CLAUDE.md § Platform already says elfconv requires AArch64; this is that
+    # constraint arriving as a CI failure rather than as a sentence.
+    #
+    # `ubuntu-24.04-arm` is free for public repositories, and this repository is public
+    # (checked, not assumed). If it ever stops being free, the honest move is to drop this
+    # lane from CI and say so — NOT to run it on x86, where it fails for a reason that has
+    # nothing to do with the code under test.
+    runs-on: ubuntu-24.04-arm
     # The container lane. 1181.61 s measured locally at a CPU ratio of 0.090 — it waits
     # rather than computes, so a generous budget here costs little.
     timeout-minutes: 60
