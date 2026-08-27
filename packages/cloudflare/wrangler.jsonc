@@ -97,8 +97,18 @@
   // owner controls is a better address for a bootstrap node than any `workers.dev` name, since
   // this value reaches other peers' routing tables and a published address is painful to move.
   // `workers_dev` above stays true so that the cheaper path remains open.
+  // FILLED 2026-08-27, from the deploy rather than from a guess. The empty string above was a
+  // placeholder and the assembly refused it LOUDLY on the first real dial — `NoAnnouncedAddressError`,
+  // HTTP 500 / worker exception, read out of `wrangler tail`. That refusal is the design working:
+  // a relay with nothing announced hands every client an empty reservation SILENTLY (consult §13),
+  // so the code fails closed instead. The host name came from the one deploy, exactly as the note
+  // above predicted it would.
+  //
+  // Still the owner's open choice, restated rather than closed: a domain the owner controls is a
+  // better long-term address for a bootstrap node than any `workers.dev` name, because this value
+  // reaches other peers' routing tables and a published address is painful to move.
   "vars": {
-    "ANNOUNCE_MULTIADDRS": ""
+    "ANNOUNCE_MULTIADDRS": "/dns4/o2-bootstrap.af-4a0.workers.dev/tcp/443/tls/ws"
   },
 
   // Off, so a build in this repository reports nothing outward. The dry-run guard sets the
