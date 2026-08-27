@@ -1,60 +1,62 @@
 #!/bin/bash
-# Pre-commit hook to prevent direct commits to protected branches
-# and enforce git-flow branch naming conventions
+# Pre-commit hook: protected branches, branch naming, and the cheap guards.
+#
+# **The branch rules moved out on 2026-08-26 and are now in `.githooks/git-flow-rules.sh`.**
+# They lived inline here, where nothing could reach them — a hook runs only during a commit,
+# so the only way to learn what it accepted was to attempt one. They are exercised directly
+# by `packages/node/src/git-flow-rules.node.test.ts` now. This file decides WHICH rule
+# applies; the rules themselves, and the reasons for each, live in that script.
 
-# Get current branch name
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
+RULES="$(git rev-parse --show-toplevel)/.githooks/git-flow-rules.sh"
 
-# Protected branches - no direct commits allowed
-PROTECTED_BRANCHES="^(main|develop)$"
+# **A conflicted merge is finalised by `git commit`, so it arrives HERE rather than at
+# `pre-merge-commit` — and the refusal below used to reject it.** A legitimate
+# feature-into-develop merge that happened to touch the same line twice could not be
+# committed, while the identical merge without a conflict went through untouched: the same
+# act, opposite verdicts, decided by whether two edits collided. When `MERGE_HEAD` exists
+# this is a merge, and the merge rule is the one that applies.
+if git rev-parse --verify -q MERGE_HEAD >/dev/null 2>&1; then
+  if SOURCE=$(bash "$RULES" merge-source); then
+    bash "$RULES" check-merge "$BRANCH" "$SOURCE" || exit 1
+  else
+    echo "⚠️  merge source is not a single local branch — direction not checked" >&2
+  fi
+else
+  # Protected branches - no direct commits allowed
+  if [[ $BRANCH =~ ^(main|develop)$ ]]; then
+    echo ""
+    echo "❌ Direct commits to '$BRANCH' branch are not allowed!"
+    echo ""
+    echo "Protected branches: main, develop"
+    echo ""
+    echo "Use git-flow instead:"
+    echo ""
+    echo "  For new features:"
+    echo "    git flow feature start <feature-name>"
+    echo "    # Make changes..."
+    echo "    git flow feature finish <feature-name>"
+    echo ""
+    echo "  For releases:"
+    echo "    git flow release start <version>"
+    echo "    # Prepare release..."
+    echo "    git flow release finish <version>"
+    echo ""
+    echo "  For hotfixes:"
+    echo "    git flow hotfix start <version>"
+    echo "    # Fix issue..."
+    echo "    git flow hotfix finish <version>"
+    echo ""
+    echo "Or manually switch to a feature branch:"
+    echo "  git checkout develop"
+    echo "  git checkout -b feature/<feature-name>"
+    echo ""
+    exit 1
+  fi
 
-# Check if committing to protected branch
-if [[ $BRANCH =~ $PROTECTED_BRANCHES ]]; then
-  echo ""
-  echo "❌ Direct commits to '$BRANCH' branch are not allowed!"
-  echo ""
-  echo "Protected branches: main, develop"
-  echo ""
-  echo "Use git-flow instead:"
-  echo ""
-  echo "  For new features:"
-  echo "    git flow feature start <feature-name>"
-  echo "    # Make changes..."
-  echo "    git flow feature finish <feature-name>"
-  echo ""
-  echo "  For releases:"
-  echo "    git flow release start <version>"
-  echo "    # Prepare release..."
-  echo "    git flow release finish <version>"
-  echo ""
-  echo "  For hotfixes:"
-  echo "    git flow hotfix start <version>"
-  echo "    # Fix issue..."
-  echo "    git flow hotfix finish <version>"
-  echo ""
-  echo "Or manually switch to a feature branch:"
-  echo "  git checkout develop"
-  echo "  git checkout -b feature/<feature-name>"
-  echo ""
-  exit 1
-fi
-
-# Enforce git-flow branch naming conventions
-# Valid patterns: feature/*, release/*, hotfix/*, bugfix/*
-VALID_BRANCH_PATTERN="^(feature|release|hotfix|bugfix)/.+"
-
-if [[ ! $BRANCH =~ $VALID_BRANCH_PATTERN ]]; then
-  echo ""
-  echo "⚠️  Warning: Branch '$BRANCH' doesn't follow git-flow conventions"
-  echo ""
-  echo "Recommended branch naming:"
-  echo "  - feature/<name>  - New features"
-  echo "  - release/<version> - Release preparation"
-  echo "  - hotfix/<version>  - Production fixes"
-  echo "  - bugfix/<name>     - Development fixes"
-  echo ""
-  echo "Proceeding with commit (not enforced for other branches)..."
-  echo ""
+  # A REFUSAL since 2026-08-26, and a warning before it. See `git-flow-rules.sh` for the
+  # measurement that changed it: the warning let 44 of 108 branches through.
+  bash "$RULES" check-name "$BRANCH" || exit 1
 fi
 
 # ---------------------------------------------------------------------------
