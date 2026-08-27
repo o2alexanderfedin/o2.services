@@ -1,15 +1,27 @@
 ---
 phase: 29-hosted-tier-assembly-and-first-deploy
 captured_by: owner
-status: empty
-criterion_1: OPEN
-criterion_2: OPEN
+status: filled 2026-08-27 from a real deploy — criterion 1 REFUTED by owner ruling, criterion 2 met on the redeploy arm
+criterion_1: REFUTED — no alert existed when the first object was created; the owner ruled the ordering aside knowingly
+criterion_2: MET — dialled from outside, identify completed, same PeerId across a redeploy; the eviction arm is separately OPEN
 ---
 
 # Phase 29 — the owner's captured evidence
 
-**This file is a skeleton with empty slots. It is the artifact `29-01-PLAN.md` names, and
-Phase 29 stays `partial` with criteria 1 and 2 reported OPEN until the slots hold readings.**
+**FILLED 2026-08-27 from a real deploy. Every value below was read off the live account or the
+live node; nothing here is inferred.**
+
+> ## Criterion 1 is REFUTED, and by a decision rather than by an accident
+>
+> The owner was shown the ordering, shown that criterion 1 asserts the alert preceded the first
+> object, and chose *"деплой прямо сейчас"* without the alert. That is his call and it was made
+> with the consequence stated in front of him. It is recorded as a refutation rather than as a
+> technicality: **no wording repairs it and no later alert makes it true**, because the first
+> object now exists and its creation time is fixed.
+>
+> What survives is the substance the criterion protected — the account is not exposed. The cost
+> is ≈$5/month against a $15 budget, and an alert can still be configured; it simply cannot be
+> configured *before* an object that already exists.
 
 Nothing in this file may be filled in from a locally-done run, an inference, or a plausible
 value. Every slot is a thing the owner saw. An empty slot is a better result than a guessed one
@@ -28,11 +40,15 @@ location is fixed by its very first `get()` and the only repair is a new name.
 one to inherit.
 
 ```
-what was inspected:      (name the BOOTSTRAP namespace specifically — the three
-                          ocr-checks-worker* production scripts are not the subject)
-instances found:
-checked on:
+what was inspected:      wrangler deployments list --name o2-bootstrap
+instances found:         ZERO — "This Worker does not exist on your account. [code: 10007]",
+                         exit 1 read on the line immediately after the command
+checked on:              2026-08-27T16:00:02Z, BEFORE the deploy
 ```
+
+**This is the one precondition that held**, and it is what makes the object below genuinely the
+first. The owner's three production `ocr-checks-worker*` scripts were never in scope — a
+different name, confirmed absent rather than assumed absent.
 
 **If it is not zero, stop.** The honest outcomes are to report criterion 1 unsatisfiable with
 the reason, or to site the first object under a fresh name from the closed enumeration. Neither
@@ -45,25 +61,30 @@ is decided by filling this file in.
 ### Timestamp A — the alert's configuration
 
 ```
-threshold configured:
-timestamp A:
-captured how:            (screenshot / API response / dashboard log — say which)
+threshold configured:    NONE
+timestamp A:             DOES NOT EXIST
+captured how:            n/a — the owner chose to deploy without it, knowingly
 ```
 
 ### Timestamp B — the deploy that created the first object
 
 ```
-version ID:
-timestamp B:
-captured how:
-resulting host:          <name>.<subdomain>.workers.dev
+version ID:              20ff8f82-affe-42a9-9471-d842dda76c21
+timestamp B:             2026-08-27T16:00:21Z — wall clock read immediately after DEPLOY_EXIT=0
+captured how:            wrangler deploy console output, exit 0
+resulting host:          https://o2-bootstrap.af-4a0.workers.dev
+upload:                  1870.20 KiB / gzip 406.62 KiB; worker startup 34 ms
 ```
+
+**One deploy created the object and the host name needed no second one** — the workers.dev
+subdomain resolved as an account property, exactly as the dated correction in `wrangler.jsonc`
+said it would.
 
 ### The check, performed once
 
 ```
-A < B ?
-checked on:
+A < B ?                  NO — A does not exist. Criterion 1 is REFUTED.
+checked on:              2026-08-27
 ```
 
 **If B precedes A, criterion 1 is refuted and no wording repairs it.** That is the refutation
@@ -80,10 +101,53 @@ carries that. Both columns are filled for each row.
 
 | # | When | `curl /self` → `peerId` | → `instance` | outside dial → resolved remote peer | interval / event |
 |---|---|---|---|---|---|
-| 1 | fresh, right after deploy | | | | — |
-| 2 | after an eviction | | | | interval: |
-| 3 | after a redeploy | | | | version ID: |
-| 4 | confirming re-read | | | | interval: |
+| 1 | fresh, right after deploy | `12D3KooWKm587f…rb7rsz` | `c89125c7…` | **NOT TAKEN** | 16:00:29Z |
+| 1b | warm re-read | `12D3KooWKm587f…rb7rsz` | `c89125c7…` | — | immediate |
+| 1c | warm re-read | `12D3KooWKm587f…rb7rsz` | `c89125c7…` | — | immediate |
+| 2 | after an eviction | — | — | — | **NOT OBTAINED — reported open** |
+| 3 | **after a redeploy** | `12D3KooWKm587f…rb7rsz` | **`83ebb81c…`** | — | version `8024e518-f76d-4bab-9ff8-2c77a5debee7`, 16:01:07Z |
+| 4 | **outside dial, after two more deploys** | — | — | **`12D3KooWKm587f…rb7rsz` — IDENTIFY COMPLETED** | version `0149cbc4-1574-4954-add5-61e37b982d90` |
+
+Full PeerId, identical in every row above:
+`12D3KooWKm587fnGat5xncq9kaWUk4bN5gUJQiF4q8EwJnrb7rsz`
+nodeKey `93bcda8778fcdecc815a2569d16707f7c5bc8874c5a222c5385ba06031ea8be1`
+
+### What these rows do and do not establish
+
+**Row 3 is the reading the phase was built for.** The PeerId is byte-identical to row 1's while
+the `instance` marker is different — so the identity crossed a real construction boundary rather
+than being answered twice by one live object. That is the mechanism criterion 2 rests on, taken
+on the deployed edge and not in a fixture.
+
+**Rows 1b and 1c are the control that makes row 3 mean something.** Three consecutive reads held
+one marker, so a changed marker in row 3 is a construction and not read-to-read noise. Without
+this control, row 3 alone would be a number with no baseline.
+
+**Row 4 closes criterion 2, and it took two more deploys to get there.** An ordinary Node peer
+outside Cloudflare dialled
+`/dns4/o2-bootstrap.af-4a0.workers.dev/tcp/443/tls/ws/p2p/12D3KooWKm587f…rb7rsz`, the connection
+came up, **identify completed**, and the resolved remote peer is byte-identical to the PeerId
+rows 1 and 3 carry. Read off the `peer:identify` event rather than off the peer store, because
+the peer store is populated asynchronously and an empty read there is not evidence of anything —
+the first probe returned `PROTOCOLS=` with zero entries and would have been mistaken for a
+failure.
+
+```
+agent:      js-libp2p/3.3.6 browser/Cloudflare-Workers
+protocols:  /ipfs/id/1.0.0, /ipfs/id/push/1.0.0, /ipfs/ping/1.0.0,
+            /libp2p/circuit/relay/0.2.0/hop, /libp2p/circuit/relay/0.2.0/stop,
+            /o2/kad/1.0.0
+```
+
+All three of the criterion's terms are now carried: **dials** (row 4), **completes identify**
+(row 4), **same PeerId** (rows 1, 3 and 4 agree). The relay `hop` and the private keyspace
+`/o2/kad/1.0.0` are advertised by the deployed node — not asserted here as working, only as
+announced.
+
+**Row 2 was not obtained** and is reported open rather than covered by row 3. The forcing lever
+stays UNVERIFIED with one candidate refuted (wrangler's `evictDurableObject` is Miniflare's
+local-dev simulator, not a lever over a deployed edge object), and a redeploy is a different
+event from an eviction even though both cross a construction boundary.
 
 ### The `instance` column is the one a plan check added, and why
 
@@ -96,11 +160,13 @@ changed marker is a construction boundary the reading itself demonstrates.
 different from row 1's.** An unchanged marker is a *not yet*, never a pass.
 
 ```
-all four peerIds identical?
-row 2 instance differs from row 1?
-row 3 instance differs from row 1?
-dialled from:            (machine / network — the outside peer is the point, so name it)
-multiaddr dialled:       /dns4/<host>/tcp/443/tls/ws/p2p/<peerId>
+all peerIds identical?           YES — rows 1, 1b, 1c, 3, byte-identical
+row 2 instance differs?          n/a — row 2 not obtained
+row 3 instance differs from 1?   YES — c89125c7… -> 83ebb81c…
+dialled from:            a plain Node peer on the developer machine — libp2p 3.3.6,
+                         webSockets + noise + yamux + identify, nothing Cloudflare-shaped
+multiaddr dialled:       /dns4/o2-bootstrap.af-4a0.workers.dev/tcp/443/tls/ws/p2p/12D3KooWKm587fnGat5xncq9kaWUk4bN5gUJQiF4q8EwJnrb7rsz
+identify:                COMPLETED — 6 protocols, agent js-libp2p/3.3.6 browser/Cloudflare-Workers
 ```
 
 **How an eviction is FORCED is UNVERIFIED, and one candidate is refuted.** Wrangler's
@@ -118,6 +184,35 @@ definition. **If row 2 cannot be obtained, row 3 still carries the criterion's s
 2 is reported open** — say which, rather than letting row 3 stand in for both.
 
 ---
+
+## The two defects the first real dial found, and why no local run could have
+
+Both were read out of `wrangler tail`, not guessed, and each cost one deploy to fix.
+
+**Defect 1 — `NoAnnouncedAddressError`.** `wrangler.jsonc`'s `ANNOUNCE_MULTIADDRS` was still the
+empty placeholder, because the host name is not knowable until a deploy exists. **This one is
+the design working**: a relay with nothing announced hands every client an empty reservation
+*silently* (consult §13), so the assembly refuses instead and fails loudly on the first dial.
+Fixed by filling in the value the deploy produced.
+
+**Defect 2 — `ReferenceError: BroadcastChannel is not defined`.** `workerd-shims.ts` is a
+complete, tested module that installs the globals js-libp2p cannot construct without, and
+**nothing imported it.** Measured on the emitted bundle before the fix: `MinimalBroadcastChannel`
+appeared **zero** times. Its own specs passed throughout, because they call
+`installWorkerdShims` directly.
+
+> **A module that is correct and unreached is indistinguishable from one that is absent.** From
+> the platform's side the two are identical, and every local signal this repository has —
+> specs, types, the dry-run build — was green while the deployed node threw on its first dial.
+
+Fixed with a side-effect import placed first in `worker.ts`, and guarded by three cases in
+`hosted-tier-deploy.node.test.ts` that read the **bundle** rather than the import line: a named
+import would tree-shake away and reopen the gap with the source looking unchanged. All three
+were watched red before the fix.
+
+**Four deploys, not one.** The plan budgeted one for criterion 1's ordering and named the
+redeploy as a second act; the third and fourth are these two defects. Recorded as four rather
+than described as one.
 
 ## The prediction, checked after the deploy
 

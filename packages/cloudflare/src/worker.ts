@@ -45,6 +45,20 @@
  *
  */
 
+// FOR ITS SIDE EFFECT, and it must be the FIRST import in this file.
+//
+// `workerd-shims.ts` installs the two globals js-libp2p cannot construct without and that
+// workerd does not provide. It was written, tested and imported by NOTHING — measured on the
+// emitted bundle 2026-08-27, `MinimalBroadcastChannel` appeared ZERO times — so the first
+// inbound dial on the deployed node threw `ReferenceError: BroadcastChannel is not defined`,
+// read out of `wrangler tail`. Its own specs passed throughout, because they call
+// `installWorkerdShims` directly; a module that is correct and unreached is indistinguishable
+// from one that is absent.
+//
+// A NAMED import would not do: nothing here calls into the module, so it would tree-shake away
+// and reopen the gap with this file looking unchanged. FIRST, because ES modules evaluate in
+// import order and `hosted-libp2p.ts` constructs the stack that needs these globals.
+import './workerd-shims.ts'
 import { HostedNode, stubFor } from './hosted-object.ts'
 import type { HostedObjectName, HostedObjectNamespace } from './hosted-object.ts'
 import {

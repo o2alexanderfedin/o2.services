@@ -238,3 +238,74 @@ describe('criteria 4 and 6 — one call site, and no name a visitor can choose',
     expect(worker).not.toContain('searchParams')
   })
 })
+
+/**
+ * The two defects the FIRST REAL DEPLOY found, and neither was findable without it.
+ *
+ * Phase 29 deployed on 2026-08-27. The node came up, `GET /self` answered, and the identity
+ * survived a redeploy — and then the first inbound dial returned HTTP 500 twice in a row, for
+ * two different reasons, both read out of `wrangler tail` rather than guessed:
+ *
+ * | # | Exception | Cause |
+ * |---|---|---|
+ * | 1 | `NoAnnouncedAddressError` | `wrangler.jsonc`'s `ANNOUNCE_MULTIADDRS` was still `""` |
+ * | 2 | `ReferenceError: BroadcastChannel is not defined` | `workerd-shims.ts` reached the bundle ZERO times |
+ *
+ * **Defect 1 was the design working.** A relay with nothing announced hands every client an
+ * empty reservation *silently* (consult §13), so the assembly refuses instead. It failed loudly
+ * on the first dial, which is exactly what that refusal is for.
+ *
+ * **Defect 2 is the one worth a guard.** `workerd-shims.ts` is a complete, tested module that
+ * installs a same-isolate `BroadcastChannel` and verifies its own postcondition — and nothing
+ * imported it, so its side effect never ran on the platform whose gap it exists to close.
+ * Measured on the emitted bundle before the fix: `MinimalBroadcastChannel` appeared **0** times.
+ * Every one of its own specs passed throughout, because they call `installWorkerdShims`
+ * directly. **A module that is correct and unreached is indistinguishable from one that is
+ * absent** — from the platform's side, identical.
+ *
+ * These cases read the BUNDLE rather than the import line, because the import line is not the
+ * claim. A tree-shaken import, a conditional one, or a re-export that drops the side effect all
+ * leave the source looking right and the bundle empty.
+ */
+describe('the workerd shims reach the deployed bundle — the second defect the first deploy found', () => {
+  it('carries the BroadcastChannel shim, which was absent on the deploy that threw', () => {
+    const emitted = emittedBundle()
+
+    // The plant that proves this is not vacuous: removing the import from `worker.ts` takes
+    // this to 0, which is the reading taken on 2026-08-27 before the fix.
+    expect(
+      emitted.includes('MinimalBroadcastChannel'),
+      'the shim class must be IN the bundle — an import that tree-shakes away leaves the ' +
+        'source looking correct and the platform throwing ReferenceError on the first dial',
+    ).toBe(true)
+  }, 180_000)
+
+  it('carries the shim INSTALLER, not merely the class it would install', () => {
+    const emitted = emittedBundle()
+
+    // Bundling the class without the call that installs it would satisfy the case above and
+    // still leave `globalThis.BroadcastChannel` undefined. The installer's own postcondition
+    // check is what makes a failed shim throw rather than pass silently.
+    expect(emitted).toContain('installWorkerdShims')
+  }, 180_000)
+
+  it('imports the shims module for its SIDE EFFECT, before anything can construct libp2p', () => {
+    const worker = readFileSync(join(PACKAGE, 'src/worker.ts'), 'utf8')
+
+    // A side-effect import, not a named one: nothing in `worker.ts` calls into the module, so
+    // a named import would be dropped and the gap would reopen with the source unchanged.
+    expect(worker).toContain("import './workerd-shims.ts'")
+  })
+})
+
+describe('the announced address is configured — the first defect the first deploy found', () => {
+  it('is not the empty placeholder that threw NoAnnouncedAddressError on the first dial', () => {
+    const config = readFileSync(join(PACKAGE, 'wrangler.jsonc'), 'utf8')
+
+    // The value is the deployment's, never the request's — a `Host` header is
+    // visitor-controlled. This asserts only that it is non-empty and a `/dns4/` multiaddr;
+    // WHICH host is an owner choice and is deliberately not pinned here.
+    expect(config).not.toContain('"ANNOUNCE_MULTIADDRS": ""')
+    expect(config).toMatch(/"ANNOUNCE_MULTIADDRS":\s*"\/dns4\/[^"]+\/tcp\/443\/tls\/ws"/)
+  })
+})
