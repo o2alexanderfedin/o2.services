@@ -1,0 +1,92 @@
+# Tests on every push and pull request. Spends nothing.
+#
+# The lane split is not stylistic — it is measured, and CLAUDE.md § Measurement carries the
+# reading. `node` and `aot` competed inside one project and a full sweep lost FIVE specs at
+# once: two to a 900 000 ms hook budget, three to a harness child killed by a signal.
+# Serialised they pass. The numbers say why they are separate jobs here:
+#
+#   node alone   161.70 s at (user+sys)/real 5.37   — CPU-bound
+#   aot  alone  1181.61 s at              0.090     — waiting on a container
+#   together    2872.08 s, and six load-sensitive node specs fall over
+#
+# So they run as separate jobs. On one runner that is also cheaper in wall clock.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# A second push to the same branch cancels the first. Nothing here deploys, so cancelling
+# mid-run cannot leave anything half-applied.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+
+  node:
+    runs-on: ubuntu-latest
+    # Long because the lane really is long: 161.70 s of test time measured locally, plus
+    # install and the multi-process specs that spawn real agents.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:node
+
+  aot:
+    runs-on: ubuntu-latest
+    # The container lane. 1181.61 s measured locally at a CPU ratio of 0.090 — it waits
+    # rather than computes, so a generous budget here costs little.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:aot
+
+  bundle:
+    # The hosted tier's bundle must still BUILD on every push. ARCHITECTURE §7: building is
+    # not deploying. `--dry-run` needs no credential — measured, it exits 0 on a machine with
+    # none configured — so this job holds no secret and cannot spend.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run --project node packages/node/src/hosted-tier-deploy.node.test.ts
+        env:
+          WRANGLER_SEND_METRICS: 'false'
