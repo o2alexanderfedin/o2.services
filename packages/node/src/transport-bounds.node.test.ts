@@ -626,11 +626,41 @@ describe('NET-09 — a per-peer send gate, and the tear-down it exists to stop',
     )
     await settles(() => receiver.received.length === 32, 3_000)
 
-    // The instrument read something. An empty capture here would make the paired
-    // assertion in the next test worth nothing at all.
-    expect(receiverErrors.errors.length).toBeGreaterThan(0)
+    /**
+     * The instrument read something. An empty capture here would make the paired
+     * assertion in the next test worth nothing at all.
+     *
+     * **INSTRUMENTED 2026-08-27 after a CI failure this message could not explain.** On
+     * GitHub Actions `ubuntu-latest` the capture was EMPTY — `expected 0 to be greater than
+     * 0` — and the bare count named nothing: not how many messages arrived, not whether any
+     * send was rejected, not what errors (if any) the receiver saw instead. Locally the file
+     * passes 15/15, three runs of three.
+     *
+     * **The cause is deliberately not written.** Two readings fit: the tear-down did not
+     * happen at all on that host (32 concurrent sends over a faster loopback may have been
+     * admitted within the muxer's early-stream window), or it happened and the capture was
+     * read before the error landed. They call for opposite fixes — the first means the
+     * fixture no longer reproduces the condition, the second means the settle is racy — and
+     * this repository has already buried two hypotheses whose arithmetic fit. So the next
+     * occurrence reports which, and a reader gets a finding rather than a zero.
+     */
+    const describeCapture = (): string =>
+      `the receiver captured NO error, so the tear-down this case reproduces did not reach ` +
+      `the instrument.\n` +
+      `  messages received: ${String(receiver.received.length)} of 32\n` +
+      `  sends rejected:    ${String(results.filter((r) => r.status === 'rejected').length)} of 32\n` +
+      `  errors captured:   ${receiverErrors.errors.length === 0 ? 'none' : receiverErrors.errors.map((e) => e.name).join(', ')}\n` +
+      `  reading: all 32 received with none rejected means the muxer ADMITTED them and the ` +
+      `condition did not occur; some rejected with no capture means it occurred and the ` +
+      `capture was read too early.`
+
+    expect(receiverErrors.errors.length, describeCapture()).toBeGreaterThan(0)
     const early = receiverErrors.errors.filter((e) => e.name === 'MaxEarlyStreamsError')
-    expect(early.length).toBeGreaterThan(0)
+    expect(
+      early.length,
+      `errors were captured but none was MaxEarlyStreamsError: ` +
+        `${receiverErrors.errors.map((e) => e.name).join(', ')}`,
+    ).toBeGreaterThan(0)
 
     // And the damage: sends died and messages did not arrive.
     expect(results.filter((r) => r.status === 'rejected').length).toBeGreaterThan(0)

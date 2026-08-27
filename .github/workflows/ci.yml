@@ -56,32 +56,39 @@ jobs:
       - run: npm ci
       - run: npm run test:node
 
-  aot:
-    # ARM64, and this is a HARD requirement rather than a preference. Measured on the first
-    # CI run, 2026-08-27: on `ubuntu-latest` (x86) the elfconv image pulls, warns
-    # "the requested image's platform (linux/arm64) does not match the detected host platform
-    # (linux/amd64/v4)", and then every exec into it dies with `exec /bin/bash: exec format
-    # error`. CLAUDE.md § Platform already says elfconv requires AArch64; this is that
-    # constraint arriving as a CI failure rather than as a sentence.
-    #
-    # `ubuntu-24.04-arm` is free for public repositories, and this repository is public
-    # (checked, not assumed). If it ever stops being free, the honest move is to drop this
-    # lane from CI and say so — NOT to run it on x86, where it fails for a reason that has
-    # nothing to do with the code under test.
-    runs-on: ubuntu-24.04-arm
-    # The container lane. 1181.61 s measured locally at a CPU ratio of 0.090 — it waits
-    # rather than computes, so a generous budget here costs little.
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-      - run: npm ci
-      - run: npm run test:aot
+  # ─────────────────────────────────────────────────────────────────────────────────────
+  # THE `aot` LANE IS NOT IN CI, AND THAT IS A FINDING RATHER THAN AN OMISSION.
+  #
+  # It was added on 2026-08-27, failed three runs, and each failure was about the host and
+  # not about the code. Measured rather than guessed, in this order:
+  #
+  #   run 1, ubuntu-latest  `exec /bin/bash: exec format error` — the pinned elfconv image
+  #                         is arm64 and the runner is x86. Moved to ubuntu-24.04-arm.
+  #   run 2, ubuntu-24.04-arm  reading C absent, because it reads a wasm LLVM tree that
+  #                         exists on the developer host. Fixed properly: the gate now
+  #                         narrows on an absent reading, which its own docblock already
+  #                         required. That fix is kept — it was a real defect.
+  #   run 3, ubuntu-24.04-arm  three more, and this is where it stops being fixable:
+  #                         - `elflift-wasm-determinism` wants /Volumes/ProjectsSSD/o2-wasi-llvm
+  #                         - `elflift-wasi-gate` wants a second tree under Projects/hupyy
+  #                         - `cross-machine` needs BOTH architectures in one run, because its
+  #                           whole subject is the x86 image REFUSING an AArch64 input. On an
+  #                           ARM runner the x86 image cannot exec; on x86 the arm64 one
+  #                           cannot. No runner has both.
+  #
+  # Five of the eleven `tools/**` specs touch a host fact. Making them green on a runner
+  # means weakening assertions written to measure a real toolchain — which CLAUDE.md § Proofs
+  # forbids: "descoped is not satisfied; unmeasured is not met", and a criterion is not
+  # rewritten to let something pass. A lane that is green because it stopped checking is
+  # worse than a lane that is absent and says so.
+  #
+  # So the lane runs on the developer machine — `npm run test:aot`, 11/11, and CLAUDE.md
+  # carries its measured numbers — and CI does not pretend to cover it.
+  #
+  # WHAT WOULD CHANGE THIS, so it is a decision rather than a dead end: publishing the two
+  # LLVM trees as OCI artifacts, or a self-hosted arm64 runner with them mounted. Both are
+  # real work and neither was in the scope of "run CI on push".
+  # ─────────────────────────────────────────────────────────────────────────────────────
 
   bundle:
     # The hosted tier's bundle must still BUILD on every push. ARCHITECTURE §7: building is
