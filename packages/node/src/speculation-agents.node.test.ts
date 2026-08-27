@@ -701,6 +701,24 @@ async function runJob(
   return result.job
 }
 
+/**
+ * How long the three stayed frozen — freeze to **release**, for the diagnostic line.
+ *
+ * **Printed, never asserted against, and the reason is measured rather than stylistic.** The
+ * solo owner's dispatch begins *after* `freeze()` resolves, so its stalled span is shorter
+ * than this one by however long `pauseAgent` took on three processes. A bound written against
+ * this number would therefore redden a run whose dispatch stayed inside the budget. What the
+ * number is for is attribution after the fact — see the note beside the solo owner's readings.
+ *
+ * Takes both instants rather than a span so the not-yet-thawed case has a word instead of a
+ * subtraction against `null`; the wrapper sets both from closures no flow analysis can follow.
+ */
+function describeFrozenSpan(frozenAt: number | null, releasedAt: number | null): string {
+  if (frozenAt === null) return 'never frozen'
+  if (releasedAt === null) return 'never released'
+  return `${String(Math.round(releasedAt - frozenAt))}ms`
+}
+
 /** Every shard's agreed result CID, in shard order. `null` for a shard that did not agree. */
 function resultCids(job: JobResult): readonly (string | null)[] {
   return job.shards.map((shard) =>
@@ -942,6 +960,20 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     let thawing: Promise<void> | null = null
     let frozenAt: number | null = null
     let thawedAt: number | null = null
+    /**
+     * When the frozen processes were actually **released**, which is not `thawedAt`.
+     *
+     * `thawedAt` is the instant the thaw was *decided* — the closure's first line. The
+     * stalled dispatch does not move until `resumeAgent` has returned for all three, and the
+     * distance between the two is what the diagnostic below is about. Kept separate rather
+     * than moving `thawedAt`, because an existing assertion reads `thawedAt` for a different
+     * question: whether the event fired at all.
+     *
+     * **The distinction was found by planting, not by reading.** A 15 000 ms delay inserted
+     * ahead of the resume printed `frozen-to-thaw 764ms` — a label promising the span the
+     * solo dispatch is stalled for, reporting the span before the decision instead.
+     */
+    let releasedAt: number | null = null
     const freeze = async (): Promise<void> => {
       freezing ??= (async () => {
         frozenAt = performance.now()
@@ -953,6 +985,7 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
       thawing ??= (async () => {
         thawedAt = performance.now()
         await Promise.all(frozen.map((agent) => resumeAgent(agent)))
+        releasedAt = performance.now()
       })()
     }
 
@@ -1054,6 +1087,8 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
         `frozen public shard ${describeDuration(trackedPrimary)}, paired-owner shard ` +
         `${describeDuration(pairedCall)}, solo-owner shard ` +
         `${describeDuration(soloCall)}; compare grace ${compareGraceMs}ms; ` +
+        `frozen-to-released ${describeFrozenSpan(frozenAt, releasedAt)} ` +
+        `against an rpc budget of ${RPC_TIMEOUT_MS}ms; ` +
         `losing copies [${on.shards.flatMap((s) => s.copies.map((c) => c.outcome)).join(',')}]\n`,
     )
 
@@ -1123,7 +1158,17 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     }
     // The whole job's answers, against the off arm of the same fixture in the same run —
     // an equality, never a pinned literal.
-    expect(resultCids(on)).toEqual(offCids)
+    //
+    // **The message is the instrument, and it was added because this line reddened once
+    // without one.** On 2026-08-25 a run that took 13.75 s against a 6.8-7.2 s norm failed
+    // here with a `null` in the **last** position — which is `SOLO_INDEX`, the solo owner's
+    // shard, not a public one. It printed the two arrays and nothing else, so the run could
+    // not name its own reason: the reading that names a shard's ending *and* the fabric's
+    // words for it is `on.complete`'s, 328 lines below this one, and it never got to run.
+    // `describeShards`' own header names that exact shape as the thing it exists to prevent.
+    // The ordering is deliberate and is left alone — a message changes what a failure says,
+    // never which assertion fires first.
+    expect(resultCids(on), describeShards(on)).toEqual(offCids)
 
     // ---- (4) Every loser is accounted for by name. ---------------------------------
     // A straggler whose copy vanishes from the record is the loss of exactly the evidence
@@ -1211,6 +1256,37 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     expect(pairedOn.attempted).toEqual([paired[0].peerId, paired[1].peerId])
     expect(pairedDuplicate.nodeId).toBe(paired[1].peerId)
 
+    /*
+     * **The one absolute this fixture rests on, measured 2026-08-26 rather than argued.**
+     *
+     * The solo owner's shard has exactly one legal executor — sovereign, its owner,
+     * `REDUNDANCY` 1, and nothing may be duplicated for it, which is asserted three lines
+     * below. Its only exit is therefore the thaw. If the freeze outlasts
+     * {@link RPC_TIMEOUT_MS} the single dispatch fails on that budget, there is no untried
+     * node behind it, and the shard ends `no-untried-node` — its CID reads `null` and the
+     * whole-job equality at (3) is what reddens, 90 lines before anything here runs.
+     *
+     * **That is the fabric behaving correctly on a host that could not run this fixture**,
+     * and not a defect in speculation: a sovereign shard whose sole owner is unreachable
+     * for longer than the caller's budget genuinely cannot be completed by anybody.
+     *
+     * **Proven by planting a delay on the thaw, not by waiting for one.** At 5 000 ms the
+     * frozen dispatches read 5975 / 5960 / 5982 ms and all twenty-two shards still agreed.
+     * At 15 000 ms they capped at 10001 / 10001 / 10000 ms — the budget, exactly — and #21
+     * came back `no-untried-node ... insufficient: every executor failed | ... rpc to ...
+     * timed out after 10000ms`. That reading is the whole of it: one number, one shard, and
+     * the reason in the fabric's own words.
+     *
+     * **Ten runs under eight CPU burners at load 16-50 did NOT reproduce it naturally**, so
+     * no natural frequency is claimed here. What replaces the claim is an instrument: the
+     * freeze-to-**release** span is printed on every run beside this budget, so a later
+     * occurrence arrives with its own number rather than sending a reader back to re-derive
+     * this paragraph. Freeze-to-*release* and not freeze-to-thaw, and the difference is not
+     * pedantry: the first version of that instrument read the thaw **decision** and reported
+     * 764 ms while the processes were held for 15 000 ms. The equality at (3) also carries `describeShards` now, for the same reason
+     * and from the same failure — it reddened once with a bare `null` and no reason beside
+     * it, which is precisely the shape `describeShards`' own header exists to prevent.
+     */
     // The solo owner's shard was NOT, and no second node was ever dispatched to.
     const soloOn = on.shards[SOLO_INDEX] as ShardResult
     expect(soloOn.speculated).toBe(false)
