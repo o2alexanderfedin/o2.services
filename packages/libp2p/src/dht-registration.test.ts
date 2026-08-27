@@ -204,9 +204,12 @@ describe('publishing reports its outcome rather than throwing it', () => {
     let drained = false
     const outcome = await publishRecords(
       dhtWith(() => {
+        // `async function*` with no reachable `yield` still types as an async generator, so
+        // the `if (false) yield` that stood here bought nothing and `allowUnreachableCode:
+        // false` correctly refuses it. The empty body is the same generator: it sets the flag
+        // and produces nothing, which is what this fixture is for.
         async function* events(): AsyncIterable<QueryEvent> {
           drained = true
-          if (false) yield {} as QueryEvent
         }
         return events()
       }),

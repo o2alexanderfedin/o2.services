@@ -591,7 +591,7 @@ export async function startLocalAcme(options: LocalAcmeOptions = {}): Promise<Lo
         json(
           response,
           201,
-          { status: 'valid', contact: jws.payload?.contact ?? [] },
+          { status: 'valid', contact: jws.payload?.['contact'] ?? [] },
           { location: `${acmeOrigin}/account/${id}` },
         )
         return
@@ -610,7 +610,7 @@ export async function startLocalAcme(options: LocalAcmeOptions = {}): Promise<Lo
       }
 
       if (path === '/new-order') {
-        const identifiers = (jws.payload?.identifiers ?? []) as { type: string; value: string }[]
+        const identifiers = (jws.payload?.['identifiers'] ?? []) as { type: string; value: string }[]
         const first = identifiers[0]
         if (first === undefined) {
           problem(response, 400, 'malformed', 'newOrder carried no identifiers')
@@ -676,7 +676,7 @@ export async function startLocalAcme(options: LocalAcmeOptions = {}): Promise<Lo
           problem(response, 403, 'orderNotReady', `order is ${order.status}, not ready`)
           return
         }
-        const csr = fromB64url(String(jws.payload?.csr ?? ''))
+        const csr = fromB64url(String(jws.payload?.['csr'] ?? ''))
         try {
           const { chain, issued: record } = await ca.sign(csr, Date.now())
           certificates.set(order.id, chain)
@@ -747,7 +747,7 @@ export async function startLocalAcme(options: LocalAcmeOptions = {}): Promise<Lo
   const orderBody = (order: AcmeOrder): unknown => ({
     status: order.status,
     expires: new Date(Date.now() + 3_600_000).toISOString(),
-    identifiers: order.identifiers,
+    identifiers: order['identifiers'],
     authorizations: [`${acmeOrigin}/authz/${order.id}`],
     finalize: `${acmeOrigin}/order/${order.id}/finalize`,
     ...(order.certificate === undefined ? {} : { certificate: order.certificate }),
@@ -824,7 +824,7 @@ export async function startLocalAcme(options: LocalAcmeOptions = {}): Promise<Lo
   acmeOrigin = `http://127.0.0.1:${port(acme)}`
 
   const caCertificatePath =
-    options.caCertificatePath ?? `${process.env.TMPDIR ?? '/tmp'}/o2-local-acme-${process.pid}.pem`
+    options.caCertificatePath ?? `${process.env['TMPDIR'] ?? '/tmp'}/o2-local-acme-${process.pid}.pem`
   await writeFile(caCertificatePath, ca.pem, 'utf8')
 
   return {

@@ -386,3 +386,72 @@ describe('the scanner can fail — proved against planted source, not assumed', 
     expect(violationsIn('planted.ts', 'let node: BrowserNode | null = null\n', FORBIDDEN)).toEqual([])
   })
 })
+
+// ---------------------------------------------------------------------------
+// The strict-type settings are pinned, because a flag is one edit from gone
+// ---------------------------------------------------------------------------
+
+/**
+ * Every strict setting `tsconfig.json` carries, asserted by name.
+ *
+ * **A compiler flag is the cheapest thing in this repository to delete.** Turning one off
+ * makes an error disappear, the tree goes green, and nothing anywhere says a rule was
+ * dropped — the exact shape this file's own header calls "was true once" being worth much
+ * less than "cannot quietly stop being true".
+ *
+ * Eight were added on 2026-08-27 and each was MEASURED against the tree one at a time before
+ * being turned on. Five cost nothing — they pin behaviour the code already had.
+ * `noPropertyAccessFromIndexSignature` cost 13 call sites and `allowUnreachableCode: false`
+ * cost one; both were paid rather than deferred, and `noUnusedLocals` is deliberately absent
+ * with its cost recorded below.
+ *
+ * The list is a literal on purpose: reading the values out of the file and comparing them to
+ * themselves would pass against any file at all.
+ */
+describe('tsconfig.json keeps every strict-type setting it has paid for', () => {
+  const TSCONFIG = readFileSync(join(ROOT, 'tsconfig.json'), 'utf8')
+
+  /** Each flag with the reading that justifies it, so a future reader gets the price too. */
+  const REQUIRED: readonly (readonly [string, boolean, string])[] = [
+    ['strict', true, 'the family the rest of these extend'],
+    ['noUncheckedIndexedAccess', true, 'arr[i] is T | undefined — the single highest-value flag here'],
+    ['exactOptionalPropertyTypes', true, 'an optional field cannot be set to undefined explicitly'],
+    ['noImplicitOverride', true, 'an override that stops overriding is reported'],
+    ['isolatedDeclarations', true, 'every export states its own type; also what lets the build skip the TS API'],
+    ['verbatimModuleSyntax', true, 'type imports are erased predictably — load-bearing under node --strip-types'],
+    ['noUnusedParameters', true, 'measured 0 errors when added'],
+    ['noFallthroughCasesInSwitch', true, 'measured 0'],
+    ['noImplicitReturns', true, 'measured 0'],
+    ['useUnknownInCatchVariables', true, 'catch (e) is unknown, not any — measured 0'],
+    ['erasableSyntaxOnly', true, 'no enums/namespaces/parameter properties — this tree runs .ts directly'],
+    ['noPropertyAccessFromIndexSignature', true, 'measured 13 hits, all env vars and parsed JSON; paid'],
+    ['allowUnreachableCode', false, 'measured 1 hit, an if (false) yield that bought nothing; paid'],
+  ]
+
+  it('is a file with settings in it, so the assertions below are not true of nothing', () => {
+    expect(TSCONFIG.length).toBeGreaterThan(200)
+    expect(TSCONFIG).toContain('"compilerOptions"')
+  })
+
+  for (const [flag, value, why] of REQUIRED) {
+    it(`keeps ${flag}: ${String(value)} — ${why}`, () => {
+      // Matched with the value, so flipping a `true` to `false` fails rather than passing on
+      // the key's mere presence.
+      const pattern = new RegExp(`"${flag}"\\s*:\\s*${String(value)}\\b`)
+      expect(
+        pattern.test(TSCONFIG),
+        `tsconfig.json no longer sets "${flag}": ${String(value)}. ${why}. ` +
+          'Removing a strict flag makes errors disappear and says nothing — if this was ' +
+          'deliberate, delete the row here in the same commit and record the reading.',
+      ).toBe(true)
+    })
+  }
+
+  it('records why noUnusedLocals is NOT set, so its absence is a decision and not a gap', () => {
+    // The one flag measured and declined: 22 errors, and unlike the others they are not
+    // uniformly defects — several are deliberately-unused bindings in fixtures and planted
+    // mutations. Turning it on would mean editing those for a lint benefit `noUnusedParameters`
+    // already gives most of. Named here so nobody re-measures it from scratch.
+    expect(TSCONFIG).not.toMatch(/"noUnusedLocals"\s*:\s*true/)
+  })
+})
