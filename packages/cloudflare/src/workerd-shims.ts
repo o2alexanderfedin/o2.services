@@ -154,7 +154,7 @@ export class ShimRefusedError extends Error {
  * side-effect section at the foot of this file.
  */
 export function installNodeVersion(scope: ShimScope): ShimReport['processVersions'] {
-  const version = scope.process?.versions?.node
+  const version = scope.process?.versions?.['node']
   if (typeof version === 'string' && version.length > 0) return 'already-present'
   const existing = scope.process
   // TWO mechanisms, and which one actually fires was MEASURED rather than reasoned — the
@@ -171,12 +171,12 @@ export function installNodeVersion(scope: ShimScope): ShimReport['processVersion
     } else if (existing.versions === undefined) {
       existing.versions = { node: SHIMMED_NODE_VERSION }
     } else {
-      existing.versions.node = SHIMMED_NODE_VERSION
+      existing.versions['node'] = SHIMMED_NODE_VERSION
     }
   } catch {
     throw new ShimRefusedError('process.versions.node')
   }
-  const after = scope.process?.versions?.node
+  const after = scope.process?.versions?.['node']
   if (typeof after !== 'string' || after.length === 0) {
     throw new ShimRefusedError('process.versions.node')
   }

@@ -72,7 +72,7 @@ const REPO = join(HERE, '..', '..')
 
 // The build products live outside the repository — they are 66 MB of archives and a 13.5 MB
 // module, and none of it belongs in git. Their absence is a skip, not a failure.
-const BUILD_ROOT = process.env.O2_WASI_ROOT ?? '/Volumes/ProjectsSSD/o2-wasi-llvm'
+const BUILD_ROOT = process.env['O2_WASI_ROOT'] ?? '/Volumes/ProjectsSSD/o2-wasi-llvm'
 const MODULE = join(BUILD_ROOT, 'elflift.wasm')
 const FIXTURES = join(BUILD_ROOT, 'fixtures')
 const ELF = join(FIXTURES, 'hello_static')
