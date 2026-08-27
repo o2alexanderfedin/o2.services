@@ -128,7 +128,60 @@ let workdir: string
 const agents: Agent[] = []
 const nodes: FabricNode[] = []
 
+/**
+ * The ONE stand-up failure that is re-attempted, matched on its own text.
+ *
+ * **Copied from `admission-agents.node.test.ts`, which met this on the same message.**
+ * `rpc to <peer> timed out after <n>ms` is `RpcFailure`'s own rendering
+ * (`packages/net/src/rpc.ts:59`), and the budget it names is `DEFAULT_RPC_TIMEOUT_MS` — the
+ * PRODUCT default of 30 000 ms, not a number this file chose. A spawned agent whose
+ * enrolment RPC misses it exits 1 before printing a handshake line, and the whole file then
+ * fails in the spawn on a fact about how much CPU the machine had.
+ *
+ * Observed here on 2026-08-26 in a full `--project node` sweep: *"agent e exited early with
+ * 1 … enrollment with /ip4/127.0.0.1/… failed (unreachable): provider unreachable … rpc to
+ * … timed out after 30000ms"*. The same file passed alone twice immediately after, and the
+ * preceding sweep of 207 files was green — so what changed was the load, not the path.
+ *
+ * **Keyed on the message, not on a count and not on a timer.** Any other exit — a refusal, a
+ * bad flag, a crash — is re-thrown untouched on the first attempt. That is the difference
+ * between re-attempting a known host condition and retrying until green.
+ */
+const RPC_TIMED_OUT = /timed out after \d+ms/
+
+/**
+ * Stand an agent up, re-attempting exactly once and only on {@link RPC_TIMED_OUT}.
+ *
+ * **Why a re-attempt rather than a bigger budget.** The budget belongs to the child and is
+ * the product's own default; raising it from here would change what the shipped binary does
+ * in a test's favour. And per `CLAUDE.md` § Measurement, a wall-clock bound over a process
+ * that is *waiting* measures the host and never the code, so widening it buys a later cliff
+ * and nothing else.
+ *
+ * **Why not silent.** One re-attempt hides a host hiccup, which is the intent, and would
+ * equally hide an enrolment path that fails half the time, which is not. So every
+ * re-attempt writes to stdout and a run that needed one says so.
+ *
+ * **What it cannot do.** A second failure is thrown, so an enrolment that is genuinely
+ * broken still fails this file on the same message it always did.
+ */
 async function spawnAgent(name: string, extraArgs: readonly string[] = []): Promise<Agent> {
+  try {
+    return await spawnAgentOnce(name, extraArgs)
+  } catch (cause) {
+    const text = cause instanceof Error ? cause.message : String(cause)
+    if (!RPC_TIMED_OUT.test(text)) throw cause
+    process.stdout.write(
+      `[fixture / re-attempt] agent ${name} exited before announcing because an RPC missed ` +
+        `the child's own DEFAULT_RPC_TIMEOUT_MS budget, which on this host is a statement ` +
+        `about contention rather than about discovery. Standing it up once more; a second ` +
+        `failure is thrown. Original: ${text.slice(0, 400)}\n`,
+    )
+    return await spawnAgentOnce(name, extraArgs)
+  }
+}
+
+async function spawnAgentOnce(name: string, extraArgs: readonly string[] = []): Promise<Agent> {
   const dir = join(workdir, name)
   const child: AgentProcess = spawn(
     process.execPath,

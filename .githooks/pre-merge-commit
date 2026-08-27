@@ -1,0 +1,22 @@
+#!/bin/bash
+# Invoked by `git merge` when the merge needs no manual resolution.
+#
+# **This is the path `pre-commit` never saw, and its absence is why every merge into a
+# protected branch went through untouched.** `pre-commit` refuses direct commits to `main`
+# and `develop` and exits 1 — but git does not run it for an automatic merge, it runs this
+# hook, and this hook did not exist here until 2026-08-26. So the refusal held exactly what
+# it was written for, a hand-edit on a protected branch, and said nothing about where a
+# merge came from. The rules themselves are in `git-flow-rules.sh`; this file only decides
+# that they apply.
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+RULES="$(git rev-parse --show-toplevel)/.githooks/git-flow-rules.sh"
+
+if ! SOURCE=$(bash "$RULES" merge-source); then
+  # Named rather than refused — see `merge_source` for why an unidentifiable source is
+  # allowed through. Printed so the run says what was not checked.
+  echo "⚠️  merge source is not a single local branch — direction not checked" >&2
+  exit 0
+fi
+
+bash "$RULES" check-merge "$BRANCH" "$SOURCE" || exit 1
