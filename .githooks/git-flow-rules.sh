@@ -86,6 +86,24 @@ check_merge() {
       return 1
       ;;
     develop)
+      # **This arm is REACHABLE ONLY WHEN main AND develop HAVE DIVERGED, and that was
+      # measured rather than assumed.** In a healthy tree `git merge-base main develop`
+      # equals develop — main is develop plus merge commits — so merging main into develop
+      # is a FAST-FORWARD, and git does not invoke `pre-merge-commit` for a fast-forward.
+      # Watched on 2026-08-26: the merge printed `Already up to date.` followed by
+      # `Merge made by the 'recursive' strategy.`, created a commit, exited 0, and this hook
+      # never ran. Even `--no-ff` does not bring it back.
+      #
+      # So the plant for this arm CANNOT go red through the hook, and saying otherwise would
+      # be a proof that cannot fail. What carries the claim instead is the spec, which calls
+      # this function directly — and what carries the diverged case is the same code path
+      # `main` uses, which WAS planted and did go red.
+      #
+      # The one mechanism that would catch a fast-forward is `reference-transaction`, which
+      # fires on every ref update and can refuse. Deliberately not used: it would sit in
+      # front of every commit, fetch, reset and rebase in the repository to police one merge
+      # direction whose fast-forward form changes no content at all. The blast radius is not
+      # worth the case.
       if [[ $source == "main" ]]; then
         {
           echo ""

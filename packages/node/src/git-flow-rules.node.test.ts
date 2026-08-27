@@ -175,7 +175,27 @@ describe('merge direction — the rule the missing hook could not apply', () => 
   })
 
   it('refuses develop taking main, because that inverts the flow', () => {
+    // **This case carries the rule, and the HOOK cannot carry it.** In a healthy tree
+    // `git merge-base main develop` is develop, so merging main into develop is a
+    // fast-forward — and git does not invoke `pre-merge-commit` for one. Watched on
+    // 2026-08-26: the merge printed `Already up to date.`, made a commit, exited 0, and the
+    // hook never ran; `--no-ff` did not change it. The rule is still right and still fires
+    // the moment the two have genuinely diverged, which is the only time the merge would
+    // carry content. See `check_merge` for why `reference-transaction`, which could catch
+    // the fast-forward, is deliberately not used.
     expect(decides(['check-merge', 'develop', 'main'])).toBe(false)
+  })
+
+  it('names the merge source from the environment, which is where a merge hook finds it', () => {
+    // Measured on git 2.33.0: `MERGE_HEAD` does not exist yet when `pre-merge-commit` runs,
+    // and `GITHEAD_<sha>=<name>` does. The first version of `merge_source` read only
+    // MERGE_HEAD, gave up on every merge, and let two forbidden ones through while a green
+    // spec said the rules were sound.
+    const named = execFileSync('bash', [RULES, 'merge-source'], {
+      encoding: 'utf8',
+      env: { ...process.env, GITHEAD_0123456789abcdef: 'feature/from-the-environment' },
+    }).trim()
+    expect(named).toBe('feature/from-the-environment')
   })
 
   it('leaves topic-to-topic merges alone', () => {
