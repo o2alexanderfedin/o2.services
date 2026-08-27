@@ -159,6 +159,30 @@ export class BootstrapObject {
    * session that did not survive is detected — see `hibernatable-socket.ts`.
    */
   readonly #sockets = new HibernatableSockets()
+  /**
+   * A value fixed at construction, so criterion 2's readings can see a construction boundary.
+   *
+   * **Without it the runbook's four readings cannot tell the case the criterion is about from
+   * the case that proves nothing.** If the object was never evicted between two readings, the
+   * PeerId is trivially identical — one live instance answered twice — and the evidence table
+   * fills in completely having tested nothing. The default makes that the LIKELY outcome, not
+   * an unlucky one: `@chainsafe/libp2p-yamux@8.0.1` defaults `keepAliveInterval: 30_000`
+   * (`hibernatable-socket.ts:17-22`), so a held connection wakes this object every thirty
+   * seconds and an object under a live connection does not hibernate at all.
+   *
+   * **Not the 1012 path, deliberately.** `HibernatableSockets` carries a stronger signal — a
+   * frame on a socket this instance has no session for is closed with
+   * `CLOSED_AFTER_HIBERNATION`, the connection itself reporting the discontinuity. It is not
+   * used for this because whether workerd accepts 1012 as a close code is UNVERIFIED in that
+   * file's own docblock (`:46-47`), and evidence resting on an unverified platform behaviour
+   * is evidence the owner discovers is broken after the deploy that was to use it. This rests
+   * on nothing platform-specific.
+   *
+   * **It says a construction happened, never why.** Eviction and redeploy are indistinguishable
+   * here and are meant to be — what they have in common is the whole mechanism the criterion
+   * rests on, which is why `hosted-identity.test.ts` tests the same boundary one level down.
+   */
+  readonly #instance = crypto.randomUUID()
   #fabric: Promise<HostedFabric> | undefined
 
   constructor(state: HostedObjectStateWithSockets, env: HostedEnv) {
@@ -236,6 +260,16 @@ export class BootstrapObject {
    * comes from the seed in this object's storage, so the answer is the store's and not the
    * isolate's — which is the whole difference between a Durable Object and the plain Worker
    * that returned three different PeerIds to three consecutive requests.
+   *
+   * **Three fields, and the third is what makes the first one mean anything.** `instance` is
+   * fixed at construction, so two readings carrying one `peerId` and two `instance` values are
+   * an identity that crossed a construction boundary, while two readings carrying one of each
+   * are the same live object answering twice — which the criterion is not about. See
+   * `#instance`. It is a field on the one route this object serves and **not a second route**:
+   * every route is a surface, and this tier's surfaces are not.
+   *
+   * `/self` alone still does not satisfy criterion 2, which says *dials, completes identify,
+   * and gets the same PeerId* — three things, and only an outside dial carries the middle one.
    */
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade') === 'websocket') return this.#upgrade(request)
@@ -243,7 +277,11 @@ export class BootstrapObject {
       return new Response('not found', { status: 404 })
     }
     const identity = await this.#node.identity()
-    return Response.json({ peerId: identity.peerId, nodeKey: identity.nodeKey })
+    return Response.json({
+      peerId: identity.peerId,
+      nodeKey: identity.nodeKey,
+      instance: this.#instance,
+    })
   }
 
   /**
