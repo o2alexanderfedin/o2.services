@@ -72,14 +72,31 @@
 
   // What this node announces to the fabric — Phase 30.
   //
-  // **Deliberately EMPTY until the first deploy names a host**, and empty is not a default
-  // that quietly works: `hostedAddresses` REFUSES an empty list, so an upgrade attempt fails
-  // loudly here rather than a relay handing every client an empty reservation with nothing
-  // raised (measured, consult §13). The address is a property of the deployment — this key is
-  // where it belongs, and never the request's `Host` header, which a visitor controls.
+  // **Deliberately EMPTY**, and empty is not a default that quietly works: `hostedAddresses`
+  // REFUSES an empty list, so an upgrade attempt fails loudly here rather than a relay handing
+  // every client an empty reservation with nothing raised (measured, consult §13). The address
+  // is a property of the deployment — this key is where it belongs, and never the request's
+  // `Host` header, which a visitor controls.
   //
-  // The form the first deploy will take, once `workers_dev` names the subdomain:
+  // The form to fill in:
   //   "/dns4/o2-bootstrap.<subdomain>.workers.dev/tcp/443/tls/ws"
+  //
+  // **CORRECTED 2026-08-26 — this comment read "until the first deploy names a host", and that
+  // sent a reader to deploy twice for a value they can already have.** The workers.dev
+  // subdomain belongs to the ACCOUNT, not to a deployment: wrangler reads it from
+  // `/accounts/{account_id}/workers/subdomain`, an account-level path, and there is a
+  // script-level one beside it for a different question. So it exists before anything here is
+  // deployed and can be read from the dashboard or that endpoint. The other half of the same
+  // mistake would be needing the peer id first: **not needed**, verified by reading the
+  // installed library rather than the documentation — `libp2p/dist/src/address-manager/
+  // index.js:252` encapsulates `/p2p/<peerId>` onto an announced address itself, and `:89`
+  // strips it when it is already there. Both halves of the address are therefore knowable in
+  // advance and **ONE deploy is enough**.
+  //
+  // What is NOT settled here, because it is an owner choice rather than a fact: a domain the
+  // owner controls is a better address for a bootstrap node than any `workers.dev` name, since
+  // this value reaches other peers' routing tables and a published address is painful to move.
+  // `workers_dev` above stays true so that the cheaper path remains open.
   "vars": {
     "ANNOUNCE_MULTIADDRS": ""
   },
