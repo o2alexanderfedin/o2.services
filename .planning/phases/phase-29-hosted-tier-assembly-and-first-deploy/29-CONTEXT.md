@@ -52,7 +52,54 @@ reproduces one:
 <decisions>
 ## Implementation Decisions
 
+> ## SUPERSEDED 2026-08-27, hours after this document was written — THE PREMISE OF THE DECISION BELOW WAS FALSE
+>
+> **The minimal inbound listener is not unwritten. It was written, tested and merged on
+> 2026-08-26, and the whole "what remains" framing of this document was built on not knowing
+> that.** The decision below is preserved rather than rewritten, because the mistake that
+> produced it is worth more than a clean file.
+>
+> The tree says so in commit subjects nobody had to interpret:
+>
+> | commit | time | subject |
+> |---|---|---|
+> | `7e02aad` | 2026-08-26 00:30 | *RETRACTION — the listener was never blocked, and the error was mine* |
+> | `389fd61` | 00:35 | *the minimal inbound listener, **written in TypeScript rather than borrowed*** |
+> | `2e8c13f` | 13:15 | the DO assembly and the expiry alarm, which are one deliverable |
+> | `caa46c6` | 14:05 | the inbound listener, **held against the hibernation API** |
+>
+> 895 lines across `websocket-connection.ts` (233), `hosted-libp2p.ts` (403) and
+> `hibernatable-socket.ts` (259).
+>
+> **How the premise got in here.** `29-REPORT.md` was committed `8f85b2f`, 2026-08-25 23:56, and
+> its closing section *"What the next session should do first: write the minimal listener"* was
+> true at that minute. The listener landed **39 minutes later**. This document read the report as
+> the state of the tree and never ran `git log`. Worse, `.planning/HANDOFF.json` — edited by the
+> same author at 23:46 the following night — records the opposite decision in as many words at
+> line 235: **`"decision": "The listener is WRITTEN, not borrowed"`**.
+>
+> **The existing code already does what the copy was chosen to fix.** `websocket-connection.ts`
+> extends `AbstractMultiaddrConnection` through the **public** entry point (no deep path, so the
+> fragility this decision existed to remove was never taken on); fixes `direction: 'inbound'` by
+> construction rather than passing it; and **omits `bufferedAmount` deliberately**, recording at
+> `:143-152` that a fabricated value *was* tried in the spike and is the wrong answer. So
+> vendoring upstream now would mean discarding tested code in order to reintroduce the exact
+> hazard the vendoring was meant to neutralise, and then neutralise it a second time.
+>
+> **Two further claims below are stale for the same reason and are marked where they appear:**
+> the open-question-1 guard is no longer vacuous, and the 74 → 80 reachability figure has moved
+> twice since.
+>
+> **What is NOT changed by any of this:** criteria 1 and 2 were owner acts before this document
+> was written and are owner acts now. The remainder of Phase 29 collapses to those two.
+>
+> Full working, both branches answered: `29-RESEARCH.md` §*"THE FINDING THAT CHANGES THE PLAN"*.
+
 ### Owner decision taken 2026-08-27 — COPY THE UPSTREAM FILE AND REFACTOR THE COPY
+
+> **Read the superseded note above first.** This decision was taken on the false premise that
+> nothing was written. It is answering a question that had already been answered in the tree, in
+> the opposite direction, by `389fd61`'s own commit subject.
 
 `webSocketToMaConn` is not exported by `@libp2p/websockets` (its `exports` map declares `.`
 and `./filters` and nothing else). Three routes were measured and put to the owner:
@@ -165,7 +212,13 @@ allocation ⇒ 0.128 GB·s per active second ⇒ 331,776 GB-s/month against 400,
 
 ### Two open items the plan carries rather than closes
 
-**(a) The open-question-1 guard is deliberately vacuous today and must be watched flipping.**
+**(a) STALE — IT HAS ALREADY FLIPPED. Corrected 2026-08-27.** `2e8c13f` (2026-08-26 13:15)
+records open question 1 as **answered**: noise reaches the bundle after all — **43 occurrences
+in 583.94 KiB** — because tree-shaking is per-symbol, so `hosted-tier-deploy`'s `diffieHellman`
+case is a **live green reading rather than a loud skip**. Nothing needs to be watched flipping;
+it flipped. The reading below is preserved as it was written.
+
+~~The open-question-1 guard is deliberately vacuous today and must be watched flipping.~~
 It asserts `diffieHellman` is absent from the emitted bundle. Measured on the real bundle:
 `noise` **0** times, `pureJsCrypto` **0** times, **0** sourcemap sources matching "noise" — the
 absence is the whole package's, not the call's, because no listener means no `createLibp2p`
@@ -176,7 +229,13 @@ Corroborating measurement: workerd's `node:crypto` under `nodejs_compat` is miss
 the same keys with interop verified both directions — a workerd peer can complete a Noise
 handshake with a Node peer.
 
-**(b) The reachability register went 74 → 80, where it was predicted to shrink.** The three
+**(b) STALE FIGURE — corrected 2026-08-27.** `74 → 80` was the reading at `29-REPORT.md`'s
+date. `2e8c13f` added ten rows and moved the ceiling `87 → 97`, and `29-RESEARCH.md` §Q6 carries
+the live number measured this session. **The shape of the finding survives the figure and is the
+part that matters:** the rows the deploy is expected to move can only be moved by a deploy. The
+reading below is preserved as it was written.
+
+~~The reachability register went 74 → 80, where it was predicted to shrink.~~ The three
 `do-datastore.ts` rows did not reverse, because the second half of that row's own sentence
 held: *"it closes when the node deploys and dials."* Nothing deploys. **The plan states which
 rows the listener and the deploy are each expected to move**, so the next reading is a
