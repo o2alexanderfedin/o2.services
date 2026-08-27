@@ -157,6 +157,7 @@ function agreedShard(
     generations: 1,
     ending: 'agreed',
     speculated: false,
+  judgedAt: null,
     disagreed: false,
     copies: [],
     attestation,
@@ -187,6 +188,7 @@ function insufficientShard(partitionIndex: number): ShardResult {
     generations: 0,
     ending: 'never-placed',
     speculated: false,
+  judgedAt: null,
     disagreed: false,
     copies: [],
     attestation: {

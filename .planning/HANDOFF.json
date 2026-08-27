@@ -1,0 +1,241 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-08-26T17:36:00.000Z",
+  "phase": "29",
+  "phase_name": "Hosted Tier Assembly & First Deploy",
+  "phase_dir": ".planning/phases/phase-29-hosted-tier-assembly-and-first-deploy",
+  "phase_dir_note": "Holds 29-REPORT.md, not a SUMMARY: there is no PLAN for this phase, and a SUMMARY beside no plan would make the tooling read a plan as executed.",
+  "plan": null,
+  "task": null,
+  "total_tasks": null,
+  "status": "paused",
+  "branch": "feature/phase-29-hosted-tier",
+  "head": "4909617",
+  "tree": "clean",
+  "lanes": {
+    "node": "207 files. Targeted guards green throughout: the 8-guard set 8/8 / 156 tests, run twice, and the commit hook\u2019s 7-file cheap set 318 tests on every one of four commits with no O2_SKIP_GUARDS. Also run green: submit.test.ts, speculation.test.ts, reduce-job, reduce-sovereign, churn-agents, speculation-agents \u2014 176 tests, 6/6, after one co-scheduled run of that batch reddened in churn-agents on a placement-spread precondition and the identical batch re-ran green. A full lane sweep has NOT been run.",
+    "browser": "RUN for the whole @o2/cloudflare package \u2014 18 files x 3 engines, 363 tests, EXIT=0.",
+    "aot_e2e_perf": "NOT RUN. Nothing in those lanes was touched."
+  },
+  "completed_tasks": [
+    {
+      "id": 1,
+      "name": "the straggler threshold was guarded in one direction only \u2014 a real production-guard gap, plus mutation-ledger D1b",
+      "status": "done",
+      "commit": "a312ea3"
+    },
+    {
+      "id": 2,
+      "name": "speculation-agents: a settledAt cast that crashed on the case its claims most clearly hold for",
+      "status": "done",
+      "commit": "f8ad0c8"
+    },
+    {
+      "id": 3,
+      "name": "speculation-agents: the drifted-reconstruction gate, keyed on identity not on the host",
+      "status": "done",
+      "commit": "4ab6fea"
+    },
+    {
+      "id": 4,
+      "name": "discovery-agents: a count replaced by an identity-keyed bounded re-query",
+      "status": "done",
+      "commit": "19ba8be"
+    },
+    {
+      "id": 5,
+      "name": "admission clause 3 now reads connection DIRECTION and ROUTE, not the connected set",
+      "status": "done",
+      "commit": "38384e8"
+    },
+    {
+      "id": 6,
+      "name": "package-lock.json stale in two ways; npm ci measured failing before and passing after",
+      "status": "done",
+      "commit": "0f3503a"
+    },
+    {
+      "id": 7,
+      "name": "MR-02's three-way disagreement settled as a WORDING problem with a dated note",
+      "status": "done",
+      "commit": "278611e"
+    },
+    {
+      "id": 8,
+      "name": "late-combine: the all-censored residue",
+      "status": "done",
+      "commit": "772fe8d"
+    },
+    {
+      "id": 9,
+      "name": "admission stand-up re-attempts one named host condition, once",
+      "status": "done",
+      "commit": "a3f7981"
+    },
+    {
+      "id": 10,
+      "name": "late-combine: the host gate was an AND where the file's own rule is an OR",
+      "status": "done",
+      "commit": "6806f9b"
+    },
+    {
+      "id": 11,
+      "name": "closed-fabric-agents: a SIXTH file in the class, absent from the survey",
+      "status": "done",
+      "commit": "8c3f04c"
+    },
+    {
+      "id": 12,
+      "name": "sovereign-arm: a SEVENTH, discriminated on the leg's own output with no host calibration",
+      "status": "done",
+      "commit": "55928fc"
+    },
+    {
+      "id": 13,
+      "name": "Phase 29: the assembly, the identity that survives an eviction, the closed name set",
+      "status": "done",
+      "commit": "127a5c3"
+    },
+    {
+      "id": 14,
+      "name": "Phase 29: the deploy configuration and three guards, each planted red",
+      "status": "done",
+      "commit": "34179f1"
+    },
+    {
+      "id": 15,
+      "name": "Phase 29: the report, DEMO-04 repurposed, NET-03 re-stated as a second route",
+      "status": "done",
+      "commit": "8f85b2f"
+    },
+    {
+      "id": 16,
+      "name": "RETRACTION \u2014 the listener was never blocked; corrected in five documents",
+      "status": "done",
+      "commit": "7e02aad"
+    },
+    {
+      "id": 17,
+      "name": "the minimal inbound listener, written in TypeScript over a PUBLIC base class",
+      "status": "done",
+      "commit": "389fd61"
+    },
+    {
+      "id": 18,
+      "name": "late-combine: a THIRD assertion, the map budget rather than the combine",
+      "status": "done",
+      "commit": "f7e8402"
+    },
+    {
+      "id": 19.1,
+      "name": "ARCHITECTURE step 1 \u2014 packages/libp2p/src/dht-record-sweep.ts, the DHT record sweep. Seven plants watched red; P7 retracted and redone. Found a latent [a-z]+ regex defect closing OPEN_FINDINGS to the libp2p barrel.",
+      "status": "done",
+      "commit": "d3d425d"
+    },
+    {
+      "id": 19.2,
+      "name": "Recorded what the sweep unblocks: DoDatastore REFUSES /dht/ and /o2/ and its own header names the missing sweep as the reason. Also that delete-during-iteration is safe on all three stores because each materialises its listing before the first yield.",
+      "status": "done",
+      "commit": "021fa30"
+    },
+    {
+      "id": 19.3,
+      "name": "ARCHITECTURE step 2 \u2014 packages/cloudflare/src/workerd-shims.ts. Six plants, two retracted and redone. A probe corrected a claim I had already written. node:process was patched and the patch REMOVED after a browser-lane run.",
+      "status": "done",
+      "commit": "c5ba478"
+    },
+    {
+      "id": 19.4,
+      "name": "ARCHITECTURE step 3 \u2014 relay-reservations.ts in @o2/libp2p, one definition for both tiers; fabric-node.ts deduplicated onto it. Three plants. Landed with O2_SKIP_GUARDS=1 and the reason recorded.",
+      "status": "done",
+      "commit": "f26b216"
+    }
+  ],
+  "remaining_tasks": [
+    {
+      "id": 23,
+      "name": "CLOSED 2026-08-26 in 2e8c13f \u2014 record retaken at 206 files / 2948 tests and the cheap guards pass with no O2_SKIP_GUARDS. THE RUN WAS CONTENDED AND WAS USED ANYWAY, with the override and its evidence written into vitest.config.ts: the ratio band this task carried (5.2-5.4) was a PROXY for one property \u2014 that spans taken under load would mass-exclude fast specs \u2014 and that property is now measured directly. Excluded population 78 against 78; the slow SET diffed rather than counted, differing by four files all explained (two arrived with the commit; two left DOWNWARD, and contention does not deflate); hookShadowDisagreed 14 against 16, which was the stop condition; the two instruments close to 0.001%. THE CRITERION FOR THE NEXT RETAKE UNDER LOAD IS THE SET-DIFF, NOT THE RATIO. Also settled: the load figures are the LANE's own eight workers ramping 9 -> 106 monotonically, not a foreign spike, so waiting on 1-minute load was measuring the machine rather than the process. Two runs are recorded; the discarded one is kept because it caught a real vocabulary violation that would otherwise have reached the commit.",
+      "status": "done",
+      "commit": "2e8c13f"
+    },
+    {
+      "id": 19,
+      "name": "CLOSED 2026-08-26 in 2e8c13f \u2014 ARCHITECTURE steps 6+7 shipped together. The admitting DoDatastore is constructed FROM the sweep and the only producer of a sweep arms the alarm, so 'no safe intermediate state where 6 exists alone' is a value rather than a rule. Only /dht/ is lifted; /o2/ stays refused. The assembly's decisions are exported as data so a spec can read them outside kadDHT()'s closure. OPEN QUESTION 1 IS ANSWERED: noise reaches the bundle after all (43 occurrences in 583.94 KiB) because tree-shaking is per-symbol, so hosted-tier-deploy's diffieHellman case is a live green reading instead of a loud skip. createHostedFabric is deliberately uncalled until Phase 30's listener; ten reachability rows added, ceiling 87 -> 97. WHAT STAYS OPEN AND IS REPORTED, NOT SIMULATED: that an alarm survives eviction and fires on a fresh instance, and that this configuration dials and is dialled. Both are owner acts at the Cloudflare boundary. Nothing was deployed.",
+      "status": "done",
+      "commit": "2e8c13f"
+    },
+    {
+      "id": 20,
+      "name": "CLOSED 2026-08-26 in caa46c6 \u2014 Phase 30 requirement 4. A revived socket is CLOSED with 1012, not resumed: Noise has no session resumption and yamux no resync, so every alternative is a connection that lies about being live. The registry is keyed by socket identity, so the miss IS the detection. FIVE PLANTS WATCHED RED. The route is wired, so createHostedFabric has a production caller \u2014 bundle 583.94 -> 1867.80 KiB, kadDHT 0 -> 11, and diffieHellman/node:crypto STILL 0. \u00a717's claim is deliberately narrowed in the prose: yamux defaults enableKeepAlive at 30 s, so an object under a live connection will not hibernate at all and the proven win is only the six-minute abort. TAMING THE KEEPALIVE IS A NAMED OPEN DECISION, NOT TAKEN \u2014 a peer that never sends cannot detect a dead path. Also open and reported: whether workerd accepts 1012 (1011 is known accepted), and whether binaryType may be assigned on a hibernatable socket, deliberately not asserted either way. Phase 30 criteria 1-3 need >5 distinct clients against a deployed node and stay owner acts.",
+      "status": "done",
+      "commit": "caa46c6"
+    },
+    {
+      "id": 21,
+      "name": "CLOSED 2026-08-26 in 2aa0a6b \u2014 the ninth mode has a CAUSE, proven by planting rather than by waiting. The solo owner\u2019s shard has exactly one legal executor (sovereign, its owner, REDUNDANCY 1, nothing may be duplicated for it) so its only exit is the thaw; delay the thaw past RPC_TIMEOUT_MS and the single dispatch fails on that budget with no untried node behind it, ending no-untried-node and reading null at index 21. At 5 000 ms every shard still agreed; at 15 000 ms the frozen dispatches capped at 10001/10001/10000 ms and #21 came back \"rpc to ... timed out after 10000ms\". THAT IS THE FABRIC BEHAVING CORRECTLY \u2014 nothing in production to repair; what was defective is the fixture\u2019s silence about resting on freeze-to-release staying inside the budget. NO NEW ASSERTION, and the reason is measured: the solo dispatch begins after freeze() resolves, so a bound on the span would redden a green run in a ~200 ms band. The span is printed instead. THE PLANT CAUGHT A DEFECT IN MY OWN INSTRUMENT \u2014 the first version read thawedAt, the instant the thaw is DECIDED, and printed 764 ms under a 15 000 ms delay; now taken at releasedAt, reading 1381 ms clean and 16 244 ms planted. NOT REPRODUCED NATURALLY in ten runs under eight CPU burners at load 16-50, and no frequency is claimed.",
+      "status": "done",
+      "commit": "2aa0a6b"
+    },
+    {
+      "id": 22,
+      "name": "CLOSED 2026-08-26 in 6868139 \u2014 ShardResult.judgedAt is published by the scheduler from its own `woke`, threaded exactly parallel to `speculated`, and the fixture READS it instead of reconstructing it. THE FINDING IS THAT THE BIAS IS SMALLER THAN THE CLAIM THAT ASKED FOR THE FIELD: the handoff said the window admits \"exactly the dispatches running alongside the duplicates, the slowest in the job\", which was reasoning; six runs (one quiet, five under eight CPU burners at load 162-184) put it at 0-2 ms holding 0 dispatches EVERY TIME. So the field is not a repair of an observed defect \u2014 it is a number read where it was inferred, and both are printed so the day the window holds something the run says so. THE CLOCK BASIS IS THE TRAP AND IT IS REAL: JobClock defaults to Date.now() (epoch) while the wrapper log is performance.now(); the fixture converts once by performance.timeOrigin. Plant P3 printed \"expected 1787789701143 to be null\", which is that basis confirming itself. Three plants watched red \u2014 merge dropped, woke+10_000, published at the eligibility gate \u2014 and the invariant is closed on BOTH sides in one run. No codec: no .proto in the tree, ShardResult is requestor-local. Blast radius 4 fixture literals, enumerated by tsc rather than grep.",
+      "status": "done",
+      "commit": "6868139"
+    },
+    {
+      "id": 24,
+      "name": "A TENTH speculation-agents mode. INSTRUMENT LANDED 2026-08-26 in 4909617, CAUSE STILL UNVERIFIED and deliberately so. The symptom: `on.shards.flatMap(s => s.rejections)` came back with one `unreachable: no answer in 2000ms`, seen once in ten runs under eight CPU burners at load 29. It could not be attributed because the fixture printed no frozen ids, and the two readings it could not separate are OPPOSITE \u2014 the fixture\u2019s own freeze reaching the admission-offer path (a fixture defect) versus a genuine reading about that path under load. Each refusal now prints the ROLE of the node that gave it: FROZEN(public-victim), FROZEN(paired-owner), FROZEN(solo-owner), FROZEN(unclassified) or healthy. Two plants watched red, one per branch. NOT REPRODUCED SINCE: twelve further runs under eight burners at load up to 235 stayed green, so across both hunts it is ONE redness in TWENTY-TWO runs, and LOAD IS NOT ESTABLISHED AS THE VARIABLE and must not be written down as the cause. CORRECTED 2026-08-26, same day: 4909617\u2019s message says \"the single hit came at load 29 while eighteen runs above it were green\" and THAT FIGURE IS NOT DEFENSIBLE \u2014 per-run load readings exist only for the first hunt (15.95, 29.00 RED, 29.93, 36.01, 41.25, 49.91, 49.37, 49.88, 50.69, 48.90, each taken AFTER its run), while the second hunt recorded only a final 235.70 and began on fresh burners, so an unknown number of its twelve runs were below 29. What survives is weaker and is the whole point: eight green runs in hunt 1 read above the red run\u2019s own reading, twelve more ran green ending at 235, and no per-run figure supports load as the variable. The \"load 29\" attributed to the red run is itself an after-the-fact reading of a ramp, not a measurement during it. NEXT: keep the instrument, and let the next natural occurrence name the role before any repair is attempted. The 2000 ms is an absolute on the admission-offer path and is where to look once the role is known.",
+      "status": "in_progress",
+      "commit": "4909617"
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Phase 29 criteria 1 and 2 \u2014 the billing alert and the first deploy \u2014 are owner acts at the Cloudflare boundary and stay open by ruling of 2026-08-25",
+      "type": "human_action",
+      "workaround": "everything else proceeds and reports them open"
+    },
+    {
+      "description": "The distinct-machine benchmark (Phase 39 criterion 4) is blocked on there being a build to hand the Telegram tester cohort",
+      "type": "human_action",
+      "workaround": "none; it is a calendar decision"
+    },
+    {
+      "description": "NOTHING ELSE IS BLOCKED. The listener blocker reported earlier this session was RETRACTED the same day \u2014 it was Node's resolver measured where esbuild's mattered, and three research documents already covered the ground.",
+      "type": "retracted",
+      "workaround": "n/a"
+    }
+  ],
+  "human_actions_pending": [
+    {
+      "action": "Cloudflare billing alert, then the first deploy \u2014 in that order",
+      "context": "Cloudflare has no hard spending ceiling; its own wording is that budget alerts are informational only. The account carries ZERO Durable Object namespaces today, so nothing built here can wake or bill.",
+      "blocking": false
+    },
+    {
+      "action": "Cut a build for the Telegram tester cohort",
+      "context": "The scaling claim has never been measured off one laptop. Access is the only gate, and access is the disclosure event.",
+      "blocking": false
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "The listener is WRITTEN, not borrowed",
+      "rationale": "webSocketToMaConn is not on @libp2p/websockets' public surface; reaching it means a path into dist/, a build artefact with no semver signal. The base class comes through @libp2p/utils' public barrel and only the Cloudflare half is ours. The owner's 'we write TypeScript' is what settled it.",
+      "phase": "29"
+    },
+    {
+      "decision": "Six new cloudflare symbols to OPEN_FINDINGS, not DISPOSITIONS",
+      "rationale": "A disposition says a symbol has a real caller behind a hop the tracer cannot follow; global-object-hop's symbols have callers that RUN. These have a caller in a Worker nothing deploys. Dispositioning would have made the number look like wiring.",
+      "phase": "29"
+    },
+    {
+      "decision": "No budget was raised in any of the seven load-sensitive files",
+      "rationale": "Owner ruling: slow under load is normal. Implemented as discrimination rules moved from failure-message prose into conditions.",
+      "phase": "20-29"
+    }
+  ],
+  "uncommitted_files": [],
+  "next_action": "NOTHING IN THE TREE IS BLOCKED AND NOTHING IS HALF-DONE. Tasks 21, 22 and 24\u2019s instrument all landed this session; 24 stays OPEN by its own rule \u2014 one redness in twenty-two runs, load not established as the variable, so the next move is to let a natural occurrence name the role rather than to write a cause. Everything hosted remains deploy-gated and the gate is the owner\u2019s: Cloudflare billing alert FIRST, then the first deploy. ONE DEPLOY IS ENOUGH \u2014 CORRECTED 2026-08-26 the same day it was written wrong. An earlier line here said \"the deploy is two deploys\", on the unchecked premise that the address is only knowable after deploying. Both halves are knowable in advance: the workers.dev subdomain belongs to the ACCOUNT (wrangler reads /accounts/{account_id}/workers/subdomain, an account-level path) and the peer id is not part of an announce entry at all (libp2p/dist/src/address-manager/index.js:252 encapsulates /p2p/<peerId> itself, :89 strips it if present \u2014 read from the installed library, not the docs). So fill ANNOUNCE_MULTIADDRS in wrangler.jsonc BEFORE deploying and deploy once. ANNOUNCE_MULTIADDRS still ships empty on purpose and hostedAddresses still REFUSES an empty list \u2014 that refusal is about the value never coming from the REQUEST, which is a different question from where it is authored, and the two were conflated. Cloudflare injects no hostname into `env`; that is platform knowledge, not a measurement, and cannot be measured from here without deploying. OWNER CHOICE, not a fact: a domain the owner controls is a better bootstrap address than any workers.dev name, because this value reaches other peers\u2019 routing tables and a published address is painful to move. Costed 2026-08-26 from published rates, NOT measured: one always-on object is 331 776 GB-s against 400 000 included, i.e. $5/month and nothing over; the marginal always-on object is ~$4.15/month. Only ONE object is reachable today \u2014 worker.ts:299 passes the compile-time constant SERVED_BY = bootstrap-us \u2014 so the three-name ceiling of ~$12.4/month needs Phase 33. Owner has set a $15/month budget, which clears every figure above, so the yamux keepalive decision is NOT a cost decision and reverts to being about how fast a peer notices a dead path. The one number worth measuring on the first deploy is whether each inbound WebSocket frame bills as a request. Do not deploy, do not create remote resources, --dry-run only, never --remote.",
+  "context_notes": "The session's redirect is the finding: the recorded next action was task 19, and task 19's OWN first instruction \u2014 read ARCHITECTURE.md:470-506 \u2014 reorders it. Steps 1-3 are Group A, provable in the node lane today; step 6 is Group B and needs the owner's deploy. Doing the ordered work surfaced three things nothing had asked for: a latent [a-z]+ regex that closed the reachability register to the libp2p barrel, DoDatastore's refusal of the exact prefixes the sweep walks, and mortice's browser build being the WRONG remedy for gap 2. Five plants across three modules were retracted for proving nothing \u2014 one ReferenceError, two aimed at a mechanism they left in place \u2014 and each was redone and recorded rather than quietly replaced. The pause itself produced one more instance of the family: writing a bracketed section name into a replacement body made the NEXT replacement match that mention instead of the real tag, deleting four sections between them. Caught by the line count falling 263 -> 206 rather than by any check, restored from the last commit, and redone with every span computed against the original string before any substitution."
+}

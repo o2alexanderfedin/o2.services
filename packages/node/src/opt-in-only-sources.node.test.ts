@@ -281,7 +281,18 @@ describe('exactly one production source is reachable only from the opt-in perf p
     expect(CONFIG).toContain("const PERF_GATE = process.env['O2_PERF'] === '1'")
     expect(CONFIG).toContain('...(PERF_GATE')
     expect(CONFIG).toContain("include: ['packages/*/src/**/*.perf.test.ts']")
-    expect(CONFIG).toContain("include: ['packages/*/src/**/*.test.ts', 'tools/**/*.node.test.ts']")
+    // **`tools/**` left the node project on 2026-08-25** for the `aot` project, which
+    // serialises the container specs. This line read
+    // `"include: ['packages/*/src/**/*.test.ts', 'tools/**/*.node.test.ts']"` until then
+    // and went red on the move, which is the whole point of reading the config back —
+    // `slow-specs.node.test.ts` reimplements the same globs WITHOUT this cross-check and
+    // stayed green on the same change, modelling a project shape that no longer existed.
+    expect(CONFIG).toContain("include: ['packages/*/src/**/*.test.ts']")
+    expect(CONFIG).toContain("include: ['tools/**/*.node.test.ts']")
+    expect(CONFIG).toContain("name: 'aot'")
+    // The container specs run one file at a time. If this goes, five of them fail
+    // together under a full sweep — measured 2026-08-25, see the `aot` project docblock.
+    expect(CONFIG).toContain('fileParallelism: false')
     expect(CONFIG).toContain(
       "include: ['packages/*/src/**/*.test.ts', 'packages/*/src/**/*.browser.test.ts']",
     )

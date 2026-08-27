@@ -1498,10 +1498,22 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   //
   // The distinct-machine half is untouched, still structural, and still the only reason
   // this row is here. Witness added, clock untouched.
+  //
+  // **CLOCK MOVED 2026-08-25, and this time it is the re-read the clock is for.** The
+  // promise came due at 15 days against a bound of 14 and the guard said so; the three
+  // witnesses were re-run together (EXIT=0, 3 files, 51 tests, none skipped) and read
+  // clause by clause against the row. The distinction the two earlier layers drew is kept:
+  // 2026-08-14 and 2026-08-16 ADDED WITNESSES to the half that was never in question and
+  // deliberately left the clock alone, whereas this was a hand re-read of the kind that set
+  // the clock on 2026-08-11 — so the clock moves and `because` does not. The same-machine
+  // half re-measured green and the distinct-machine half is where it was: an experiment on
+  // a calendar, Phase 39 criterion 4, not a spec anybody can write. The row's own layer
+  // records the reading; one stale word (`unscheduled`) was corrected there, and the
+  // retired hardware premise still standing in two sibling documents is named.
   {
     id: 'BENCH-06',
     because: 'experiment-not-run',
-    reread: '2026-08-11',
+    reread: '2026-08-25',
     witnesses: [
       'packages/bench/src/harness.test.ts',
       'packages/node/src/bench-fabric.node.test.ts',

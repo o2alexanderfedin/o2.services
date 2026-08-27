@@ -26,6 +26,7 @@ import type {
   JobResult,
   NameRecord,
   NodeDescriptor,
+  Rejection,
   ShardResult,
   SubmitOptions,
   Task,
@@ -701,6 +702,45 @@ async function runJob(
   return result.job
 }
 
+/**
+ * Each refusal with the **role** of the node that gave it, not only its id.
+ *
+ * Written for a failure that has happened and could not be attributed: one run of ten under
+ * eight CPU burners reddened here with a single `unreachable: no answer in 2000ms`, and the
+ * fixture printed no frozen ids, so it was not possible to say whether the silent node was
+ * one of the three this test deliberately stops or one it left running. Those are opposite
+ * findings — the first is the fixture's own freeze reaching the offer path, the second is a
+ * genuine admission-path reading — and a bare peer id separates them not at all.
+ *
+ * `roleOf` is passed in rather than a set being passed in, because the useful answer is
+ * *which* frozen process, and the caller is the only place that knows.
+ */
+function describeRejections(
+  rejections: readonly Rejection[],
+  roleOf: (nodeId: string) => string,
+): string {
+  if (rejections.length === 0) return 'none'
+  return rejections.map((r) => `${roleOf(r.nodeId)} ${r.nodeId}: ${r.reason}`).join('\n')
+}
+
+/**
+ * How long the three stayed frozen — freeze to **release**, for the diagnostic line.
+ *
+ * **Printed, never asserted against, and the reason is measured rather than stylistic.** The
+ * solo owner's dispatch begins *after* `freeze()` resolves, so its stalled span is shorter
+ * than this one by however long `pauseAgent` took on three processes. A bound written against
+ * this number would therefore redden a run whose dispatch stayed inside the budget. What the
+ * number is for is attribution after the fact — see the note beside the solo owner's readings.
+ *
+ * Takes both instants rather than a span so the not-yet-thawed case has a word instead of a
+ * subtraction against `null`; the wrapper sets both from closures no flow analysis can follow.
+ */
+function describeFrozenSpan(frozenAt: number | null, releasedAt: number | null): string {
+  if (frozenAt === null) return 'never frozen'
+  if (releasedAt === null) return 'never released'
+  return `${String(Math.round(releasedAt - frozenAt))}ms`
+}
+
 /** Every shard's agreed result CID, in shard order. `null` for a shard that did not agree. */
 function resultCids(job: JobResult): readonly (string | null)[] {
   return job.shards.map((shard) =>
@@ -765,7 +805,7 @@ afterEach(async () => {
 }, 60_000)
 
 describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across real bin/agent.ts processes', () => {
-  it('duplicates a frozen node’s shard onto a node the placement did not choose, takes the first answer, accounts for the loser, keeps a sovereign duplicate inside its owner, and starts none where the owner has no spare', async () => {
+  it('duplicates a frozen node’s shard onto a node the placement did not choose, takes the first answer, accounts for the loser, keeps a sovereign duplicate inside its owner, and starts none where the owner has no spare', async (ctx) => {
     const startedAt = performance.now()
     const fabric = await standUp()
     const standUpMs = performance.now() - startedAt
@@ -942,6 +982,20 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     let thawing: Promise<void> | null = null
     let frozenAt: number | null = null
     let thawedAt: number | null = null
+    /**
+     * When the frozen processes were actually **released**, which is not `thawedAt`.
+     *
+     * `thawedAt` is the instant the thaw was *decided* — the closure's first line. The
+     * stalled dispatch does not move until `resumeAgent` has returned for all three, and the
+     * distance between the two is what the diagnostic below is about. Kept separate rather
+     * than moving `thawedAt`, because an existing assertion reads `thawedAt` for a different
+     * question: whether the event fired at all.
+     *
+     * **The distinction was found by planting, not by reading.** A 15 000 ms delay inserted
+     * ahead of the resume printed `frozen-to-thaw 764ms` — a label promising the span the
+     * solo dispatch is stalled for, reporting the span before the decision instead.
+     */
+    let releasedAt: number | null = null
     const freeze = async (): Promise<void> => {
       freezing ??= (async () => {
         frozenAt = performance.now()
@@ -953,6 +1007,7 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
       thawing ??= (async () => {
         thawedAt = performance.now()
         await Promise.all(frozen.map((agent) => resumeAgent(agent)))
+        releasedAt = performance.now()
       })()
     }
 
@@ -1015,12 +1070,32 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
       .map((d) => (d.settledAt as number) - d.startedAt)
     const medianHealthyMs = median(healthyMs)
     const stragglerThresholdMs = DEFAULT_STRAGGLER_FACTOR * medianHealthyMs
-    const durationOf = (d: Dispatch): number => (d.settledAt as number) - d.startedAt
+    /**
+     * How long a dispatch ran, or `null` for one that never answered.
+     *
+     * **This read `(d.settledAt as number) - d.startedAt` until 2026-08-25, and the cast was
+     * false.** `Dispatch.settledAt` is declared `number | null` and the null case is not
+     * exotic here — it is CHURN-02's own subject: a SIGSTOPped node whose duplicate answers
+     * first, and which is never resumed inside the job's life, has no settle instant at all.
+     * `null - startedAt` is `-startedAt`, so the reading printed **`frozen public shard
+     * -3722ms`** and nothing objected to a negative duration; the same cast three lines into
+     * the assertions then reached `expect(x).toBeLessThan(null)`, which throws
+     * `TypeError: expected value must be number or bigint, received "object"` and names
+     * neither the shard nor the claim. Observed on a SOLO run on a quiet host, so it is not
+     * a load artefact and no discriminator would have addressed it.
+     */
+    const durationOf = (d: Dispatch): number | null =>
+      d.settledAt === null ? null : d.settledAt - d.startedAt
+    /** A duration for a human, with the never-answered case said rather than arithmetic'd. */
+    const describeDuration = (d: Dispatch): string => {
+      const ms = durationOf(d)
+      return ms === null ? 'never settled' : `${Math.round(ms)}ms`
+    }
 
     // Printed rather than only asserted, so the readings are available on every run rather
     // than surviving as a note somebody took once — `late-combine.node.test.ts`'s
     // precedent. **None of these numbers is asserted against a threshold**; see the header.
-    console.log(
+    process.stdout.write(
       `[criterion 3 / speculation] standUp ${Math.round(standUpMs)}ms for ${AGENT_COUNT} agents, ` +
         `off arm ${Math.round(offMs)}ms, on arm ${Math.round(onMs)}ms; ` +
         `allowance ${ALLOWANCE} over ${SHARDS} shards (the shipped fraction would have ` +
@@ -1031,10 +1106,12 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
         `frozen worker held ${victimShards.length} public shard(s); ` +
         `median healthy dispatch ${Math.round(medianHealthyMs)}ms over ${healthyMs.length} ` +
         `samples, straggler threshold ${Math.round(stragglerThresholdMs)}ms; ` +
-        `frozen public shard ${Math.round(durationOf(trackedPrimary))}ms, paired-owner shard ` +
-        `${Math.round(durationOf(pairedCall))}ms, solo-owner shard ` +
-        `${Math.round(durationOf(soloCall))}ms; compare grace ${compareGraceMs}ms; ` +
-        `losing copies [${on.shards.flatMap((s) => s.copies.map((c) => c.outcome)).join(',')}]`,
+        `frozen public shard ${describeDuration(trackedPrimary)}, paired-owner shard ` +
+        `${describeDuration(pairedCall)}, solo-owner shard ` +
+        `${describeDuration(soloCall)}; compare grace ${compareGraceMs}ms; ` +
+        `frozen-to-released ${describeFrozenSpan(frozenAt, releasedAt)} ` +
+        `against an rpc budget of ${RPC_TIMEOUT_MS}ms; ` +
+        `losing copies [${on.shards.flatMap((s) => s.copies.map((c) => c.outcome)).join(',')}]\n`,
     )
 
     // If speculation did not fire, say **why** rather than reaching for a longer delay.
@@ -1043,7 +1120,7 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
       `completed-before-judgement ${healthyMs.length} against MIN_SAMPLES ${MIN_SAMPLES}; ` +
       `budget spent ${on.speculationSpent} of ${ALLOWANCE}; eligible untried nodes existed ` +
       `(public → ${publicDuplicateTarget.nodeId}, paired → ${paired[1].peerId}); the frozen ` +
-      `public dispatch ran ${Math.round(durationOf(trackedPrimary))}ms against a threshold of ` +
+      `public dispatch ran ${describeDuration(trackedPrimary)} against a threshold of ` +
       `${Math.round(stragglerThresholdMs)}ms\n${describeShards(on)}`
     expect(duplicates.length, `no duplicate was dispatched. ${diagnosis}`).toBeGreaterThanOrEqual(2)
 
@@ -1053,7 +1130,23 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
       const primary = primaryOf(duplicate.partitionIndex)
       expect(duplicate.nodeId).not.toBe(primary.nodeId)
       expect(duplicate.startedAt).toBeGreaterThan(primary.startedAt)
-      expect(duplicate.startedAt).toBeLessThan(primary.settledAt as number)
+      // **A primary that never settled is the STRONGEST form of what this asserts, not an
+      // exception to it.** The claim is that the copy went out while the first was still
+      // running; a first copy that is still running when the job ends was running at every
+      // instant, this one included. The line read `.toBeLessThan(primary.settledAt as
+      // number)` until 2026-08-25 and threw `TypeError: expected value must be number or
+      // bigint, received "object"` on exactly that case — a crash naming neither the shard
+      // nor the claim, on the case the claim most clearly holds for. Written as one
+      // assertion over the disjunction rather than as an `if`, so the null arm cannot go
+      // quiet: a bare guard would let a duplicate that DID go out late pass unread whenever
+      // its primary happened never to answer.
+      expect(
+        primary.settledAt === null || duplicate.startedAt < primary.settledAt,
+        `the duplicate for partition ${duplicate.partitionIndex} went out at ` +
+          `${Math.round(duplicate.startedAt)} and its primary had already settled at ` +
+          `${primary.settledAt === null ? 'never' : Math.round(primary.settledAt)}, so this ` +
+          'was a re-dispatch after the fact and not a live duplicate',
+      ).toBe(true)
     }
     const trackedDuplicate = duplicates.find((d) => d.partitionIndex === trackedIndex) as Dispatch
     const pairedDuplicate = duplicates.find((d) => d.partitionIndex === PAIRED_INDEX) as Dispatch
@@ -1087,7 +1180,17 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     }
     // The whole job's answers, against the off arm of the same fixture in the same run —
     // an equality, never a pinned literal.
-    expect(resultCids(on)).toEqual(offCids)
+    //
+    // **The message is the instrument, and it was added because this line reddened once
+    // without one.** On 2026-08-25 a run that took 13.75 s against a 6.8-7.2 s norm failed
+    // here with a `null` in the **last** position — which is `SOLO_INDEX`, the solo owner's
+    // shard, not a public one. It printed the two arrays and nothing else, so the run could
+    // not name its own reason: the reading that names a shard's ending *and* the fabric's
+    // words for it is `on.complete`'s, 328 lines below this one, and it never got to run.
+    // `describeShards`' own header names that exact shape as the thing it exists to prevent.
+    // The ordering is deliberate and is left alone — a message changes what a failure says,
+    // never which assertion fires first.
+    expect(resultCids(on), describeShards(on)).toEqual(offCids)
 
     // ---- (4) Every loser is accounted for by name. ---------------------------------
     // A straggler whose copy vanishes from the record is the loss of exactly the evidence
@@ -1140,7 +1243,25 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
         (e) => e.kind === 'expired' || e.kind === 'surrendered' || e.kind === 'abandoned',
       ),
     ).toEqual([])
-    expect(on.shards.flatMap((s) => s.rejections)).toEqual([])
+    // **The message is the instrument, and this one was written from a failure that could
+    // not be attributed.** See `describeRejections`: a bare peer id cannot say whether the
+    // node that went silent was one of the three this fixture froze. The assertion itself is
+    // unchanged — no refusal is expected here at all — and only what it says has changed.
+    const roleOfNode = (nodeId: string): string =>
+      nodeId === victimId
+        ? 'FROZEN(public-victim)'
+        : nodeId === paired[0].peerId
+          ? 'FROZEN(paired-owner)'
+          : nodeId === solo.peerId
+            ? 'FROZEN(solo-owner)'
+            : frozenIds.has(nodeId)
+              ? 'FROZEN(unclassified)'
+              : 'healthy'
+    const allRejections = on.shards.flatMap((s) => s.rejections)
+    expect(
+      allRejections,
+      `a node refused an offer in the on arm:\n${describeRejections(allRejections, roleOfNode)}`,
+    ).toEqual([])
     for (const shard of on.shards) expect(shard.generations).toBe(1)
 
     // ---- (6) The cost accounting carries the measurement, as a ratio between arms. ---
@@ -1175,9 +1296,46 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     expect(pairedOn.attempted).toEqual([paired[0].peerId, paired[1].peerId])
     expect(pairedDuplicate.nodeId).toBe(paired[1].peerId)
 
+    /*
+     * **The one absolute this fixture rests on, measured 2026-08-26 rather than argued.**
+     *
+     * The solo owner's shard has exactly one legal executor — sovereign, its owner,
+     * `REDUNDANCY` 1, and nothing may be duplicated for it, which is asserted three lines
+     * below. Its only exit is therefore the thaw. If the freeze outlasts
+     * {@link RPC_TIMEOUT_MS} the single dispatch fails on that budget, there is no untried
+     * node behind it, and the shard ends `no-untried-node` — its CID reads `null` and the
+     * whole-job equality at (3) is what reddens, 90 lines before anything here runs.
+     *
+     * **That is the fabric behaving correctly on a host that could not run this fixture**,
+     * and not a defect in speculation: a sovereign shard whose sole owner is unreachable
+     * for longer than the caller's budget genuinely cannot be completed by anybody.
+     *
+     * **Proven by planting a delay on the thaw, not by waiting for one.** At 5 000 ms the
+     * frozen dispatches read 5975 / 5960 / 5982 ms and all twenty-two shards still agreed.
+     * At 15 000 ms they capped at 10001 / 10001 / 10000 ms — the budget, exactly — and #21
+     * came back `no-untried-node ... insufficient: every executor failed | ... rpc to ...
+     * timed out after 10000ms`. That reading is the whole of it: one number, one shard, and
+     * the reason in the fabric's own words.
+     *
+     * **Ten runs under eight CPU burners at load 16-50 did NOT reproduce it naturally**, so
+     * no natural frequency is claimed here. What replaces the claim is an instrument: the
+     * freeze-to-**release** span is printed on every run beside this budget, so a later
+     * occurrence arrives with its own number rather than sending a reader back to re-derive
+     * this paragraph. Freeze-to-*release* and not freeze-to-thaw, and the difference is not
+     * pedantry: the first version of that instrument read the thaw **decision** and reported
+     * 764 ms while the processes were held for 15 000 ms. The equality at (3) also carries `describeShards` now, for the same reason
+     * and from the same failure — it reddened once with a bare `null` and no reason beside
+     * it, which is precisely the shape `describeShards`' own header exists to prevent.
+     */
     // The solo owner's shard was NOT, and no second node was ever dispatched to.
     const soloOn = on.shards[SOLO_INDEX] as ShardResult
     expect(soloOn.speculated).toBe(false)
+    // **The published instant's invariant, on both sides of it in one run.** The tracked
+    // shard's is asserted non-null at (8); this is the other half. It is a check on the
+    // threading rather than a new fact about CHURN-06 — `speculated` already carries that
+    // — and it is here because the two fields are set at one site and a future edit that
+    // sets one without the other would leave every other assertion in this file green.
+    expect(soloOn.judgedAt).toBeNull()
     expect(soloOn.copies).toEqual([])
     expect(soloOn.attempted).toEqual([solo.peerId])
     expect(soloOn.verification.status).toBe('agreed')
@@ -1234,12 +1392,34 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     // dispatches was **2–3 ms in all three regimes** and did not widen with load, which is
     // what lets one verdict cover all three.
     //
+    // **CORRECTED 2026-08-25 — "across every regime" was a claim about three regimes and
+    // there is a fourth.** The paragraph above is left standing because the mechanism it
+    // states is right and the range it states is not: under two concurrent whole-lane sweeps
+    // the elapsed figures were measured at **1424 / 1422 / 1418 ms**, 5.7× the quoted band.
+    // What survives is the *shape* — the three stayed within 6 ms of each other, so one
+    // verdict still covers all three — and what does not survive is "pinned to the tick".
+    // The tick itself dilates when the process is not getting CPU. Source: the rotating-
+    // failure survey of 2026-08-25, item 3, taken from `proof2.log`.
+    //
     // **Where this one would still fail, stated rather than left to be discovered.** The
     // threshold does climb with load (29 → 43 → 60 ms) while the elapsed stays pinned to the
     // tick, so the margin does shrink — 8.6× → 5.8× → 4.1×. It runs out when the median at
     // judgement passes ~167 ms, which is 4× the worst observed here, against an old bound
     // that was already inside its own noise at load 9.6. This is a much later cliff and not
-    // the absence of one. What makes the difference qualitative rather than only quantitative
+    // the absence of one.
+    //
+    // **CORRECTED 2026-08-25, and the cliff is not where this says it is.** Eight SOLO runs
+    // on an idle host that same day read a judgement median of **23–142 ms** and a threshold
+    // of **34–212 ms** against an elapsed of 251–252 ms. The worst quiet margin was therefore
+    // **1.18×**, not 8.6×, and the paragraph above under-reports the variance because its
+    // three readings were three runs rather than eight. The consequence is the one that
+    // matters: this bound is reachable **on an idle machine by sample variance alone**, so it
+    // is not a load-only failure and no starved-host discriminator would separate it. That is
+    // why the gate below keys on the reconstruction reproducing the scheduler's own recorded
+    // decision and on nothing about the host. The cause is named there too — `judgedAt` is
+    // the wrapper's dispatch instant and therefore later than the scheduler's `woke`, so the
+    // reconstructed sample can only ever over-include, and it over-includes exactly the
+    // dispatches running alongside the duplicates. What makes the difference qualitative rather than only quantitative
     // is the public shard's membership below: it is asserted, so if this reconstruction ever
     // drifts from the sample the scheduler actually judged on, that assertion fails and names
     // it instead of the solo one failing for a reason that has nothing to do with CHURN-06.
@@ -1252,7 +1432,49 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     // duplicated the public shard would have duplicated these three too, on the evidence it
     // held at the moment it ran" — and if load moves the median, it moves the threshold this
     // is measured against in the same breath, because the scheduler read the same median.
-    const judgedAt = Math.min(...duplicates.map((d) => d.startedAt))
+    /*
+     * **The instant is now READ, not reconstructed** — `ShardResult.judgedAt`, which the
+     * scheduler publishes from the same `woke` it asked `stragglers` on.
+     *
+     * What it replaces is `Math.min(...duplicates.map((d) => d.startedAt))`: the wrapper's
+     * own dispatch instant, one round trip *after* the decision. Everything that settled
+     * inside that window was counted as evidence the scheduler held and was not, so the
+     * reconstruction could only ever OVER-include — and it over-included exactly the
+     * dispatches running alongside the duplicates, the slowest stretch of the job. The old
+     * value is kept beside the new one and both are printed, because the size of the bias
+     * is the reading this change is worth and it is a property of the host, not of the code.
+     *
+     * **Per-shard rather than job-wide, deliberately.** The reconstruction took a minimum
+     * across every duplicate in the job; `tracked.judgedAt` is this shard's own. The claim
+     * these lines carry is about the rule *as it was applied to the public shard*, so the
+     * shard's own instant is the faithful one and the job-wide minimum was a second
+     * approximation stacked on the first.
+     *
+     * **One basis conversion, and it is not cosmetic.** `judgedAt` is on `JobClock`'s
+     * clock, whose default is `Date.now()` — epoch milliseconds. Every span in `log` is
+     * `performance.now()`, counted from this process's time origin. `performance.timeOrigin`
+     * is exactly the distance between the two origins, so subtracting it puts the
+     * scheduler's instant into the log's basis and every comparison below stays where it
+     * already was. Comparing the two unconverted would not be imprecise, it would be
+     * meaningless.
+     */
+    const reconstructedAt = Math.min(...duplicates.map((d) => d.startedAt))
+    expect(
+      tracked.judgedAt,
+      `the tracked shard was speculated, so the scheduler judged it and must say when:\n${describeShards(on)}`,
+    ).not.toBeNull()
+    const judgedAt =
+      tracked.judgedAt === null ? reconstructedAt : tracked.judgedAt - performance.timeOrigin
+    // **The invariant, and it has no tolerance band because it is true by construction.**
+    // The decision is taken before `dispatchCopy` is called, and the wrapper's `startedAt`
+    // is recorded after that dispatch has reached it. A published instant at or after the
+    // dispatch it caused would mean the field is reporting the consequence again — which is
+    // precisely the defect this replaces, and is what a plant here should redden on.
+    expect(
+      judgedAt,
+      `the judgement must precede the dispatch it caused: judged at ${String(Math.round(judgedAt))} ` +
+        `against a duplicate dispatched at ${String(Math.round(trackedDuplicate.startedAt))}`,
+    ).toBeLessThanOrEqual(trackedDuplicate.startedAt)
     const completedByJudgement = log
       .filter(
         (d) =>
@@ -1279,7 +1501,11 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
         `below is not the sample the scheduler judged on`,
     ).toBeGreaterThanOrEqual(MIN_SAMPLES)
     const judgementReading =
-      `at judgement (+${Math.round(judgedAt - trackedPrimary.startedAt)}ms) the sample was ` +
+      `at judgement (+${Math.round(judgedAt - trackedPrimary.startedAt)}ms, which the ` +
+      `reconstruction it replaced put at +${Math.round(reconstructedAt - trackedPrimary.startedAt)}ms, ` +
+      `over-including by ${Math.round(reconstructedAt - judgedAt)}ms and ` +
+      `${String(log.filter((d) => !frozenIds.has(d.nodeId) && d.settledAt !== null && (d.settledAt as number) <= reconstructedAt).length - completedByJudgement.length)} ` +
+      `dispatches) the sample was ` +
       `${completedByJudgement.length} completed healthy dispatches, median ` +
       `${Math.round(median(completedByJudgement))}ms, threshold ` +
       `${Math.round(DEFAULT_STRAGGLER_FACTOR * median(completedByJudgement))}ms; elapsed ` +
@@ -1288,9 +1514,12 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
         .join(', ') +
       `; settled relative to judgement ` +
       frozenDispatches
-        .map(([name, d]) => `${name} ${Math.round((d.settledAt as number) - judgedAt)}ms`)
+        .map(
+          ([name, d]) =>
+            `${name} ${d.settledAt === null ? 'never settled' : `${Math.round(d.settledAt - judgedAt)}ms`}`,
+        )
         .join(', ')
-    console.log(`[criterion 3 / straggler rule] ${judgementReading}`)
+    process.stdout.write(`[criterion 3 / straggler rule] ${judgementReading}\n`)
     // **`stragglers` takes tasks that are in flight, and cannot check that they are.** It
     // reads `now - startedAt` and nothing else, so a dispatch that had already answered
     // would be named on the strength of its start time alone — the elapsed it computes is
@@ -1301,11 +1530,15 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     // the solo shard was *still running* when the scheduler looked, and had been running
     // long enough to clear the threshold. Either half alone proves nothing.
     for (const [name, d] of frozenDispatches) {
+      // Same null as `durationOf` above and the same reading of it: a dispatch that never
+      // settled was in flight at **every** instant, so it was in flight at judgement. The
+      // cast here would have thrown `TypeError` on that case rather than reporting it,
+      // which is why the disjunction is asserted instead of the number.
       expect(
-        d.settledAt as number,
+        d.settledAt === null || d.settledAt > judgedAt,
         `the ${name} frozen dispatch had already settled when the first duplicate went out, ` +
           `so it was not in flight to be judged. ${judgementReading}`,
-      ).toBeGreaterThan(judgedAt)
+      ).toBe(true)
     }
     const judgedStragglers = stragglers(inFlightAtJudgement, judgedAt, {
       completed: completedByJudgement,
@@ -1315,6 +1548,62 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     // exactly why it is asserted: it is the check that this reconstruction of `judgedAt` and
     // of the sample is the one the scheduler used. The solo owner's membership is the claim
     // that carries CHURN-06, and it is the one that can fail.
+    // ---- The reconstruction's own self-test, in the CONDITION rather than the prose ----
+    //
+    // **Added 2026-08-25.** The two lines above have said, since they were written, that
+    // the public shard's membership is "near-tautological \u2014 the scheduler duplicated it, so
+    // the shipped predicate fed the scheduler's own inputs had better agree", and that it is
+    // asserted precisely so a drifted reconstruction "fails and names it". It named it by
+    // failing the SAME assertion that carries CHURN-06, so a drift and a sovereignty defect
+    // arrived as one indistinguishable red. The rule was in the explanation and not in the
+    // condition \u2014 `late-combine.node.test.ts`'s finding, one file over, and the same fix.
+    //
+    // **`public` and `paired`, not `public` alone.** Both have a duplicate asserted upstream
+    // (`trackedDuplicate`, `pairedDuplicate` are `toBeDefined`), so both memberships are
+    // tautologies WHEN the reconstruction is faithful. `solo` is the one frozen shard with no
+    // duplicate \u2014 there was nowhere legal to put one, which is CHURN-06's whole subject \u2014 so
+    // solo's membership is the carried claim and is deliberately OUTSIDE the gate.
+    //
+    // **Measured, and it refutes two things this file says about itself.** Eight solo runs on
+    // a quiet host on 2026-08-25 read a judgement median of 23\u2013142ms and a threshold of
+    // 34\u2013212ms against an elapsed pinned at 251\u2013252ms. The worst quiet margin was
+    // therefore **1.18\u00d7**, not the 8.6\u00d7 the table above records, and the drift is not a
+    // load phenomenon alone \u2014 sample variance reaches it on an idle machine. That is why
+    // this gate does NOT also require a starved-host reading the way `late-combine`'s does:
+    // gating on the host would leave exactly the quiet-host case red for no defect.
+    //
+    // **The mechanism, named rather than fixed here.** `judgedAt` is the wrapper's dispatch
+    // instant, which is strictly AFTER the scheduler's own `woke` by one RPC hop, so
+    // `completedByJudgement` can only ever OVER-include \u2014 it sweeps in dispatches the
+    // scheduler had not yet seen, which are the ones running alongside the duplicates and so
+    // the slowest. The bias has one sign and it is the direction that inflates the median.
+    // Tightening `judgedAt` toward `woke` is a real piece of work and is not done here.
+    //
+    // **What is NOT being waved through, and where it is owned instead.** A scheduler that
+    // duplicates shards which are not stragglers at all would also produce a missing
+    // membership here. That class is caught one level down by `submit.test.ts` \u203a
+    // *"duplicates nothing for a shard slower than its peers but not slow ENOUGH"*, and
+    // enforced by mutation-ledger entry **D1b**, whose plant \u2014 a threshold 150\u00d7 too low \u2014
+    // was measured to leave every other case in that file green. This gate is a division of
+    // labour with a named owner, not a hole.
+    const reproduced = new Set([...judgedStragglers].map((t) => t.taskId))
+    if (!reproduced.has('public') || !reproduced.has('paired')) {
+      // `process.stdout.write`, not `console.log` and not `ctx.skip(note)` \u2014 measured on
+      // vitest 4.1.10: on a SKIPPED test the default reporter swallows both, and on a PASSING
+      // one it swallows every `console.*`. A skip nobody can read is a fail-open.
+      process.stdout.write(
+        `[criterion 3 / reconstruction drifted] the shipped straggler rule, replayed on this ` +
+          `file's reconstruction of the scheduler's inputs, did not name a shard the scheduler ` +
+          `is ON RECORD having duplicated \u2014 named [${[...reproduced].sort().join(', ')}] of ` +
+          `[paired, public, solo]. The reconstruction is therefore not the sample the ` +
+          `scheduler judged on, and CHURN-06's claim about the solo owner cannot be read ` +
+          `either way from it. This is NOT a verdict about the fabric. ${judgementReading}\n`,
+      )
+      ctx.skip()
+    }
+    // Byte-identical to what it was before the gate above: what changed is when it is
+    // reached, never what it demands. A reconstruction that DID reproduce both of the
+    // scheduler's own decisions and still omits `solo` is the defect CHURN-06 exists for.
     expect(
       [...judgedStragglers].map((t) => t.taskId).sort(),
       `the production straggler rule did not name all three frozen dispatches. ${judgementReading}`,

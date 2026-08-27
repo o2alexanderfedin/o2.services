@@ -503,9 +503,11 @@ beforeAll(async () => {
     blockstoreDir: join(workdir, 'provider'),
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [KERNEL_TRUST_ANCHOR],
-    // What gives it a signing key at all. `DEFAULT_MAX_PER_WINDOW` is 32 and this sentinel
-    // disables only the *aggregate* budget, so three enrolments of one user key are well
-    // inside both limits.
+    // What gives it a signing key at all. This sentinel disables only the *aggregate*
+    // budget, and three enrolments of one user key sit far inside the per-user default
+    // whatever it is — so the number is not restated here. It read "`DEFAULT_MAX_PER_WINDOW`
+    // is 32" until 2026-08-25, by which point the constant had been 64 for two days; the
+    // conclusion survived the drift only because 3 is inside both.
     issuesCertificates: 'issues-without-an-aggregate-budget',
   })
   providerAddr = directWsAddr(provider, 'provider')

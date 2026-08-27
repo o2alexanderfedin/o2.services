@@ -1,0 +1,107 @@
+{
+  // The hosted tier's deploy configuration — Phase 29 criteria 5 and 6.
+  //
+  // `.jsonc` rather than `.toml`: wrangler's own documentation names JSONC as the current
+  // format, and `.planning/research/v2.0/STACK.md` records that reading. Comments are the
+  // point of the C — every value below that is not obvious has its reason beside it, because
+  // two of them are irreversible and one of them is a bill.
+  //
+  // **NOTHING HERE DEPLOYS ANYTHING.** The only wrangler invocation in this repository is
+  // `--dry-run`, asserted by `hosted-tier-deploy.node.test.ts`. Deploying is an owner act by
+  // ruling of 2026-08-25, and criteria 1 and 2 stay open until the owner performs them.
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+
+  // Deliberately unrelated to anything already in the account. The owner runs three
+  // production scripts under an unrelated prefix and this tier must never resolve near them.
+  // Their prefix is deliberately NOT written here: `hosted-tier-deploy.node.test.ts` asserts
+  // this file does not contain it, and a comment quoting the string it forbids would fail that
+  // guard — which is exactly what happened on 2026-08-26, and is the second time this session
+  // that prose explaining a literal tripped the check over the literal.
+  "name": "o2-bootstrap",
+  "main": "src/worker.ts",
+
+  // The workerd build the research pinned: `1.20260825.1`, current on the day it was read.
+  "compatibility_date": "2026-08-25",
+  // js-libp2p reaches for node builtins in several places. Measured 2026-08-25 in
+  // `.planning/consults/2026-08-25-noise-diffiehellman-on-workerd-measured.md`: the noise
+  // package's pure-JS crypto path is selected by wrangler's default resolution "with AND
+  // without `nodejs_compat`", so this flag is not what keeps `diffieHellman` out of the
+  // bundle and must not be read as if it were. The guard asserts the absence directly.
+  "compatibility_flags": ["nodejs_compat"],
+
+  // ── Criterion 5: no preview deployments, ever ──────────────────────────────────────────
+  //
+  // **Stated explicitly even though wrangler's own schema gives it `"default": false`.** Read
+  // out of `node_modules/wrangler/config-schema.json` rather than from documentation. A
+  // default is a thing that can change under you in a minor version; a stated value is a thing
+  // a guard can read and a reviewer can see. The cost of getting this wrong is the structural
+  // half of the only runaway-bill report this project cites: the multiplier there was not the
+  // alarm, it was **60+ preview Worker deployments**, each with its own Durable Object
+  // instances running the same bug. One deployed instance is one bug; sixty is a bill.
+  "preview_urls": false,
+
+  // Left TRUE, and the reason is criterion 2 rather than convenience: the dialable address
+  // that criterion is settled by is `/dns4/<name>.workers.dev/tcp/443/tls/ws/p2p/<peerId>`,
+  // and `<name>.<subdomain>.workers.dev` is exactly what this key serves. Turning it off
+  // would remove the address the phase exists to produce.
+  "workers_dev": true,
+
+  // ── The object, and the binding the one call site reads ────────────────────────────────
+  //
+  // One namespace, because there is one class. The binding name is what `stubFor`'s caller
+  // reads off `env`, and `packages/cloudflare/src/worker.ts` names it `BOOTSTRAP`.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BOOTSTRAP",
+        "class_name": "BootstrapObject"
+      }
+    ]
+  },
+
+  // `new_sqlite_classes` rather than `new_classes`: Durable Object storage is the SQLite
+  // backend on current accounts, and it is what `DoDatastore` is written against — the
+  // consult measured its behaviour as an opaque-bytes store with a documented size limit that
+  // was wrong, §4.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["BootstrapObject"]
+    }
+  ],
+
+  // What this node announces to the fabric — Phase 30.
+  //
+  // **Deliberately EMPTY**, and empty is not a default that quietly works: `hostedAddresses`
+  // REFUSES an empty list, so an upgrade attempt fails loudly here rather than a relay handing
+  // every client an empty reservation with nothing raised (measured, consult §13). The address
+  // is a property of the deployment — this key is where it belongs, and never the request's
+  // `Host` header, which a visitor controls.
+  //
+  // The form to fill in:
+  //   "/dns4/o2-bootstrap.<subdomain>.workers.dev/tcp/443/tls/ws"
+  //
+  // **CORRECTED 2026-08-26 — this comment read "until the first deploy names a host", and that
+  // sent a reader to deploy twice for a value they can already have.** The workers.dev
+  // subdomain belongs to the ACCOUNT, not to a deployment: wrangler reads it from
+  // `/accounts/{account_id}/workers/subdomain`, an account-level path, and there is a
+  // script-level one beside it for a different question. So it exists before anything here is
+  // deployed and can be read from the dashboard or that endpoint. The other half of the same
+  // mistake would be needing the peer id first: **not needed**, verified by reading the
+  // installed library rather than the documentation — `libp2p/dist/src/address-manager/
+  // index.js:252` encapsulates `/p2p/<peerId>` onto an announced address itself, and `:89`
+  // strips it when it is already there. Both halves of the address are therefore knowable in
+  // advance and **ONE deploy is enough**.
+  //
+  // What is NOT settled here, because it is an owner choice rather than a fact: a domain the
+  // owner controls is a better address for a bootstrap node than any `workers.dev` name, since
+  // this value reaches other peers' routing tables and a published address is painful to move.
+  // `workers_dev` above stays true so that the cheaper path remains open.
+  "vars": {
+    "ANNOUNCE_MULTIADDRS": ""
+  },
+
+  // Off, so a build in this repository reports nothing outward. The dry-run guard sets the
+  // matching environment variable as well; both exist because either alone is a single point.
+  "send_metrics": false
+}

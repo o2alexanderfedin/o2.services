@@ -1,0 +1,305 @@
+/**
+ * The hosted tier's deployed entry point — the module wrangler builds and Cloudflare runs.
+ *
+ * ## Why this file is an entry point in the reachability sense, not just in wrangler's
+ *
+ * `packages/node/src/reachability.ts` walks the call graph from a list of **modules the
+ * fabric is entered through**, and states the rule it applies: the three runnable modules it
+ * leaves out are defensible because *"adding them changes no barrel verdict"*. That reading
+ * is false for this file, which is the whole point of it — a deployed Worker is definitionally
+ * a way the fabric is entered, and it is the only caller `@o2/cloudflare`'s barrel has. The
+ * 2026-08-08 owner ruling that excluded `tools/aot/bench-lifted.ts` drew exactly this line:
+ * that file is *"a benchmark driver, not a way the fabric is entered."* This one is the other
+ * side of it.
+ *
+ * ## What it is allowed to answer, and why the list is this short
+ *
+ * `GET /self` and nothing else. Every route is a surface, and this tier's surfaces are not
+ * this phase's subject — Phase 30 owns the inbound listener, Phase 31 the record store, Phase
+ * 32 the relay. A route added here "while we are in the file" would be a capability shipped
+ * without the phase that measures it, which is the shape `descoped is not satisfied` names.
+ *
+ * ## What it does NOT do — SUPERSEDED 2026-08-26 BY PHASE 30
+ *
+ * This block said the object *"does not upgrade a WebSocket"* and *"does not construct the
+ * libp2p node"*, with a stated reason: until Phase 30's listener existed a running node could
+ * not be dialled, and an uncalled `fabric()` method on the deployed class would have been the
+ * *"wired is not used"* shape `CLAUDE.md` records being caught three times on the DHT. Both
+ * are now false — {@link BootstrapObject.fetch} upgrades a socket and the node is built on the
+ * first inbound connection and not before. The reading is kept rather than deleted because the
+ * bundle measurements that went with it are what settled a question:
+ *
+ * With only `alarm()` reaching `hosted-libp2p.ts`, the emitted worker was **583.94 KiB** with
+ * `noise` x43 while `kadDHT` and `circuitRelayServer` were **0**. That is what proved esbuild
+ * shakes per SYMBOL and not per module — this block had predicted the opposite and the build
+ * corrected it. With the listener wired the same build emits **1 867.80 KiB, 405.69 KiB
+ * gzipped**, `kadDHT` x11 and `circuitRelayServer` x3.
+ *
+ * **`diffieHellman` and `node:crypto` are still 0 against that much larger subject.** So open
+ * question 1's answer — wrangler honours the package's legacy top-level `browser` field and
+ * bundles the pure-JS path — now rests on a bundle carrying the whole stack rather than a
+ * corner of it, and `hosted-tier-deploy.node.test.ts`'s case reads it live.
+ *
+ * What the object still does NOT do is dial out, and Phase 29 criteria 1 and 2 remain owner
+ * acts at the Cloudflare boundary.
+ *
+ */
+
+import { HostedNode, stubFor } from './hosted-object.ts'
+import type { HostedObjectName, HostedObjectNamespace } from './hosted-object.ts'
+import {
+  HibernatableSockets,
+  NoInboundUpgradeServiceError,
+  acceptInboundSocket,
+  isInboundUpgradeTarget,
+} from './hibernatable-socket.ts'
+import { announcedAddresses, createHostedFabric, hostedExpirySweep } from './hosted-libp2p.ts'
+import type { HibernationCapableState } from './hibernatable-socket.ts'
+import type { HostedFabric } from './hosted-libp2p.ts'
+import type { CloudflareWebSocket } from './websocket-connection.ts'
+import type { DurableObjectAlarms, DurableObjectStorage } from './durable-object-storage.d.ts'
+
+/**
+ * The two members of the platform's object state that this tier uses.
+ *
+ * Declared here rather than imported from `@cloudflare/workers-types`, on
+ * `durable-object-storage.d.ts`'s stated discipline: an interface declared as narrowly as it
+ * is used is one a fixture can implement completely, and a complete fake is the only kind
+ * that can honestly claim to model the platform.
+ */
+export interface HostedObjectState {
+  /**
+   * Both halves of the platform's storage API, because this object uses both.
+   *
+   * The real `state.storage` carries them together; they are declared apart
+   * (`durable-object-storage.d.ts`) so that `DoDatastore`'s fixture is not made to arm
+   * alarms it never touches. An intersection here is what says this object needs both.
+   */
+  readonly storage: DurableObjectStorage & DurableObjectAlarms
+}
+
+/**
+ * The object state, which carries the hibernation API beside the storage.
+ *
+ * `acceptWebSocket` and `getWebSockets` live on the state itself rather than on `state.storage`
+ * — declared through {@link HibernationCapableState} so that the two-method slice has one
+ * definition and the fixture that implements it completely is the same one the adapter's spec
+ * uses.
+ */
+export interface HostedObjectStateWithSockets extends HostedObjectState, HibernationCapableState {}
+
+/** The bindings this Worker is deployed with. One namespace, because there is one object. */
+export interface HostedEnv {
+  readonly BOOTSTRAP: HostedObjectNamespace<HostedStub>
+  /**
+   * Comma-separated multiaddrs this node announces, from `wrangler.jsonc`'s `vars`.
+   *
+   * **From the deployment and never from the request.** See `announcedAddresses` for why a
+   * `Host` header cannot be the source, and `hostedLibp2pConfig` for what an unannounced relay
+   * was measured doing — handing every client an empty reservation, silently.
+   */
+  readonly ANNOUNCE_MULTIADDRS?: string
+}
+
+/**
+ * The two platform globals the upgrade path needs, declared as narrowly as it uses them.
+ *
+ * `WebSocketPair` is a constructor returning `{0: client, 1: server}`, and a 101 response
+ * carries the client half in an init field no standard `ResponseInit` declares. Both exist only
+ * in workerd, which is why they are declared here rather than imported and why the two lines
+ * that touch them are the only ones in this package no spec can execute.
+ */
+interface WorkerdGlobals {
+  WebSocketPair?: new () => Record<string, CloudflareWebSocket>
+}
+
+/** Thrown when this code is running somewhere that is not workerd. */
+class NoWebSocketPairError extends Error {
+  override readonly name: string = 'NoWebSocketPairError'
+
+  constructor() {
+    super(
+      'WebSocketPair is absent from this global scope — the inbound listener is workerd-only ' +
+        'and there is no portable substitute for it',
+    )
+  }
+}
+
+/**
+ * `ResponseInit` plus the field workerd adds for a 101.
+ *
+ * Declared rather than asserted: the standard type has no `webSocket` member, and widening the
+ * value with an assertion would hide the fact that this line depends on a platform extension.
+ * A declaration says which extension, in one place a reader can check against the docs.
+ */
+interface UpgradeResponseInit extends ResponseInit {
+  webSocket: CloudflareWebSocket
+}
+
+/** What a stub can be asked. `fetch` is the platform's own stub surface. */
+export interface HostedStub {
+  fetch: (request: Request) => Promise<Response>
+}
+
+/**
+ * The deployed Durable Object.
+ *
+ * The class the platform instantiates; every claim worth asserting locally is on
+ * {@link HostedNode}, which this holds rather than extends. That split is deliberate — a class
+ * extending the platform's own base cannot be constructed in a Node test, so anything put
+ * inside it would be unreachable by any spec, and unreachable code in a phase about guards is
+ * the thing to avoid rather than the thing to explain.
+ */
+export class BootstrapObject {
+  readonly #node: HostedNode
+  readonly #state: HostedObjectStateWithSockets
+  readonly #env: HostedEnv
+  /**
+   * The sockets this INSTANCE holds. Empty on a revived object, which is how a frame for a
+   * session that did not survive is detected — see `hibernatable-socket.ts`.
+   */
+  readonly #sockets = new HibernatableSockets()
+  #fabric: Promise<HostedFabric> | undefined
+
+  constructor(state: HostedObjectStateWithSockets, env: HostedEnv) {
+    this.#state = state
+    this.#env = env
+    this.#node = new HostedNode(state.storage)
+  }
+
+  /**
+   * The libp2p node, built on the first inbound upgrade and not before.
+   *
+   * A Durable Object is constructed for every request that reaches it, including `GET /self`,
+   * which is answered out of storage alone. Building a network stack for those would be a cost
+   * with no reader. Held as the PROMISE rather than the resolved value so that two concurrent
+   * upgrades cannot each start one.
+   */
+  #fabricOnce(): Promise<HostedFabric> {
+    this.#fabric ??= createHostedFabric({
+      storage: this.#state.storage,
+      alarms: this.#state.storage,
+      announce: announcedAddresses(this.#env.ANNOUNCE_MULTIADDRS),
+    })
+    return this.#fabric
+  }
+
+  /**
+   * A frame on an adopted socket — the hibernation API's delivery path.
+   *
+   * Adopted sockets do not carry event listeners; the platform calls this instead, which is
+   * what makes them survive past the six minutes §17 measured a plain `accept()` socket being
+   * aborted at.
+   */
+  async webSocketMessage(socket: CloudflareWebSocket, message: ArrayBuffer | string): Promise<void> {
+    this.#sockets.message(socket, message)
+  }
+
+  async webSocketClose(socket: CloudflareWebSocket): Promise<void> {
+    this.#sockets.close(socket)
+  }
+
+  async webSocketError(socket: CloudflareWebSocket, error: unknown): Promise<void> {
+    this.#sockets.error(socket, error instanceof Error ? error : new Error(String(error)))
+  }
+
+  /**
+   * The Durable Object alarm — ARCHITECTURE step 7 arriving on the platform's own timer.
+   *
+   * **Nothing is memoised across this call and that is the design.** Cloudflare evicts the
+   * instance that armed an alarm and constructs a fresh one to handle it, so an
+   * `ExpirySweep` captured at assembly time would be gone by the time it was needed.
+   * `hostedExpirySweep` arms from nothing on every call, which makes the schedule
+   * self-repairing rather than dependent on a construction that happened once.
+   *
+   * It does **not** construct libp2p. Sweeping needs a datastore, an alarm surface and this
+   * node's own peer id; waking a network stack to delete expired rows would make the
+   * cheapest thing this object does the most expensive one.
+   *
+   * That an alarm survives eviction and fires on a fresh instance is the one claim here no
+   * local run settles — ARCHITECTURE's *"request, fire, evict, re-read from a new
+   * instance"* is an owner act at the Cloudflare boundary and is reported open.
+   */
+  async alarm(): Promise<void> {
+    const sweep = await hostedExpirySweep({
+      storage: this.#state.storage,
+      alarms: this.#state.storage,
+    })
+    await sweep.run()
+  }
+
+  /**
+   * `GET /self` — the node's own stable name.
+   *
+   * This is the reading criterion 2 is settled by: an owner dialling the deployed object
+   * twice, days apart and across an eviction, must see one PeerId. The value returned here
+   * comes from the seed in this object's storage, so the answer is the store's and not the
+   * isolate's — which is the whole difference between a Durable Object and the plain Worker
+   * that returned three different PeerIds to three consecutive requests.
+   */
+  async fetch(request: Request): Promise<Response> {
+    if (request.headers.get('Upgrade') === 'websocket') return this.#upgrade(request)
+    if (new URL(request.url).pathname !== '/self') {
+      return new Response('not found', { status: 404 })
+    }
+    const identity = await this.#node.identity()
+    return Response.json({ peerId: identity.peerId, nodeKey: identity.nodeKey })
+  }
+
+  /**
+   * The inbound listener — Phase 30, and the two untestable lines are here on purpose.
+   *
+   * Everything that decides anything is in `acceptInboundSocket`: the `CF-Connecting-IP`
+   * refusal, the adoption through the hibernation API, and the upgrade that must not be
+   * awaited. What is left here is constructing the pair and returning the 101, which no local
+   * run can execute and which therefore has nothing in it worth hiding.
+   */
+  async #upgrade(request: Request): Promise<Response> {
+    const fabric = await this.#fabricOnce()
+    // The member is declared optional so that the scope narrows in one step, which is the
+    // shape `workerd-shims.ts` uses for `globalThis` and the reason it needs no double cast.
+    const { WebSocketPair } = globalThis as WorkerdGlobals
+    if (WebSocketPair === undefined) throw new NoWebSocketPairError()
+    const pair = new WebSocketPair()
+    const client = pair['0']
+    const server = pair['1']
+    if (client === undefined || server === undefined) {
+      return new Response('the platform returned no socket pair', { status: 500 })
+    }
+
+    const upgrade = fabric.libp2p.services['inbound']
+    if (!isInboundUpgradeTarget(upgrade)) throw new NoInboundUpgradeServiceError()
+
+    acceptInboundSocket({
+      sockets: this.#sockets,
+      state: this.#state,
+      socket: server,
+      request,
+      upgrade,
+      log: fabric.libp2p.logger.forComponent('o2:cloudflare:inbound'),
+    })
+
+    // 101, with the client half handed back through an init field only workerd declares.
+    const init: UpgradeResponseInit = { status: 101, webSocket: client }
+    return new Response(null, init)
+  }
+}
+
+/**
+ * Which object a request is served by.
+ *
+ * **A constant, never derived from the request.** Criterion 6's subject is precisely that a
+ * visitor cannot cause an object to be created, and an object is created by its first `get()`.
+ * A `?region=` parameter here would be the defect, and it would be invisible: the request
+ * would succeed, the object would exist, and its siting would be permanent.
+ *
+ * Choosing which of the three regions a given request belongs to is Phase 33's subject and is
+ * not answered by taking the visitor's word for it.
+ */
+const SERVED_BY: HostedObjectName = 'bootstrap-us'
+
+export default {
+  async fetch(request: Request, env: HostedEnv): Promise<Response> {
+    return stubFor(env.BOOTSTRAP, SERVED_BY).fetch(request)
+  },
+}

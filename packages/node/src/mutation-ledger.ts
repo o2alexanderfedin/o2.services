@@ -2414,6 +2414,34 @@ export const MUTATIONS: readonly Mutation[] = [
     signatureSource: 'test-title',
   },
   {
+    id: 'D1b',
+    why:
+      'CHURN-02 in the OTHER direction, and it is a separate entry because for most of this ' +
+      'repository\u2019s life nothing could see it. `D1` above suppresses duplication and reddens ' +
+      'eleven cases in `submit.test.ts`; the mirror plant \u2014 a threshold 150\u00d7 too low, so every ' +
+      'task in flight is a straggler \u2014 was **measured on 2026-08-25 to leave all 104 GREEN**. ' +
+      'The reason it hid is worth stating because it is a shape, not an accident: the budget ' +
+      'caps the count, so an over-eager scheduler spends exactly the allowance a correct one ' +
+      'spends and dispatches exactly as many copies. What differs is WHICH shard and WHEN. ' +
+      'Every assertion in the file read a count, so none of them could tell the two apart. ' +
+      'The cost is real rather than cosmetic: the allowance is a tenth of the job, and spending ' +
+      'it on shards that were merely a little behind leaves nothing for the tail the threshold ' +
+      'exists to catch. `duplicates nothing before there is a tail` cannot cover this \u2014 ' +
+      'instrumented at this call site, that fixture produces ZERO straggler evaluations, ' +
+      'because nothing is in flight when the watchdog wakes. The case named below was written ' +
+      'against this plant and is the only thing that reddens on it.',
+    file: 'packages/core/src/job/submit.ts',
+    find: '            { completed: speculation.completed, factor: speculation.factor },',
+    replace: '            { completed: speculation.completed, factor: 0.01 },',
+    caughtBy: ['packages/core/src/job/submit.test.ts'],
+    // Planted 2026-08-25: 1 failed, 104 passed. Rendered on that run: `a shard that was
+    // behind its peers and inside the threshold was duplicated anyway \u2014 the budget is now
+    // partly spent on a shard that was never a straggler: expected 1 to be +0`.
+    signature:
+      'duplicates nothing for a shard slower than its peers but not slow ENOUGH',
+    signatureSource: 'test-title',
+  },
+  {
     id: 'D2',
     why:
       'CHURN-01/CHURN-02 — **the load-bearing plant of the whole speculation build**, and it is ' +

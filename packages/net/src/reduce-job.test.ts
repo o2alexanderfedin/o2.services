@@ -182,6 +182,7 @@ function agreed(partitionIndex: number, output: CanonicalValue): ShardResult {
     // left over to compare. `[]` is the truthful reading of "no copy was started", the
     // same reading `rejections: []` gives above.
     speculated: false,
+  judgedAt: null,
     disagreed: false,
     copies: [],
     attestation: {
@@ -230,6 +231,7 @@ function insufficient(partitionIndex: number): ShardResult {
     ending: 'never-placed',
     // A shard nobody would take never ran, so nothing about it was ever slow.
     speculated: false,
+  judgedAt: null,
     disagreed: false,
     copies: [],
     attestation: {
