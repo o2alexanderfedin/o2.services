@@ -1027,7 +1027,30 @@ describe('criterion 2, bounded — a fabric with no free node, and the control t
 
     expect(controlShard.verification.status).toBe('agreed')
     expect(control.job.complete).toBe(true)
-    expect(controlShard.attempted).toStrictEqual([spare])
+    // INSTRUMENTED 2026-08-27, and the instrument is the deliverable rather than a fix.
+    //
+    // A full `--project node` sweep at machine load **277** read `attempted` as TWO nodes
+    // where the control arm permits one, and a bare `toStrictEqual` named neither of them —
+    // the message was `expected [ …(2) ] to strictly equal [ Array(1) ]`, which says nothing
+    // about WHICH node was tried second or whether it was one this arm had saturated.
+    // Isolated the file passes in 56.77 s real / 63.92 user / 10.51 sys, exit 0.
+    //
+    // **The cause is deliberately NOT written here.** Two readings fit what was observed —
+    // a saturation that had not landed by the time the submission ran, or a node the
+    // placement reached that this arm never saturated — and both are arithmetic that fits a
+    // theory rather than a theory that was proved. This repo has buried two such hypotheses
+    // already. So the next occurrence names the node and its role, and whoever reads it
+    // gets a finding instead of a count.
+    expect(
+      controlShard.attempted,
+      `the control arm attempted more than the one spare node.\n` +
+        `  spare (the one node left free): ${spare}\n` +
+        `  attempted, in order:\n` +
+        controlShard.attempted
+          .map((id) => `    ${id}${id === spare ? '  <- the spare' : '  <- SATURATED by this arm'}`)
+          .join('\n') +
+        `\n  executors in the fabric: ${found.executors.map((n) => n.nodeId).join(', ')}`,
+    ).toStrictEqual([spare])
     expect(controlShard.generations).toBe(1)
     expect(control.job.redispatches).toBe(0)
     expect(controlShard.ending).toBe('agreed')
