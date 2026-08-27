@@ -241,6 +241,42 @@ keeping: a measured "no" is more useful than a softened "in progress".
 
 ---
 
+## 5. The same message can carry two valid signatures, on Linux
+
+**Found 2026-08-27 by the browser CI lane on its first run, which is the reason that lane was
+added.** Nothing here is broken code in this repository. It is a fact about the platform, and
+this project's code is what has to decide what to do about it.
+
+**What was measured.** A signature can be rewritten into a second form that still checks out —
+mathematically, adding the group order to one half of it. A strict verifier refuses the rewrite;
+a permissive one accepts it. This project uses two verifiers side by side and compares them,
+precisely so a disagreement cannot go unnoticed:
+
+| where | the library (`@noble/curves`) | the platform's own | verdict |
+|---|---|---|---|
+| GitHub's Linux runners, all three browsers | rejects | **accepts** | **they disagree** |
+| the developer's Mac, all three browsers | rejects | rejects | they agree |
+
+Same browser build in both places. The split is by operating system, not by browser.
+
+**Why it matters here.** If the same message has two different valid signatures, then anything
+that treats a signature as a name for something — counting them, removing duplicates, refusing a
+repeat — can be fooled by handing it the other form. This fabric's signed statements travel
+between machines, so a statement written where the platform is strict can be re-presented where
+it is not.
+
+**Nothing has been weakened.** The test that found this still fails, on purpose: it exists to
+fire exactly here. What was added is a message naming the operating system, the browser and
+which verifier accepted, so the next person to see it red gets the finding rather than a puzzle.
+
+**What is NOT yet decided, and is the owner's to decide.** Whether this project should stop
+using the platform's verifier and always use the strict library — safe, and slower on some
+paths — or keep both and treat the signature bytes as never being an identifier. The second is
+cheaper and needs an audit of every place a signature is currently compared. Neither was chosen
+here, because choosing it in the test that found the problem is how a finding gets buried.
+
+---
+
 ## Why these are not simply "finish them"
 
 Each of the first three is blocked on something no automated process can supply: a design
@@ -251,3 +287,7 @@ record wrong.
 **Section 4 is different, and the difference is the point of adding it.** Those four are not
 blocked on anything unobtainable. Three need a place to run and one needs a build. They are
 work, and they are what a next milestone would be made of.
+
+**Section 5 is different again: it is not blocked at all, and it is not this repository's bug.**
+It is a decision about which of two safe options to take, and it can be taken today. It is here
+because a finding that lives only in a test comment is a finding that gets rediscovered.
