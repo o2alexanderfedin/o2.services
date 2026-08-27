@@ -9,6 +9,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "aot:lift": "node --experimental-strip-types tools/aot/cli.ts",
     "build:demo": "vite build --config packages/browser/vite.config.ts",
     "test": "vitest run",
