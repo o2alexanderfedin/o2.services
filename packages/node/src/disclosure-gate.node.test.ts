@@ -380,45 +380,242 @@ describe('the repository root this suite is checking is the real one', () => {
   })
 })
 
-describe('no deploy workflow exists, so no push can publish', () => {
-  it('has no .github/workflows directory — absence, not a disabled workflow', () => {
-    // A disabled or `workflow_dispatch`-only workflow is one edit from firing, and
-    // firing once is permanent. The file has to not be here.
-    expect(existsSync(join(ROOT, '.github', 'workflows'))).toBe(false)
+/**
+ * Every GitHub Actions workflow in the tree, by CONTENT rather than by location.
+ *
+ * The location checks this file used to carry were defeated by renaming a directory. This
+ * predicate asks what a file *is*: a top-level `jobs:` map together with a runner or an
+ * action reference — specific enough that an ordinary YAML config does not match.
+ */
+function workflowFiles(): string[] {
+  return TREE.files.filter((path) => {
+    if (!isYaml(path)) return false
+    const source = readFileSync(join(ROOT, path), 'utf8')
+    const declaresJobs = /^jobs:\s*$/m.test(source)
+    const declaresRunner = /^\s*(?:runs-on:|uses:\s*actions\/)/m.test(source)
+    return declaresJobs && declaresRunner
   })
+}
 
-  it('has no .github directory at all, at the root or anywhere below it', () => {
-    // Checked at every depth rather than only at the root: a nested `.github` is
-    // still read by GitHub for some features, and more to the point, "we moved it"
-    // is exactly the shape this constraint erodes into.
-    expect(TREE.dirs.filter(isUnderDotGithub)).toEqual([])
-    expect(trackedFiles().filter(isUnderDotGithub)).toEqual([])
-  })
+/**
+ * The `on:` block of a workflow — its indented lines, up to the next top-level key.
+ *
+ * **Written by line rather than by regex, and the first version was a real defect.** It read
+ * `rest.slice(1).search(/^[A-Za-z_]/m)`, and `/m`'s `^` matches at the START OF THE STRING as
+ * well as after a newline — so it matched at offset 0 every time and returned the single
+ * character `'o'`. Every assertion over the block was then true of one letter: the
+ * push/PR/schedule refusal PASSED VACUOUSLY, and only the trigger-must-be-human case failed,
+ * which is what surfaced it. A guard whose subject is empty is worse than no guard, because
+ * it reports green.
+ */
+function triggerBlock(source: string): string {
+  const lines = source.split('\n')
+  const start = lines.findIndex((line) => /^on:\s*$/.test(line))
+  if (start === -1) return ''
+  const block: string[] = []
+  for (const line of lines.slice(start + 1)) {
+    // A top-level key ends the block. Blank lines and comments belong to it.
+    if (/^[A-Za-z_]/.test(line)) break
+    block.push(line)
+  }
+  return block.join('\n')
+}
 
-  it('has no workflow file under any .github path, tracked or untracked', () => {
-    // Untracked counts. A gitignored workflow file still runs, and would not show
-    // up in `git ls-files` at all.
-    const fromDisk = TREE.files.filter((path) => isUnderDotGithub(path) && isYaml(path))
-    const fromGit = trackedFiles().filter((path) => isUnderDotGithub(path) && isYaml(path))
-    expect([...fromDisk, ...fromGit]).toEqual([])
-  })
+/** Does this workflow run `wrangler deploy`, or anything else that spends money? */
+function deploys(source: string): boolean {
+  return /wrangler\s+deploy(?!\s+--dry-run)|gh-pages|peaceiris\/actions-gh-pages/.test(source)
+}
 
-  it('has no file anywhere that is a GitHub Actions workflow by content', () => {
-    /**
-     * The directory checks above are defeated by renaming the directory. This one
-     * is not: it asks what the file *is* rather than where it sits. A GitHub
-     * Actions workflow is identifiable by a top-level `jobs:` map together with a
-     * runner or an action reference — specific enough that an ordinary YAML config
-     * (a linter, a CI-less tool) does not match.
-     */
-    const workflows = TREE.files.filter((path) => {
-      if (!isYaml(path)) return false
+/**
+ * DEMO-04's mechanism, REPLACED 2026-08-27 by owner ruling — the claim is unchanged.
+ *
+ * ## What moved, and why the replacement is stricter rather than weaker
+ *
+ * Until today this section asserted that `.github/` **did not exist**, at any depth, tracked
+ * or untracked, by name and by content. Four assertions, watched red on 2026-08-07 against a
+ * real planted workflow.
+ *
+ * Absence was a proxy. The claim DEMO-04 actually makes is *"public deployment is an
+ * explicitly triggered action, never an automatic consequence"* — and absence enforced that
+ * by making every workflow impossible, including the twenty that have nothing to do with
+ * deploying. The owner asked for CI on 2026-08-27, which makes the proxy the thing standing
+ * in the way of ordinary work rather than the thing protecting anything.
+ *
+ * **So the proxy is replaced by the claim itself, checked directly.** A workflow may exist. A
+ * workflow that spends money may exist. What may not exist is a workflow that spends money
+ * **without a human act naming a version** — which is what a release tag is, and what a push
+ * or a pull request is not.
+ *
+ * This is stricter than absence was in one direction that matters: absence said nothing about
+ * `package.json` scripts, about a workflow added to a *fork*, or about what a permitted
+ * workflow may do. The checks below say what a deploying workflow's triggers must be, so the
+ * rule survives the workflows existing instead of being defined by their absence.
+ *
+ * ## What has NOT changed
+ *
+ * The financial reason, in full. Cloudflare has no hard spending ceiling — its own wording
+ * for budget alerts is that they are *"informational only. It does not cap your usage."* The
+ * one runaway-bill report this project cites was multiplied by **60+ preview deployments**.
+ * A deploy on every push to `develop` is exactly that shape, and it stays forbidden.
+ *
+ * `ARCHITECTURE.md` §7's distinction, which is what makes the exemption in `deploys()` exact:
+ * `wrangler deploy --dry-run` is a **build**, runs with no credential, and is not a deploy.
+ * The negative lookahead is what encodes that, and it is the reason CI may run the same
+ * bundle check the local guards run.
+ */
+describe('every workflow file is one GitHub will actually accept', () => {
+  /**
+   * **The check that was missing, and its absence cost a CI run that failed before any job
+   * started.**
+   *
+   * On 2026-08-27 the `aot` lane was removed from `ci.yml` and its `runs-on:` was left
+   * behind, landing inside the `node` job which already had one. The file still parsed —
+   * `yaml.safe_load` takes the LAST of a duplicate pair silently — so a check that merely
+   * loaded the file and read back the job names reported everything correct. **I ran exactly
+   * that check and it passed.** GitHub does not accept duplicate keys: the run came back
+   * named `.github/workflows/ci.yml` instead of `CI`, with `total_count: 0` jobs and
+   * *"this run likely failed because of a workflow file issue"*.
+   *
+   * So a permissive parse is not evidence that a workflow is valid, and this case exists
+   * because the failure mode is invisible to the obvious test.
+   */
+  it('has no duplicate key in any mapping, which a permissive YAML parser hides', () => {
+    for (const path of workflowFiles()) {
       const source = readFileSync(join(ROOT, path), 'utf8')
-      const declaresJobs = /^jobs:\s*$/m.test(source)
-      const declaresRunner = /^\s*(?:runs-on:|uses:\s*actions\/)/m.test(source)
-      return declaresJobs && declaresRunner
-    })
-    expect(workflows).toEqual([])
+
+      // A hand-written scan rather than a parser, because every YAML library in reach
+      // resolves duplicates instead of reporting them — which is the whole defect. Keys are
+      // grouped by their indentation and by the block they sit in; a key repeating at the
+      // same indentation before the block closes is the shape GitHub rejects.
+      const seen = new Map<string, number>()
+      const lines = source.split('\n')
+      for (const [index, line] of lines.entries()) {
+        const match = /^(\s*)(-\s+)?([A-Za-z_][A-Za-z0-9_-]*):/.exec(line)
+        if (match === null) continue
+        const [, indentText = '', dash, key = ''] = match
+        // **A list item's depth is where its DASH sits, not where its first key sits.**
+        // `      - uses:` and `        with:` both put a key at column 8, so measuring the
+        // key's column made them siblings and `with` looked like a duplicate of the previous
+        // step's. Measured against this repository's own `ci.yml`, which is what caught it.
+        const indent = indentText.length
+        // A shallower key closes every deeper block, so their keys are forgotten.
+        for (const [recorded] of seen) {
+          if (Number(recorded.split('\u0000')[0]) > indent) seen.delete(recorded)
+        }
+        // **A list item starts a NEW mapping, so every key deeper than it is forgotten.**
+        // Caught by this guard's own first run: two `- uses:` steps each carrying a `with:`
+        // were reported as a duplicate `with`, which they are not — they are one key in each
+        // of two mappings. `continue` alone was not enough; the deeper scopes have to be
+        // cleared, or the second step inherits the first's keys.
+        if (dash !== undefined) {
+          // Everything at or below the dash's own column belonged to the previous item.
+          for (const [recorded] of seen) {
+            if (Number(recorded.split('\u0000')[0]) >= indent) seen.delete(recorded)
+          }
+          continue
+        }
+        const scope = `${String(indent)}\u0000${key}`
+        const previous = seen.get(scope)
+        expect(
+          previous,
+          `${path}: duplicate key '${key}' at line ${String(index + 1)}, first seen at line ` +
+            `${String((previous ?? 0) + 1)}. A YAML parser resolves this silently and GitHub ` +
+            `refuses the file — the run comes back named after the path with zero jobs.`,
+        ).toBeUndefined()
+        seen.set(scope, index)
+      }
+    }
+  })
+
+  it('gives every job a runner and at least one step, so no job is a comment husk', () => {
+    // The other half of the same removal hazard: deleting a lane can leave a job key with a
+    // body that is entirely comments, which parses to `null` and fails only at dispatch.
+    for (const path of workflowFiles()) {
+      const source = readFileSync(join(ROOT, path), 'utf8')
+      const jobsAt = source.search(/^jobs:\s*$/m)
+      expect(jobsAt, `${path} declares no jobs:`).toBeGreaterThan(-1)
+      const jobNames = [...source.slice(jobsAt).matchAll(/^ {2}([A-Za-z_][A-Za-z0-9_-]*):\s*$/gm)]
+        .map((m) => m[1])
+        .filter((n): n is string => n !== undefined)
+      expect(jobNames.length, `${path} declares jobs: with nothing under it`).toBeGreaterThan(0)
+
+      // One `runs-on` and one `steps` per job, counted rather than assumed.
+      const runsOn = [...source.matchAll(/^ {4}runs-on:/gm)].length
+      const steps = [...source.matchAll(/^ {4}steps:/gm)].length
+      expect(runsOn, `${path}: ${String(runsOn)} runs-on for ${String(jobNames.length)} jobs`).toBe(
+        jobNames.length,
+      )
+      expect(steps, `${path}: ${String(steps)} steps for ${String(jobNames.length)} jobs`).toBe(
+        jobNames.length,
+      )
+    }
+  })
+})
+
+describe('a deploying workflow runs only on a release tag — never on a push or a pull request', () => {
+  it('finds workflows by content, so a renamed directory does not hide one', () => {
+    // The anti-vacuity check for everything below: if this list is empty, every assertion in
+    // this block is true of nothing. It was empty until 2026-08-27 and that was the point;
+    // now that CI exists, an empty list means the predicate broke, not that the tree is clean.
+    expect(
+      workflowFiles().length,
+      'no workflow was found by content — either CI was deleted or the predicate stopped matching',
+    ).toBeGreaterThan(0)
+  })
+
+  it('parses a real `on:` block rather than one character — the defect that hid a vacuous pass', () => {
+    // The regression test for the bug above, written against a literal rather than against
+    // the tree, so it keeps holding when the workflows change.
+    const parsed = triggerBlock(['name: x', 'on:', '  release:', '    types: [published]', '', 'jobs:'].join('\n'))
+    expect(parsed).toContain('release:')
+    expect(parsed).not.toContain('jobs:')
+    expect(parsed.length).toBeGreaterThan(2)
+
+    // And the tree's own deploying workflows must parse to something, or every assertion
+    // below is true of an empty string.
+    for (const path of workflowFiles()) {
+      const on = triggerBlock(readFileSync(join(ROOT, path), 'utf8'))
+      expect(on.trim(), `${path} has no parseable on: block`).not.toBe('')
+    }
+  })
+
+  it('never lets a deploying workflow fire on push, pull_request, or a schedule', () => {
+    const offenders = workflowFiles()
+      .filter((path) => deploys(readFileSync(join(ROOT, path), 'utf8')))
+      .filter((path) => {
+        const on = triggerBlock(readFileSync(join(ROOT, path), 'utf8'))
+        return /^\s*(?:push|pull_request|pull_request_target|schedule):/m.test(on)
+      })
+
+    // `push:` is the subtle one: `on: push: tags:` is a push trigger AND a release tag. It is
+    // refused anyway, because `tags:` is one edit from `branches:` and the diff is two words.
+    // A deploying workflow uses `on: release:` or `workflow_dispatch:`, where the human act is
+    // structural rather than a filter that can be widened.
+    expect(
+      offenders,
+      'a workflow that spends money must not fire on push/PR/schedule — see DEMO-04',
+    ).toEqual([])
+  })
+
+  it('gives every deploying workflow a trigger that REQUIRES a human act', () => {
+    const deploying = workflowFiles().filter((path) =>
+      deploys(readFileSync(join(ROOT, path), 'utf8')),
+    )
+
+    for (const path of deploying) {
+      const on = triggerBlock(readFileSync(join(ROOT, path), 'utf8'))
+      expect(
+        /^\s*(?:release|workflow_dispatch):/m.test(on),
+        `${path} spends money and must be triggered by a release or by hand`,
+      ).toBe(true)
+    }
+  })
+
+  it('keeps the dry-run build OUT of the deploy definition, so CI may still build', () => {
+    // ARCHITECTURE §7: building is not deploying. If this ever goes false, CI cannot verify
+    // the bundle without spending, and the guard would have eaten the thing it protects.
+    expect(deploys('run: npx wrangler deploy --dry-run --outdir=dist')).toBe(false)
+    expect(deploys('run: npx wrangler deploy')).toBe(true)
   })
 })
 

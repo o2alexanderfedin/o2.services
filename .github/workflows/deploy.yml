@@ -1,0 +1,81 @@
+# Deploys the hosted node. THIS IS THE ONE FILE IN THE REPOSITORY THAT SPENDS MONEY.
+#
+# ## Why the trigger is `release:` and not `on: push: tags:`
+#
+# Both fire on a tag. The difference is what a mistake looks like. `on: push: tags: ['v*']`
+# becomes `on: push: branches: ['**']` in a two-word diff that reads as a widening rather
+# than as a change of kind — and that shape is exactly the one DEMO-04 exists to refuse. A
+# `release:` trigger cannot be widened into "every push" by editing a filter; the human act
+# is structural. `disclosure-gate.node.test.ts` refuses `push:` on any money-spending
+# workflow for this reason, and it refuses it even when `tags:` is present.
+#
+# ## Why this is allowed to exist at all
+#
+# DEMO-04 read "no `.github/` may exist", and that absence was a PROXY for the real claim:
+# public deployment is an explicitly triggered act, never an automatic consequence. The proxy
+# was replaced on 2026-08-27 by owner ruling, and the claim is now checked directly. Cost of
+# getting it wrong, unchanged: Cloudflare has no hard spending ceiling — its own wording for
+# budget alerts is "informational only. It does not cap your usage." The runaway-bill report
+# this project cites was multiplied by 60+ preview deployments.
+#
+# `preview_urls: false` in `wrangler.jsonc` is the other half, and it has its own guard.
+name: Deploy hosted node
+
+on:
+  release:
+    types: [published]
+
+# Serialised, and NEVER cancelled mid-run. A cancelled deploy can leave the account holding
+# a half-applied version, which is the one failure mode worse than a slow queue.
+concurrency:
+  group: deploy-hosted
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The secret lives on the environment, not on the repository, so no other workflow in
+    # this repository can read it even by accident. Add a required reviewer here to make the
+    # deploy wait for a human click as well as a tag — that is a repository setting rather
+    # than something this file can assert.
+    environment: cloudflare
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+
+      # THE GATE. The tests run BEFORE the deploy, in the same job, so a red suite cannot be
+      # deployed past. Separate jobs with `needs:` would also work; one job is used because
+      # it makes "tested, then deployed" a property of this file rather than of the graph.
+      - run: npm run typecheck
+      - run: npm run test:node
+
+      # The build, still with no credential in scope — it must pass before the real upload.
+      - run: npx wrangler deploy --dry-run --outdir="${RUNNER_TEMP}/bundle"
+        working-directory: packages/cloudflare
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+
+      - run: npx wrangler deploy
+        working-directory: packages/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
+
+      # The deployed node's identity, read back from the live edge. A deploy that mints a new
+      # PeerId is the failure Phase 29 criterion 2 names, and it is silent — nothing else in
+      # this workflow would notice. `/self` answers out of Durable Object storage.
+      - name: Read back the node's identity
+        run: |
+          set -euo pipefail
+          curl -sS --fail --max-time 30 https://o2-bootstrap.af-4a0.workers.dev/self

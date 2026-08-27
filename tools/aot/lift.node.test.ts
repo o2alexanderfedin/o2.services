@@ -2404,10 +2404,47 @@ describe('a host that cannot fork is not a host without Docker', () => {
    * no pressure the driver runs it and gets a real answer — see the control case below.
    * The only difference between the two cases is whether the host can fork.
    */
-  it('reports the host, not Docker, when there is no room for another process', () => {
+  it('reports the host, not Docker, when there is no room for another process', (ctx) => {
     const resolved = resolveImageUnderProcessLimit(1, '/bin/echo')
     expect(resolved.ok).toBe(false)
     if (resolved.ok) return
+
+    /**
+     * **THE PRECONDITION, and it is not a get-out — it is what the case rests on.**
+     *
+     * `ulimit -u 1` does not forbid forking; it caps the user's TOTAL processes at one. The
+     * technique therefore only produces `EAGAIN` on a machine ALREADY running hundreds, which
+     * the docblock above says in as many words: *"against a machine already running hundreds
+     * of processes"*. On a fresh CI runner the user owns a handful, so the cap is not binding,
+     * the fork succeeds, and the driver correctly answers `image-has-no-digest` about
+     * `/bin/echo`.
+     *
+     * Measured on GitHub Actions `ubuntu-latest`, 2026-08-27:
+     * `AssertionError: expected 'image-has-no-digest' to be 'host-cannot-spawn'`.
+     *
+     * **So the assertion below is true of a condition this host does not have.** Skipping is
+     * the honest reading and widening would be the dishonest one: accepting
+     * `image-has-no-digest` here would make the case pass on a host where a fork DID succeed,
+     * i.e. it would stop being about spawn failure at all — the mirror of the defect that
+     * motivated the whole block.
+     *
+     * **What is NOT lost by skipping.** The classifier itself — every errno routed to the
+     * thing it is about — is asserted directly two cases below, with no process trickery and
+     * no host precondition, so it runs everywhere including CI. This case adds one thing on
+     * top: that a REAL spawn failure travels the real code path. That is what needs a loaded
+     * host, and it is exercised on the developer machine where it was found.
+     */
+    if (resolved.failure.kind !== 'host-cannot-spawn') {
+      ctx.skip(
+        `this host has room to fork, so \`ulimit -u 1\` did not bind and the condition under ` +
+          `test did not occur — the driver answered '${resolved.failure.kind}' about ` +
+          `/bin/echo, which is correct for a host that CAN spawn. The errno classification ` +
+          `this case sits on top of is asserted unconditionally in "sorts each spawn errno to ` +
+          `the thing it is actually about". Not widened: accepting that answer here would ` +
+          `make this case pass on a successful fork.`,
+      )
+      return
+    }
     expect(resolved.failure.kind).toBe('host-cannot-spawn')
     if (resolved.failure.kind !== 'host-cannot-spawn') return
     // The errno itself, because the kind alone would survive a classifier that put
