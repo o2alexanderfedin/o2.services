@@ -66,12 +66,18 @@ fi
 # Added 2026-08-01. Until now this hook enforced branch naming and nothing else:
 # no test, no `tsc`, no guard ran before a commit anywhere in this repository.
 #
-# WHY THIS IS A HOOK AND NOT CI. It must stay local. `disclosure-gate.node.test.ts`
-# asserts that `.github/workflows` does not exist and that no workflow file is
-# tracked *or* untracked, because public hosting is public disclosure and the EPO
-# and China have no patent grace period — publishing forfeits those rights
-# permanently. Adding CI to close this would break the invariant it is meant to
-# protect. Do not "fix" the absence of `.github/` by adding it.
+# WHY THIS IS A HOOK **AND ALSO CI** — corrected 2026-08-27.
+#
+# This paragraph read *"it must stay local… `disclosure-gate.node.test.ts` asserts that
+# `.github/workflows` does not exist… Do not 'fix' the absence of `.github/` by adding
+# it."* That was true when written and is now false in its premise: the disclosure gate
+# no longer forbids workflows. Its rule was ABSENCE, which was a proxy; it is now the
+# claim itself — no money-spending workflow may fire on a push, a PR or a schedule, and a
+# deploying one must be triggered by a release or by hand. CI exists and runs these same
+# guards through `scripts/cheap-guards.sh`.
+#
+# What survives unchanged is why the hook is still worth having: it runs BEFORE the push,
+# so a violation never reaches the remote at all.
 #
 # WHY PRE-COMMIT AND NOT PRE-PUSH. `vocabulary.node.test.ts` and
 # `disclosure-gate.node.test.ts` build their corpus from `git ls-files`, i.e. the
@@ -108,12 +114,16 @@ fi
 # gate instead. It is at 1.12x today. An absolute threshold is not used here, for the
 # reason CLAUDE.md § Measurement gives — it would encode this machine and this day.
 #
-# ## WHY IT IS IN THIS HOOK AND NOT IN CI, again, because it is the obvious question
+# ## IT IS IN THIS HOOK **AND** IN CI — corrected 2026-08-27
 #
-# There is no CI and there must not be one. `disclosure-gate.node.test.ts` asserts that
-# `.github/workflows` does not exist — DEMO-04, and the reason is above. So "run the
-# reachability guard on the merge" is not available, and this hook is the only gate this
-# repository has. That is a constraint recorded here rather than an omission to fix.
+# This read *"there is no CI and there must not be one… this hook is the only gate this
+# repository has."* Both halves are now false. CI runs `scripts/cheap-guards.sh`, the same
+# seven specs this hook runs, from the same list.
+#
+# **And the correction is not cosmetic — the gap it names was real and lasted a day.** CI's
+# node lane was narrowed to `O2_UNIT_ONLY=1`, which excludes specs above `SLOW_CUTOFF_MS`,
+# and three guards are above it: `vocabulary`, `disclosure-gate` and `reachability-guard`.
+# For one day CI ran four of the seven and nothing said so.
 
 if [ "$O2_SKIP_GUARDS" = "1" ]; then
   echo "⏭️  O2_SKIP_GUARDS=1 — skipping the cheap guards"
@@ -217,23 +227,18 @@ git diff-index --cached --name-only --no-relative --no-renames --diff-filter=ACM
   "$BASE" > "$SCOPE_FILE"
 export O2_COMMIT_PATHS_FILE="$SCOPE_FILE"
 
-echo "🔍 cheap guards (vocabulary, purity, mutation-ledger, disclosure, ledgers, reachability)…"
-
-# One vitest invocation, not four: process startup dominates the wall clock here.
-# `--project node` is required — four projects exist, and a bare path argument runs
-# the file under all of them.
-# `--silent=true`, not a bare `--silent`: the flag takes an OPTIONAL value, so a bare
-# one swallows the next argument as its value and vitest refuses with
-# `Unexpected value "--silent=packages/node/src/vocabulary.node.test.ts"`. That is
-# what this hook shipped with, which made it refuse every commit including its own.
-"$REPO_ROOT/node_modules/.bin/vitest" run --project node --silent=true \
-  packages/node/src/vocabulary.node.test.ts \
-  packages/node/src/purity.node.test.ts \
-  packages/node/src/mutation-guard.node.test.ts \
-  packages/node/src/disclosure-gate.node.test.ts \
-  packages/node/src/requirements-ledger.node.test.ts \
-  packages/node/src/slow-specs.node.test.ts \
-  packages/node/src/reachability-guard.node.test.ts
+# **The list moved to `scripts/cheap-guards.sh` on 2026-08-27, and the move is a fix.**
+#
+# It lived here, spelled out, and nowhere else — so when CI's node lane was narrowed to
+# `O2_UNIT_ONLY=1` that same day it silently dropped THREE of the seven, `vocabulary`,
+# `disclosure-gate` and `reachability-guard`, all of which cost more than `SLOW_CUTOFF_MS`.
+# The guard that keeps a paid deploy from happening by itself was not running in the very
+# lane whose existence it had just been rewritten to permit.
+#
+# One definition, two readers. `slow-specs.node.test.ts` asserts that this hook names the
+# script, that CI names it, and that this hook spells out NO spec path of its own — so the
+# list cannot quietly grow a second copy here again.
+bash "$REPO_ROOT/scripts/cheap-guards.sh"
 GUARD_STATUS=$?
 
 if [ "$GUARD_STATUS" -ne 0 ]; then

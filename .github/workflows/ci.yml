@@ -40,6 +40,18 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
 
+      # THE CHEAP GUARDS, from the one list the pre-commit hook also reads.
+      #
+      # They are here because for one day they were NOT. The lane below runs
+      # `O2_UNIT_ONLY=1`, which excludes specs above `SLOW_CUTOFF_MS` — and three of the
+      # seven guards are above it, including `disclosure-gate`, the guard that keeps a paid
+      # deploy from happening by itself. It was rewritten to permit CI at all, and the lane
+      # that rewrite enabled could not run it. Measured by grepping CI's own file list.
+      #
+      # In THIS job rather than the node one, so they run unfiltered and their result is not
+      # entangled with the unit lane's exclusions.
+      - run: scripts/cheap-guards.sh
+
   node:
     runs-on: ubuntu-latest
     # `test:unit`, not `test:node`, and the difference is measured rather than preferred.

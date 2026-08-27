@@ -375,3 +375,124 @@ describe('the paths this guard attributes findings to are paths a commit can mat
     expect(NODE_PROJECT_FILES.filter((path) => TRACKED.has(path)).length).toBeGreaterThan(80)
   })
 })
+
+/**
+ * The cheap guards are named in ONE place, and everything that runs them reads it.
+ *
+ * ## The defect this closes, which was mine and was found the day after I made it
+ *
+ * On 2026-08-27 CI's node lane was switched to `O2_UNIT_ONLY=1` because three
+ * host-sensitive specs failed on a runner and passed locally. That was the right call for
+ * those three. What nobody checked was what ELSE the exclusion took with it — and the
+ * answer, measured by running CI's own lane and grepping its file list, was **three of the
+ * seven cheap guards**:
+ *
+ * | guard | in CI's lane |
+ * |---|---|
+ * | `vocabulary` | **absent** — 1 535 ms, above `SLOW_CUTOFF_MS` |
+ * | `disclosure-gate` | **absent** |
+ * | `reachability-guard` | **absent** — 3 483 ms |
+ * | `purity`, `mutation-guard`, `requirements-ledger`, `slow-specs` | present |
+ *
+ * `disclosure-gate` is the guard that keeps a paid deploy from happening by itself. It was
+ * REWRITTEN that same day to permit CI at all — and the lane that rewrite enabled could not
+ * run it. A guard that is correct and unreached is indistinguishable from one that is
+ * absent, which is the second time that sentence has proved itself in this repository in
+ * two days.
+ *
+ * ## Why a list in a file rather than a rule
+ *
+ * This file's whole subject is that **a list maintained beside a rule drifts from the
+ * rule**, so a hand-written list is the shape it exists to refuse. But the cheap guards are
+ * not derivable from a measurement: what makes a spec a *guard* is what it asserts, not
+ * what it costs, and the two are unrelated — `reachability-guard` is the slowest of the
+ * seven and `purity` one of the fastest. Any derivation would be a proxy.
+ *
+ * So the list is data in ONE place — `scripts/cheap-guards.sh` — and the two things that
+ * run it read that file instead of restating it. The drift this file was written about is
+ * still impossible; it is prevented by single-sourcing rather than by derivation, and the
+ * case below is what keeps the two readers honest.
+ */
+describe('the cheap guards have one definition, and both readers use it', () => {
+  const GUARD_LIST = 'scripts/cheap-guards.sh'
+  const GUARD_SOURCE = readFileSync(join(ROOT, GUARD_LIST), 'utf8')
+  // Declared here rather than reused from the block above: `TRACKED` is scoped to that
+  // describe, and referencing it from this one is a ReferenceError at runtime that TypeScript
+  // does not catch — caught by running this file, which is the only thing that would.
+  const TRACKED_FILES = trackedPaths(ROOT)
+
+  /** The spec paths the script names, read out of the script rather than restated here. */
+  const GUARDS = [...GUARD_SOURCE.matchAll(/^\s*(packages\/[a-z]+\/src\/[a-z-]+\.node\.test\.ts)\s*$/gm)]
+    .map((m) => m[1])
+    .filter((p): p is string => p !== undefined)
+
+  it('names a non-empty set of guards that all exist on disk and are tracked', () => {
+    // Anti-vacuity in both directions: an empty list would make every case below true of
+    // nothing, and a path that is not a real tracked file is a typo that would silently
+    // stop being run.
+    expect(GUARDS.length).toBeGreaterThan(3)
+    expect(pathFormProblems(GUARDS)).toEqual([])
+    for (const guard of GUARDS) {
+      expect(existsSync(join(ROOT, guard)), `${guard} does not exist`).toBe(true)
+      expect(TRACKED_FILES.has(guard), `${guard} is not tracked`).toBe(true)
+    }
+  })
+
+  it('is what the pre-commit hook runs — the hook names no spec of its own', () => {
+    const hook = readFileSync(join(ROOT, '.githooks/pre-commit'), 'utf8')
+    expect(hook).toContain(GUARD_LIST)
+    // The hook must not carry its own copy of the list. A path spelled out there is a
+    // second definition, and two definitions drift — which is how this whole finding
+    // started.
+    //
+    // **Narrowed by its own first run:** the hook legitimately names
+    // `git-flow-rules.node.test.ts` in prose, pointing a reader at where the BRANCH rules are
+    // exercised — which is not a guard and not a second copy of this list. The rule is about
+    // the guards, so the check is: no path this script names may also appear in the hook.
+    const spelledOut = GUARDS.filter((guard) => hook.includes(guard))
+    expect(
+      spelledOut,
+      'the hook spells out guard paths instead of reading the one list',
+    ).toEqual([])
+  })
+
+  it('is what CI runs, so a guard cannot be excluded from CI by a speed rule', () => {
+    const ci = readFileSync(join(ROOT, '.github/workflows/ci.yml'), 'utf8')
+    expect(ci).toContain(GUARD_LIST)
+  })
+
+  it('runs the guards WITHOUT the unit-only filter, which is the point', () => {
+    // `O2_UNIT_ONLY=1` excludes specs above `SLOW_CUTOFF_MS`, and three guards are above it.
+    // If the script ever SETS that variable, the same hole reopens with nothing red.
+    //
+    // **Assertion narrowed 2026-08-27, by its own first run.** It banned the STRING, which
+    // made the script unable to explain the hole it exists to close — the docblock naming
+    // `O2_UNIT_ONLY` failed a case about not USING it. A guard that forbids naming the thing
+    // it guards against forces the next reader to rediscover why it is there.
+    const assignments = [...GUARD_SOURCE.matchAll(/^[^#]*\bO2_UNIT_ONLY\s*=/gm)]
+    expect(
+      assignments.map((m) => m[0]),
+      'the guards script sets O2_UNIT_ONLY — that is the exclusion this file exists to keep out',
+    ).toEqual([])
+  })
+
+  it('covers every guard the hook used to name, so the move dropped none', () => {
+    // The seven, as they stood before the list moved. A literal, because the whole risk of
+    // this refactor is a guard quietly not making the journey — and an assertion that reads
+    // the new list to check the new list would pass on six.
+    for (const name of [
+      'vocabulary',
+      'purity',
+      'mutation-guard',
+      'disclosure-gate',
+      'requirements-ledger',
+      'slow-specs',
+      'reachability-guard',
+    ]) {
+      expect(
+        GUARDS.some((guard) => guard.includes(name)),
+        `${name} was a cheap guard before the list moved and is not in it now`,
+      ).toBe(true)
+    }
+  })
+})
