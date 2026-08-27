@@ -107,13 +107,34 @@ check_merge() {
 
 # ── Resolving what is being merged ─────────────────────────────────────────────────────
 #
-# Git hands a merge hook no arguments, so the source has to be recovered. `MERGE_HEAD` is
-# the commit; the branch is whichever local ref points at it. Exactly one is the ordinary
-# case. Zero happens when merging a detached commit or a remote-tracking ref, more than one
-# when two branches sit on the same commit — and in both the honest answer is that the
-# source cannot be named, so the merge is ALLOWED and says why. A hook that refuses what it
-# cannot identify would block legitimate work on an ambiguity it created itself.
+# Git hands a merge hook no arguments, so the source has to be recovered — and the two hooks
+# that need it get it from DIFFERENT places, which was measured on git 2.33.0 after the
+# first version of this function silently gave up on every merge.
+#
+# **`MERGE_HEAD` does not exist yet when `pre-merge-commit` runs.** A probe hook installed
+# through `-c core.hooksPath` during a real merge reported `rev-parse --verify MERGE_HEAD`
+# exiting 1, no `MERGE_MSG` in the git directory, and one environment variable:
+# `GITHEAD_ef63ccec…=chore/probe-source`. That is git naming the head it is merging, and it
+# is the only thing in scope that carries the branch NAME rather than a commit.
+#
+# `MERGE_HEAD` is what the OTHER path has. A conflicted merge is finalised by `git commit`,
+# where the merge is already in progress and `MERGE_HEAD` is written — but no `GITHEAD_*`
+# survives into that separate process. So both are read, in the order they become available.
+#
+# When neither names exactly one branch the source cannot be identified, and the merge is
+# ALLOWED with a line saying so. A hook that refused what it could not identify would block
+# legitimate work on an ambiguity of its own making — and, as the first version proved, one
+# that stays silent instead is worse: it reports nothing and enforces nothing.
 merge_source() {
+  # git 2.33.0 sets exactly one `GITHEAD_<sha>=<name>` per merged head. More than one is a
+  # so-called octopus merge, which this rule has nothing to say about.
+  local from_env
+  from_env=$(env | grep '^GITHEAD_' | sed 's/^GITHEAD_[0-9a-f]*=//')
+  if [ "$(printf '%s\n' "$from_env" | grep -c .)" = "1" ]; then
+    printf '%s\n' "$from_env"
+    return 0
+  fi
+
   local head
   head=$(git rev-parse --verify -q MERGE_HEAD) || return 1
   local names
