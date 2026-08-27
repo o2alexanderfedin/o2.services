@@ -30,10 +30,10 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm
@@ -79,10 +79,10 @@ jobs:
     # that measure a HOST are the developer machine's, and saying so is the point.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm
@@ -94,6 +94,70 @@ jobs:
       - run: npx vitest run --project node
         env:
           O2_UNIT_ONLY: '1'
+
+  browser:
+    # The three-engine matrix. `vitest.config.ts` says why it exists: to catch "a spec that
+    # fails in only one engine" — a defect class CI could not see at all until now.
+    #
+    # Unlike `aot`, nothing here needs special hardware. Playwright installs its own browsers
+    # on a hosted runner; that is the documented path and the versions are already pinned in
+    # `package.json` (`playwright ^1.62.0`, `@vitest/browser-playwright ^4.1.10`).
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      # `--with-deps` installs the system libraries the engines need; without it webkit in
+      # particular fails to launch with a missing-library error that names no browser.
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run test:browser
+
+  e2e:
+    # Real Chromium, a real relay and a real Vite server per spec, one file at a time
+    # (`fileParallelism: false`, and the config records why: run in parallel they contend for
+    # CPU and sockets, and the symptom is a timeout in whichever one lost — a flake that looks
+    # like a WebRTC bug and is neither).
+    #
+    # Chromium only: these specs drive one browser rather than the matrix.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+
+  audit:
+    # A known-vulnerable dependency reaching `main` unnoticed is the gap this closes. Measured
+    # 2026-08-27: 0 vulnerabilities across 487 production dependencies, so this starts green
+    # and a future CVE turns it red rather than waiting for somebody to check by hand.
+    #
+    # `--omit=dev` and `--audit-level=high`: a dev-only advisory does not ship to a peer, and a
+    # low-severity one should not block a push. This is deliberately NOT a floor on a number —
+    # CLAUDE.md § Measurement forbids absolute thresholds that encode the day they were written
+    # — it is a binary "is there a high-severity advisory against something we ship".
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
 
   # ─────────────────────────────────────────────────────────────────────────────────────
   # THE `aot` LANE IS NOT IN CI, AND THAT IS A FINDING RATHER THAN AN OMISSION.
@@ -136,10 +200,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm
