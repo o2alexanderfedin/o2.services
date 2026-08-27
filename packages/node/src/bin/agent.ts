@@ -1886,13 +1886,18 @@ if (values.coordinate !== undefined) {
    *
    * A named binding rather than an inline literal, so that what this process states sits at
    * one place a reader can find. The other legal value of this field is the sentinel
-   * `'checkpoints-nothing'`, and **five** of the repository's nine production submit sites
-   * say it for reasons written beside each of them. **This sentence read "six" until
-   * 2026-08-18**, and the figure is re-derived here rather than decremented: the owner ruled
-   * that day that the demo page's `runPi` and `runPrimes` keep checkpoints, and a scan of
-   * comment-stripped production source now finds five sentinel sites against four sinks.
-   * Whether "six" was right when it was written is not asserted — what is asserted is the
-   * count `checkpoint-optout-scope.node.test.ts` floors on every run. This is the leg that
+   * `'checkpoints-nothing'`, and **six** of the repository's TEN production submit sites
+   * say it for reasons written beside each of them. **This sentence read "five of nine"
+   * until 2026-08-25, and it was stale from the day the leg below it was written**: the
+   * tenth site is this file's own sovereign coordinator leg, landed `b9fca29` on
+   * 2026-08-19, which chose the sentinel — so the census was moved by the very block this
+   * docblock introduces. It read "six" before 2026-08-18 for an unrelated reason, the
+   * owner's ruling that the demo page's `runPi` and `runPrimes` keep checkpoints; the
+   * figure has now been five, six and six again, which is why the sentence stops carrying
+   * the argument. **What is asserted is the count `checkpoint-optout-scope.node.test.ts`
+   * floors on every run, and that guard is the authority here rather than this prose.**
+   * A re-derivation on 2026-08-25 read six sentinel against four sinks over comment-stripped
+   * production source, agreeing with the guard. This is the leg that
    * says the other thing, and it is the whole of ROADMAP criterion 7's first clause.
    */
   const checkpoints: SubmitOptions['checkpoints'] = {

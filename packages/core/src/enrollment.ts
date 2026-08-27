@@ -983,9 +983,13 @@ class InProcessIssuance implements IssuanceLedger {
 export interface AuthorityOptions {
   readonly providerPrivateKey: Uint8Array
   /**
-   * Certificates one user key may obtain per window. Defaults to **32**, and the number
-   * is sized as a blast-radius bound on accidents rather than as a defence — see
+   * Certificates one user key may obtain per window. The default, and the reasoning that
+   * sizes it as a blast-radius bound on accidents rather than as a defence, are at
    * {@link DEFAULT_MAX_PER_WINDOW}.
+   *
+   * **The number is deliberately not repeated here.** This sentence read "Defaults to
+   * **32**" until 2026-08-25, forty-six lines below a constant that has been `64` since
+   * `7fd2517` — a literal written twice drifted, exactly as a value with one home cannot.
    */
   readonly maxPerWindow?: number
   /**

@@ -788,6 +788,38 @@ export interface ShardResult {
    */
   readonly speculated: boolean
   /**
+   * The scheduler's **own** clock reading at the instant it decided this shard was a
+   * straggler and started a copy — `null` on every shard it never decided that about.
+   *
+   * **Published because a reconstruction of it cannot be tight, and the gap has a
+   * direction.** Anything outside this loop can only observe the *consequence* — a
+   * duplicate dispatch arriving — which is at least one round trip later than the
+   * decision. Everything that settled inside that window is then wrongly counted as
+   * evidence the scheduler held, so a reconstructed sample can only ever OVER-include.
+   * This field is the decision itself, taken on the same `clock` it was taken on.
+   *
+   * **The magnitude was measured 2026-08-26 and it is smaller than the claim that asked
+   * for this field.** That claim — that the window admits *the dispatches running
+   * alongside the duplicates, the slowest stretch of the job* — was reasoning, not a
+   * reading. Six runs of `speculation-agents.node.test.ts`, one quiet and five under eight
+   * CPU burners at load 162-184, put the window at **0-2 ms holding 0 dispatches, every
+   * time**. So the direction of the bias is right and its observed size is below the
+   * fixture's resolution. What justifies the field is therefore not a defect it repairs
+   * but that the number is now read where it was inferred — and the fixture prints both,
+   * so the day the window does hold something, the run says so instead of a reader having
+   * to suspect it.
+   *
+   * **The basis is `JobClock`'s, which by default is `Date.now()` — epoch milliseconds.**
+   * A reader comparing it against `performance.now()` spans must convert one of the two;
+   * they are different origins, not different precisions.
+   *
+   * `judgedAt !== null` exactly when {@link ShardResult.speculated} is `true`: both are
+   * set at the one site that starts a copy. A shard the loop left at the eligibility gate
+   * — the sovereign case with no spare node — never reached the straggler test at all,
+   * and reads `null` for that reason rather than for having been judged and passed over.
+   */
+  readonly judgedAt: number | null
+  /**
    * True when a copy of this shard produced a **different** result from the winner.
    *
    * **This is the LATE half of disagreement and not the whole of it.** The in-generation
@@ -1585,6 +1617,7 @@ function carriedResult(
     generations: 0,
     ending: 'carried-from-checkpoint',
     speculated: false,
+    judgedAt: null,
     disagreed: false,
     copies: [],
     // See {@link ShardEnding} `'carried-from-checkpoint'`: zero replicas is below any
@@ -1848,8 +1881,14 @@ type Dispatched =
       readonly verification: VerificationResult
       readonly outstanding: readonly OutstandingCopy[]
       readonly speculated: boolean
+      /** See {@link ShardResult.judgedAt}. `null` unless this generation started a copy. */
+      readonly judgedAt: number | null
     }
-  | { readonly kind: 'lapsed'; readonly speculated: boolean }
+  | {
+      readonly kind: 'lapsed'
+      readonly speculated: boolean
+      readonly judgedAt: number | null
+    }
 
 /** The job-wide speculation state one shard's dispatch needs to consult. */
 interface ShardSpeculation {
@@ -1957,6 +1996,8 @@ async function dispatchUnderLease(
   /** Merged across copies of this generation, so a loser's failures are not lost. */
   let answered: VerificationResult | null = null
   let speculated = false
+  /** Set beside `speculated`, at the one site that starts a copy. See {@link ShardResult.judgedAt}. */
+  let judgedAt: number | null = null
 
   let lease = granted
   /** Cleared once this generation has been refused a renewal. It is never restored. */
@@ -1980,7 +2021,7 @@ async function dispatchUnderLease(
     // `at >= lease.expiresAt` exactly — the function returns the `expired: false` arm only
     // when `expiresAt > now` — so this is behaviour-neutral, and `lease.test.ts` holds the
     // equivalence rather than this comment asserting it.
-    if (checkLease(lease, at).expired) return { kind: 'lapsed', speculated }
+    if (checkLease(lease, at).expired) return { kind: 'lapsed', speculated, judgedAt }
 
     // The renewal point, measured **back from the deadline** rather than forward from
     // the grant — `expiresAt - leaseMs × (1 - RENEW_AT)`, which is the instant at which
@@ -2033,13 +2074,14 @@ async function dispatchUnderLease(
             pending: copy.pending,
           })),
           speculated,
+          judgedAt,
         }
       }
       continue
     }
 
     const woke = clock.now()
-    if (checkLease(lease, woke).expired) return { kind: 'lapsed', speculated }
+    if (checkLease(lease, woke).expired) return { kind: 'lapsed', speculated, judgedAt }
 
     // ── Straggler duplication — CHURN-02, CHURN-06 ────────────────────────────────
     //
@@ -2080,6 +2122,11 @@ async function dispatchUnderLease(
             else {
               const target = candidates[0] as NodeDescriptor
               speculated = true
+              // The scheduler's own reading, taken here rather than reconstructed from the
+              // dispatch it is about to make — see {@link ShardResult.judgedAt}. `woke` and
+              // not a fresh `clock.now()`: this is the instant `stragglers` was asked, so
+              // re-reading the clock would publish a number the decision was not taken on.
+              judgedAt = woke
               speculation.attempted.push(target.nodeId)
               const copy = dispatchCopy(dispatch, [target.nodeId], true)
               copies.set(target.nodeId, copy)
@@ -2106,7 +2153,7 @@ async function dispatchUnderLease(
     }
 
     const renewed = leases.renew(lease.taskId, lease.nodeId, woke)
-    if (renewed === null) return { kind: 'lapsed', speculated }
+    if (renewed === null) return { kind: 'lapsed', speculated, judgedAt }
     lease = renewed
   }
 }
@@ -3014,6 +3061,7 @@ export async function submitJob(
           // Nothing ran, so nothing was slow, so nothing was duplicated. Measured
           // readings rather than placeholders, in the same spirit as `generations: 0`.
           speculated: false,
+          judgedAt: null,
           disagreed: false,
           copies: [],
           // A shard that never ran has no result to describe, so this stays what it has
@@ -3093,6 +3141,8 @@ export async function submitJob(
       let verification: VerificationResult | null = null
       let generations = 0
       let speculated = false
+      /** Merged across this shard's generations. See the `??=` below for why first wins. */
+      let judgedAt: number | null = null
       let placementDegraded = placement.degraded
       let nodeIds: readonly string[] = placement.nodeIds
       let ending: ShardEnding = 'no-untried-node'
@@ -3185,6 +3235,11 @@ export async function submitJob(
           speculation,
         )
         speculated = speculated || dispatched.speculated
+        // First non-null wins, and that is a fact about the ledger rather than a preference:
+        // `speculation.ledger.duplicated(taskId)` stops the watch after one copy, so at most
+        // one generation of a shard ever judges it. `??=` therefore never discards a second
+        // reading — it records that there cannot be one.
+        judgedAt ??= dispatched.judgedAt
 
         if (dispatched.kind === 'answered') {
           outstanding.push(...dispatched.outstanding)
@@ -3300,6 +3355,7 @@ export async function submitJob(
         generations,
         ending,
         speculated,
+        judgedAt,
         // Filled in below, once every shard has settled and the leftovers have been read.
         // `false`/`[]` here rather than absent, because a shard result is built in one
         // expression and patched in one place — which is what stops the two from

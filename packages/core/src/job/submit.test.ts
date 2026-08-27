@@ -2362,6 +2362,167 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
     // silence the budget case keeps, and for the same reason.
   })
 
+  /**
+   * The threshold in the direction nothing was reading: a shard slower than its peers and
+   * **not slow enough**, which must not be duplicated.
+   *
+   * ## Why this case exists — measured, not supposed
+   *
+   * The straggler threshold at `submit.ts`'s call site was guarded in ONE direction. Raising
+   * the factor so nothing is ever a straggler reddens **eleven** cases in this file. Lowering
+   * it 150× — `factor: 0.01`, a scheduler that duplicates tasks which are not stragglers at
+   * all — left all 104 GREEN. Both plants were run against this file before this case was
+   * written, and the second is the gap it closes.
+   *
+   * **Why over-eagerness hid.** The budget caps the count, so a scheduler that duplicates the
+   * wrong task spends exactly the allowance a correct one spends — `speculationSpent` and the
+   * dispatch count are identical. What differs is WHICH shard and WHEN, so a guard that reads
+   * a count cannot see it. The allowance is {@link DEFAULT_SPECULATION_FRACTION} of the job:
+   * spending it early on a shard that was merely a little behind leaves nothing for the real
+   * tail, which is the whole point of having a threshold rather than a budget alone.
+   *
+   * **Why the control above cannot cover it.** `duplicates nothing before there is a tail`
+   * has nothing in flight when the watchdog wakes, so the threshold is never applied — the
+   * predicate is not reached even once. Instrumented at the call site, that fixture produces
+   * **zero** straggler evaluations. A case can only assert a rule that ran.
+   *
+   * ## Three arms, one fixture, one number
+   *
+   * The arms differ only in when the held shards answer, and nothing here is derived from
+   * `DEFAULT_STRAGGLER_FACTOR` or from `median`. That is deliberate: an expectation
+   * computed with the same constants the code under test uses moves when the code moves and
+   * stays green — the trap this repository has already paid for twice. The release instants
+   * are literals in **virtual** time, so a plant to the factor moves the scheduler and leaves
+   * the fixture where it was, and the arm goes red.
+   *
+   * - `never-looked` — released at the first advance. The baseline: no wake ever sees a held
+   *   shard in flight. It is here to site the other two rather than to assert a rule.
+   * - `not-slow-enough` — in flight across at least one wake, past the {@link MIN_SAMPLES}
+   *   floor, and below the threshold. **This is the claim.**
+   * - `slow-enough` — the same fixture released later, which duplicates. Anti-vacuity: it
+   *   says the middle arm's zero is the threshold declining and not the fixture being unable.
+   */
+  it('duplicates nothing for a shard slower than its peers but not slow ENOUGH — three arms differing only in when the held shards answer', async () => {
+    const TOTAL = 10
+    /** Enough quick shards that the {@link MIN_SAMPLES} floor is passed, and no more. */
+    const QUICK = MIN_SAMPLES
+    /**
+     * Released at the first advance, so nothing is ever in flight at a wake.
+     *
+     * Zero rather than a small number: the point is that no instant exists at which a held
+     * shard is both outstanding and judgeable, and `0` is the only value that says so
+     * without encoding a hop length.
+     */
+    const NEVER_LOOKED_AT = 0
+    /**
+     * In flight across a wake, and short of the threshold.
+     *
+     * Sited by sweeping the release instant across this exact fixture: the boundary sits
+     * between `4000` and `5000` of virtual time, evaluations begin at `3000`, and below
+     * `2500` the predicate is never reached. `3500` is the middle of the window that is both
+     * judged and not slow enough — margin on both sides rather than one step from either.
+     */
+    const NOT_SLOW_ENOUGH_AT = 3500
+    /** Past the boundary. The same fixture, the same budget, one number moved. */
+    const SLOW_ENOUGH_AT = 8000
+
+    interface Arm {
+      readonly job: JobResult
+      readonly ran: readonly string[]
+      /** The clock the run actually consumed — how the middle arm proves it was judged. */
+      readonly virtualMs: number
+    }
+
+    async function run(answersAt: number): Promise<Arm> {
+      const ran: string[] = []
+      const held: Held[] = []
+      const executors: readonly Executor[] = Array.from({ length: TOTAL }, (_, i) => {
+        if (i < QUICK) return watched(nodeName(i), ran)
+        const slow = holding(nodeName(i), ran)
+        held.push(slow)
+        return slow.executor
+      })
+      const clock = fixtureClock({
+        horizon: DEFAULT_LEASE_MS * 10,
+        onAdvance: (at) => {
+          if (at >= answersAt) for (const slow of held) slow.release()
+        },
+      })
+      const r = await submitJob(
+        {
+          moduleCid: MODULE_CID,
+          shards: publicShards(TOTAL),
+          executors,
+          nodes: publicNodes(executors),
+          redundancy: 1,
+          onQuorumShortfall: 'runs-at-available-redundancy',
+        },
+        new MemoryBlockstore(),
+        { checkpoints: 'checkpoints-nothing', clock },
+      )
+      if (!r.ok) throw new Error(`fixture submission failed: ${JSON.stringify(r.error)}`)
+      return { job: r.job, ran, virtualMs: clock.reading() }
+    }
+
+    const neverLooked = await run(NEVER_LOOKED_AT)
+    const notSlowEnough = await run(NOT_SLOW_ENOUGH_AT)
+    const slowEnough = await run(SLOW_ENOUGH_AT)
+
+    // ── The claim: judged, and declined ──────────────────────────────────────────────
+    expect(
+      notSlowEnough.job.speculationSpent,
+      'a shard that was behind its peers and inside the threshold was duplicated anyway — ' +
+        'the budget is now partly spent on a shard that was never a straggler',
+    ).toBe(0)
+    expect(notSlowEnough.job.shards.every((shard) => !shard.speculated)).toBe(true)
+    // Read off the executors rather than off the field under test: one dispatch per shard
+    // and not one more. A duplicate started and then lost would still appear here.
+    expect(notSlowEnough.ran).toHaveLength(TOTAL)
+
+    // ── That it was JUDGED at all, which is what the control above cannot say ────────
+    // The quick shards are all settled by the time the `never-looked` arm ends, so that
+    // arm's clock is the instant after which the only outstanding work is held shards.
+    // A middle arm whose clock ran past it was still running with held shards in flight,
+    // and every advance in that loop is a watchdog wake that reaches the predicate.
+    //
+    // **This is the anti-vacuity half and it is not optional.** Without it the middle arm
+    // would also pass on a fixture where the threshold is never applied — which is exactly
+    // how the control above passes while saying nothing about the threshold.
+    expect(
+      notSlowEnough.virtualMs,
+      `the middle arm ended at ${notSlowEnough.virtualMs}ms of virtual time against the ` +
+        `never-judged baseline's ${neverLooked.virtualMs}ms, so no wake saw a held shard in ` +
+        'flight and the threshold was never applied',
+    ).toBeGreaterThan(neverLooked.virtualMs)
+
+    // ── Anti-vacuity: the same fixture, released later, DOES duplicate ───────────────
+    expect(
+      slowEnough.job.speculationSpent,
+      'the later-released arm duplicated nothing either, so the middle arm reads as the ' +
+        'fixture being unable to duplicate rather than as the threshold declining',
+    ).toBe(allowanceOf(TOTAL))
+    expect(slowEnough.ran).toHaveLength(TOTAL + allowanceOf(TOTAL))
+
+    // ── The arms are comparable, stated rather than assumed ──────────────────────────
+    // The budget is the same and not zero in every arm, so `spent: 0` is a statement about
+    // the threshold and not about the allowance.
+    expect(allowanceOf(TOTAL)).toBeGreaterThan(0)
+    // And every arm holds more shards than the budget could duplicate, so no reading is the
+    // supply of stragglers running out.
+    expect(TOTAL - QUICK).toBeGreaterThan(allowanceOf(TOTAL))
+    // All three finished on their answers, so none is reading a job that failed.
+    expect(neverLooked.job.complete).toBe(true)
+    expect(notSlowEnough.job.complete).toBe(true)
+    expect(slowEnough.job.complete).toBe(true)
+
+    // WHAT THIS CANNOT REDDEN ON. It cannot separate the threshold from the FLOOR — an
+    // implementation that duplicated nothing until far more than `MIN_SAMPLES` had finished
+    // would pass all three arms. The pair above holds the floor. Nor does it say which shard
+    // received the duplicate in the `slow-enough` arm; that is the sovereignty case's claim.
+    // And it reads speculation only through `submitJob`: `speculation.test.ts` is what holds
+    // `stragglers` itself, and neither stands in for the other.
+  })
+
   it('scopes a sovereign duplicate to its owner, and starts none where the owner has no spare', async () => {
     // Two owners in ONE job, so the pair is read in one run against one budget: alice has
     // a spare node and carol does not. Both their shards are held; five public shards

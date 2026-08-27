@@ -63,7 +63,8 @@ import {
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /**
- * The five modules the fabric is entered through, from `v1.0-MILESTONE-AUDIT.md`.
+ * The six modules the fabric is entered through — five from `v1.0-MILESTONE-AUDIT.md`, and
+ * `packages/cloudflare/src/worker.ts` added 2026-08-26 with Phase 29's hosted tier.
  *
  * A list of **modules**, deliberately: not a tier list, and not keyed on node kind.
  * `packages/browser/demo/main.ts` sits here on exactly the same footing as the three
@@ -75,6 +76,15 @@ const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
  * loads, because the API sees TypeScript and not HTML. The page's inline
  * `<script type="module">` reads `window.o2` and imports no barrel symbol, and `policy.html`
  * imports nothing at all — said here rather than left for a reader to wonder about.
+ *
+ * **The sixth was added under this file's own stated rule, not as an exception to it.** The
+ * three absentees below are defensible because *"adding them changes no barrel verdict"*, and
+ * that reading is false for the Worker: it is the only caller `@o2/cloudflare`'s barrel has,
+ * and adding it moves six symbols out of the unreachable set. The 2026-08-08 owner ruling drew
+ * the line in the same terms when it excluded `tools/aot/bench-lifted.ts` for being *"a
+ * benchmark driver, not a way the fabric is entered"* — a deployed Worker is the other side of
+ * that sentence. It is also not a tier: `packages/browser/demo/main.ts` sits here on the same
+ * footing, and a rule that read differently per node kind was written once and retracted.
  *
  * **Three further modules are runnable and are deliberately absent**:
  * `packages/node/src/mutation-guard.mutate.ts` (`npm run test:mutations`),
@@ -88,6 +98,7 @@ export const ENTRY_POINTS: readonly string[] = [
   'packages/node/src/bin/bench.ts',
   'tools/aot/cli.ts',
   'packages/browser/demo/main.ts',
+  'packages/cloudflare/src/worker.ts',
 ]
 
 /**

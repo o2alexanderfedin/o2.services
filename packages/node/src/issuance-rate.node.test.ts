@@ -64,16 +64,59 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  const started = nodes.length
+  /**
+   * Kept rather than discarded — see the `rm` below for what reads it.
+   *
+   * The `catch` was already here and its stated reason is still right, but it is wider than
+   * that reason: a node that failed to START has nothing to stop, and a node that failed to
+   * STOP is a different fact entirely — it is still running, and still writing. Swallowing
+   * both identically is what made the failure below unattributable.
+   */
+  const stopFailures: string[] = []
   for (const node of nodes.reverse()) {
     try {
       await node.stop()
-    } catch {
+    } catch (error) {
       // A node that failed to start has nothing to stop, and reporting it here would
-      // report the wrong failure.
+      // report the wrong failure. It is recorded instead, and only ever read if the
+      // removal below then fails.
+      stopFailures.push(error instanceof Error ? error.message : String(error))
     }
   }
   nodes.length = 0
-  await rm(workdir, { recursive: true, force: true })
+  /*
+   * **`maxRetries` is not decoration, and the error it answers was observed.** A full
+   * `--project node` sweep on 2026-08-26 reddened here with
+   * `ENOTEMPTY: directory not empty, rmdir '<workdir>/joiner-0/.datastore'`, and the same
+   * file passed alone immediately after. Nothing in the spec's own claims failed — this is
+   * teardown.
+   *
+   * `maxRetries` is Node's own remedy for exactly this error class: it retries on EBUSY,
+   * EMFILE, ENFILE, ENOTEMPTY and EPERM with a linear backoff, and only when `recursive` is
+   * set. It is the right shape here because what is being waited out is the tail of a
+   * shutdown rather than an open handle — `FsDatastore` writes with `writeFileSync` and
+   * `renameSync` and has no `close`, so it has no background flush to wait for; a file
+   * appearing between `rm`'s readdir and its rmdir means somebody called `put` late.
+   *
+   * **This repairs the fixture and does NOT settle the question under it.** That a write can
+   * land after `FabricNode.stop()` has resolved is INFERRED — from the error's own path and
+   * from the store being synchronous — and is not measured. `stop()` closes the rpc, the
+   * compute pool, the verifier, the transport and libp2p, and closes neither store. Whether
+   * shutdown owes a caller more than that is a question about `fabric-node.ts`, not about
+   * this file, and it is named here rather than answered.
+   */
+  try {
+    await rm(workdir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  } catch (error) {
+    // The one explanation this teardown can offer without guessing: a node whose `stop()`
+    // threw never stopped, so it is still writing into the tree being removed.
+    throw new Error(
+      `could not remove ${workdir} after ${String(started)} node(s); ` +
+        `stop() failures: ${stopFailures.length === 0 ? 'none' : stopFailures.join(' | ')}`,
+      { cause: error },
+    )
+  }
 }, 60_000)
 
 async function start(name: string, options: Partial<FabricNodeOptions> = {}): Promise<FabricNode> {

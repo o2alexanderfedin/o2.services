@@ -188,7 +188,9 @@ import {
   o2RecordValidator,
   discoverRelays,
   peerIdForNodeKey,
+  holdsReservations,
   providerRecordPolicy,
+  reservedPeerIds,
   relayServiceCid,
   topUpRelays,
 } from '@o2/libp2p'
@@ -859,13 +861,6 @@ export interface RelayCapacity {
   readonly atCapacity: boolean
 }
 
-interface RelayService {
-  readonly reservations: {
-    readonly size: number
-    keys(): IterableIterator<{ toString(): string }>
-  }
-}
-
 /**
  * libp2p's own ceiling on a reservation, and therefore the budget this gate lives inside.
  *
@@ -1517,17 +1512,6 @@ function ownStartLedger(
   if (consent === 'withholds-its-own-start') return held
   if (outcome !== 'reports-no-start-outcome') held.record(outcome)
   return held
-}
-
-function hasReservations(value: unknown): value is RelayService {
-  if (value === null || typeof value !== 'object') return false
-  const candidate = (value as { reservations?: unknown }).reservations
-  return (
-    candidate !== null &&
-    typeof candidate === 'object' &&
-    typeof (candidate as { size?: unknown }).size === 'number' &&
-    typeof (candidate as { keys?: unknown }).keys === 'function'
-  )
 }
 
 export class FabricNode {
@@ -3351,7 +3335,7 @@ export class FabricNode {
    * decide what to ask it for: every node answers the same requests.
    */
   get relays(): boolean {
-    return hasReservations(this.libp2p.services['relay'])
+    return holdsReservations(this.libp2p.services['relay'])
   }
 
   /** Simultaneous inbound handshakes this node will accept. */
@@ -3384,7 +3368,7 @@ export class FabricNode {
    */
   get capacity(): RelayCapacity {
     const service: unknown = this.libp2p.services['relay']
-    const granted = hasReservations(service) ? service.reservations.size : 0
+    const granted = holdsReservations(service) ? service.reservations.size : 0
     return {
       granted,
       limit: this.#limit,
@@ -3422,9 +3406,10 @@ export class FabricNode {
   }
 
   get reservedPeerIds(): readonly string[] {
-    const service: unknown = this.libp2p.services['relay']
-    if (!hasReservations(service)) return []
-    return [...service.reservations.keys()].map((peer) => peer.toString())
+    // Delegated rather than inlined since 2026-08-26: the hosted tier answers the same
+    // `{kind:'reservations'}` request off the same `circuitRelayServer()` shape, and two
+    // spellings of one rule is how the two tiers come to disagree about it.
+    return reservedPeerIds(this.libp2p.services['relay'])
   }
 
   /**

@@ -228,6 +228,47 @@ warnings:
       reports green inside an aggregate pass" — this failure mode is the sibling and is
       LOUDER (the file goes red), which is the better direction, but the criterion is
       unmeasured on any run that hits it.
+    observed_again: >-
+      2026-08-25, a second /gsd-audit-fix pass, and it WIDENS THIS WARNING RATHER THAN
+      repeating it. A full `npx vitest run --project node` (209 files, 1 224.93 s) lost
+      FIVE files in this group, not one: `echo-guest` and `lift` to the 900 000 ms hook
+      budget this warning names, and `elfconv-differential`, `elflift-wasi-gate` and
+      `elflift-wasi-port` to a DIFFERENT failure — the harness child came back
+      `run.status === null`, i.e. killed by a signal rather than exiting, so the spec threw
+      "harness exited null and wrote no report". Zero test CASES failed; all five are
+      suite-level. Both classes were then re-run solo, exit read on the line immediately
+      after the command: `lift` 133/133 EXIT=0, `real 221.34 user 2.80 sys 0.75`;
+      `elflift-wasi-gate` 8/8 EXIT=0, `real 139.20 user 0.81 sys 0.20`. THE COMPARATIVE
+      READING THIS WARNING DID NOT HAVE: `(user+sys)/real` is 0.016 and 0.007 — these
+      processes are almost entirely WAITING on a container, not computing, so a wall-clock
+      budget on them measures the host's contention and never the toolchain. That is the
+      argument for a comparative bound over an absolute one, and it is why the repair is
+      not raising the number. Foreign to that pass, whose commits touched only
+      `.planning/` and four comments in `enrollment.ts`, `bin/agent.ts`, `bin/bench.ts`
+      and `owner-domain-tabs.e2e.test.ts`, none of which these specs reach.
+    closed: >-
+      **2026-08-25, by owner ruling "do it" — and NOT by the budget change this warning's
+      `why_human` was gating.** `tools/**` moved out of the `node` vitest project into a new
+      `aot` project at `fileParallelism: false`, commit `d251771`. The budget is untouched.
+      **Raising it was measured to be the wrong repair before it was rejected**: it addresses
+      the two hook-timeout files and says nothing to the three whose harness child came back
+      `run.status === null`, so it would have closed two of five failures while widening what
+      counts as passing to do it. Serialising closes all five, and the same config had already
+      taken that trade twice — `e2e` and `perf` each write down the identical reason.
+      **Measured after the move**: the `aot` lane runs 11/11 files and 240/240 tests at
+      EXIT=0 in 1181.61 s, and the `node` lane — which no longer carries them — went from
+      1224.93 s to 161.70 s, a 7.6x speedup, with `(user+sys)/real` moving 0.389 to 5.37.
+      The twenty minutes were never the 198 package specs; they were the eleven container
+      specs holding the machine. **Run the two lanes separately**: measured together they take
+      2872.08 s and six load-sensitive node specs fall over, so apart is both faster and
+      greener. `npm run test:aot` and `test:node-lanes` exist for that, and `test:node` alone
+      no longer reaches the toolchain — which is why the script was added rather than left
+      implicit. **A property this bought that nobody asked for**: because the files now run one
+      at a time, a file's true span is the delta from the previous file's end, and the eleven
+      deltas sum to 1 181 599 ms against a measured 1 181 610 ms wall clock. That 11 ms
+      closure is a self-check the manual span-measurement procedure never had, and it retires
+      that procedure's step 3 for this project — the reporter had been understating
+      `elfconv-differential` by a factor of 142 426.
   - id: W2
     status: NEW, MEASURED — the tree is RED and Phase 21 spent the last unit of tolerance
     where: "packages/node/src/slow-specs.node.test.ts, `FILE_COUNT_TOLERANCE`"

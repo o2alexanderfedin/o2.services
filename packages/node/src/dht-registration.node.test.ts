@@ -177,7 +177,22 @@ describe('registration — a node’s records reach the keyspace, not just its o
       const beta = await start('beta')
       await beta.dial(alpha.multiaddrs[0] as string)
       await until(
-        () => alpha.registrationPeers >= afterFirst && beta.libp2p.getPeers().length > 0,
+        // **`>` and not `>=` — corrected 2026-08-25, and the message above already said so.**
+        // `registrationPeers` is monotonic, so `>= afterFirst` is true the instant it is
+        // evaluated and the only thing this wait ever waited for was beta acquiring a peer.
+        // The whole margin for alpha to publish AGAIN — a walk of a routing table beta has
+        // only just entered — was then the fixed sleep below, and on a starved host that is
+        // not enough: alpha and the provider are stopped and there is nobody left to ask,
+        // which surfaced as *"the keyspace held nothing for alpha once its publisher had
+        // gone"*. The wait's own label is `'beta to join and alpha to publish again'`; the
+        // condition now encodes the "again".
+        //
+        // **Fail-closed, which is why this is a stricter wait and not a skip.** Under this
+        // file's recorded plant — a publisher that publishes once — the count never moves
+        // past `afterFirst`, `until()` reaches its own deadline and throws. The plant still
+        // reddens; it reddens naming the publisher rather than the keyspace, which is the
+        // more useful direction.
+        () => alpha.registrationPeers > afterFirst && beta.libp2p.getPeers().length > 0,
         'beta to join and alpha to publish again',
         () => ({ peers: alpha.registrationPeers, betaPeers: beta.libp2p.getPeers().length }),
       )

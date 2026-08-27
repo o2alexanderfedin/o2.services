@@ -184,7 +184,57 @@ const nodes: FabricNode[] = []
  * by watching fd 0, and `'ignore'` hands it a character device, which opts the leash out.
  * `orphan-leash.node.test.ts` fails any spawn site that does that.
  */
+/**
+ * The ONE stand-up failure that is re-attempted, matched on its own text.
+ *
+ * `rpc to <peer> timed out after <n>ms` is `RpcFailure`'s own rendering
+ * (`packages/net/src/rpc.ts:59`), and the budget it names is
+ * `DEFAULT_RPC_TIMEOUT_MS` — the PRODUCT default, 30 000 ms, not a number this file
+ * chose. A spawned agent whose enrolment RPC misses that budget exits 1 before it ever
+ * prints a handshake line, and the whole file fails in `standUp` on a fact about how
+ * much CPU the machine had, recorded on 2026-08-25 as *"agent outsider exited early
+ * with 1 … timed out after 30000ms"* on a host that spent 262 s inside one `it`.
+ *
+ * **Keyed on the message, not on a count and not on a timer.** Any other exit — a
+ * refusal, a bad flag, a crash — is re-thrown untouched on the first attempt. That is
+ * the difference between re-attempting a known host condition and retrying until green.
+ */
+const RPC_TIMED_OUT = /timed out after \d+ms/
+
+/**
+ * Stand an agent up, re-attempting exactly once and only on {@link RPC_TIMED_OUT}.
+ *
+ * **Why a re-attempt rather than a bigger budget.** The budget belongs to the child and
+ * is the product's own default; raising it from here would change what the shipped
+ * binary does in a test's favour. And per `CLAUDE.md` § Measurement, a wall-clock bound
+ * over a process that is *waiting* measures the host and never the code — so widening
+ * it would buy nothing except a later cliff.
+ *
+ * **Why not silent.** A single re-attempt hides a host hiccup, which is the intent, and
+ * would also hide an enrolment path that fails half the time — which is not. So every
+ * re-attempt writes to stdout, and a run that needed one says so; `console.log` would
+ * not, measured on vitest 4.1.10 for a PASSING test.
+ *
+ * **What it cannot do.** A second failure is thrown, so an enrolment that is genuinely
+ * broken still fails the file on the same message it always did.
+ */
 async function spawnAgent(name: string, extraArgs: readonly string[]): Promise<Agent> {
+  try {
+    return await spawnAgentOnce(name, extraArgs)
+  } catch (cause) {
+    const text = cause instanceof Error ? cause.message : String(cause)
+    if (!RPC_TIMED_OUT.test(text)) throw cause
+    process.stdout.write(
+      `[fixture / re-attempt] agent ${name} exited before announcing because an RPC missed ` +
+        `the child's own DEFAULT_RPC_TIMEOUT_MS budget, which on this host is a statement ` +
+        `about contention rather than about admission. Standing it up once more; a second ` +
+        `failure is thrown. Original: ${text.slice(0, 400)}\n`,
+    )
+    return await spawnAgentOnce(name, extraArgs)
+  }
+}
+
+async function spawnAgentOnce(name: string, extraArgs: readonly string[]): Promise<Agent> {
   const child: AgentProcess = spawn(process.execPath, [AGENT, '--dir', join(workdir, name), ...extraArgs], {
     stdio: ['pipe', 'pipe', 'pipe'],
   })
@@ -754,7 +804,53 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
     expect(reader.transport.peers).toContain(member.peerId)
 
     // And the unadmitted arm was never dialled, because there was nothing to dial.
-    expect(reader.transport.peers).not.toContain(stranger.peerId)
+    //
+    // **Read by DIRECTION and by ROUTE, and this line read `expect(reader.transport.peers)
+    // .not.toContain(stranger.peerId)` until 2026-08-25.** That instrument is the connected
+    // SET — `Libp2pTransport.peers` is `libp2p.getPeers()`, which says who this node is
+    // connected to and nothing about who dialled whom — while the clause's claim is about
+    // what the READER derived and attempted. The two come apart, and the coming-apart was
+    // measured rather than supposed: a whole-lane run on 2026-08-25 printed the reader's
+    // connections at exactly this point and found **three**, of which one was `inbound` from
+    // a fixture node the reader never dialled. A node that dials this one does not falsify
+    // "the reader derived no address"; it falsifies nothing at all.
+    //
+    // So the set-membership reading could report the clause broken on a fact that is not
+    // about the clause, and it did — recorded against this assertion while
+    // `expect(toStranger).toStrictEqual([])`, the reading that actually carries the claim,
+    // passed in every failing run.
+    //
+    // **Two assertions, because there are two ways the clause could genuinely break.**
+    // A connection the reader OPENED means something derived an address for a peer the
+    // advertisement does not name. A connection over `/p2p-circuit` in EITHER direction
+    // means the relay is routing for a peer it refused, which is the admission gate itself
+    // failing. Neither is weakened; what is dropped is only the inbound-direct case, which
+    // was never this clause's subject.
+    const connectionsTo = (peerId: string): readonly string[] =>
+      reader.libp2p
+        .getConnections()
+        .filter((connection) => connection.remotePeer.toString() === peerId)
+        .map((connection) => `${connection.direction} ${connection.remoteAddr.toString()}`)
+    const everyConnection = reader.libp2p
+      .getConnections()
+      .map(
+        (connection) =>
+          `${connection.remotePeer.toString()} ${connection.direction} ${connection.remoteAddr.toString()}`,
+      )
+      .join(' | ')
+    const strangerConnections = connectionsTo(stranger.peerId)
+    expect(
+      strangerConnections.filter((held) => held.startsWith('outbound')),
+      `the reader OPENED a connection to the unadmitted arm, so something derived an address ` +
+        `for a peer the relay does not advertise. Every connection the reader holds: ` +
+        `${everyConnection}`,
+    ).toEqual([])
+    expect(
+      strangerConnections.filter((held) => held.includes('/p2p-circuit')),
+      `a connection to the unadmitted arm runs through the relay, so the relay is routing for ` +
+        `a peer it refused — the admission gate, not the discovery half. Every connection the ` +
+        `reader holds: ${everyConnection}`,
+    ).toEqual([])
 
     // **The limit of the clause, asserted rather than asserted-around.** The refused node is
     // alive and directly dialable; a peer holding its address reaches it. Discovery is what

@@ -1780,7 +1780,12 @@ async function realFabric(
 
         // ── MR-02's aggregation half, given a caller ────────────────────────────────────
         //
-        // **This is the only production call to `reduceSovereignJob` in the repository.**
+        // **This is one of TWO production calls to `reduceSovereignJob`** — the other is
+        // `bin/agent.ts`'s sovereign coordinator leg, which arrived 2026-08-19 and reaches
+        // the aggregation with no flag in front of it. **This comment read "the only
+        // production call ... in the repository" until 2026-08-25**, and it is corrected
+        // rather than deleted because `.planning/REQUIREMENTS.md`'s `MR-02` row quotes this
+        // sentence verbatim as its evidence for a state of the tree that has since moved.
         // Everything above is the *map* half: each partial was computed by the node holding
         // the owner's row, and `PROJECT.md` says that half is *owner-attested* rather than
         // verified. What carries the verification claim for owner-pinned data is the

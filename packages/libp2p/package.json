@@ -11,9 +11,12 @@
     "@libp2p/interface": "3.2.5",
     "@libp2p/kad-dht": "16.4.0",
     "@libp2p/peer-id": "6.0.12",
+    "@libp2p/record": "4.0.15",
     "@noble/curves": "2.2.0",
     "@o2/core": "*",
     "@o2/net": "*",
-    "libp2p": "3.3.6"
+    "interface-datastore": "10.0.1",
+    "libp2p": "3.3.6",
+    "uint8-varint": "3.0.0"
   }
 }

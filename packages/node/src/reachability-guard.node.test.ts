@@ -529,10 +529,14 @@ describe('the guard cannot report clean because it looked at nothing', () => {
     const found = unreachableExports(corpus(), graph(), ROOT)
     expect(
       found.length,
-      `the guard found ${found.length} unreachable callable barrel exports; the reading recorded ` +
-        'on 2026-08-18 was 66. A HIGHER number means a new exported-but-uncalled symbol arrived — ' +
-        `run the guard and read the list. A LOWER number is wiring work landing and the ceiling ` +
-        'should be lowered to match it, which is 22-03\'s register rather than an edit here.',
+      `the guard found ${found.length} unreachable callable barrel exports against a bound of ` +
+        `${UNREACHABLE_CEILING}. A HIGHER number means a new exported-but-uncalled symbol ` +
+        'arrived — run the guard and read the list. A LOWER number is wiring work landing and ' +
+        "the bound should be lowered to match it, which is 22-03's register rather than an edit " +
+        'here. **The bound is named once and read here, as of 2026-08-26.** This sentence used ' +
+        "to carry the literal `66` while the assertion below read `74`: the number was written " +
+        'twice, the two drifted apart across four raises, and every one of those runs printed a ' +
+        'bound that was not the one being applied.',
       // **RAISED 66 -> 67 on 2026-08-20, and the raise is one symbol with a named cause.**
       // AUTH-03's browser half landed: `browser/chainsForOwner` is called only from
       // `demo/main.ts`'s `sovereignChainsFor`, which this graph reaches solely through the
@@ -567,7 +571,81 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // whose field had to land before certificates circulate, and whose users are a phase
       // nobody has scoped. Raised by exactly the two rows added, so the ceiling still cannot
       // absorb a third arrival silently.
-    ).toBeLessThanOrEqual(71)
+      // 2026-08-25: 71 -> 74. Three rows, all in `packages/cloudflare/src/do-datastore.ts` —
+      // `DoDatastore` and its two refusal types — named in `OPEN_FINDINGS` above. Raised by
+      // exactly the three that arrived. **These differ from every raise before them in one way
+      // worth stating: their closing condition is inside the SAME phase.** Phase 29's criteria
+      // 2 and 7 assemble the libp2p node that constructs this store, and until that stream
+      // lands the store has no caller for a reason that is scheduled rather than unscoped. So
+      // this raise is expected to be REVERSED by wiring within the milestone, not carried; if
+      // Phase 29 closes with these three still here, that is a finding about the phase.
+      // 2026-08-26, later the same day: 80 -> 84. Four rows, all in
+      // `packages/cloudflare/src/websocket-connection.ts` — the inbound listener and its
+      // refusal. Raised by exactly the four that arrived. They are in `OPEN_FINDINGS` and not
+      // dispositioned for the reason the paragraph below gives about the six before them: the
+      // caller is a Worker that nothing deploys.
+      // 2026-08-26, later still: 84 -> 87. Three rows, all in
+      // `packages/libp2p/src/dht-record-sweep.ts` — the DHT record sweep. Raised by exactly
+      // the three that arrived. **This raise deliberately makes NO prediction about a
+      // reversal**, because the raise two entries above made one and it was wrong: it said
+      // three `do-datastore.ts` rows were *"expected to be REVERSED by wiring within the
+      // milestone"*, the named wiring landed, and the rows did not move. What is stated
+      // instead is the closing CONDITION, which a reader can check: these three close when
+      // `packages/cloudflare/src/expiry-alarm.ts` calls `sweepDhtRecords` from `alarm()`.
+      // That file is step 7 of `ARCHITECTURE.md:508-518`, which requires it to ship in the
+      // same phase as the assembly. Whether that happens is a fact about the next phase, not
+      // a forecast this comment is entitled to make.
+      // 2026-08-26: 74 -> 80. Six rows, all in `packages/cloudflare/src/`, all named in
+      // `OPEN_FINDINGS` above: `HostedNode`, `hostedIdentity`, `loadOrCreateHostedSeed`,
+      // `MalformedStoredSeedError`, `stubFor`, `UnknownHostedObjectNameError`. Raised by
+      // exactly the six that arrived, so the bound still cannot absorb a seventh silently.
+      //
+      // **THE RAISE ABOVE PREDICTED A REVERSAL AND GOT AN INCREASE, AND THAT IS THE READING
+      // TO TAKE, NOT A NUMBER TO SMOOTH.** The 2026-08-25 note says the three `do-datastore.ts`
+      // rows *"are expected to be REVERSED by wiring within the milestone"* and that *"if Phase
+      // 29 closes with these three still here, that is a finding about the phase."* The wiring
+      // those rows named — *"a Durable Object class constructing `DoDatastore` over its own
+      // `state.storage`"* — landed on 2026-08-26 and the three did not move. The reason is in
+      // the second half of that same row's sentence, which was written before the wiring and
+      // held: *"it closes when the node deploys and dials."* Nothing deploys. Phase 29 criteria
+      // 1 and 2 are owner acts at the Cloudflare boundary by owner ruling of 2026-08-25, and
+      // the assembly's own symbols joined the register for exactly the reason the store's did.
+      //
+      // **Why they are not dispositioned instead**, which would have kept this number at 74:
+      // a `DISPOSITIONS` cause says a symbol has a real production caller behind a hop the
+      // tracer cannot follow, and `global-object-hop`'s symbols do — the demo page runs. These
+      // have a caller in `worker.ts` that NOTHING INVOKES, because nothing is deployed. Moving
+      // them would have made this number look like wiring and read like progress.
+      //
+      // 2026-08-26: 87 -> 97. Ten rows, all `packages/cloudflare/src/`, from ARCHITECTURE
+      // steps 6 and 7 landing together — four from `expiry-alarm.ts` and six from
+      // `hosted-libp2p.ts`, each named in `OPEN_FINDINGS`. Raised by exactly the ten that
+      // arrived.
+      //
+      // **This raise makes no prediction, and it also records one that CAME TRUE WITHOUT
+      // CLOSING ANYTHING.** The 74 -> 80 note above stated a checkable closing condition for
+      // the three `dht-record-sweep.ts` rows: they close when *"`expiry-alarm.ts` calls
+      // `sweepDhtRecords` from `alarm()`"*. That file landed today and does precisely that.
+      // `libp2p/sweepDhtRecords` moved from `callers: 'none'` to `'unreachable-only'` and
+      // stayed in the register, because the caller it gained is `BootstrapObject.alarm()`,
+      // which the PLATFORM invokes and no line in this tree does. So a condition can be
+      // stated honestly, be satisfied exactly, and still not be the thing that closes a row.
+      // The standing condition for all of these remains the one the store's rows have
+      // carried since 2026-08-25 and it has not moved: *"it closes when the node deploys and
+      // dials."*
+      //
+      // 2026-08-26 (Phase 30): 97 -> 103. Six rows, the inbound listener's, each named in
+      // `OPEN_FINDINGS`. Two EXISTING rows moved category in the same pass —
+      // `createHostedFabric` and `remoteAddrFromRequest` both went `'none'` ->
+      // `'unreachable-only'` because the listener that calls them landed. That is the second
+      // time in two days a row's stated closing condition has been satisfied exactly and left
+      // the row where it was, and the reason is the same both times: every caller on this tier
+      // is the PLATFORM. `fetch`, `alarm`, `webSocketMessage` — nothing in this repository
+      // invokes any of them. **So no amount of wiring inside `packages/cloudflare` will empty
+      // this section**, and a reader should stop expecting it to. The condition that closes
+      // these rows is a deploy, which is an owner act, and the tracer has no entry point for
+      // a platform.
+    ).toBeLessThanOrEqual(UNREACHABLE_CEILING)
   }, GRAPH_TIMEOUT_MS)
 
   it('separates findings that have callers from findings that have none', () => {
@@ -1325,7 +1403,417 @@ interface OpenFinding {
  * was re-caused, and the count did not move: what changed is that each of them now has to be
  * written down, and symbol #25 arrives red and named instead of arriving under a bound.
  */
+/**
+ * The bound the unreachable count is held under — named ONCE and read in both places.
+ *
+ * It was a literal in the assertion and a different literal in that assertion's own message,
+ * and across four raises the two drifted to `74` and `66`. Every run in between printed a
+ * bound that was not the one being applied. The register above is what actually holds these
+ * symbols; this number exists so a seventh arrival cannot slip in under a bound that was
+ * sized for six.
+ */
+const UNREACHABLE_CEILING = 103
+
 const OPEN_FINDINGS: readonly OpenFinding[] = [
+  {
+    key: 'cloudflare/DoDatastore',
+    declaredIn: 'packages/cloudflare/src/do-datastore.ts',
+    // `unreachable-only`, and the graph is what said so — this row claimed `none` first, on
+    // the reasoning that nothing outside the package touches it yet. The walk corrected it:
+    // `refusedPrefixFor` reads `DoDatastore.refusedKeyPrefixes` at `do-datastore.ts:158`, so a
+    // caller exists and is itself stranded. Recording the corrected value rather than the
+    // reasoned one, because the field's whole purpose is that `none` and `unreachable-only`
+    // need different work.
+    callers: 'unreachable-only',
+    reason:
+      'Phase 29 criterion 3, landed 2026-08-25. The hosted tier reaches Durable Object ' +
+      'storage through `interface-datastore`, and no published package binds the two — the ' +
+      'last generic async datastore this project reached for hung the enrolment RPC for a ' +
+      'week, which is why this is hand-written and small enough to read. IT HAS NO CALLER ' +
+      'BECAUSE ITS CONSUMER IS THE SAME PHASE AND IS NOT BUILT YET: criteria 2 and 7 assemble ' +
+      'the libp2p node that passes this store to `createLibp2p`, and that assembly is a ' +
+      'separate stream. The nameable wiring that closes this row is exactly that — a Durable ' +
+      'Object class constructing `DoDatastore` over its own `state.storage` and handing it to ' +
+      'the node factory. This must not be closed by exporting a caller; it closes when the ' +
+      'node deploys and dials. ' +
+      '**THE NAMED WIRING LANDED 2026-08-26 AND THE ROW STAYS OPEN, which is the sentence ' +
+      'above doing its job rather than an oversight.** `HostedNode` constructs this store over ' +
+      "a Durable Object's `state.storage` and `BootstrapObject` constructs `HostedNode` — " +
+      'exactly the wiring this row demanded. What has NOT happened is the second half of the ' +
+      'same sentence: nothing deploys and nothing dials, because Phase 29 criteria 1 and 2 are ' +
+      'owner acts at the Cloudflare boundary by ruling. Moving this row to `DISPOSITIONS` on ' +
+      'the strength of a source-level caller would be closing it by exporting a caller, which ' +
+      'is the one repair this row forbids in advance. The six symbols the assembly added are ' +
+      'below, in the same position and for the same reason.',
+  },
+  {
+    key: 'cloudflare/RecordShapedKeyRefusedError',
+    declaredIn: 'packages/cloudflare/src/do-datastore.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The refusal `DoDatastore.put` raises for a DHT-record-shaped key, and the reason it ' +
+      'is a named typed outcome rather than a thrown string is that Phase 29 criterion 3 ' +
+      'makes it load-bearing: the store carries the node identity key and holds NO DHT ' +
+      'record until Phase 31 lands the sweep beside the record store, so the ' +
+      'unbounded-accumulation window never opens. Its thrower is `DoDatastore.put`, which is ' +
+      'itself unreachable for the reason in the row above — so this closes on the same day ' +
+      'and by the same wiring, not by a separate change. Proved able to fail: emptying the ' +
+      'refused-prefix set turns 10 cases red, deleting only the four-line guard in `put` ' +
+      'turns 9 red.',
+  },
+  {
+    key: 'cloudflare/StoredValueNotBytesError',
+    declaredIn: 'packages/cloudflare/src/do-datastore.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Raised when Durable Object storage answers with something that is not bytes. It ' +
+      'exists because this repository forbids type assertions and the real storage API types ' +
+      'its reads through a caller-chosen generic, which is an assertion wearing a type ' +
+      'parameter — so the value is PROVED to be bytes at runtime instead of being declared to ' +
+      'be. Same thrower and same closing condition as the two rows above.',
+  },
+  {
+    key: 'cloudflare/HostedNode',
+    declaredIn: 'packages/cloudflare/src/hosted-object.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Phase 29 criteria 2 and 3, landed 2026-08-26 — the assembly the three rows above named ' +
+      'as their closing condition. It constructs `DoDatastore` over a Durable Object\'s own ' +
+      'storage and derives the node identity from a seed persisted in it. Its caller is ' +
+      '`BootstrapObject`, the deployed Durable Object class in `worker.ts`, which is an ENTRY ' +
+      'POINT of this walk as of the same day. It is still unreachable for a reason the walk is ' +
+      'right about: the Workers runtime invokes the class and the default export, and no call ' +
+      'expression in this repository does — the same shape as `global-object-hop`, and the ' +
+      'reason that cause exists. It is NOT dispositioned under a mechanism, because those ' +
+      'symbols have a caller that RUNS and these do not: nothing deploys yet. The row closes ' +
+      'when the object is deployed, which is an owner act by ruling.',
+  },
+  {
+    key: 'cloudflare/acceptInboundSocket',
+    declaredIn: 'packages/cloudflare/src/hibernatable-socket.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Phase 30\'s listener, minus the two lines no local run can execute. It refuses a request '
+      + 'with no `CF-Connecting-IP` BEFORE adopting anything — the ordering matters, because a '
+      + 'refusal after the adopt leaves a socket held by the platform with no session and nobody '
+      + 'to close it — and it starts the libp2p upgrade WITHOUT awaiting it, because no byte '
+      + 'moves until the 101 response is returned and awaiting therefore deadlocks by '
+      + 'construction. Called by `BootstrapObject.fetch`, which the platform invokes.',
+  },
+  {
+    key: 'cloudflare/HibernatableSockets',
+    declaredIn: 'packages/cloudflare/src/hibernatable-socket.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The sockets one INSTANCE holds, keyed by socket identity. The key is the detection: after '
+      + 'an eviction the platform hands a reconstructed object a socket it has never seen, the '
+      + 'lookup misses, and the socket is closed with 1012 rather than resumed — Noise has no '
+      + 'session resumption and yamux no resync, so every alternative to closing is a connection '
+      + 'that lies about being live. Proved able to fail: five plants watched red.',
+  },
+  {
+    key: 'cloudflare/isInboundUpgradeTarget',
+    declaredIn: 'packages/cloudflare/src/hibernatable-socket.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Shape narrowing for the registered upgrade service, on `relay-reservations.ts`\'s stated '
+      + 'reasoning: `libp2p.services` is an index of whatever was registered, so the value is '
+      + 'genuinely unknown at that boundary and an assertion would be a claim about a '
+      + 'registration nobody checked.',
+  },
+  {
+    key: 'cloudflare/NoInboundUpgradeServiceError',
+    declaredIn: 'packages/cloudflare/src/hibernatable-socket.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The named refusal for a node assembled without the upgrade service. Raised at the one '
+      + 'call site and stranded with it, the same shape as `MissingClientAddressError`.',
+  },
+  {
+    key: 'cloudflare/inboundUpgradeService',
+    declaredIn: 'packages/cloudflare/src/hosted-libp2p.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The seam to `components.upgrader`, which is not on the public `Libp2p` surface. The '
+      + 'ordinary route to it is to BE a transport, whose listener has components injected; '
+      + 'writing a Cloudflare transport to reach one method would be a large object for a small '
+      + 'need, and libp2p already calls every service factory with `components`. Registered by '
+      + '`hostedLibp2pConfig` and read by the listener.',
+  },
+  {
+    key: 'cloudflare/announcedAddresses',
+    declaredIn: 'packages/cloudflare/src/hosted-libp2p.ts',
+    callers: 'unreachable-only',
+    reason:
+      'What this node announces, read from `wrangler.jsonc`\'s `vars` and NEVER from the '
+      + 'request. A `Host` header is visitor-controlled, and deriving the identity the fabric is '
+      + 'told to dial from visitor input is the class of defect Phase 29 criterion 6 closed for '
+      + 'object names. Called by `BootstrapObject`, which the platform invokes.',
+  },
+  {
+    key: 'cloudflare/armExpirySweep',
+    declaredIn: 'packages/cloudflare/src/expiry-alarm.ts',
+    callers: 'unreachable-only',
+    reason:
+      'ARCHITECTURE step 7. The only producer of an `ExpirySweep`, and it arms the Durable ' +
+      'Object alarm before it returns one — which is what makes `DoDatastore`\'s admission ' +
+      'of `/dht/` records a consequence of arming rather than a flag somebody set. Called by ' +
+      '`hostedExpirySweep`, which `BootstrapObject.alarm()` calls; that method is invoked by ' +
+      'the PLATFORM and by nothing in this tree, which is why it is here. Closes when the ' +
+      'node deploys.',
+  },
+  {
+    key: 'cloudflare/ExpirySweep',
+    declaredIn: 'packages/cloudflare/src/expiry-alarm.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The armed-sweep proof itself. Its constructor refuses any caller that is not ' +
+      '`armExpirySweep` — a private symbol, so the refusal is a run-time fact and not a ' +
+      'type-level hope — and `run()` re-arms in a `finally`, because a one-shot alarm whose ' +
+      'handler failed to schedule its successor is expiry that has silently stopped. Both ' +
+      'proved able to fail: three plants watched red. Same closing condition.',
+  },
+  {
+    key: 'cloudflare/UnarmedSweepError',
+    declaredIn: 'packages/cloudflare/src/expiry-alarm.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The named refusal raised when an `ExpirySweep` is constructed without arming. Thrown ' +
+      'inside the guarded constructor and stranded with it, the same shape as ' +
+      '`MissingClientAddressError` two rows up.',
+  },
+  {
+    key: 'cloudflare/hostedExpirySweep',
+    declaredIn: 'packages/cloudflare/src/hosted-libp2p.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Arms this object\'s sweep from nothing, deliberately callable on a FRESH instance — ' +
+      'the only kind an alarm ever fires on, since Cloudflare evicts the instance that armed ' +
+      'it. Called by `BootstrapObject.alarm()`, which the platform invokes. That an alarm ' +
+      'survives eviction is the one claim no local run settles; ARCHITECTURE names the ' +
+      'methodology (request, fire, evict, re-read) and it is an owner act.',
+  },
+  {
+    key: 'cloudflare/createHostedFabric',
+    declaredIn: 'packages/cloudflare/src/hosted-libp2p.ts',
+    // 2026-08-26 (Phase 30): 'none' -> 'unreachable-only'. The row below predicted this —
+    // "closes when that listener calls it" — and the listener landed the same day. It moved
+    // one category and did not close, for the reason every row in this package carries: the
+    // caller is `BootstrapObject.fetch`, which the platform invokes.
+    callers: 'unreachable-only',
+    reason:
+      'ARCHITECTURE steps 6 and 7 as one value: the admitting store is constructed FROM the ' +
+      'sweep, so there is no argument order that yields a record-accepting hosted node with ' +
+      'no armed alarm. **Uncalled on purpose, and the alternative was worse** — a `fabric()` ' +
+      'method on `BootstrapObject` that nothing invokes is the "wired is not used" shape ' +
+      'this project has been caught by three times on the DHT. Until Phase 30\'s listener ' +
+      'exists a running node cannot be dialled. Closes when that listener calls it.',
+  },
+  {
+    key: 'cloudflare/createHostedLibp2p',
+    declaredIn: 'packages/cloudflare/src/hosted-libp2p.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The `createLibp2p` call itself, kept as thin as it can be so that every decision it ' +
+      'makes is one of the three `…Init` values beside it, each with a spec. Called by ' +
+      '`createHostedFabric`, which is stranded. Its consequence for the bundle is recorded ' +
+      'in `hosted-tier-deploy.node.test.ts`: because `worker.ts` does not reach it, ' +
+      '`@chainsafe/libp2p-noise` still does not enter the emitted bundle and the ' +
+      '`diffieHellman` case goes on skipping loudly rather than reading vacuously true.',
+  },
+  {
+    key: 'cloudflare/hostedDhtInit',
+    declaredIn: 'packages/cloudflare/src/hosted-libp2p.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The four settings a private keyspace needs, exported as DATA rather than sealed in ' +
+      '`kadDHT()`\'s closure — which is the only reason a spec can read them at all. Two of ' +
+      'the four are silent when absent: `peerInfoMapper` left at its default meant no peer ' +
+      'was ever added to a routing table behind a relay, and `validators` without ' +
+      '`selectors` made every read throw into a catch that presented as an empty keyspace.',
+  },
+  {
+    key: 'cloudflare/hostedRelayInit',
+    declaredIn: 'packages/cloudflare/src/hosted-libp2p.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The relay\'s four capacity settings, as data, for the same reason as the row above: a ' +
+      'factory\'s arguments are unreadable once it has been called, and these decide how many ' +
+      'peers this tier can carry. Reached only from `createHostedLibp2p`.',
+  },
+  {
+    key: 'cloudflare/hostedAddresses',
+    declaredIn: 'packages/cloudflare/src/hosted-libp2p.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Where the empty-`announce` refusal lives, on this side of the platform so that a spec ' +
+      'can watch it fail. A Durable Object cannot discover its own address, and consult §13 ' +
+      'measured what an unannounced relay does: every reservation comes back empty and ' +
+      'nothing is raised. `listen` is empty because workerd binds no socket — Phase 30\'s ' +
+      'half, not an oversight.',
+  },
+  {
+    key: 'cloudflare/NoAnnouncedAddressError',
+    declaredIn: 'packages/cloudflare/src/hosted-libp2p.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The named refusal for an assembly with nothing to announce. Thrown inside ' +
+      '`hostedAddresses` and stranded with it.',
+  },
+  {
+    key: 'cloudflare/hostedIdentity',
+    declaredIn: 'packages/cloudflare/src/hosted-identity.ts',
+    callers: 'unreachable-only',
+    reason:
+      "The hosted node's identity, derived from a seed persisted in Durable Object storage. " +
+      'Called by `HostedNode.identity`, which is stranded for the reason in the row above. It ' +
+      'is what makes criterion 2 possible at all: a plain Worker returned THREE DIFFERENT ' +
+      'PeerIds to three consecutive requests because each landed in a fresh isolate, and an ' +
+      'address derived from a key that changes per restart is an address nobody can publish. ' +
+      'Same closing condition as `HostedNode`.',
+  },
+  {
+    key: 'cloudflare/loadOrCreateHostedSeed',
+    declaredIn: 'packages/cloudflare/src/hosted-identity.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The load-or-mint half of the identity, one hop behind `hostedIdentity`. Separate from ' +
+      'it because the SEED is what has to survive an eviction and the derivation is pure — ' +
+      'the same split `packages/node/src/identity-store.ts` makes between `loadOrCreateSeed` ' +
+      'and `identityFromSeed`. Same closing condition.',
+  },
+  {
+    key: 'cloudflare/MalformedStoredSeedError',
+    declaredIn: 'packages/cloudflare/src/hosted-identity.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Raised when the stored seed is not exactly 32 bytes. It is a named typed outcome ' +
+      'rather than a silent re-mint because the silent behaviour is the dangerous one: a ' +
+      'short read reinterpreted as a new identity drops the node out of every peer\'s ' +
+      'verified set and out of every bootstrap list naming it, with nothing reporting why. ' +
+      'Thrown inside `loadOrCreateHostedSeed`, so it is stranded with it. Proved able to ' +
+      'fail: `hosted-identity.test.ts` asserts the rejection and asserts that the malformed ' +
+      'bytes are still in the store afterwards.',
+  },
+  {
+    key: 'cloudflare/stubFor',
+    declaredIn: 'packages/cloudflare/src/hosted-object.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Phase 29 criteria 4 and 6 — THE one call site in this repository that may obtain a ' +
+      "Durable Object stub. An object's location is fixed by its very first `get()` and never " +
+      'changes, so a second call site would site an object permanently and the only repair is ' +
+      'a new name. Its only caller is the default export of `worker.ts`, invoked by the ' +
+      'Workers runtime and by nothing in this tree. Same closing condition.',
+  },
+  {
+    key: 'cloudflare/UnknownHostedObjectNameError',
+    declaredIn: 'packages/cloudflare/src/hosted-object.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The refusal `stubFor` raises for a name outside the closed enumeration — criterion 6. ' +
+      'The runtime check is not redundant beside the type: a name that arrived from a request ' +
+      'is a `string`, the type is erased at exactly that boundary, and only a value check can ' +
+      'refuse it. Thrown inside `stubFor` and stranded with it. Proved able to fail: deleting ' +
+      "the check turns `hosted-identity.test.ts`'s undeclared-name case red, and that case " +
+      'asserts NOTHING WAS SITED rather than only that a throw happened.',
+  },
+  {
+    key: 'cloudflare/CloudflareWebSocketConnection',
+    declaredIn: 'packages/cloudflare/src/websocket-connection.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The inbound listener, landed 2026-08-26 — a Cloudflare WebSocket as a libp2p ' +
+      '`MultiaddrConnection`. Written here rather than reached inside `@libp2p/websockets`, ' +
+      'whose `webSocketToMaConn` is not on its public surface; the base class comes through ' +
+      "`@libp2p/utils`' own barrel, so nothing crosses a package boundary. It is stranded for " +
+      'the same reason as `HostedNode` above: its caller is the deployed Worker and nothing ' +
+      'deploys. Proved able to fail — five plants, one per requirement, each watched red: ' +
+      'direction, the client address, the backpressure answer, the binaryType ordering, and ' +
+      'the send-side copy.',
+  },
+  {
+    key: 'cloudflare/acceptWebSocket',
+    declaredIn: 'packages/cloudflare/src/websocket-connection.ts',
+    callers: 'none',
+    reason:
+      'Sets `binaryType` on the REAL socket before accepting it and wires the frame handlers — ' +
+      'the whole listener in one call. It deliberately does NOT call the upgrader: ' +
+      '`upgradeInbound` must not be awaited before the 101 is returned, since no byte moves ' +
+      'until the response is sent, so awaiting deadlocks by construction. Keeping that at the ' +
+      "caller makes the ordering a visible decision. Same closing condition as the row above.",
+  },
+  {
+    key: 'cloudflare/remoteAddrFromRequest',
+    declaredIn: 'packages/cloudflare/src/websocket-connection.ts',
+    // 2026-08-26 (Phase 30): 'none' -> 'unreachable-only'. `acceptInboundSocket` calls it,
+    // before adopting anything, which is the ordering its own case asserts.
+    callers: 'unreachable-only',
+    reason:
+      'Derives the remote multiaddr from `CF-Connecting-IP`. The consult calls the absence of ' +
+      'this "the most consequential defect found in the listener": without it every inbound ' +
+      "connection reports as loopback and libp2p's per-host inbound threshold rate-limits the " +
+      'entire internet at five connections a second, invisible below that scale. Same closing ' +
+      'condition.',
+  },
+  {
+    key: 'cloudflare/MissingClientAddressError',
+    declaredIn: 'packages/cloudflare/src/websocket-connection.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The refusal `remoteAddrFromRequest` raises rather than defaulting to loopback. It is a ' +
+      'named typed outcome because the alternative is the silent one: a fallback is invisible ' +
+      'until the sixth connection of a second, and a refusal is loud at the first. Thrown ' +
+      'inside that function and stranded with it.',
+  },
+  {
+    key: 'libp2p/sweepDhtRecords',
+    declaredIn: 'packages/libp2p/src/dht-record-sweep.ts',
+    // 2026-08-26: 'none' -> 'unreachable-only'. **The closing condition this row named has
+    // happened and the row still did not close**, which is worth more than a silent edit:
+    // it said these close when "`packages/cloudflare/src/expiry-alarm.ts` calls
+    // `sweepDhtRecords` from `alarm()`", that file landed the same day and does exactly
+    // that, and the symbol moved one register category rather than leaving the register.
+    // The reason is that `BootstrapObject.alarm()` is reached by the PLATFORM, not by any
+    // call in this tree — so the condition was necessary and was never sufficient. The row
+    // above it warned against predicting reversals; this is the same lesson arriving from
+    // the other side.
+    callers: 'unreachable-only',
+    reason:
+      'The storage half of the owner ruling that DHT records must expire, landed 2026-08-26. ' +
+      'Its caller is `packages/cloudflare/src/expiry-alarm.ts`, which does not exist yet — ' +
+      "`.planning/research/v2.0/ARCHITECTURE.md:510` scopes that glue as step 7 and requires " +
+      'it to ship in the SAME phase as the Durable Object assembly, because the assembly is ' +
+      'what makes the datastore persistent and there is no safe state where it exists ' +
+      'without a sweep. The module was built FIRST on that document\'s own ordering (:444, ' +
+      '"this must land before or with persistence") precisely because it needs no ' +
+      'deployment to be proved: it is a pure walk over an `interface-datastore` with an ' +
+      'injected clock. Proved able to fail — seven plants watched red, one per criterion.',
+  },
+  {
+    key: 'libp2p/sweepValueRecords',
+    declaredIn: 'packages/libp2p/src/dht-record-sweep.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The `/o2/<nodeKey>` half, and the family `@libp2p/kad-dht@16.4.0` has no sweep for at ' +
+      'all: `rpc/handlers/get-value.ts:129-135` deletes an over-age record only on the way ' +
+      'out of a read that names its exact key, so a record nobody queries is never examined. ' +
+      'Reached by `sweepDhtRecords`, which is itself stranded. Its criterion is time and ' +
+      'nothing else — a bad signature and a not-yet-valid record are both KEPT, each with a ' +
+      'case that reddens when the whole `verifyCapabilityRecord` verdict is substituted.',
+  },
+  {
+    key: 'libp2p/sweepProviderRecords',
+    declaredIn: 'packages/libp2p/src/dht-record-sweep.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The provider half. The library DOES sweep these, in `reprovider.ts`, but its driver is ' +
+      'a `setTimeout` re-armed inside its own `finally` — and a workerd isolate\'s timers are ' +
+      'not guaranteed to survive between requests, so on the hosted tier that sweep never ' +
+      'runs while DO storage keeps everything. Reached by `sweepDhtRecords`. It exempts this ' +
+      "node's own entries exactly as `reprovider.ts:139-142` does, and `selfPeerId` is a " +
+      'REQUIRED argument so the exemption cannot be forgotten.',
+  },
   {
     key: 'core/keyCommitment',
     declaredIn: 'packages/core/src/enrollment.ts',
@@ -1779,7 +2267,15 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
     // to a sibling row does.
     for (const row of OPEN_FINDINGS) {
       expect(row.reason.length, `${row.key} needs a reason, not a note`).toBeGreaterThan(80)
-      expect(row.key, `${row.key} is not in barrel/symbol form`).toMatch(/^[a-z]+\/\S+$/)
+      // `[a-z0-9]`, not `[a-z]`. **This was a latent defect in the register, found 2026-08-26
+      // by the first row that exercised it**: the walk keys a row by its barrel's directory
+      // name, one of which is `libp2p`, and `[a-z]+` cannot match a name containing a digit.
+      // So for as long as this check has existed, a stranded export in `@o2/libp2p` could be
+      // COUNTED by the ceiling but never REGISTERED with a reason — the register was closed to
+      // one of the three barrels it walks, and nothing said so, because no row had ever come
+      // from there. A format check that cannot express a value the producer emits is a check
+      // against the wrong alphabet.
+      expect(row.key, `${row.key} is not in barrel/symbol form`).toMatch(/^[a-z0-9]+\/\S+$/)
     }
     expect(openFindingKeys().size, 'a duplicated key hides a row').toBe(OPEN_FINDINGS.length)
   }, GRAPH_TIMEOUT_MS)
@@ -1836,7 +2332,32 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
 // left the tree by owner ruling — see `UNCOUNTED_MODULE` below. Lowered rather than left
 // slack, because slack is what lets a 29th arrive unnoticed, which is the whole point of
 // holding this number still.
-const ORPHAN_MODULE_CEILING = 28
+// 2026-08-25: 28 → 30, raised by exactly two and both named. `packages/cloudflare/src/index.ts`
+// is the new package's barrel, which nothing imports yet for the same scheduled reason as the
+// three `cloudflare/` rows in `OPEN_FINDINGS` — its consumer is Phase 29's own criteria 2 and
+// 7. `packages/cloudflare/src/do-storage.fixture.ts` is a test-only instrument, the same
+// mechanism as `node/capability-fixture.ts` already on this list, and it is deliberately a
+// COMPLETE implementation of the storage interface rather than a partial mock, which is why it
+// is a module rather than an inline object. Neither is production code that forgot to be
+// wired, and the first is expected to leave this list inside the milestone.
+// 2026-08-26: 30 → 31, raised by exactly one and named.
+// `packages/cloudflare/src/workerd-shims.ts` fills the two globals workerd lacks that stop
+// js-libp2p constructing — `process.versions.node` and `BroadcastChannel`, both found by
+// RUNNING (`.planning/consults/2026-08-24-cloudflare-as-a-fabric-node-measured.md` §8). It is
+// a module imported for its SIDE EFFECT, and `ARCHITECTURE.md:119-122` requires that import
+// to happen before `libp2p` is imported at all. Its importer is the Durable Object assembly,
+// which does not exist yet.
+//
+// **It is deliberately not barrel-exported, and that is the choice this entry records.**
+// Adding it to `index.ts` would take it off this list and put five symbols on the OTHER
+// register — symbols no production caller will have even after the assembly lands, because
+// the assembly imports the module for its effect rather than for its names. That would trade
+// one honest orphan for five rows that read like unwired features and are not. The same
+// argument `capability-fixture.ts` makes above for staying out of a barrel.
+//
+// Closing condition, checkable and with no forecast attached: `cloudflare-node.ts` importing
+// `'./workerd-shims.ts'`.
+const ORPHAN_MODULE_CEILING = 31
 
 /**
  * A production module that reaches **no barrel at all**, named by path.

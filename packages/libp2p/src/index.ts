@@ -105,6 +105,26 @@ export type {
   RecordVerifier,
 } from './dht-record-index.ts'
 
+// One definition of "who holds a reservation here", so the Node tier and the hosted tier
+// cannot answer `{kind:'reservations'}` differently.
+export { holdsReservations, reservedPeerIds } from './relay-reservations.ts'
+export type { ReservationHolder, ReservationStore } from './relay-reservations.ts'
+
+// The storage half of the expiry ruling — the read path already refuses an expired record,
+// but nothing removes it, and on a Durable Object nothing is ever discarded either.
+export {
+  DEFAULT_DHT_DATASTORE_PREFIX,
+  sweepDhtRecords,
+  sweepProviderRecords,
+  sweepValueRecords,
+} from './dht-record-sweep.ts'
+export type {
+  DhtSweepCounts,
+  ProviderSweepOptions,
+  SweepCounts,
+  SweepOptions,
+} from './dht-record-sweep.ts'
+
 // Registration — the write half. The validator is what makes `/o2/<nodeKey>` ownable:
 // only the holder of that key's secret can put a record there, enforced by every storer.
 export {

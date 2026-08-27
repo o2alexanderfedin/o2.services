@@ -134,6 +134,17 @@ const BARRELS: readonly {
   { file: 'packages/aot/src/index.ts', minExports: 15, jobShaped: [] },
   { file: 'packages/bench/src/index.ts', minExports: 15, jobShaped: [] },
   { file: 'packages/browser/src/index.ts', minExports: 25, jobShaped: [] },
+  // `minExports: 3` against siblings at 15-100, and the gap is the point rather than an
+  // oversight. `packages/cloudflare` arrived 2026-08-25 with Phase 29 criterion 3 and its
+  // whole barrel is `DoDatastore` plus the two refusals it raises — a storage binding, not a
+  // tier. The floor is set at what the package actually publishes today so it still catches a
+  // barrel collapsing to nothing; it is expected to RISE as criteria 2 and 7 add the node
+  // assembly, and a floor left at 25 would have been a number nobody measured.
+  //
+  // `jobShaped: []` is a claim, not a default: a Cloudflare node does not advertise execution
+  // at all — runtime WASM compilation is refused by the platform, measured — so this barrel
+  // offering a way to run a job would be a defect rather than a second choice under WIRE-04.
+  { file: 'packages/cloudflare/src/index.ts', minExports: 3, jobShaped: [] },
   {
     file: 'packages/core/src/index.ts',
     minExports: 100,
