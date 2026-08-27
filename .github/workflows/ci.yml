@@ -123,27 +123,19 @@ jobs:
       # particular fails to launch with a missing-library error that names no browser.
       - run: npx playwright install --with-deps chromium firefox webkit
 
-      # THE LANE, MINUS THE FILE THAT CARRIES A KNOWN OPEN FINDING.
+      # The whole lane, no exclusions and no `|| true`.
       #
-      # `ed25519-backend.test.ts` fails on Linux — correctly. `subtle` accepts a
-      # non-canonical-S signature there and rejects it on macOS, so one message has two valid
-      # signatures on this platform. The test is a differential guard and firing is its job;
-      # relaxing it would delete the finding. It is written up in
-      # `.planning/OPEN-ITEMS.md` § 5 and the remedy is an owner decision, not a test edit.
+      # An earlier version excluded `ed25519-backend.test.ts` with `--exclude` and ran it in a
+      # non-gating step. MEASURED: `--exclude` does not exclude it — vitest ADDS the glob to
+      # the project's own exclude list while `include` still matches the file, so it ran anyway
+      # and the lane stayed red. The step after it never even executed.
       #
-      # **Excluded here so it does not mask the next failure.** A lane that is permanently red
-      # for a known reason stops being read, and the second defect to arrive would land behind
-      # a wall of the first. The exclusion is by NAME and by ONE file, so a new red in this
-      # lane is a new finding.
-      #
-      # The step below runs it anyway and reports without failing the lane, so the finding
-      # stays visible in the log rather than becoming invisible.
-      - run: npm run test:browser -- --exclude '**/ed25519-backend.test.ts'
-
-      - name: The known Ed25519 finding, reported and not gating
-        # `|| true` on ONE named file with a written-up cause. Never a pattern, and never a
-        # whole lane — see OPEN-ITEMS § 5 for what closing it requires.
-        run: npx vitest run --project browser packages/core/src/ed25519-backend.test.ts || true
+      # The known finding is handled where it belongs instead: in the spec, by a narrow
+      # self-refuting predicate that names one vector on one platform class, computes both
+      # verdicts first, and reports rather than asserts only there. Strict everywhere else, and
+      # it stops taking that branch by itself the moment the platform agrees. See
+      # `.planning/OPEN-ITEMS.md` § 5.
+      - run: npm run test:browser
 
   # ─────────────────────────────────────────────────────────────────────────────────────
   # THE `e2e` LANE IS NOT IN CI EITHER, AND FOR A DIFFERENT REASON THAN `aot`.
