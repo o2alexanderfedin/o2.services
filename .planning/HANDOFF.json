@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-26T17:10:00.000Z",
+  "timestamp": "2026-08-26T17:26:00.000Z",
   "phase": "29",
   "phase_name": "Hosted Tier Assembly & First Deploy",
   "phase_dir": ".planning/phases/phase-29-hosted-tier-assembly-and-first-deploy",
@@ -10,10 +10,10 @@
   "total_tasks": null,
   "status": "paused",
   "branch": "feature/phase-29-hosted-tier",
-  "head": "2aa0a6b",
+  "head": "4909617",
   "tree": "clean",
   "lanes": {
-    "node": "207 files. slow-specs GREEN \u2014 one file added, inside the tolerance of 5, so the record retaken at 206 still describes this tree and no second retake is due. Targeted guards run green: slow-specs, vocabulary, purity, opt-in-only-sources, job-entry-points, both reachability guards, hosted-tier-deploy. A full lane sweep has NOT been run since the retake.",
+    "node": "207 files. Targeted guards green throughout: the 8-guard set 8/8 / 156 tests, run twice, and the commit hook\u2019s 7-file cheap set 318 tests on every one of four commits with no O2_SKIP_GUARDS. Also run green: submit.test.ts, speculation.test.ts, reduce-job, reduce-sovereign, churn-agents, speculation-agents \u2014 176 tests, 6/6, after one co-scheduled run of that batch reddened in churn-agents on a placement-spread precondition and the identical batch re-ran green. A full lane sweep has NOT been run.",
     "browser": "RUN for the whole @o2/cloudflare package \u2014 18 files x 3 engines, 363 tests, EXIT=0.",
     "aot_e2e_perf": "NOT RUN. Nothing in those lanes was touched."
   },
@@ -178,13 +178,15 @@
     },
     {
       "id": 22,
-      "name": "judgedAt in speculation-agents is the wrapper's dispatch instant, so the reconstructed sample can only OVER-include. Named, not fixed.",
-      "status": "not_started"
+      "name": "CLOSED 2026-08-26 in 6868139 \u2014 ShardResult.judgedAt is published by the scheduler from its own `woke`, threaded exactly parallel to `speculated`, and the fixture READS it instead of reconstructing it. THE FINDING IS THAT THE BIAS IS SMALLER THAN THE CLAIM THAT ASKED FOR THE FIELD: the handoff said the window admits \"exactly the dispatches running alongside the duplicates, the slowest in the job\", which was reasoning; six runs (one quiet, five under eight CPU burners at load 162-184) put it at 0-2 ms holding 0 dispatches EVERY TIME. So the field is not a repair of an observed defect \u2014 it is a number read where it was inferred, and both are printed so the day the window holds something the run says so. THE CLOCK BASIS IS THE TRAP AND IT IS REAL: JobClock defaults to Date.now() (epoch) while the wrapper log is performance.now(); the fixture converts once by performance.timeOrigin. Plant P3 printed \"expected 1787789701143 to be null\", which is that basis confirming itself. Three plants watched red \u2014 merge dropped, woke+10_000, published at the eligibility gate \u2014 and the invariant is closed on BOTH sides in one run. No codec: no .proto in the tree, ShardResult is requestor-local. Blast radius 4 fixture literals, enumerated by tsc rather than grep.",
+      "status": "done",
+      "commit": "6868139"
     },
     {
       "id": 24,
-      "name": "A TENTH speculation-agents mode, FOUND 2026-08-26 and NAMED RATHER THAN FIXED. One of ten runs under eight CPU burners (load 29 at the time) reddened at `expect(on.shards.flatMap((s) => s.rejections)).toEqual([])` with a single entry: {nodeId, reason: \"unreachable: no answer in 2000ms\"}. This is NOT the ninth mode \u2014 different line, different assertion, and the run\u2019s own diagnostic shows the thaw arrived fast (frozen shards 886/853/852 ms, losing copies all agreed). The 2000 ms is an absolute on the admission-offer path. UNVERIFIED and deliberately so: it is not established whether the node that failed to answer was one of the three frozen processes. The fixture prints no frozen ids, so that is the next instrument gap and it must be closed BEFORE a cause is written down. Evidence: the run log is scratch-only and was not preserved; reproduce with ten single-file runs under eight burners.",
-      "status": "not_started"
+      "name": "A TENTH speculation-agents mode. INSTRUMENT LANDED 2026-08-26 in 4909617, CAUSE STILL UNVERIFIED and deliberately so. The symptom: `on.shards.flatMap(s => s.rejections)` came back with one `unreachable: no answer in 2000ms`, seen once in ten runs under eight CPU burners at load 29. It could not be attributed because the fixture printed no frozen ids, and the two readings it could not separate are OPPOSITE \u2014 the fixture\u2019s own freeze reaching the admission-offer path (a fixture defect) versus a genuine reading about that path under load. Each refusal now prints the ROLE of the node that gave it: FROZEN(public-victim), FROZEN(paired-owner), FROZEN(solo-owner), FROZEN(unclassified) or healthy. Two plants watched red, one per branch. NOT REPRODUCED SINCE: twelve further runs under eight burners at load up to 235 stayed green, so across both hunts it is ONE redness in TWENTY-TWO runs, and the single hit came at load 29 while eighteen runs above it were green \u2014 LOAD IS NOT ESTABLISHED AS THE VARIABLE and must not be written down as the cause. NEXT: keep the instrument, and let the next natural occurrence name the role before any repair is attempted. The 2000 ms is an absolute on the admission-offer path and is where to look once the role is known.",
+      "status": "in_progress",
+      "commit": "4909617"
     }
   ],
   "blockers": [
@@ -234,6 +236,6 @@
     }
   ],
   "uncommitted_files": [],
-  "next_action": "Task 22 is IN PROGRESS: publish the scheduler\u2019s own judgement instant as `judgedAt: number | null` on the shard, threaded exactly parallel to `speculated` (set beside `speculated = true` at submit.ts:2082 where `woke` is in scope, carried through the internal `Dispatched` union, merged first-non-null at :3187 because ledger.duplicated gates judgement to once per task, placed at :3302). CHECK THE CLOCK BASIS FIRST \u2014 the wrapper log is performance.now() in the requestor process and the comparison is only valid if `clock.now()` shares that basis. Blast radius measured: 7 `copies: []` literal sites across submit.ts, reduce-job.test.ts, reduce-sovereign.test.ts. Do NOT touch `speculated` or `SpeculativeCopy`, do not publish the completed-sample, and do not fix task 24. Then task 24. The owner gate is unchanged: Cloudflare billing alert, then the first deploy.",
+  "next_action": "NOTHING IN THE TREE IS BLOCKED AND NOTHING IS HALF-DONE. Tasks 21, 22 and 24\u2019s instrument all landed this session; 24 stays OPEN by its own rule \u2014 one redness in twenty-two runs, load not established as the variable, so the next move is to let a natural occurrence name the role rather than to write a cause. Everything hosted remains deploy-gated and the gate is the owner\u2019s: Cloudflare billing alert FIRST, then the first deploy. THE DEPLOY IS TWO DEPLOYS \u2014 ANNOUNCE_MULTIADDRS ships empty on purpose and hostedAddresses REFUSES an empty list, so the first deploy names the workers.dev subdomain and the second carries the address. Costed 2026-08-26 from published rates, NOT measured: one always-on object is 331 776 GB-s against 400 000 included, i.e. $5/month and nothing over; the marginal always-on object is ~$4.15/month. Only ONE object is reachable today \u2014 worker.ts:299 passes the compile-time constant SERVED_BY = bootstrap-us \u2014 so the three-name ceiling of ~$12.4/month needs Phase 33. Owner has set a $15/month budget, which clears every figure above, so the yamux keepalive decision is NOT a cost decision and reverts to being about how fast a peer notices a dead path. The one number worth measuring on the first deploy is whether each inbound WebSocket frame bills as a request. Do not deploy, do not create remote resources, --dry-run only, never --remote.",
   "context_notes": "The session's redirect is the finding: the recorded next action was task 19, and task 19's OWN first instruction \u2014 read ARCHITECTURE.md:470-506 \u2014 reorders it. Steps 1-3 are Group A, provable in the node lane today; step 6 is Group B and needs the owner's deploy. Doing the ordered work surfaced three things nothing had asked for: a latent [a-z]+ regex that closed the reachability register to the libp2p barrel, DoDatastore's refusal of the exact prefixes the sweep walks, and mortice's browser build being the WRONG remedy for gap 2. Five plants across three modules were retracted for proving nothing \u2014 one ReferenceError, two aimed at a mechanism they left in place \u2014 and each was redone and recorded rather than quietly replaced. The pause itself produced one more instance of the family: writing a bracketed section name into a replacement body made the NEXT replacement match that mention instead of the real tag, deleting four sections between them. Caught by the line count falling 263 -> 206 rather than by any check, restored from the last commit, and redone with every span computed against the original string before any substitution."
 }
