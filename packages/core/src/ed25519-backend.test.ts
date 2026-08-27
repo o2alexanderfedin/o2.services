@@ -487,16 +487,53 @@ describe('differential-conformance guard — every backend this host can run', (
     })
   })
 
+  /**
+   * ## MEASURED 2026-08-27, on the browser lane's first CI run — and it is a real finding
+   *
+   * `non-canonical S component (S >= L)` is **accepted by `subtle` on Linux and rejected by
+   * it on macOS**, in all three engines. Read that way round deliberately: the split is by
+   * OS, not by browser. Same Playwright build (`webkit-2336`) in both places; three engines
+   * agreed with each other on each host and disagreed across hosts.
+   *
+   *   GitHub Actions, ubuntu-latest   noble false, subtle **true**   -> disagreement
+   *   this developer machine, macOS   noble false, subtle false      -> agreement
+   *
+   * **What it means.** Ed25519 signatures are malleable unless the verifier checks that `S`
+   * is canonical — below the group order `L`. Add `L` to a valid `S` and you get different
+   * signature bytes over the same message and key. A strict verifier (`@noble/curves`)
+   * refuses; a permissive one accepts, so **the same message carries two distinct valid
+   * signatures**. Anything that treats a signature as an identifier — deduplicating,
+   * counting, or refusing a replay by signature bytes — is defeated by that on a permissive
+   * host, and this fabric's attestations travel between hosts.
+   *
+   * **This assertion is NOT relaxed and must not be.** The whole purpose of a differential
+   * guard is to fire exactly here. What is added is a message that says which platform
+   * produced which verdict, so the next reader gets the finding rather than "a browser test
+   * is red". The remedy, when it is taken, belongs in the code that chooses a backend — not
+   * in the test that found it.
+   */
   describe('reject vectors — every backend must agree false (the non-negotiable half)', () => {
     it.each(REJECT_VECTORS.map((v) => [v.name, v] as const))('%s', async (_name, vector) => {
       const verdicts: Record<string, boolean> = {}
       for (const backend of backends) {
         verdicts[backend.name] = await backend.verify(vector.signature, vector.message, vector.publicKey)
       }
+      const accepted = Object.entries(verdicts)
+        .filter(([, verdict]) => verdict)
+        .map(([name]) => name)
+      const platform =
+        globalThis.navigator?.platform ?? globalThis.navigator?.userAgent ?? 'unknown platform'
       for (const backend of backends) {
         expect(
           verdicts[backend.name],
-          `backends disagreed on reject vector "${vector.name}": ${JSON.stringify(verdicts)}`,
+          `backends disagreed on reject vector "${vector.name}": ${JSON.stringify(verdicts)}\n` +
+            `  engine:   ${engineLabel()}\n` +
+            `  platform: ${platform}\n` +
+            `  accepted by: ${accepted.length === 0 ? 'none' : accepted.join(', ')}\n` +
+            `  A backend that ACCEPTS a malformed signature the other rejects is a finding ` +
+            `about that backend on this platform, not a broken test. Measured 2026-08-27: ` +
+            `\`subtle\` accepts the non-canonical-S vector on Linux and rejects it on macOS, ` +
+            `in all three engines — see this block's docblock for what that costs.`,
         ).toBe(false)
       }
     })

@@ -105,9 +105,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # **NO submodules, deliberately.** Vite scans the whole tree when it serves the demo,
+      # finds `third_party/elfconv/xterm-pty/demo/app.ts`, cannot resolve its imports
+      # (`xterm-pty`, `@xterm/addon-fit`, `@xterm/xterm` — none of them this repo's
+      # dependencies), and fails the dependency scan. The dev server then 404s and every
+      # spec in this lane fails at `page.goto`. Measured 2026-08-27: 38 of 38 e2e files.
+      #
+      # Nothing in these two lanes reads the submodule; only `node` and the absent `aot`
+      # lane do.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          submodules: recursive
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
@@ -128,9 +134,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # **NO submodules, deliberately.** Vite scans the whole tree when it serves the demo,
+      # finds `third_party/elfconv/xterm-pty/demo/app.ts`, cannot resolve its imports
+      # (`xterm-pty`, `@xterm/addon-fit`, `@xterm/xterm` — none of them this repo's
+      # dependencies), and fails the dependency scan. The dev server then 404s and every
+      # spec in this lane fails at `page.goto`. Measured 2026-08-27: 38 of 38 e2e files.
+      #
+      # Nothing in these two lanes reads the submodule; only `node` and the absent `aot`
+      # lane do.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          submodules: recursive
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
