@@ -1290,6 +1290,12 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     // The solo owner's shard was NOT, and no second node was ever dispatched to.
     const soloOn = on.shards[SOLO_INDEX] as ShardResult
     expect(soloOn.speculated).toBe(false)
+    // **The published instant's invariant, on both sides of it in one run.** The tracked
+    // shard's is asserted non-null at (8); this is the other half. It is a check on the
+    // threading rather than a new fact about CHURN-06 — `speculated` already carries that
+    // — and it is here because the two fields are set at one site and a future edit that
+    // sets one without the other would leave every other assertion in this file green.
+    expect(soloOn.judgedAt).toBeNull()
     expect(soloOn.copies).toEqual([])
     expect(soloOn.attempted).toEqual([solo.peerId])
     expect(soloOn.verification.status).toBe('agreed')
@@ -1386,7 +1392,49 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
     // duplicated the public shard would have duplicated these three too, on the evidence it
     // held at the moment it ran" — and if load moves the median, it moves the threshold this
     // is measured against in the same breath, because the scheduler read the same median.
-    const judgedAt = Math.min(...duplicates.map((d) => d.startedAt))
+    /*
+     * **The instant is now READ, not reconstructed** — `ShardResult.judgedAt`, which the
+     * scheduler publishes from the same `woke` it asked `stragglers` on.
+     *
+     * What it replaces is `Math.min(...duplicates.map((d) => d.startedAt))`: the wrapper's
+     * own dispatch instant, one round trip *after* the decision. Everything that settled
+     * inside that window was counted as evidence the scheduler held and was not, so the
+     * reconstruction could only ever OVER-include — and it over-included exactly the
+     * dispatches running alongside the duplicates, the slowest stretch of the job. The old
+     * value is kept beside the new one and both are printed, because the size of the bias
+     * is the reading this change is worth and it is a property of the host, not of the code.
+     *
+     * **Per-shard rather than job-wide, deliberately.** The reconstruction took a minimum
+     * across every duplicate in the job; `tracked.judgedAt` is this shard's own. The claim
+     * these lines carry is about the rule *as it was applied to the public shard*, so the
+     * shard's own instant is the faithful one and the job-wide minimum was a second
+     * approximation stacked on the first.
+     *
+     * **One basis conversion, and it is not cosmetic.** `judgedAt` is on `JobClock`'s
+     * clock, whose default is `Date.now()` — epoch milliseconds. Every span in `log` is
+     * `performance.now()`, counted from this process's time origin. `performance.timeOrigin`
+     * is exactly the distance between the two origins, so subtracting it puts the
+     * scheduler's instant into the log's basis and every comparison below stays where it
+     * already was. Comparing the two unconverted would not be imprecise, it would be
+     * meaningless.
+     */
+    const reconstructedAt = Math.min(...duplicates.map((d) => d.startedAt))
+    expect(
+      tracked.judgedAt,
+      `the tracked shard was speculated, so the scheduler judged it and must say when:\n${describeShards(on)}`,
+    ).not.toBeNull()
+    const judgedAt =
+      tracked.judgedAt === null ? reconstructedAt : tracked.judgedAt - performance.timeOrigin
+    // **The invariant, and it has no tolerance band because it is true by construction.**
+    // The decision is taken before `dispatchCopy` is called, and the wrapper's `startedAt`
+    // is recorded after that dispatch has reached it. A published instant at or after the
+    // dispatch it caused would mean the field is reporting the consequence again — which is
+    // precisely the defect this replaces, and is what a plant here should redden on.
+    expect(
+      judgedAt,
+      `the judgement must precede the dispatch it caused: judged at ${String(Math.round(judgedAt))} ` +
+        `against a duplicate dispatched at ${String(Math.round(trackedDuplicate.startedAt))}`,
+    ).toBeLessThanOrEqual(trackedDuplicate.startedAt)
     const completedByJudgement = log
       .filter(
         (d) =>
@@ -1413,7 +1461,11 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
         `below is not the sample the scheduler judged on`,
     ).toBeGreaterThanOrEqual(MIN_SAMPLES)
     const judgementReading =
-      `at judgement (+${Math.round(judgedAt - trackedPrimary.startedAt)}ms) the sample was ` +
+      `at judgement (+${Math.round(judgedAt - trackedPrimary.startedAt)}ms, which the ` +
+      `reconstruction it replaced put at +${Math.round(reconstructedAt - trackedPrimary.startedAt)}ms, ` +
+      `over-including by ${Math.round(reconstructedAt - judgedAt)}ms and ` +
+      `${String(log.filter((d) => !frozenIds.has(d.nodeId) && d.settledAt !== null && (d.settledAt as number) <= reconstructedAt).length - completedByJudgement.length)} ` +
+      `dispatches) the sample was ` +
       `${completedByJudgement.length} completed healthy dispatches, median ` +
       `${Math.round(median(completedByJudgement))}ms, threshold ` +
       `${Math.round(DEFAULT_STRAGGLER_FACTOR * median(completedByJudgement))}ms; elapsed ` +
