@@ -113,7 +113,33 @@ export interface HostedEnv {
    * was measured doing — handing every client an empty reservation, silently.
    */
   readonly ANNOUNCE_MULTIADDRS?: string
+  /**
+   * The build this deployment is running, injected by `scripts/deploy-hosted.sh`.
+   *
+   * **Deliberately NOT in `wrangler.jsonc`, unlike the key above.** The repository has exactly
+   * one version — the root `package.json`'s — and every second copy of a version is a copy that
+   * drifts. The script reads that one and passes it as `--var O2_VERSION:<v>`; measured
+   * 2026-08-27, `--var` MERGES with the file's `vars` rather than replacing them, so
+   * `ANNOUNCE_MULTIADDRS` survives the injection. That mattered: replacement would have left the
+   * relay announcing nothing, which consult §13 measured as handing every client an empty
+   * reservation SILENTLY.
+   *
+   * Optional because a local `wrangler dev` injects nothing, and absence answers with a sentinel
+   * rather than a missing field — see {@link BootstrapObject.fetch}. A LIVE deploy cannot leave
+   * it absent: the script reads `/self` back and rolls the deploy back unless the version it
+   * injected is the version that answers.
+   */
+  readonly O2_VERSION?: string
 }
+
+/**
+ * What `GET /self` reports when the deployment injected no version.
+ *
+ * A word, not an empty string and not an omitted field: a build that cannot name itself has to
+ * say so in a form nothing can mistake for a release number. Semver has no such string, so a
+ * reader comparing this against a tag gets an unmissable mismatch instead of a plausible one.
+ */
+const UNVERSIONED = 'unversioned'
 
 /**
  * The two platform globals the upgrade path needs, declared as narrowly as it uses them.
@@ -275,12 +301,19 @@ export class BootstrapObject {
    * isolate's — which is the whole difference between a Durable Object and the plain Worker
    * that returned three different PeerIds to three consecutive requests.
    *
-   * **Three fields, and the third is what makes the first one mean anything.** `instance` is
+   * **Four fields, and the third is what makes the first one mean anything.** `instance` is
    * fixed at construction, so two readings carrying one `peerId` and two `instance` values are
    * an identity that crossed a construction boundary, while two readings carrying one of each
    * are the same live object answering twice — which the criterion is not about. See
    * `#instance`. It is a field on the one route this object serves and **not a second route**:
    * every route is a surface, and this tier's surfaces are not.
+   *
+   * **The fourth, `version`, is the deployment's and not the store's** — which is exactly the
+   * axis `peerId` is not. `instance` says a construction happened and never why; `version` says
+   * which build the construction was of, so a redeploy and an eviction stop being
+   * indistinguishable to a reader who has both. It also closes the gap that prompted it: before
+   * this field, nothing anywhere read the release tag and a running node could not be asked what
+   * it was built from.
    *
    * `/self` alone still does not satisfy criterion 2, which says *dials, completes identify,
    * and gets the same PeerId* — three things, and only an outside dial carries the middle one.
@@ -295,6 +328,7 @@ export class BootstrapObject {
       peerId: identity.peerId,
       nodeKey: identity.nodeKey,
       instance: this.#instance,
+      version: this.#env.O2_VERSION ?? UNVERSIONED,
     })
   }
 
