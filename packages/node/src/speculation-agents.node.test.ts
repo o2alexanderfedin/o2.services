@@ -26,6 +26,7 @@ import type {
   JobResult,
   NameRecord,
   NodeDescriptor,
+  Rejection,
   ShardResult,
   SubmitOptions,
   Task,
@@ -702,6 +703,27 @@ async function runJob(
 }
 
 /**
+ * Each refusal with the **role** of the node that gave it, not only its id.
+ *
+ * Written for a failure that has happened and could not be attributed: one run of ten under
+ * eight CPU burners reddened here with a single `unreachable: no answer in 2000ms`, and the
+ * fixture printed no frozen ids, so it was not possible to say whether the silent node was
+ * one of the three this test deliberately stops or one it left running. Those are opposite
+ * findings — the first is the fixture's own freeze reaching the offer path, the second is a
+ * genuine admission-path reading — and a bare peer id separates them not at all.
+ *
+ * `roleOf` is passed in rather than a set being passed in, because the useful answer is
+ * *which* frozen process, and the caller is the only place that knows.
+ */
+function describeRejections(
+  rejections: readonly Rejection[],
+  roleOf: (nodeId: string) => string,
+): string {
+  if (rejections.length === 0) return 'none'
+  return rejections.map((r) => `${roleOf(r.nodeId)} ${r.nodeId}: ${r.reason}`).join('\n')
+}
+
+/**
  * How long the three stayed frozen — freeze to **release**, for the diagnostic line.
  *
  * **Printed, never asserted against, and the reason is measured rather than stylistic.** The
@@ -1221,7 +1243,25 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
         (e) => e.kind === 'expired' || e.kind === 'surrendered' || e.kind === 'abandoned',
       ),
     ).toEqual([])
-    expect(on.shards.flatMap((s) => s.rejections)).toEqual([])
+    // **The message is the instrument, and this one was written from a failure that could
+    // not be attributed.** See `describeRejections`: a bare peer id cannot say whether the
+    // node that went silent was one of the three this fixture froze. The assertion itself is
+    // unchanged — no refusal is expected here at all — and only what it says has changed.
+    const roleOfNode = (nodeId: string): string =>
+      nodeId === victimId
+        ? 'FROZEN(public-victim)'
+        : nodeId === paired[0].peerId
+          ? 'FROZEN(paired-owner)'
+          : nodeId === solo.peerId
+            ? 'FROZEN(solo-owner)'
+            : frozenIds.has(nodeId)
+              ? 'FROZEN(unclassified)'
+              : 'healthy'
+    const allRejections = on.shards.flatMap((s) => s.rejections)
+    expect(
+      allRejections,
+      `a node refused an offer in the on arm:\n${describeRejections(allRejections, roleOfNode)}`,
+    ).toEqual([])
     for (const shard of on.shards) expect(shard.generations).toBe(1)
 
     // ---- (6) The cost accounting carries the measurement, as a ratio between arms. ---
