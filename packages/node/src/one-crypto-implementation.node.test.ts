@@ -647,3 +647,103 @@ describe('CRYPTO-06 — signature bytes are not an identifier outside the regist
     ).toBe(ACCEPTED_SIGNATURE_COMPARISONS.length + 1)
   })
 })
+
+// ---------------------------------------------------------------------------
+// CRYPTO-04 — every verification on the trust path reaches the STRICT verifier
+// ---------------------------------------------------------------------------
+
+/**
+ * The half the register above does not cover, and the audit of 2026-08-27 said was the only
+ * thing left to make structural.
+ *
+ * ## Two independent things keep this project safe, and only one of them was guarded
+ *
+ * `@noble/curves` refuses an Ed25519 signature whose scalar `S` is not reduced below the group
+ * order. Some platform `subtle` implementations accept it — measured on this repository's own
+ * browser CI lane, 2026-08-27: `subtle` accepts the non-canonical-S vector on Linux and
+ * rejects it on macOS, in all three engines. That is signature malleability: given `(R, s)`
+ * an attacker computes `(R, s + L)` over the SAME message, and a permissive verifier accepts
+ * both. Externally: CVE-2026-33895, High, CVSS 7.5, in another library, with the published
+ * impact "applications relying on signature uniqueness — dedup by signature bytes, replay
+ * tracking". *The Provable Security of Ed25519* shows strict rejection is required for
+ * SUF-CMA, so the permissive behaviour is the defect and not an alternative.
+ *
+ * The audit measured BOTH halves clean: no production code keys on signature bytes (the
+ * register above), and all twelve trust-path verifications call `@noble/curves` directly. But
+ * only the first half had a guard. **This block guards the second**, so a future change that
+ * routes a verification through the selectable port arrives red instead of silently widening
+ * what this project accepts as a signature.
+ *
+ * ## What is asserted, and what deliberately is not
+ *
+ * `getSyncVerifier` / `getAsyncVerifier` are `ed25519-backend.ts`'s selectable ports: on a
+ * platform where `subtle` is permissive, the async one IS the permissive verifier. They are
+ * unwired in production by ruling (CRYPTO-03), and `requirements-ledger.node.test.ts` already
+ * pins WIRE-02's sentence that `getSyncVerifier` has no production caller. This asserts the
+ * consequence rather than the sentence: **no production file calls either port.**
+ *
+ * NOT asserted: that `subtle` is unused. It is used for SIGNING, in one file, and the block
+ * above is what keeps that to one file. Signing with a permissive implementation is not the
+ * hazard — a signature this project produces is verified by whoever receives it.
+ */
+describe('CRYPTO-04 — no production file reaches the selectable verifier ports', () => {
+  /** The two ports. Named by symbol, because a rename is a change worth reporting. */
+  const SELECTABLE_PORTS = ['getSyncVerifier', 'getAsyncVerifier'] as const
+
+  /**
+   * The one file allowed to name them: the module that defines them. Anything else is a
+   * production caller and is the regression this block exists to catch.
+   */
+  const DEFINING_FILE = 'packages/core/src/ed25519-backend.ts'
+
+  it('has the defining file in the corpus, so this is not an absence over an empty walk', () => {
+    expect(CORPUS_PATHS).toContain(DEFINING_FILE)
+  })
+
+  it('finds the ports in the file that defines them — the scan matches something', () => {
+    // Anti-vacuity: if a rename made both names unfindable, every assertion below would be
+    // true of nothing. This is the same shape the WebCrypto block above uses.
+    const source = CORPUS.find(([path]) => path === DEFINING_FILE)?.[1] ?? ''
+    for (const port of SELECTABLE_PORTS) {
+      expect(source, `${DEFINING_FILE} no longer names ${port} — was it renamed?`).toContain(port)
+    }
+  })
+
+  it('no other production file calls either port', () => {
+    const callers = CORPUS.filter(([path, source]) => {
+      if (path === DEFINING_FILE) return false
+      return SELECTABLE_PORTS.some((port) => new RegExp(`\\b${port}\\s*\\(`).test(source))
+    }).map(([path]) => path)
+
+    expect(
+      callers,
+      'a production file calls a SELECTABLE Ed25519 verifier port. On a platform whose ' +
+        '`subtle` is permissive that port accepts a non-canonical-S signature — one message, ' +
+        'two valid signatures. The trust path must call `@noble/curves` directly. See ' +
+        '.planning/OPEN-ITEMS.md § 5.',
+    ).toEqual([])
+  })
+
+  it('the trust path really does verify — the strict call is present where it is claimed', () => {
+    // The positive half. The three assertions above are absence-shaped; without this one they
+    // would all be satisfied by a tree that verifies nothing at all.
+    const verifying = CORPUS.filter(([, source]) => /\bed25519\.verify\s*\(/.test(source)).map(
+      ([path]) => path,
+    )
+    expect(
+      verifying.length,
+      'no production file calls ed25519.verify — the trust path verifies nothing, which ' +
+        'would make every absence assertion above true for the wrong reason',
+    ).toBeGreaterThan(5)
+    // The sites the audit named, so a deletion is reported rather than shrinking the count.
+    for (const named of [
+      'packages/core/src/enrollment.ts',
+      'packages/core/src/capability.ts',
+      'packages/core/src/naming.ts',
+      'packages/core/src/discovery.ts',
+      'packages/core/src/result-attestation.ts',
+    ]) {
+      expect(verifying, `${named} no longer verifies with @noble/curves`).toContain(named)
+    }
+  })
+})

@@ -560,7 +560,11 @@ describe('differential-conformance guard — every backend this host can run', (
       // calling `ctx.skip`. The distinction that matters is preserved: the case RAN, both
       // verdicts were computed, and the finding is printed with its platform.
       if (accepted.length > 0 && isKnownMalleabilityPlatform(vector.name)) {
-        process.stdout?.write?.(
+        // `console.warn`, not `process.stdout` — this file runs in the BROWSER project and
+        // `process` does not exist there. Measured on CI: "Can't find variable: process",
+        // all three engines. `console.warn` is shown by vitest for a PASSING test; plain
+        // `console.log` is not, which is the whole reason this is not silent.
+        console.warn(
           `[KNOWN OPEN FINDING — OPEN-ITEMS.md § 5] on this platform \`subtle\` accepts the ` +
             `non-canonical-S vector that @noble/curves rejects, so one message has two valid ` +
             `signatures here. accepted by: ${accepted.join(', ')}; platform: ${platform}; ` +
@@ -1007,7 +1011,7 @@ describe('sync port and async port agree on every reject vector (T-25-16)', () =
       // Both verdicts are computed above; only the assertion is withheld, and only where the
       // finding is already written up.
       if (syncVerdict !== asyncVerdict && isKnownMalleabilityPlatform(vector.name)) {
-        process.stdout?.write?.(
+        console.warn(
           `[KNOWN OPEN FINDING — OPEN-ITEMS.md § 5] the two ports disagree on ` +
             `"${vector.name}" on ${platform}: sync (@noble/curves) ${syncVerdict}, async ` +
             `(platform subtle) ${asyncVerdict}. One message has two valid signatures here.\n`,

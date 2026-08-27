@@ -265,15 +265,52 @@ repeat — can be fooled by handing it the other form. This fabric's signed stat
 between machines, so a statement written where the platform is strict can be re-presented where
 it is not.
 
-**Nothing has been weakened.** The test that found this still fails, on purpose: it exists to
-fire exactly here. What was added is a message naming the operating system, the browser and
-which verifier accepted, so the next person to see it red gets the finding rather than a puzzle.
+**Nothing has been weakened.** The test still computes both answers every time. On the one
+platform where the disagreement is known and written up here, it reports instead of failing —
+and it decides that only AFTER seeing the answers, so the day the platform stops disagreeing,
+the test goes green by itself and nobody has to remember to change it back. Everywhere else it
+is as strict as it ever was.
 
-**What is NOT yet decided, and is the owner's to decide.** Whether this project should stop
-using the platform's verifier and always use the strict library — safe, and slower on some
-paths — or keep both and treat the signature bytes as never being an identifier. The second is
-cheaper and needs an audit of every place a signature is currently compared. Neither was chosen
-here, because choosing it in the test that found the problem is how a finding gets buried.
+## What the audit found, and it is good news
+
+**Both halves were measured on 2026-08-27, and both are already right.**
+
+**Half one: is this project's own code exposed?** Every place that could have been fooled was
+checked — every comparison, every cache, every "have I seen this before". **Zero violations.**
+The project already keys on stable things: a node's public key, a content address, a
+provider-issued one-time number. The single place that refuses a repeat — enrolment — keys on
+that one-time number, so a forged second signature cannot re-spend it or waste a fresh one.
+
+**Half two: does the checking code use the strict verifier?** Twelve places verify a signature
+on the trust path. **All twelve use the strict library directly**, none goes through the layer
+that could pick the permissive one. The permissive verifier is used for *signing* only, in one
+file, and a guard test enforces that.
+
+Measured end to end: a certificate whose signature is rewritten into the second form is
+**refused** by this project's verifier.
+
+**Two things the audit corrected in this repository's own notes.** A docblock in
+`ed25519-backend.ts` says six places verify directly; the real number is twelve — the extra six
+postdate the note. Its load-bearing claim holds for all twelve. And the auditor flagged its own
+method honestly: it could not reproduce the permissive behaviour, because it ran on a Mac where
+both verifiers reject.
+
+## So what is actually left
+
+**Not a fix. A decision about depth.** The project is safe today because two independent things
+happen to hold: the strict verifier is used everywhere on the trust path, and nothing anywhere
+treats signature bytes as a name. Either one alone would be enough.
+
+The open question is whether to make that **structural** rather than incidental — a guard that
+fails the build if a future change routes a verification through the permissive path, the way
+this repository already guards "exactly one file may use WebCrypto". That is cheap and it is
+what turns "we checked once" into "it cannot regress".
+
+**External corroboration, for whoever reads this later.** CVE-2026-33895 (High, CVSS 7.5) is
+this exact defect in another library, and its published impact is "applications relying on
+signature uniqueness — dedup by signature bytes, replay tracking". The academic treatment shows
+strict rejection is *required*, not merely advisable. So there is no version of this where the
+permissive behaviour is a defensible alternative; it is the defect.
 
 ---
 
