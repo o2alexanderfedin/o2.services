@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-26T11:40:00.000Z",
+  "timestamp": "2026-08-26T17:10:00.000Z",
   "phase": "29",
   "phase_name": "Hosted Tier Assembly & First Deploy",
   "phase_dir": ".planning/phases/phase-29-hosted-tier-assembly-and-first-deploy",
@@ -10,7 +10,7 @@
   "total_tasks": null,
   "status": "paused",
   "branch": "feature/phase-29-hosted-tier",
-  "head": "caa46c6",
+  "head": "2aa0a6b",
   "tree": "clean",
   "lanes": {
     "node": "207 files. slow-specs GREEN \u2014 one file added, inside the tolerance of 5, so the record retaken at 206 still describes this tree and no second retake is due. Targeted guards run green: slow-specs, vocabulary, purity, opt-in-only-sources, job-entry-points, both reachability guards, hosted-tier-deploy. A full lane sweep has NOT been run since the retake.",
@@ -172,12 +172,18 @@
     },
     {
       "id": 21,
-      "name": "A NINTH speculation-agents mode, cause UNVERIFIED.",
-      "status": "not_started"
+      "name": "CLOSED 2026-08-26 in 2aa0a6b \u2014 the ninth mode has a CAUSE, proven by planting rather than by waiting. The solo owner\u2019s shard has exactly one legal executor (sovereign, its owner, REDUNDANCY 1, nothing may be duplicated for it) so its only exit is the thaw; delay the thaw past RPC_TIMEOUT_MS and the single dispatch fails on that budget with no untried node behind it, ending no-untried-node and reading null at index 21. At 5 000 ms every shard still agreed; at 15 000 ms the frozen dispatches capped at 10001/10001/10000 ms and #21 came back \"rpc to ... timed out after 10000ms\". THAT IS THE FABRIC BEHAVING CORRECTLY \u2014 nothing in production to repair; what was defective is the fixture\u2019s silence about resting on freeze-to-release staying inside the budget. NO NEW ASSERTION, and the reason is measured: the solo dispatch begins after freeze() resolves, so a bound on the span would redden a green run in a ~200 ms band. The span is printed instead. THE PLANT CAUGHT A DEFECT IN MY OWN INSTRUMENT \u2014 the first version read thawedAt, the instant the thaw is DECIDED, and printed 764 ms under a 15 000 ms delay; now taken at releasedAt, reading 1381 ms clean and 16 244 ms planted. NOT REPRODUCED NATURALLY in ten runs under eight CPU burners at load 16-50, and no frequency is claimed.",
+      "status": "done",
+      "commit": "2aa0a6b"
     },
     {
       "id": 22,
       "name": "judgedAt in speculation-agents is the wrapper's dispatch instant, so the reconstructed sample can only OVER-include. Named, not fixed.",
+      "status": "not_started"
+    },
+    {
+      "id": 24,
+      "name": "A TENTH speculation-agents mode, FOUND 2026-08-26 and NAMED RATHER THAN FIXED. One of ten runs under eight CPU burners (load 29 at the time) reddened at `expect(on.shards.flatMap((s) => s.rejections)).toEqual([])` with a single entry: {nodeId, reason: \"unreachable: no answer in 2000ms\"}. This is NOT the ninth mode \u2014 different line, different assertion, and the run\u2019s own diagnostic shows the thaw arrived fast (frozen shards 886/853/852 ms, losing copies all agreed). The 2000 ms is an absolute on the admission-offer path. UNVERIFIED and deliberately so: it is not established whether the node that failed to answer was one of the three frozen processes. The fixture prints no frozen ids, so that is the next instrument gap and it must be closed BEFORE a cause is written down. Evidence: the run log is scratch-only and was not preserved; reproduce with ten single-file runs under eight burners.",
       "status": "not_started"
     }
   ],
@@ -228,6 +234,6 @@
     }
   ],
   "uncommitted_files": [],
-  "next_action": "Tasks 21 and 22, both in speculation-agents and both NAMED RATHER THAN FIXED \u2014 21 is a ninth mode whose cause is unverified, 22 is a judgedAt over-inclusion bias. Neither touches the hosted tier. The owner-owned gate is unchanged and is what everything hosted now waits on: Cloudflare billing alert, then the first deploy. Phase 29 criteria 1 and 2 and Phase 30 criteria 1-3 are all deploy-gated and are to be reported OPEN.",
+  "next_action": "Task 22 is IN PROGRESS: publish the scheduler\u2019s own judgement instant as `judgedAt: number | null` on the shard, threaded exactly parallel to `speculated` (set beside `speculated = true` at submit.ts:2082 where `woke` is in scope, carried through the internal `Dispatched` union, merged first-non-null at :3187 because ledger.duplicated gates judgement to once per task, placed at :3302). CHECK THE CLOCK BASIS FIRST \u2014 the wrapper log is performance.now() in the requestor process and the comparison is only valid if `clock.now()` shares that basis. Blast radius measured: 7 `copies: []` literal sites across submit.ts, reduce-job.test.ts, reduce-sovereign.test.ts. Do NOT touch `speculated` or `SpeculativeCopy`, do not publish the completed-sample, and do not fix task 24. Then task 24. The owner gate is unchanged: Cloudflare billing alert, then the first deploy.",
   "context_notes": "The session's redirect is the finding: the recorded next action was task 19, and task 19's OWN first instruction \u2014 read ARCHITECTURE.md:470-506 \u2014 reorders it. Steps 1-3 are Group A, provable in the node lane today; step 6 is Group B and needs the owner's deploy. Doing the ordered work surfaced three things nothing had asked for: a latent [a-z]+ regex that closed the reachability register to the libp2p barrel, DoDatastore's refusal of the exact prefixes the sweep walks, and mortice's browser build being the WRONG remedy for gap 2. Five plants across three modules were retracted for proving nothing \u2014 one ReferenceError, two aimed at a mechanism they left in place \u2014 and each was redone and recorded rather than quietly replaced. The pause itself produced one more instance of the family: writing a bracketed section name into a replacement body made the NEXT replacement match that mention instead of the real tag, deleting four sections between them. Caught by the line count falling 263 -> 206 rather than by any check, restored from the last commit, and redone with every span computed against the original string before any substitution."
 }
