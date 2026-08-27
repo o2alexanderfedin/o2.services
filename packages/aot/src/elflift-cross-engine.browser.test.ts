@@ -78,6 +78,30 @@ const IN_NAME = 'in.elf'
 const OUT_NAME = 'out.bc'
 const SEM_NAME = 'aarch64.bc'
 
+/**
+ * Are the elfconv artifacts being served at all?
+ *
+ * **They are not in this repository** — `packages/aot/artifacts/` is gitignored and its
+ * contents are produced by the elfconv toolchain on a host that has it. So on a machine that
+ * has not run that toolchain, and on every CI runner, they are absent.
+ *
+ * That is the same host-boundedness that keeps the whole `aot` lane out of CI (see
+ * `.github/workflows/ci.yml`), and this file belongs to that track — it is the browser half
+ * of `AOTW-06`. It was reaching the browser lane only because it is named `.browser.test.ts`.
+ *
+ * **A loud skip, never a relaxed assertion.** Measured on the browser lane's first CI run,
+ * 2026-08-27: 2 cases × 3 engines = 6 failures, all `elflift.wasm is not being served (404)`.
+ * Failing there says nothing about the code and drowns the finding that run DID produce.
+ */
+async function artifactsAvailable (): Promise<boolean> {
+  try {
+    const response = await fetch(`${ARTIFACTS}/${SEM_NAME}`)
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
 async function load (name: string): Promise<Uint8Array> {
   const response = await fetch(`${ARTIFACTS}/${name}`)
   if (!response.ok) {
@@ -158,7 +182,23 @@ async function lift (
 }
 
 describe('AOTW-06 — elflift.wasm on an engine that is not Node', () => {
-  it('instantiates, and imports nothing but WASI preview1', async () => {
+  it('has the elfconv artifacts, or says which host fact is missing', async (ctx) => {
+    // The precondition, asserted as its own case rather than hidden inside the two below —
+    // so a run that skipped says so in its own line instead of reporting two green cases
+    // that tested nothing.
+    if (!(await artifactsAvailable())) {
+      ctx.skip(
+        `packages/aot/artifacts/ is not being served. It is gitignored and produced by the ` +
+          `elfconv toolchain, so it is absent on any host that has not run that toolchain — ` +
+          `every CI runner included. This file is the browser half of the aot track, which ` +
+          `is out of CI for the same reason (see .github/workflows/ci.yml). Run it on a host ` +
+          `with the artifacts: npm run test:browser.`,
+      )
+    }
+  })
+
+  it('instantiates, and imports nothing but WASI preview1', async (ctx) => {
+    if (!(await artifactsAvailable())) { ctx.skip(); return }
     const moduleBytes = await load('elflift.wasm')
     const compiled = await WebAssembly.compile(moduleBytes as BufferSource)
 
@@ -174,7 +214,8 @@ describe('AOTW-06 — elflift.wasm on an engine that is not Node', () => {
     expect(exports).toEqual(['_start', 'memory'])
   }, 300_000)
 
-  it('lifts an AArch64 binary to the same bitcode Node produced', async () => {
+  it('lifts an AArch64 binary to the same bitcode Node produced', async (ctx) => {
+    if (!(await artifactsAvailable())) { ctx.skip(); return }
     const [moduleBytes, elf, semantics] = await Promise.all([
       load('elflift.wasm'),
       load('hello_static.elf'),
