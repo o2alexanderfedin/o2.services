@@ -145,11 +145,62 @@ const agents: Agent[] = []
 const nodes: FabricNode[] = []
 
 /**
+ * The two host conditions this fixture re-attempts, and NOTHING else.
+ *
+ * **Measured 2026-08-27, not assumed.** A full `--project node` sweep lost this file at
+ * machine load **302** with `RpcFailure: rpc send to 12D3KooW9qmTf… failed: Unexpected EOF -
+ * stream closed while reading 0/1 bytes`, thrown from the JOINER CHILD during its enrolment
+ * write and surfaced here through the child's early exit. Re-run alone the file passed in
+ * **26.62 s real / 11.93 user / 2.78 sys**, and three consecutive repeats at load 268-284
+ * passed. The file was last touched 2026-08-06 and nothing in this session went near it.
+ *
+ * **Why the pattern from `admission-agents.node.test.ts` needed widening rather than
+ * copying.** That file keys on `/timed out after \d+ms/` — a budget being missed. This
+ * failure is not a missed budget: the stream is CUT mid-frame, `0/1 bytes`, which is a
+ * different observable and would sail straight past that regex. Both are statements about a
+ * contended host and neither is a statement about enrolment, so both are re-attempted; a
+ * refusal, a bad flag or a crash is re-thrown untouched on the first attempt.
+ *
+ * **Why not a bigger budget.** The budget belongs to the child and is the shipped default;
+ * raising it from a test changes what the product does in the test's favour. And per
+ * `CLAUDE.md` § Measurement, a wall-clock bound over a process that is *waiting* measures the
+ * host, never the code. No budget in this file was raised.
+ *
+ * **What this cannot hide.** A second failure is thrown, so an enrolment path that is
+ * genuinely broken still fails the file on the same message it always did — and every
+ * re-attempt writes to stdout, so a run that needed one says so. `console.log` would not,
+ * measured on vitest 4.1.10 for a passing test.
+ */
+const CONTENDED_HOST = /timed out after \d+ms|Unexpected EOF - stream closed/
+
+/**
+ * Stand an agent up, re-attempting exactly once and only on {@link CONTENDED_HOST}.
+ *
+ * Both processes of an arm are stood up through here, so a re-attempt replaces the one child
+ * that failed rather than the pair.
+ */
+async function spawnAgent(name: string, extraArgs: readonly string[]): Promise<Agent> {
+  try {
+    return await spawnAgentOnce(name, extraArgs)
+  } catch (cause) {
+    const text = cause instanceof Error ? cause.message : String(cause)
+    if (!CONTENDED_HOST.test(text)) throw cause
+    process.stdout.write(
+      `[fixture / re-attempt] agent ${name} did not come up because an RPC missed the child's ` +
+        `own budget or had its stream cut mid-frame, which on a loaded host is a statement ` +
+        `about contention rather than about enrolment. Standing it up once more; a second ` +
+        `failure is thrown. Original: ${text.slice(0, 400)}\n`,
+    )
+    return await spawnAgentOnce(name, extraArgs)
+  }
+}
+
+/**
  * `'pipe'` on fd 0 is load-bearing rather than cosmetic: `bin/agent.ts` arms its orphan leash
  * by watching fd 0, and `'ignore'` hands it a character device, which opts the leash out.
  * `orphan-leash.node.test.ts` fails any spawn site that does that.
  */
-async function spawnAgent(name: string, extraArgs: readonly string[]): Promise<Agent> {
+async function spawnAgentOnce(name: string, extraArgs: readonly string[]): Promise<Agent> {
   const child: AgentProcess = spawn(process.execPath, [AGENT, '--dir', join(workdir, name), ...extraArgs], {
     stdio: ['pipe', 'pipe', 'pipe'],
   })
