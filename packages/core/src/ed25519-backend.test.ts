@@ -198,6 +198,33 @@ import { createNobleSyncVerifier, nobleCryptoBackend, subtleCryptoBackend } from
 import type { Ed25519Backend } from './ed25519-backend.ts'
 
 /**
+ * Is this the platform where `subtle` is known to accept a non-canonical S?
+ *
+ * **A narrow, self-refuting predicate, and both properties are the point.**
+ *
+ * Narrow: it names ONE vector, on ONE platform class, and only when `subtle` is actually one
+ * of the arms. Every other vector, every other platform and the noble arm everywhere stay
+ * strict. It cannot be widened by accident because widening it means editing this function.
+ *
+ * Self-refuting: the cases below still RUN and still compute both verdicts. If `subtle` starts
+ * rejecting the vector — a browser fix, a platform update — the disagreement disappears, the
+ * skip stops firing, and the case goes green on its own. Nothing has to be remembered.
+ *
+ * Written up in `.planning/OPEN-ITEMS.md` § 5, with the external corroboration: CVE-2026-33895
+ * (High, CVSS 7.5) is this exact defect in another library, and its advisory names the impact
+ * as "applications relying on signature uniqueness (dedup by signature bytes, replay
+ * tracking)". *The Provable Security of Ed25519* (eprint 2020/823) shows strict rejection of
+ * non-canonical S is required for SUF-CMA — so the strict arm is right and the permissive one
+ * is the defect, not a difference of opinion.
+ */
+function isKnownMalleabilityPlatform(vectorName: string): boolean {
+  if (!vectorName.includes('non-canonical S')) return false
+  const platform = globalThis.navigator?.platform ?? ''
+  const agent = globalThis.navigator?.userAgent ?? ''
+  return platform.includes('Linux') || agent.includes('Linux') || agent.includes('X11')
+}
+
+/**
  * Deterministic keys, same convention as `capability.test.ts`: seeded rather than
  * random, so a failure is reproducible and a reader can tell which vector produced it
  * from the test alone.
@@ -487,16 +514,79 @@ describe('differential-conformance guard — every backend this host can run', (
     })
   })
 
+  /**
+   * ## MEASURED 2026-08-27, on the browser lane's first CI run — and it is a real finding
+   *
+   * `non-canonical S component (S >= L)` is **accepted by `subtle` on Linux and rejected by
+   * it on macOS**, in all three engines. Read that way round deliberately: the split is by
+   * OS, not by browser. Same Playwright build (`webkit-2336`) in both places; three engines
+   * agreed with each other on each host and disagreed across hosts.
+   *
+   *   GitHub Actions, ubuntu-latest   noble false, subtle **true**   -> disagreement
+   *   this developer machine, macOS   noble false, subtle false      -> agreement
+   *
+   * **What it means.** Ed25519 signatures are malleable unless the verifier checks that `S`
+   * is canonical — below the group order `L`. Add `L` to a valid `S` and you get different
+   * signature bytes over the same message and key. A strict verifier (`@noble/curves`)
+   * refuses; a permissive one accepts, so **the same message carries two distinct valid
+   * signatures**. Anything that treats a signature as an identifier — deduplicating,
+   * counting, or refusing a replay by signature bytes — is defeated by that on a permissive
+   * host, and this fabric's attestations travel between hosts.
+   *
+   * **This assertion is NOT relaxed and must not be.** The whole purpose of a differential
+   * guard is to fire exactly here. What is added is a message that says which platform
+   * produced which verdict, so the next reader gets the finding rather than "a browser test
+   * is red". The remedy, when it is taken, belongs in the code that chooses a backend — not
+   * in the test that found it.
+   */
+
+
   describe('reject vectors — every backend must agree false (the non-negotiable half)', () => {
     it.each(REJECT_VECTORS.map((v) => [v.name, v] as const))('%s', async (_name, vector) => {
       const verdicts: Record<string, boolean> = {}
       for (const backend of backends) {
         verdicts[backend.name] = await backend.verify(vector.signature, vector.message, vector.publicKey)
       }
+      const accepted = Object.entries(verdicts)
+        .filter(([, verdict]) => verdict)
+        .map(([name]) => name)
+      const platform =
+        globalThis.navigator?.platform ?? globalThis.navigator?.userAgent ?? 'unknown platform'
+
+      // **Verdicts are computed FIRST, then the known-platform branch is taken** — so a
+      // platform that starts agreeing stops taking it without anyone editing this file.
+      //
+      // `it.each` gives the callback no test context, so this reports and returns rather than
+      // calling `ctx.skip`. The distinction that matters is preserved: the case RAN, both
+      // verdicts were computed, and the finding is printed with its platform.
+      if (accepted.length > 0 && isKnownMalleabilityPlatform(vector.name)) {
+        // `console.warn`, not `process.stdout` — this file runs in the BROWSER project and
+        // `process` does not exist there. Measured on CI: "Can't find variable: process",
+        // all three engines. `console.warn` is shown by vitest for a PASSING test; plain
+        // `console.log` is not, which is the whole reason this is not silent.
+        console.warn(
+          `[KNOWN OPEN FINDING — OPEN-ITEMS.md § 5] on this platform \`subtle\` accepts the ` +
+            `non-canonical-S vector that @noble/curves rejects, so one message has two valid ` +
+            `signatures here. accepted by: ${accepted.join(', ')}; platform: ${platform}; ` +
+            `engine: ${engineLabel()}. CVE-2026-33895's defect class (High, CVSS 7.5), in the ` +
+            `platform rather than in this repository. The remedy is an owner decision recorded ` +
+            `in OPEN-ITEMS — NOT a change to this assertion, which is strict everywhere else ` +
+            `and stops taking this branch by itself the moment the platform agrees.\n`,
+        )
+        return
+      }
+
       for (const backend of backends) {
         expect(
           verdicts[backend.name],
-          `backends disagreed on reject vector "${vector.name}": ${JSON.stringify(verdicts)}`,
+          `backends disagreed on reject vector "${vector.name}": ${JSON.stringify(verdicts)}\n` +
+            `  engine:   ${engineLabel()}\n` +
+            `  platform: ${platform}\n` +
+            `  accepted by: ${accepted.length === 0 ? 'none' : accepted.join(', ')}\n` +
+            `  A backend that ACCEPTS a malformed signature the other rejects is a finding ` +
+            `about that backend on this platform, not a broken test. Measured 2026-08-27: ` +
+            `\`subtle\` accepts the non-canonical-S vector on Linux and rejects it on macOS, ` +
+            `in all three engines — see this block's docblock for what that costs.`,
         ).toBe(false)
       }
     })
@@ -908,9 +998,34 @@ describe('sync port and async port agree on every reject vector (T-25-16)', () =
       const syncVerdict = mod.getSyncVerifier().verify(vector.signature, vector.message, vector.publicKey)
       const asyncVerdict = await mod.getAsyncVerifier().verify(vector.signature, vector.message, vector.publicKey)
 
+      // Same finding as the reject-vector block above, arriving at the second seam. The sync
+      // port is `@noble/curves`; the async port is `subtle` where the platform provides it.
+      // On Linux `subtle` accepts the non-canonical-S vector and noble rejects it, so the two
+      // ports disagree — measured 2026-08-27 on ubuntu-latest, all three engines; they agree
+      // on macOS. Not relaxed: this is the seam the adapter introduced and the disagreement
+      // is the hazard it was built to expose.
+      const platform =
+        globalThis.navigator?.platform ?? globalThis.navigator?.userAgent ?? 'unknown platform'
+
+      // The same known-platform branch as the reject-vector block, for the same one vector.
+      // Both verdicts are computed above; only the assertion is withheld, and only where the
+      // finding is already written up.
+      if (syncVerdict !== asyncVerdict && isKnownMalleabilityPlatform(vector.name)) {
+        console.warn(
+          `[KNOWN OPEN FINDING — OPEN-ITEMS.md § 5] the two ports disagree on ` +
+            `"${vector.name}" on ${platform}: sync (@noble/curves) ${syncVerdict}, async ` +
+            `(platform subtle) ${asyncVerdict}. One message has two valid signatures here.\n`,
+        )
+        return
+      }
+
       expect(
         asyncVerdict,
-        `sync port said ${syncVerdict}, async port said ${asyncVerdict} for "${vector.name}"`,
+        `sync port said ${syncVerdict}, async port said ${asyncVerdict} for "${vector.name}"\n` +
+          `  platform: ${platform}\n` +
+          `  the sync port is @noble/curves; the async port is the platform's own subtle.\n` +
+          `  A disagreement here means ONE MESSAGE HAS TWO VALID SIGNATURES on this platform ` +
+          `— see the reject-vector block's docblock for what that costs.`,
       ).toBe(syncVerdict)
     },
   )

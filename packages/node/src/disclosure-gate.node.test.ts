@@ -527,6 +527,39 @@ describe('every workflow file is one GitHub will actually accept', () => {
     }
   })
 
+  it('pins every action by commit SHA, never by a tag somebody else can move', () => {
+    /**
+     * A tag is a pointer the action's owner controls. `actions/checkout@v4` today and
+     * `actions/checkout@v4` after a compromise are the same string and different code, and
+     * the deploy workflow holds a Cloudflare credential with delete rights on this account's
+     * production Workers. A SHA is the artifact itself.
+     *
+     * This is a fresh decision rather than a deferred one: `.planning/THREAT-MODEL.md` is
+     * scoped entirely to the P2P protocol's attacker model and says nothing about CI supply
+     * chain, so there was no owner ruling to inherit.
+     *
+     * Dependabot updates these — `.github/dependabot.yml` watches `github-actions` — so the
+     * pin does not become a reason to run stale actions forever.
+     */
+    for (const path of workflowFiles()) {
+      const source = readFileSync(join(ROOT, path), 'utf8')
+      const unpinned = [...source.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)/gm)]
+        .map((m) => m[1])
+        .filter((ref): ref is string => ref !== undefined)
+        // A local action (`./.github/actions/...`) has no SHA to pin and is this repository's
+        // own code, already covered by everything else here.
+        .filter((ref) => !ref.startsWith('./'))
+        .filter((ref) => !/@[0-9a-f]{40}$/.test(ref))
+
+      expect(
+        unpinned,
+        `${path} uses an action by tag rather than by SHA: ${unpinned.join(', ')}. ` +
+          `A tag is a pointer its owner can move; the deploy workflow holds a credential ` +
+          `with delete rights on this account's production Workers.`,
+      ).toEqual([])
+    }
+  })
+
   it('gives every job a runner and at least one step, so no job is a comment husk', () => {
     // The other half of the same removal hazard: deleting a lane can leave a job key with a
     // body that is entirely comments, which parses to `null` and fails only at dispatch.

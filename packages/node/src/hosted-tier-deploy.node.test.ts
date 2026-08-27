@@ -309,3 +309,90 @@ describe('the announced address is configured — the first defect the first dep
     expect(config).toMatch(/"ANNOUNCE_MULTIADDRS":\s*"\/dns4\/[^"]+\/tcp\/443\/tls\/ws"/)
   })
 })
+
+describe('one version, and the deployed node can be asked for it', () => {
+  /**
+   * The question that produced these cases was the owner's: *"where do we get the release
+   * version from?"* — and the measured answer on 2026-08-27 was **nowhere**. The root manifest
+   * had no `version` field at all, all nine workspace packages sat at the `0.0.0` placeholder,
+   * and a repository-wide search for `GITHUB_REF_NAME`, `github.event.release` and
+   * `npm_package_version` returned zero hits. The tag a human typed into the GitHub release form
+   * triggered the deploy and reached nothing; a running node could not say what it was built
+   * from.
+   */
+  const ROOT_MANIFEST: unknown = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+  const DEPLOY_SCRIPT = readFileSync(join(ROOT, 'scripts/deploy-hosted.sh'), 'utf8')
+
+  function rootVersion(): string {
+    if (typeof ROOT_MANIFEST !== 'object' || ROOT_MANIFEST === null || !('version' in ROOT_MANIFEST)) {
+      throw new Error('the root package.json declares no "version" — nothing names the build')
+    }
+    const { version } = ROOT_MANIFEST
+    if (typeof version !== 'string') throw new Error('the root "version" is not a string')
+    return version
+  }
+
+  it('carries a release version on the ROOT manifest, in semver and without a leading v', () => {
+    // A leading `v` is the tag's spelling, not npm's; the script derives the tag as `v$VERSION`,
+    // so a `v` stored here would look for `vv2.0.0-rc.1` and refuse every release.
+    expect(rootVersion()).toMatch(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/)
+  })
+
+  it('leaves every workspace package on the placeholder, so the repository has ONE version', () => {
+    // Nine packages, all private, all linked with `*` — none is published, so a version on each
+    // would be nine copies of one fact and nine chances for them to disagree. The placeholder is
+    // what says "this number is not the one that means anything".
+    const manifests = execFileSync('git', ['ls-files', 'packages/*/package.json'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    })
+      .split('\n')
+      .filter((line) => line.length > 0)
+
+    expect(manifests.length).toBeGreaterThan(1)
+    for (const path of manifests) {
+      const parsed: unknown = JSON.parse(readFileSync(join(ROOT, path), 'utf8'))
+      const version =
+        typeof parsed === 'object' && parsed !== null && 'version' in parsed ? parsed.version : undefined
+      expect(version, `${path} carries a version of its own — the root manifest is the one source`).toBe(
+        '0.0.0',
+      )
+    }
+  })
+
+  it('keeps the version OUT of wrangler.jsonc, which would be the second source', () => {
+    expect(CONFIG).not.toContain('O2_VERSION')
+    expect(CONFIG, 'the version literal must not be pasted into the deploy config').not.toContain(
+      rootVersion(),
+    )
+  })
+
+  it('injects the root manifest’s version at deploy time rather than hardcoding one', () => {
+    expect(DEPLOY_SCRIPT).toContain("require('./package.json').version")
+    expect(DEPLOY_SCRIPT).toContain('--var "O2_VERSION:$VERSION"')
+  })
+
+  it('refuses a release whose tag disagrees with the manifest', () => {
+    // The drift this closes is one layer down from the one the owner found: a release tagged
+    // v2.0.1 over an unbumped manifest would deploy announcing the older number, and the node's
+    // answer to "what are you running" would be a lie shaped like a version.
+    expect(DEPLOY_SCRIPT).toContain('GITHUB_REF_NAME')
+    expect(DEPLOY_SCRIPT).toContain('"$GITHUB_REF_NAME" != "v$VERSION"')
+  })
+
+  it('rolls the deploy back when the node answers with a version other than the one sent', () => {
+    expect(DEPLOY_SCRIPT).toContain('extract_field version')
+    expect(DEPLOY_SCRIPT).toContain(
+      'THE DEPLOYED NODE DOES NOT REPORT THE VERSION THAT WAS DEPLOYED',
+    )
+  })
+
+  it('answers `GET /self` with the deployment’s version, and names the gap when there is none', () => {
+    const worker = readFileSync(join(PACKAGE, 'src/worker.ts'), 'utf8')
+
+    expect(worker).toContain('version: this.#env.O2_VERSION ?? UNVERSIONED')
+    // A sentinel rather than an omitted field: a missing key reads as an older node to anything
+    // parsing the answer, while this string cannot be mistaken for a release number.
+    expect(worker).toContain("const UNVERSIONED = 'unversioned'")
+  })
+})

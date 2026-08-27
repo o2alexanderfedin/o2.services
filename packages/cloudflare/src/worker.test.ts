@@ -74,6 +74,7 @@ interface SelfReading {
   readonly peerId: string
   readonly nodeKey: string
   readonly instance: string
+  readonly version: string
 }
 
 async function readSelf(object: BootstrapObject): Promise<SelfReading> {
@@ -85,15 +86,21 @@ async function readSelf(object: BootstrapObject): Promise<SelfReading> {
     body === null ||
     !('peerId' in body) ||
     !('nodeKey' in body) ||
-    !('instance' in body)
+    !('instance' in body) ||
+    !('version' in body)
   ) {
-    throw new Error(`GET /self did not answer with the three declared fields: ${JSON.stringify(body)}`)
+    throw new Error(`GET /self did not answer with the four declared fields: ${JSON.stringify(body)}`)
   }
-  const { peerId, nodeKey, instance } = body
-  if (typeof peerId !== 'string' || typeof nodeKey !== 'string' || typeof instance !== 'string') {
+  const { peerId, nodeKey, instance, version } = body
+  if (
+    typeof peerId !== 'string' ||
+    typeof nodeKey !== 'string' ||
+    typeof instance !== 'string' ||
+    typeof version !== 'string'
+  ) {
     throw new Error(`GET /self answered non-string fields: ${JSON.stringify(body)}`)
   }
-  return { peerId, nodeKey, instance }
+  return { peerId, nodeKey, instance, version }
 }
 
 describe('criterion 2’s evidence — one PeerId across a construction boundary, and the boundary is visible', () => {
@@ -150,5 +157,56 @@ describe('criterion 2’s evidence — one PeerId across a construction boundary
     const response = await object.fetch(new Request('https://example.invalid/instance'))
 
     expect(response.status).toBe(404)
+  })
+})
+describe('`GET /self` names the build it is running', () => {
+  /**
+   * The value is the DEPLOYMENT's, injected as a var by `scripts/deploy-hosted.sh`, so the
+   * assertion here is a literal rather than a re-read of the same source. Reusing the value
+   * under test is how a plant stays green while both sides move together.
+   */
+  it('returns the injected version verbatim', async () => {
+    const object = new BootstrapObject(
+      newState(new FakeDurableObjectStorage(), new FakeDurableObjectAlarms()),
+      { ...ENV, O2_VERSION: '9.9.9-fixture' },
+    )
+
+    expect((await readSelf(object)).version).toBe('9.9.9-fixture')
+  })
+
+  /**
+   * **A sentinel, not an absent field.** A build that cannot say what it is must say SO — a
+   * missing key reads as an older node to anything parsing the answer, while this string
+   * cannot be mistaken for a release. `deploy-hosted.sh` refuses a live deploy that reads it
+   * back, so it can only ever be seen locally or under `wrangler dev`.
+   */
+  it('says so, in a word no release can be confused with, when the deployment injected nothing', async () => {
+    const object = new BootstrapObject(
+      newState(new FakeDurableObjectStorage(), new FakeDurableObjectAlarms()),
+      ENV,
+    )
+
+    expect((await readSelf(object)).version).toBe('unversioned')
+  })
+
+  /**
+   * The version travels with the deployment and the identity travels with the store. A
+   * redeploy moves one and not the other, which is why they are separate fields and why this
+   * case pins that they are independent.
+   */
+  it('changes the version across a redeploy while the PeerId does not', async () => {
+    const storage = new FakeDurableObjectStorage()
+    const alarms = new FakeDurableObjectAlarms()
+
+    const before = await readSelf(
+      new BootstrapObject(newState(storage, alarms), { ...ENV, O2_VERSION: '2.0.0-rc.1' }),
+    )
+    const after = await readSelf(
+      new BootstrapObject(newState(storage, alarms), { ...ENV, O2_VERSION: '2.0.0' }),
+    )
+
+    expect(before.version).toBe('2.0.0-rc.1')
+    expect(after.version).toBe('2.0.0')
+    expect(after.peerId, 'a version bump must not mint a new identity').toBe(before.peerId)
   })
 })

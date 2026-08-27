@@ -241,6 +241,79 @@ keeping: a measured "no" is more useful than a softened "in progress".
 
 ---
 
+## 5. The same message can carry two valid signatures, on Linux
+
+**Found 2026-08-27 by the browser CI lane on its first run, which is the reason that lane was
+added.** Nothing here is broken code in this repository. It is a fact about the platform, and
+this project's code is what has to decide what to do about it.
+
+**What was measured.** A signature can be rewritten into a second form that still checks out —
+mathematically, adding the group order to one half of it. A strict verifier refuses the rewrite;
+a permissive one accepts it. This project uses two verifiers side by side and compares them,
+precisely so a disagreement cannot go unnoticed:
+
+| where | the library (`@noble/curves`) | the platform's own | verdict |
+|---|---|---|---|
+| GitHub's Linux runners, all three browsers | rejects | **accepts** | **they disagree** |
+| the developer's Mac, all three browsers | rejects | rejects | they agree |
+
+Same browser build in both places. The split is by operating system, not by browser.
+
+**Why it matters here.** If the same message has two different valid signatures, then anything
+that treats a signature as a name for something — counting them, removing duplicates, refusing a
+repeat — can be fooled by handing it the other form. This fabric's signed statements travel
+between machines, so a statement written where the platform is strict can be re-presented where
+it is not.
+
+**Nothing has been weakened.** The test still computes both answers every time. On the one
+platform where the disagreement is known and written up here, it reports instead of failing —
+and it decides that only AFTER seeing the answers, so the day the platform stops disagreeing,
+the test goes green by itself and nobody has to remember to change it back. Everywhere else it
+is as strict as it ever was.
+
+## What the audit found, and it is good news
+
+**Both halves were measured on 2026-08-27, and both are already right.**
+
+**Half one: is this project's own code exposed?** Every place that could have been fooled was
+checked — every comparison, every cache, every "have I seen this before". **Zero violations.**
+The project already keys on stable things: a node's public key, a content address, a
+provider-issued one-time number. The single place that refuses a repeat — enrolment — keys on
+that one-time number, so a forged second signature cannot re-spend it or waste a fresh one.
+
+**Half two: does the checking code use the strict verifier?** Twelve places verify a signature
+on the trust path. **All twelve use the strict library directly**, none goes through the layer
+that could pick the permissive one. The permissive verifier is used for *signing* only, in one
+file, and a guard test enforces that.
+
+Measured end to end: a certificate whose signature is rewritten into the second form is
+**refused** by this project's verifier.
+
+**Two things the audit corrected in this repository's own notes.** A docblock in
+`ed25519-backend.ts` says six places verify directly; the real number is twelve — the extra six
+postdate the note. Its load-bearing claim holds for all twelve. And the auditor flagged its own
+method honestly: it could not reproduce the permissive behaviour, because it ran on a Mac where
+both verifiers reject.
+
+## So what is actually left
+
+**Not a fix. A decision about depth.** The project is safe today because two independent things
+happen to hold: the strict verifier is used everywhere on the trust path, and nothing anywhere
+treats signature bytes as a name. Either one alone would be enough.
+
+The open question is whether to make that **structural** rather than incidental — a guard that
+fails the build if a future change routes a verification through the permissive path, the way
+this repository already guards "exactly one file may use WebCrypto". That is cheap and it is
+what turns "we checked once" into "it cannot regress".
+
+**External corroboration, for whoever reads this later.** CVE-2026-33895 (High, CVSS 7.5) is
+this exact defect in another library, and its published impact is "applications relying on
+signature uniqueness — dedup by signature bytes, replay tracking". The academic treatment shows
+strict rejection is *required*, not merely advisable. So there is no version of this where the
+permissive behaviour is a defensible alternative; it is the defect.
+
+---
+
 ## Why these are not simply "finish them"
 
 Each of the first three is blocked on something no automated process can supply: a design
@@ -251,3 +324,7 @@ record wrong.
 **Section 4 is different, and the difference is the point of adding it.** Those four are not
 blocked on anything unobtainable. Three need a place to run and one needs a build. They are
 work, and they are what a next milestone would be made of.
+
+**Section 5 is different again: it is not blocked at all, and it is not this repository's bug.**
+It is a decision about which of two safe options to take, and it can be taken today. It is here
+because a finding that lives only in a test comment is a finding that gets rediscovered.

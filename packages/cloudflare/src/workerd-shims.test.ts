@@ -39,7 +39,7 @@ describe('importing this module is a no-op wherever the globals already exist', 
   it('leaves a version that is already set exactly as it found it', () => {
     const scope: ShimScope = { process: { versions: { node: '24.18.0' } } }
     expect(installNodeVersion(scope)).toBe('already-present')
-    expect(scope.process?.versions?.node).toBe('24.18.0')
+    expect(scope.process?.versions?.['node']).toBe('24.18.0')
   })
 })
 
@@ -50,19 +50,19 @@ describe('gap 1 — one absent field stops the whole stack constructing', () => 
     const scope: ShimScope = { process: { versions: {} } }
 
     expect(installNodeVersion(scope)).toBe('installed')
-    expect(scope.process?.versions?.node).toBe(SHIMMED_NODE_VERSION)
+    expect(scope.process?.versions?.['node']).toBe(SHIMMED_NODE_VERSION)
   })
 
   it('creates the whole `process` object when there is none', () => {
     const scope: ShimScope = {}
     expect(installNodeVersion(scope)).toBe('installed')
-    expect(scope.process?.versions?.node).toBe(SHIMMED_NODE_VERSION)
+    expect(scope.process?.versions?.['node']).toBe(SHIMMED_NODE_VERSION)
   })
 
   it('creates `versions` when `process` exists without it', () => {
     const scope: ShimScope = { process: {} }
     expect(installNodeVersion(scope)).toBe('installed')
-    expect(scope.process?.versions?.node).toBe(SHIMMED_NODE_VERSION)
+    expect(scope.process?.versions?.['node']).toBe(SHIMMED_NODE_VERSION)
   })
 
   it('treats an empty string as absent, not as a version', () => {
@@ -70,7 +70,7 @@ describe('gap 1 — one absent field stops the whole stack constructing', () => 
     // and is not one. Plant that reddens this: check only for `!== undefined`.
     const scope: ShimScope = { process: { versions: { node: '' } } }
     expect(installNodeVersion(scope)).toBe('installed')
-    expect(scope.process?.versions?.node).toBe(SHIMMED_NODE_VERSION)
+    expect(scope.process?.versions?.['node']).toBe(SHIMMED_NODE_VERSION)
   })
 
   it('REFUSES a frozen versions object rather than reporting success', () => {

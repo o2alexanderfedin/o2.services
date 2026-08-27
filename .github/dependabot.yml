@@ -1,0 +1,33 @@
+# Dependency updates, proposed as pull requests rather than applied.
+#
+# This repository pins exact versions deliberately — `CLAUDE.md`'s stack table records what
+# each pin costs and why several of them are load-bearing (`multiformats@14` because a `13.x`
+# transitive dep produces CID instances that fail `instanceof` across package boundaries;
+# `@multiformats/multiaddr@13.x` because v12 "will silently misbehave"). So updates arrive as
+# a PR to be read, never as an automatic bump: a version that satisfies a range is not the
+# same thing as a version this stack works with.
+#
+# CI gates every one of these PRs — the same six checks the branches require.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Enough to be useful, small enough that a stale queue does not become the reason nobody
+    # reads them.
+    open-pull-requests-limit: 5
+    # Security advisories are what this is FOR. Version bumps for their own sake against a
+    # deliberately-pinned stack are noise, and the pins above are the reason.
+    versioning-strategy: increase-if-necessary
+    labels:
+      - dependencies
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies

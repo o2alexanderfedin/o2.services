@@ -30,10 +30,10 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm
@@ -79,10 +79,10 @@ jobs:
     # that measure a HOST are the developer machine's, and saying so is the point.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm
@@ -94,6 +94,100 @@ jobs:
       - run: npx vitest run --project node
         env:
           O2_UNIT_ONLY: '1'
+
+  browser:
+    # The three-engine matrix. `vitest.config.ts` says why it exists: to catch "a spec that
+    # fails in only one engine" — a defect class CI could not see at all until now.
+    #
+    # Unlike `aot`, nothing here needs special hardware. Playwright installs its own browsers
+    # on a hosted runner; that is the documented path and the versions are already pinned in
+    # `package.json` (`playwright ^1.62.0`, `@vitest/browser-playwright ^4.1.10`).
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # **NO submodules, deliberately.** Vite scans the whole tree when it serves the demo,
+      # finds `third_party/elfconv/xterm-pty/demo/app.ts`, cannot resolve its imports
+      # (`xterm-pty`, `@xterm/addon-fit`, `@xterm/xterm` — none of them this repo's
+      # dependencies), and fails the dependency scan. The dev server then 404s and every
+      # spec in this lane fails at `page.goto`. Measured 2026-08-27: 38 of 38 e2e files.
+      #
+      # Nothing in these two lanes reads the submodule; only `node` and the absent `aot`
+      # lane do.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      # `--with-deps` installs the system libraries the engines need; without it webkit in
+      # particular fails to launch with a missing-library error that names no browser.
+      - run: npx playwright install --with-deps chromium firefox webkit
+
+      # The whole lane, no exclusions and no `|| true`.
+      #
+      # An earlier version excluded `ed25519-backend.test.ts` with `--exclude` and ran it in a
+      # non-gating step. MEASURED: `--exclude` does not exclude it — vitest ADDS the glob to
+      # the project's own exclude list while `include` still matches the file, so it ran anyway
+      # and the lane stayed red. The step after it never even executed.
+      #
+      # The known finding is handled where it belongs instead: in the spec, by a narrow
+      # self-refuting predicate that names one vector on one platform class, computes both
+      # verdicts first, and reports rather than asserts only there. Strict everywhere else, and
+      # it stops taking that branch by itself the moment the platform agrees. See
+      # `.planning/OPEN-ITEMS.md` § 5.
+      - run: npm run test:browser
+
+  # ─────────────────────────────────────────────────────────────────────────────────────
+  # THE `e2e` LANE IS NOT IN CI EITHER, AND FOR A DIFFERENT REASON THAN `aot`.
+  #
+  # Added and measured on two runs, 2026-08-27. Run 1: 38 of 38 files failed because I had
+  # put `submodules: recursive` on every lane and vite's dependency scan choked on elfconv's
+  # own demo — MY defect, fixed, and the lane still failed. Run 2, with that fixed: 19 cases
+  # across 25 failures, and the causes are NOT one thing:
+  #
+  #   - `demo-viewport`: `B5 768px / loaded / surface 1 of 6: #main's last child has its
+  #     bottom at y=492.98, below #bar's top at y=327` — a LAYOUT assertion. Font metrics
+  #     differ between this runner and a developer machine, so the same CSS produces
+  #     different pixel heights. Passes locally: 7/7, exit 0.
+  #   - `relay-latch`, `peer-ledger`, `visitor-enrolment`, `static-rendezvous`: WebSocket
+  #     `ERR_CONNECTION_REFUSED` against relays each spec starts itself, and `Error: { log:
+  #     [] }` — a fixture that stood up nothing. These specs launch a Chromium, a relay and a
+  #     Vite server EACH, serialised (`fileParallelism: false`), and on a 2-core shared
+  #     runner they do not come up inside their budgets.
+  #
+  # Making these green would mean widening pixel tolerances and raising network budgets until
+  # a shared runner passes — which is CLAUDE.md § Proofs' "descoped is not satisfied", and
+  # the same trap `ci.yml` already refuses for `aot`: a lane that is green because it stopped
+  # checking is worse than a lane that is absent and says so.
+  #
+  # So `npm run test:e2e` runs on the developer machine, where the fixtures come up and the
+  # font metrics are the ones the layout was written against.
+  #
+  # WHAT WOULD CHANGE THIS: a larger runner (the network half is a resource problem, not a
+  # correctness one), and pinning a font stack or asserting on layout RELATIONS rather than
+  # pixel positions (the layout half is a real portability question about the demo, worth
+  # answering on its own terms rather than by loosening a number).
+  # ─────────────────────────────────────────────────────────────────────────────────────
+
+  audit:
+    # A known-vulnerable dependency reaching `main` unnoticed is the gap this closes. Measured
+    # 2026-08-27: 0 vulnerabilities across 487 production dependencies, so this starts green
+    # and a future CVE turns it red rather than waiting for somebody to check by hand.
+    #
+    # `--omit=dev` and `--audit-level=high`: a dev-only advisory does not ship to a peer, and a
+    # low-severity one should not block a push. This is deliberately NOT a floor on a number —
+    # CLAUDE.md § Measurement forbids absolute thresholds that encode the day they were written
+    # — it is a binary "is there a high-severity advisory against something we ship".
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
 
   # ─────────────────────────────────────────────────────────────────────────────────────
   # THE `aot` LANE IS NOT IN CI, AND THAT IS A FINDING RATHER THAN AN OMISSION.
@@ -136,10 +230,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm

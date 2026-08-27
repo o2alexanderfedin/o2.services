@@ -8,6 +8,45 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,
+
+    // ---------------------------------------------------------------------------
+    // Added 2026-08-27. Each was measured against the tree BEFORE being turned on,
+    // one flag at a time, and every one of these cost ZERO errors — so they are
+    // pinning behaviour the code already has rather than demanding a change.
+    //
+    //   noUnusedParameters            0    noImplicitReturns             0
+    //   noFallthroughCasesInSwitch    0    useUnknownInCatchVariables    0
+    //   erasableSyntaxOnly            0
+    //
+    // `useUnknownInCatchVariables` is the load-bearing one for this codebase:
+    // `catch (e)` types `e` as `unknown` rather than `any`, so a handler cannot
+    // read `e.message` without narrowing. This project already narrows everywhere
+    // — the flag makes it impossible to stop.
+    //
+    // `erasableSyntaxOnly` refuses TypeScript that cannot be stripped (enums,
+    // parameter properties, namespaces). This tree runs `.ts` directly under
+    // `node --experimental-strip-types` in several places, so syntax that needs a
+    // real compile is a runtime failure rather than a style question.
+    // ---------------------------------------------------------------------------
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "useUnknownInCatchVariables": true,
+    "erasableSyntaxOnly": true,
+
+    // These two cost something and the cost was paid rather than deferred.
+    //
+    // `noPropertyAccessFromIndexSignature` — 13 hits, all of them `process.env.FOO` or a
+    // parsed-JSON field reached with a dot. The dot LOOKS like a declared property and is
+    // not: the value can be `undefined` at runtime and the type says so only under
+    // `noUncheckedIndexedAccess`, which this project already has. Bracket form makes the
+    // index access visible at the call site.
+    //
+    // `allowUnreachableCode: false` — one hit, `if (false) yield {}` in a fixture, written
+    // to make an `async function*` type as a generator. It does that with no yield at all,
+    // so the line bought nothing; the spec still passes 11/11 without it.
+    "noPropertyAccessFromIndexSignature": true,
+    "allowUnreachableCode": false,
     "isolatedDeclarations": true,
     "declaration": true,
     "allowImportingTsExtensions": true,
