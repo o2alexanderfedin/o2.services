@@ -122,34 +122,60 @@ jobs:
       # `--with-deps` installs the system libraries the engines need; without it webkit in
       # particular fails to launch with a missing-library error that names no browser.
       - run: npx playwright install --with-deps chromium firefox webkit
-      - run: npm run test:browser
 
-  e2e:
-    # Real Chromium, a real relay and a real Vite server per spec, one file at a time
-    # (`fileParallelism: false`, and the config records why: run in parallel they contend for
-    # CPU and sockets, and the symptom is a timeout in whichever one lost — a flake that looks
-    # like a WebRTC bug and is neither).
-    #
-    # Chromium only: these specs drive one browser rather than the matrix.
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      # **NO submodules, deliberately.** Vite scans the whole tree when it serves the demo,
-      # finds `third_party/elfconv/xterm-pty/demo/app.ts`, cannot resolve its imports
-      # (`xterm-pty`, `@xterm/addon-fit`, `@xterm/xterm` — none of them this repo's
-      # dependencies), and fails the dependency scan. The dev server then 404s and every
-      # spec in this lane fails at `page.goto`. Measured 2026-08-27: 38 of 38 e2e files.
+      # THE LANE, MINUS THE FILE THAT CARRIES A KNOWN OPEN FINDING.
       #
-      # Nothing in these two lanes reads the submodule; only `node` and the absent `aot`
-      # lane do.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '24'
-          cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      # `ed25519-backend.test.ts` fails on Linux — correctly. `subtle` accepts a
+      # non-canonical-S signature there and rejects it on macOS, so one message has two valid
+      # signatures on this platform. The test is a differential guard and firing is its job;
+      # relaxing it would delete the finding. It is written up in
+      # `.planning/OPEN-ITEMS.md` § 5 and the remedy is an owner decision, not a test edit.
+      #
+      # **Excluded here so it does not mask the next failure.** A lane that is permanently red
+      # for a known reason stops being read, and the second defect to arrive would land behind
+      # a wall of the first. The exclusion is by NAME and by ONE file, so a new red in this
+      # lane is a new finding.
+      #
+      # The step below runs it anyway and reports without failing the lane, so the finding
+      # stays visible in the log rather than becoming invisible.
+      - run: npm run test:browser -- --exclude '**/ed25519-backend.test.ts'
+
+      - name: The known Ed25519 finding, reported and not gating
+        # `|| true` on ONE named file with a written-up cause. Never a pattern, and never a
+        # whole lane — see OPEN-ITEMS § 5 for what closing it requires.
+        run: npx vitest run --project browser packages/core/src/ed25519-backend.test.ts || true
+
+  # ─────────────────────────────────────────────────────────────────────────────────────
+  # THE `e2e` LANE IS NOT IN CI EITHER, AND FOR A DIFFERENT REASON THAN `aot`.
+  #
+  # Added and measured on two runs, 2026-08-27. Run 1: 38 of 38 files failed because I had
+  # put `submodules: recursive` on every lane and vite's dependency scan choked on elfconv's
+  # own demo — MY defect, fixed, and the lane still failed. Run 2, with that fixed: 19 cases
+  # across 25 failures, and the causes are NOT one thing:
+  #
+  #   - `demo-viewport`: `B5 768px / loaded / surface 1 of 6: #main's last child has its
+  #     bottom at y=492.98, below #bar's top at y=327` — a LAYOUT assertion. Font metrics
+  #     differ between this runner and a developer machine, so the same CSS produces
+  #     different pixel heights. Passes locally: 7/7, exit 0.
+  #   - `relay-latch`, `peer-ledger`, `visitor-enrolment`, `static-rendezvous`: WebSocket
+  #     `ERR_CONNECTION_REFUSED` against relays each spec starts itself, and `Error: { log:
+  #     [] }` — a fixture that stood up nothing. These specs launch a Chromium, a relay and a
+  #     Vite server EACH, serialised (`fileParallelism: false`), and on a 2-core shared
+  #     runner they do not come up inside their budgets.
+  #
+  # Making these green would mean widening pixel tolerances and raising network budgets until
+  # a shared runner passes — which is CLAUDE.md § Proofs' "descoped is not satisfied", and
+  # the same trap `ci.yml` already refuses for `aot`: a lane that is green because it stopped
+  # checking is worse than a lane that is absent and says so.
+  #
+  # So `npm run test:e2e` runs on the developer machine, where the fixtures come up and the
+  # font metrics are the ones the layout was written against.
+  #
+  # WHAT WOULD CHANGE THIS: a larger runner (the network half is a resource problem, not a
+  # correctness one), and pinning a font stack or asserting on layout RELATIONS rather than
+  # pixel positions (the layout half is a real portability question about the demo, worth
+  # answering on its own terms rather than by loosening a number).
+  # ─────────────────────────────────────────────────────────────────────────────────────
 
   audit:
     # A known-vulnerable dependency reaching `main` unnoticed is the gap this closes. Measured

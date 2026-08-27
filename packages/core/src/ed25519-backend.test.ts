@@ -945,9 +945,21 @@ describe('sync port and async port agree on every reject vector (T-25-16)', () =
       const syncVerdict = mod.getSyncVerifier().verify(vector.signature, vector.message, vector.publicKey)
       const asyncVerdict = await mod.getAsyncVerifier().verify(vector.signature, vector.message, vector.publicKey)
 
+      // Same finding as the reject-vector block above, arriving at the second seam. The sync
+      // port is `@noble/curves`; the async port is `subtle` where the platform provides it.
+      // On Linux `subtle` accepts the non-canonical-S vector and noble rejects it, so the two
+      // ports disagree — measured 2026-08-27 on ubuntu-latest, all three engines; they agree
+      // on macOS. Not relaxed: this is the seam the adapter introduced and the disagreement
+      // is the hazard it was built to expose.
+      const platform =
+        globalThis.navigator?.platform ?? globalThis.navigator?.userAgent ?? 'unknown platform'
       expect(
         asyncVerdict,
-        `sync port said ${syncVerdict}, async port said ${asyncVerdict} for "${vector.name}"`,
+        `sync port said ${syncVerdict}, async port said ${asyncVerdict} for "${vector.name}"\n` +
+          `  platform: ${platform}\n` +
+          `  the sync port is @noble/curves; the async port is the platform's own subtle.\n` +
+          `  A disagreement here means ONE MESSAGE HAS TWO VALID SIGNATURES on this platform ` +
+          `— see the reject-vector block's docblock for what that costs.`,
       ).toBe(syncVerdict)
     },
   )
