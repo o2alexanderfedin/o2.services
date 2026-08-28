@@ -4,96 +4,30 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>o2.services — node</title>
-    <style>
-      :root { color-scheme: light dark; }
-      /*
-        The browser's own `[hidden] { display: none }` is an attribute selector, so
-        *any* id or class rule that sets `display` silently outranks it. `#bar` set
-        `display: flex` and the always-visible bar became the always-visible bar in
-        the literal sense — shown, reading "idle", offering to Stop a node that did
-        not exist. Reported from an iPhone; not caught here, because the tests
-        asserted the `hidden` *attribute* rather than whether anything was on screen.
-        One rule closes the whole class.
-      */
-      [hidden] { display: none !important; }
-      body {
-        font: 15px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
-        margin-inline: auto; max-width: 46rem;
-        /* Bottom padding clears the fixed bar, so nothing it covers is unreachable. */
-        padding: 2rem 1.25rem 7rem;
-      }
-      h1 { font-size: 1.1rem; margin: 0 0 .25rem; letter-spacing: .02em; }
-      h2 { font-size: 1rem; margin: 0 0 1rem; font-weight: 600; }
-      .sub { opacity: .65; margin: 0 0 1.75rem; font-size: .85rem; }
-      .state {
-        border: 1px solid currentColor; border-radius: 6px;
-        padding: .85rem 1rem; margin-bottom: 1.25rem;
-      }
-      .state[data-tone='idle']    { opacity: .7; }
-      .state[data-tone='working'] { border-color: #b58900; }
-      .state[data-tone='live']    { border-color: #2aa198; }
-      .state[data-tone='blocked'] { border-color: #cb4b16; }
-      dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .9rem; margin: 0 0 1.25rem; }
-      dt { opacity: .6; }
-      dd { margin: 0; overflow-wrap: anywhere; }
-      button {
-        font: inherit; padding: .45rem 1rem; border-radius: 5px;
-        border: 1px solid currentColor; background: transparent; color: inherit;
-        cursor: pointer;
-      }
-      button[disabled] { opacity: .4; cursor: default; }
-      .note { font-size: .85rem; opacity: .75; }
-      /* A rule above it, so it reads as a footer rather than as one more paragraph
-         of whichever section happens to be visible at the time. */
-      #measurements {
-        margin-top: 2.5rem; padding-top: 1rem;
-        border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-      }
-      .note code {
-        background: color-mix(in srgb, currentColor 12%, transparent);
-        padding: .1em .35em; border-radius: 3px;
-      }
-      pre { font: inherit; white-space: pre-wrap; opacity: .8; margin: 0; }
+    <!--
+      The whole of the page's design, ported from the mockup and served from this origin.
+      There is no `<style>` block left here and there must not be one: `demo.css` carries
+      the deviations from the imported source with the reason for each beside it, and a
+      second place to put a rule is a second place for the two to disagree.
 
-      /* The consent gate. Nothing behind it runs, and nothing behind it is dialled. */
-      #gate {
-        border: 1px solid currentColor; border-radius: 6px;
-        padding: 1.25rem 1.25rem .35rem;
-      }
-      #gate dl { grid-template-columns: 1fr; gap: .15rem; }
-      #gate dt { opacity: 1; font-weight: 600; }
-      #gate dd { margin: 0 0 .9rem; opacity: .8; }
-      #gate label { display: block; margin: 0 0 .35rem; cursor: pointer; }
-      .controls { display: flex; gap: .6rem; align-items: center; margin: 1.1rem 0 .6rem; }
-
-      /*
-        BROW-04. Fixed, and with no control that hides it: the requirement says a
-        persistent, always-visible surface, so a collapse affordance would be the
-        first thing to remove it.
-      */
-      #bar {
-        position: fixed; inset: auto 0 0 0;
-        display: flex; flex-wrap: wrap; gap: .5rem 1.1rem; align-items: center;
-        padding: .7rem 1.1rem;
-        border-top: 1px solid currentColor;
-        background: Canvas; color: CanvasText;
-        font-size: .85rem;
-      }
-      #bar strong { font-weight: 600; }
-      #bar .spacer { flex: 1 1 auto; }
-      #bar-stats { opacity: .75; }
-      #stop { border-color: #cb4b16; color: #cb4b16; }
-    </style>
-    <script type="module" crossorigin src="./assets/index-BWNquVp8.js"></script>
+      Same-origin, and P10 in `built-bundle.e2e.test.ts` asserts that every request the
+      page makes during load and before consent is same-origin — over the whole request
+      set, not a filtered slice.
+    -->
+    <script type="module" crossorigin src="./assets/index-Bs7fMrpL.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/cid-BXpsijIc.js">
-    <link rel="modulepreload" crossorigin href="./assets/src-D6bgmcKu.js">
+    <link rel="modulepreload" crossorigin href="./assets/src-Ck7s3b3Y.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-9IUIkw3l.css">
   </head>
   <body>
-    <h1>o2.services — peer-to-peer compute node</h1>
-    <p class="sub">
-      This page can become a compute node in a peer-to-peer fabric.
-      Nothing runs, and nothing is contacted, until you allow it.
-    </p>
+    <header class="wrap masthead">
+      <p class="kicker">o2.services · peer-to-peer compute fabric</p>
+      <h1>o2.services — peer-to-peer compute node</h1>
+      <p class="lede">
+        This page can become a compute node in a peer-to-peer fabric.
+        Nothing runs, and nothing is contacted, until you allow it.
+      </p>
+    </header>
 
     <!--
       BROW-01. The gate is the first thing rendered and the only thing that starts
@@ -102,67 +36,1635 @@
       visitor is present before the visitor agrees. Everything below `#main` stays
       hidden — and, more to the point, uncalled — until consent exists.
     -->
-    <section id="gate" hidden>
+    <section id="gate" class="blueprint" hidden>
+      <i class="corner tl"></i><i class="corner tr"></i>
+      <i class="corner bl"></i><i class="corner br"></i>
       <h2 id="gate-headline"></h2>
       <dl id="gate-terms"></dl>
       <label><input type="checkbox" id="reporting" /> <span id="reporting-question"></span></label>
       <p class="note" id="reporting-answer"></p>
       <p class="controls">
-        <button id="allow"></button>
-        <button id="decline"></button>
+        <button id="allow" class="btn btn-primary"></button>
+        <button id="decline" class="btn btn-secondary"></button>
       </p>
       <p class="note" id="gate-version"></p>
     </section>
 
     <section id="main" hidden>
-      <div class="state" id="state" data-tone="idle">checking for a relay…</div>
+      <!--
+        The session header sits OUTSIDE the surfaces, and that is a guard constraint
+        before it is a design one. `#state`, `#join` and `#explain` are read and
+        *clicked* by `built-bundle.e2e.test.ts` with locator clicks, which require
+        actionability, and a control behind a navigation choice is not actionable.
+        `#peers` joins them because `attestation-ui.e2e.test.ts` reads it. Beyond the
+        guards: the node's own status is not a property of whichever workload happens
+        to be on screen.
+      -->
+      <header class="wrap session">
+        <!--
+          UI-SPEC section 4.0's five regions, H1 through H5. Each carries `data-region`,
+          `data-kind` and `data-source`; **none of them carries `data-absence` or absence
+          text in this file**, and that is deliberate. The sentences live in
+          `../src/demo-regions.ts` and the writer paints both the text and the attribute
+          from there — a sentence written in two places is two things that can disagree,
+          and the copywriting contract is section 11's, not this file's.
+        -->
+        <div
+          class="state"
+          id="state"
+          data-tone="idle"
+          data-region="session/state"
+          data-kind="control"
+          data-source="the page state machine over TabApi.discoverRelays(), autoStart() and stop()"
+        >checking for a relay…</div>
 
-      <p><button id="join" disabled>Start node</button></p>
+        <p class="controls">
+          <button id="join" class="btn btn-primary" disabled>Start node</button>
+          <!--
+            Two positions, and `#run-report` is visible in both. See the note in
+            `nav.ts`: `attestation-ui.e2e.test.ts` asserts `isVisible('#run-report')`
+            after a run, so a toggle able to hide a text view would make that guard
+            pass or fail on whichever state a test happened to land in.
+          -->
+          <span id="view-mode" class="seg" role="radiogroup" aria-label="View">
+            <label class="seg-opt">
+              <input type="radio" name="view-mode" value="both" checked />
+              <span>Rendered and text</span>
+            </label>
+            <label class="seg-opt">
+              <input type="radio" name="view-mode" value="text" />
+              <span>Text only</span>
+            </label>
+          </span>
+        </p>
 
-      <dl id="facts"></dl>
+        <!--
+          Three fixed pairs, always rendered, rather than a list rebuilt per state. Today's
+          `setFacts([])` on stop emptied this element, and an empty `dd` is exactly the blank
+          a named absence replaces. The `dd`s start empty here and are painted from the
+          catalogue by the writer before anything else runs.
+        -->
+        <dl id="facts">
+          <dt>peer id</dt>
+          <dd data-region="session/peer-id" data-kind="reading" data-source="TabApi.autoStart().peerId"></dd>
+          <dt>relay</dt>
+          <dd data-region="session/relay" data-kind="reading" data-source="TabApi.discoverRelays().relayAddrs[0]"></dd>
+          <dt>address</dt>
+          <dd data-region="session/webrtc-addr" data-kind="reading" data-source="TabApi.waitForWebrtcAddr()[0]"></dd>
+        </dl>
 
-      <p class="note" id="explain"></p>
-      <p class="note" id="peers"></p>
+        <!--
+          Declared prose. `#explain`'s no-relay copy names `Circuit Relay v2` and `o2 seed`,
+          and both carry a digit. A number in a sentence is legitimate and it is still
+          declared — that is what stops *wrap it in a paragraph* being the loophole.
+        -->
+        <p
+          class="note"
+          id="explain"
+          data-region="session/prose-explain"
+          data-kind="prose"
+          data-source="the version number in the Circuit Relay protocol name, and the name of this project"
+        ></p>
 
-      <h2>The job</h2>
-      <p class="note">
-        Colour every whole number from 1 to N red or blue so that no three numbers
-        with a² + b² = c² end up the same colour. The search is split into
-        independent cubes and spread across this tab and every peer it can reach.
-        With a peer connected, every cube is run on two of them and the two must
-        agree; alone, this tab runs each cube once. The report below says which
-        happened, and how far that goes.
-      </p>
-      <p class="note">
-        N climbs until the fabric cannot settle a rung. Each cube fixes the colours
-        of the most constrained numbers and searches the rest, so more cubes reach
-        further — with more peers connected, more cubes run, and the answer gets
-        better. N = 7824 is the largest that admits a colouring at all; 7825 does
-        not, which took a cluster and a 200-terabyte proof to establish. This will
-        not get near either.
-      </p>
-      <p class="controls">
-        <button id="run" disabled>Run the search</button>
-        <span class="note" id="run-status">start a node first</span>
-      </p>
-      <pre id="run-report"></pre>
+        <!--
+          AUTH-01/02/04 — the enrolment offer. **The fourth hop of a four-hop flow whose
+          last hop did not exist**: `bin/seed.ts --enrollment-provider` produced the value,
+          `/bootstrap.json` transported it, `TabApi.discoverRelays()` parsed it, and until
+          2026-08-17 nothing on this page referenced the field at all.
 
-      <p class="note">
-        Nothing above needs to be believed. The check below re-derives every
-        Pythagorean triple from the definition and tests the answer against it, here,
-        in this tab — no node's word, no published table, no trust in this site.
-      </p>
-      <p class="controls"><button id="verify" disabled>Check this answer myself</button></p>
-      <pre id="verify-report"></pre>
+          It is an OFFER and not a setting, and the difference is the whole design. The
+          origin that served this page may say where a joiner can knock; it may not decide
+          that this tab knocks, and it may not say who this tab is. So the address below is
+          rendered for a person to look at, and `#enrol` is the only thing that acts — it
+          calls `TabApi.acceptEnrolment()`, which takes no arguments, so there is nothing on
+          it for an origin to fill in.
 
-      <h2>How often does this fail to start?</h2>
-      <p class="note">
-        A browser that blocks this page does not announce it — it looks like fewer
-        volunteers. These are the reports this node has heard, including what they
-        cannot see.
-      </p>
-      <pre id="report">not asked yet</pre>
-      <p class="controls"><button id="refresh-report">Refresh</button></p>
+          `hidden` until the offer is read, so an origin that names no provider — every
+          static host, and every open seed — shows nothing here rather than an empty
+          promise. Buttons carry no `data-region` for the reason `#join` and `#allow` do
+          not: the catalogue is of figures the page displays, and a control is not one.
+        -->
+        <div id="enrol-offer" hidden>
+          <p class="note" id="enrol-status"></p>
+          <p
+            class="note"
+            id="enrol-provider"
+            data-region="session/prose-enrolment"
+            data-kind="prose"
+            data-source="the enrolment provider's address as the origin published it — its protocol version, its port, and the peer id that names it — and, once enrolled, the issuer key of the certificate this tab holds"
+          ></p>
+          <p class="controls">
+            <button id="enrol" class="btn">Enrol this tab</button>
+            <button id="unenrol" class="btn" hidden>Withdraw</button>
+          </p>
+        </div>
+        <p
+          class="note"
+          id="peers"
+          data-region="session/peers-sentence"
+          data-kind="reading"
+          data-source="TabApi.computePeers() with connectDiscoveredPeers() and peers()"
+        ></p>
+      </header>
+
+      <nav id="surfaces" role="tablist" aria-label="Workloads">
+        <button type="button" role="tab" id="nav-colouring" aria-controls="s-colouring" aria-selected="true" tabindex="0">A · Colouring</button>
+        <button type="button" role="tab" id="nav-primes" aria-controls="s-primes" aria-selected="false" tabindex="-1">B · Primes</button>
+        <button type="button" role="tab" id="nav-pi" aria-controls="s-pi" aria-selected="false" tabindex="-1">C · π &amp; reduce</button>
+        <button type="button" role="tab" id="nav-byo" aria-controls="s-byo" aria-selected="false" tabindex="-1">D · Bring your own</button>
+        <button type="button" role="tab" id="nav-fabric" aria-controls="s-fabric" aria-selected="false" tabindex="-1">Fabric state</button>
+        <button type="button" role="tab" id="nav-bench" aria-controls="s-bench" aria-selected="false" tabindex="-1">Benchmarks</button>
+      </nav>
+
+      <!--
+        Colouring is the default surface, because `colouring-demo.e2e.test.ts` and
+        `attestation-ui.e2e.test.ts` locator-click `#run` and `#verify` without
+        navigating first. Everything inside it below is today's copy, moved and not
+        reworded: `attestation-ui.e2e.test.ts` reads eleven substrings out of
+        `#run-report` and `colouring-demo.e2e.test.ts` four more, and Plan 27-04 owns
+        this surface's content.
+      -->
+      <section class="wrap" id="s-colouring" role="tabpanel" tabindex="0" aria-labelledby="nav-colouring">
+        <div class="surface-head">
+          <p class="kicker" data-region="colouring/prose-kicker" data-kind="prose" data-source="the number of colours a 2-colouring uses, which is what the word means">Workload A · Pythagorean-triple 2-colouring</p>
+          <h2>Capacity grows with participants, and it grows in steps.</h2>
+        </div>
+
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <h3 class="card-title">The job</h3>
+          <p class="card-body" data-region="colouring/prose-problem" data-kind="prose" data-source="the definition of a Pythagorean triple, and the lower bound of the range being coloured">
+            Colour every whole number from 1 to N red or blue so that no three numbers
+            with a² + b² = c² end up the same colour. The search is split into
+            independent cubes and spread across this tab and every peer it can reach.
+            With a peer connected, every cube is run on two of them and the two must
+            agree; alone, this tab runs each cube once. The report below says which
+            happened, and how far that goes.
+          </p>
+          <p class="card-body" data-region="colouring/prose-bound" data-kind="prose" data-source="the published bound on the Boolean Pythagorean triples problem and the size of the proof that settled it">
+            N climbs until the fabric cannot settle a rung. Each cube fixes the colours
+            of the most constrained numbers and searches the rest, so more cubes reach
+            further — with more peers connected, more cubes run, and the answer gets
+            better. N = 7824 is the largest that admits a colouring at all; 7825 does
+            not, which took a cluster and a 200-terabyte proof to establish. This will
+            not get near either.
+          </p>
+        </div>
+
+        <!--
+          C1 through C5 — the two arguments this page WOULD send, and the three constants
+          the shipped code fixes. Every one of the five is `control` or `constant` rather
+          than `reading`: nothing has been asked of the fabric yet, so there is nothing to
+          read, and a constant is always present and is never described as a result.
+
+          The explanatory clauses live in the `card-note` under each list rather than in the
+          `<dt>`. That is a layout constraint, not a style preference: `dl`'s first column is
+          `max-content`, so a long term establishes a floor wider than a 320px viewport and
+          B1 in `demo-viewport.e2e.test.ts` goes red.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What this page will send</p>
+            <dl>
+              <dt>cubes</dt>
+              <dd
+                data-region="colouring/cubes-arg"
+                data-kind="control"
+                data-source="the argument this page will send: 8 x (1 + computePeers().length)"
+              >Nothing dispatched yet — this is what would be sent.</dd>
+              <dt>redundancy</dt>
+              <dd
+                data-region="colouring/redundancy-arg"
+                data-kind="control"
+                data-source="the argument this page will send: min(2, 1 + computePeers().length)"
+              >Nothing dispatched yet — this is what would be sent.</dd>
+            </dl>
+            <p class="card-note">
+              More peers, more cubes. A cube fixes the colours of the most constrained
+              numbers and searches the rest, so cubes are not merely parallelism — they are
+              how far the search reaches. Both figures move as peers join, before anything is
+              dispatched.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Fixed by the shipped code</p>
+            <dl>
+              <dt>budget</dt>
+              <dd data-region="colouring/budget" data-kind="constant" data-source="@o2/demo.DEFAULT_BUDGET"></dd>
+              <dt>MAX_N</dt>
+              <dd data-region="colouring/max-n" data-kind="constant" data-source="@o2/demo.MAX_N"></dd>
+              <dt>input bytes</dt>
+              <dd data-region="colouring/input-bytes" data-kind="constant" data-source="@o2/demo.buildInput(MAX_N, DEFAULT_BUDGET).length"></dd>
+            </dl>
+            <p class="card-note">
+              The budget is backtracks, it is fixed, and it travels inside the input. Above
+              MAX_N the guest returns “unknown”. The byte count is
+              <code>buildInput(MAX_N, DEFAULT_BUDGET).length</code>, computed here from the
+              shipped builder rather than written down.
+            </p>
+          </div>
+        </div>
+
+        <p class="controls">
+          <button id="run" class="btn btn-primary" disabled>Run the search</button>
+          <span class="note" id="run-status" role="status">start a node first</span>
+        </p>
+
+        <!--
+          C6 through C9. The caption is a declared `prose` region because it names the four
+          rungs and a number in a sentence is still a number on screen; the row headers are
+          then digit-free, which is what keeps P2 green without four more declarations. See
+          the catalogue entry for `colouring/prose-ladder`.
+        -->
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <div class="scroller">
+            <table class="table">
+              <caption
+                class="card-kicker"
+                data-region="colouring/prose-ladder"
+                data-kind="prose"
+                data-source="the rungs of the ladder this page climbs, in the order it climbs them"
+              >The ladder — 300, 400, 500, 600 in that order, stopping at the first rung the fabric cannot settle</caption>
+              <thead>
+                <tr><th scope="col">rung</th><th scope="col">outcome</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">first rung</th>
+                  <td data-region="colouring/rung-300" data-kind="reading" data-source="TabApi.runColouring().found with .statuses and .elapsedMs"></td>
+                </tr>
+                <tr>
+                  <th scope="row">second rung</th>
+                  <td data-region="colouring/rung-400" data-kind="reading" data-source="TabApi.runColouring().found with .statuses and .elapsedMs"></td>
+                </tr>
+                <tr>
+                  <th scope="row">third rung</th>
+                  <td data-region="colouring/rung-500" data-kind="reading" data-source="TabApi.runColouring().found with .statuses and .elapsedMs"></td>
+                </tr>
+                <tr>
+                  <th scope="row">fourth rung</th>
+                  <td data-region="colouring/rung-600" data-kind="reading" data-source="TabApi.runColouring().found with .statuses and .elapsedMs"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!--
+          C10 through C17. Every one of them reads the last SETTLED run, which is `best`
+          throughout UI-SPEC section 4.2, and every one of them is written by
+          `applyRender('colouring', …)` out of the same record that writes `#run-report`
+          below — so neither view can format anything the other does not have.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Per-cube status — three values, never two</p>
+            <div class="scroller">
+              <pre data-region="colouring/cube-grid" data-kind="reading" data-source="TabApi.runColouring().statuses"></pre>
+            </div>
+            <p class="card-body" data-region="colouring/status-counts" data-kind="reading" data-source="TabApi.runColouring().statuses"></p>
+            <p class="card-note">
+              ■ found — a valid colouring. □ exhausted — proof this cube contains no valid
+              colouring. ▧ budget — it ran out of steps, so the answer here is unknown. The
+              shape and the word both carry the status, so colour is never the only carrier.
+              Collapsing budget into exhausted would turn a shortage of compute into a
+              mathematical claim.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The rung that settled</p>
+            <dl>
+              <dt>settled n</dt>
+              <dd data-region="colouring/best-n" data-kind="reading" data-source="TabApi.runColouring().n"></dd>
+              <dt>cubes agreed</dt>
+              <dd data-region="colouring/complete" data-kind="reading" data-source="TabApi.runColouring().complete"></dd>
+              <dt>verification cost</dt>
+              <dd data-region="colouring/verification-multiplier" data-kind="reading" data-source="TabApi.runColouring().verificationMultiplier"></dd>
+            </dl>
+            <p class="card-note">
+              The cost is gross fuel over useful fuel — measured, and correct at any
+              redundancy. It says how much work was spent checking; it does not say how the
+              work was placed. That is the card below.
+            </p>
+          </div>
+        </div>
+
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">How strongly it was checked</p>
+            <p class="quote" data-region="colouring/attestation" data-kind="reading" data-source="TabApi.runColouring().attestation"></p>
+            <p class="card-note">
+              The sentence above is the kernel's own <code>description</code>, rendered
+              verbatim. The command-line tool prints the same field, so the two surfaces
+              cannot come to describe one result differently, and this page composes no
+              sentence of its own here.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">How the quorum was chosen — before anyone was asked</p>
+            <p class="quote" data-region="colouring/quorum" data-kind="reading" data-source="TabApi.runColouring().quorum"></p>
+            <p class="card-note">
+              A different fact from the card above it. That one reports who answered and
+              signed; this one reports what the quorum composer decided beforehand — and it
+              refuses rather than degrades quietly. If every node it could pick is reachable
+              only through one relay, losing that relay would lose the whole quorum, so it
+              says so instead of reporting a redundancy that is not there.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Where the last rung ran — placement made visible</p>
+            <div class="scroller">
+              <pre data-region="colouring/agreeing" data-kind="reading" data-source="TabApi.runColouring().agreeing"></pre>
+            </div>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What left this device</p>
+            <pre data-region="colouring/egress" data-kind="reading" data-source="TabApi.runColouring().egress"></pre>
+            <p class="card-note">
+              The withheld count and the sentence beside it are one region and one function,
+              because the figure on its own would read as a proof of sovereignty and this run
+              may simply have had nothing to hold back.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Where this run started — resumed, or from nothing</p>
+            <pre data-region="colouring/resume" data-kind="reading" data-source="TabApi.runColouring().resume"></pre>
+            <p class="card-note">
+              Every run writes a checkpoint into this tab's own storage as each cube is
+              answered, and every run looks one up before it starts. Run the ladder a second
+              time and the cubes come back out of storage instead of being computed again —
+              which is also why the receipt above it reads weaker on a resumed run: a cube
+              nobody was asked to compute is a cube nobody signed for.
+            </p>
+          </div>
+        </div>
+
+        <pre id="run-report" class="text-view" data-region="colouring/run-report" data-kind="text-view" data-source="the #run-report text view — the colouring run, rendered as lines"></pre>
+
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <h3 class="card-title">Nothing here has to be believed</h3>
+          <p class="card-body">
+            Nothing above needs to be believed. The check below re-derives every
+            Pythagorean triple from the definition and tests the answer against it, here,
+            in this tab — no node's word, no published table, no trust in this site.
+          </p>
+        </div>
+        <p class="controls"><button id="verify" class="btn btn-secondary" disabled>Check this answer myself</button></p>
+
+        <!--
+          C18 through C21. **This card is never disabled because the fabric is stopped**, and
+          its copy never says the node is — `verifyAnswer()` needs no node, no peer and no
+          network, and `colouring-demo.e2e.test.ts` presses `#verify` after stopping the node
+          and reads the result. The catalogue's sentence for all four is *no answer has been
+          produced to check*, in both arms, for exactly that reason.
+        -->
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <p class="card-kicker">The check, run in this tab</p>
+          <dl>
+            <dt>verdict</dt>
+            <dd data-region="colouring/verify-verdict" data-kind="reading" data-source="TabApi.verifyAnswer().ok"></dd>
+            <dt>n checked</dt>
+            <dd data-region="colouring/verify-n" data-kind="reading" data-source="TabApi.verifyAnswer().n"></dd>
+            <dt>triples</dt>
+            <dd data-region="colouring/verify-triples" data-kind="reading" data-source="TabApi.verifyAnswer().triplesChecked"></dd>
+            <dt>refutation</dt>
+            <dd data-region="colouring/verify-violation" data-kind="reading" data-source="TabApi.verifyAnswer().violation"></dd>
+          </dl>
+        </div>
+        <pre id="verify-report" class="text-view" data-region="colouring/verify-report" data-kind="text-view" data-source="the #verify-report text view — TabApi.verifyAnswer(), rendered as lines"></pre>
+      </section>
+
+      <!--
+        The five surfaces below carry their heading, their kicker and the mockup's prose,
+        and NOT ONE FIGURE. The mockup's peers are eight literals and its numbers are
+        template defaults; a plausible figure with no reading behind it is the exact class
+        of thing this phase exists to keep off the screen. Plan 27-03 declares the regions
+        and Plans 27-04 onward wire them. Where the mockup's own prose carried a figure,
+        the clause carrying it was dropped rather than transcribed — a number in prose is
+        still a number on screen.
+      -->
+      <!--
+        PRIMES — UI-SPEC section 4.3's twelve, under **Option B**: the named absence.
+
+        **There is no `.btn-primary` in this section and there must not be one.** Not a
+        disabled one either — UI-SPEC section 4.3 calls a disabled control with no
+        explanation *a placeholder wearing a different hat*, and section 10 refuses outright
+        to specify a control that produces refusals discovered as timeouts. Every executor in
+        this fabric refuses the prime-counting module for a provenance failure, so a button
+        here would hang and then fail, which is worse than no button. Its absence is also
+        exactly what puts `primes` in P5's SKIPPED list in `demo-liveness.e2e.test.ts`,
+        reported by name on stderr rather than passed over in silence.
+
+        Every string below that is not structural comes from `./surfaces/primes.ts` — the
+        panel, the twelve regions and the text view — for the reason Plan 27-05 removed the
+        lone-tab card's static copy: a sentence a spec asserts must have one author.
+      -->
+      <section class="wrap" id="s-primes" role="tabpanel" tabindex="0" aria-labelledby="nav-primes" hidden>
+        <div class="surface-head">
+          <p class="kicker">Workload B · prime counting π(x)</p>
+          <h2>An oracle nothing here produced.</h2>
+          <p class="lede">
+            The colouring verifier shares an author with the fabric, so a misconception
+            held in both is invisible to the pair. π(x) was tabulated in the mathematical
+            literature long before this repository existed, and a wrong answer cannot talk
+            it into agreeing.
+          </p>
+        </div>
+
+        <!--
+          The surface-level panel, UI-SPEC section 4.3. **Rewritten 2026-08-17 when Option A
+          was taken**: this element carried the surface's statement that it had no dispatch
+          path, and that statement is now false. What replaced it says what a run does and
+          what its answer is checked against — the same job, which is to tell a reader what
+          they are looking at before they look at it.
+
+          It carries no `data-region`, and that is UI-SPEC's own arithmetic rather than an
+          oversight: this surface is twelve regions and the catalogue's tally is ninety-one.
+          A thirteenth would move both.
+        -->
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <p class="card-kicker">What this workload is checked against</p>
+          <p class="quote" id="primes-intro"></p>
+          <!--
+            Digit-free, and that is P2's rule rather than a preference: any number inside
+            `#main` with no `data-region` ancestor is undeclared, and this note originally
+            carried the date Option A landed. The date belongs in the source history, which is
+            where a reader can check it; the screen carries the claim.
+          -->
+          <p class="card-note">
+            The module ships in this repository and is signed by the same build authority as
+            the other two kernels, so a tab's own executor will run it. This surface carried no
+            run control at all until a signed record existed for it — the count below is the
+            first reading this page has ever taken from the workload it exists to show.
+          </p>
+        </div>
+
+        <p class="controls">
+          <button id="run-primes" class="btn btn-primary" disabled>Count the primes</button>
+          <!--
+            Digit-free in every state it can reach, for the reason `#pi-status` records one
+            surface over: an undeclared digit inside `#main` is what P2 exists to catch, and
+            the bound belongs in the argument row where it is a declared reading.
+          -->
+          <span class="note" id="primes-status" role="status">start a node first</span>
+        </p>
+
+        <div class="cards rendered-only">
+          <!--
+            N1 and N2 — the two arguments this page will send, on screen before anything is
+            dispatched. `control` regions for the same reason C1/C2 and P1/P2 are: nothing has
+            been asked of the fabric yet, so there is nothing to read. Until 2026-08-17 they
+            were permanently `ARG_NOT_DISPATCHED`, because nothing would ever overwrite them.
+
+            The expressions, recorded here as well as in `surfaces/primes.ts` where they are
+            computed: shards = 4 x (1 + computePeers().length), N = 1000000 fixed. The bound is
+            NOT scaled by peers, and that is the difference from the pi surface one tab over:
+            π(x) is compared against a published table quoted at powers of ten, so moving N off
+            a power of ten would leave the oracle with nothing to compare. A second device makes
+            the run shorter here; it does not make the claim tighter.
+          -->
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What this page will send</p>
+            <dl>
+              <dt>N</dt>
+              <dd
+                data-region="primes/n-arg"
+                data-kind="control"
+                data-source="the argument this page will send: the bound"
+              >Nothing dispatched yet — this is what would be sent.</dd>
+              <dt>shards</dt>
+              <dd
+                data-region="primes/shards-arg"
+                data-kind="control"
+                data-source="the argument this page will send: the shard count"
+              >Nothing dispatched yet — this is what would be sent.</dd>
+            </dl>
+            <p class="card-note">
+              The bound stays on a power of ten whatever the shard count, because that is
+              where the published table has values. Shards move with the peers this tab can
+              see, so a second device splits the same range rather than widening it.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Shards — contiguous sub-ranges, summed under one key</p>
+            <p class="card-body">
+              A refusal is thrown, never returned as a zero. A refusal summed into an
+              aggregate is indistinguishable from a sub-range that genuinely held no
+              primes.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          N3 through N8 — every reading a run produces, written by `applyRender('primes', …)`
+          out of the same record that writes `#primes-report` below, so neither view can
+          format anything the other does not have.
+
+          **These carried `permanentlyUnavailable` until 2026-08-17, and their `data-source`
+          named a method that did not exist.** That was a claim rather than a mistake: P4b in
+          `demo-regions.e2e.test.ts` asserted `window.o2` did NOT have `runPrimes`, so the day
+          Option A landed the guard would redden and force this surface back onto the board
+          rather than let it stay quietly absent. Option A landed, the guard reddened, and this
+          is the surface being replanned — which is the mechanism working, not bypassed.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The count, and whether it was taken</p>
+            <dl>
+              <dt>count</dt>
+              <dd data-region="primes/total" data-kind="reading" data-source="TabApi.runPrimes().total"></dd>
+              <dt>all agreed</dt>
+              <dd data-region="primes/complete" data-kind="reading" data-source="TabApi.runPrimes().complete"></dd>
+              <dt>elapsed</dt>
+              <dd data-region="primes/elapsed" data-kind="reading" data-source="TabApi.runPrimes().elapsedMs"></dd>
+            </dl>
+            <p class="card-note">
+              The count is an integer and it is compared for equality, not for closeness —
+              there is no tolerance to hide in. Before a run these three carry a named
+              absence rather than a blank or a zero: a blank invites a reader to supply
+              their own reason, and a zero is a quantity that was never measured.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The reduce, the receipt, and what left this device</p>
+            <dl>
+              <dt>reduce</dt>
+              <dd data-region="primes/reduce-state" data-kind="reading" data-source="TabApi.runPrimes().reduceAttempted with .reduceReason and .combined"></dd>
+              <dt>receipt</dt>
+              <dd data-region="primes/attestation" data-kind="reading" data-source="TabApi.runPrimes().attestation"></dd>
+            </dl>
+            <pre data-region="primes/egress" data-kind="reading" data-source="TabApi.runPrimes().egress"></pre>
+            <p class="card-note">
+              What left this device is counted by the egress guard for this job alone. Every
+              shard here is public, so a low count is a fact about this workload's inputs
+              rather than a sovereignty result — the bound this page carries is stated on the
+              bring-your-own surface, where a run can register an owner's rows.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          N9 — the per-shard table the mockup drew, and the one cross-check this page can make
+          for itself. It was the pattern for "the mockup drew something the reading does not
+          carry" until `TabPrimesRun` gained `perShard`, and it is now the only region on this
+          surface that checks the fabric against the fabric: the rows come off this tab's own
+          shard results and the total comes back from the combine nodes, so their agreement
+          says the reduce neither lost nor double-counted a leaf.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Per-shard counts</p>
+            <div class="scroller">
+              <pre data-region="primes/per-shard" data-kind="reading" data-source="TabApi.runPrimes().perShard"></pre>
+            </div>
+            <p class="card-note">
+              A shard that reported no count shows a dash, never a zero: a refusal summed into
+              an aggregate is indistinguishable from a sub-range that genuinely held no primes.
+              The sum beside the rows is checked against the aggregate the combine nodes
+              returned — two figures derived independently, which is what makes their agreement
+              worth printing.
+            </p>
+          </div>
+          <div class="card blueprint card-accent">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Stated weakness</p>
+            <p class="card-body" id="primes-weakness"></p>
+            <p class="card-note">
+              This is the sentence that makes the oracle worth reaching, and it stays on
+              screen now that it can be reached. The check whose authority does not come from
+              this repository is real, is quoted below, and is blind in the one direction
+              named here — which the tiling proof in the Node suite is what closes.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          N10 and N11 — the published oracle, and the comparison there is nothing to make.
+          N10 is `cited`: it renders in the citation treatment (`--color-neutral-700`, the
+          `.citation` rule in demo.css) and never in the Heading-size figure treatment a live
+          reading uses, so a published figure and a measured one are distinguishable on this
+          page without reading the label.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The published oracle</p>
+            <div class="scroller">
+              <pre class="citation" data-region="primes/oracle-table" data-kind="cited" data-source="published values of the prime-counting function at powers of ten"></pre>
+            </div>
+            <p class="card-note">
+              Every figure in this block was published before this repository existed. The
+              provenance travels inside the same region as the numbers, so a figure cannot be
+              lifted out of this page without the statement of where it came from.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">This tab's count, against the published one</p>
+            <p class="quote" data-region="primes/oracle-compare" data-kind="reading" data-source="TabApi.runPrimes().total against primes/oracle-table for the same x"></p>
+            <dl>
+              <dt>largest N</dt>
+              <dd data-region="primes/max-n" data-kind="constant" data-source="@o2/demo.PRIME_MAX_N"></dd>
+            </dl>
+            <p class="card-note">
+              The comparison is the whole reason this workload is in the roadmap, and it is
+              what this surface now shows: an independent oracle is only a check if something
+              reaches it, and something does. The bound beside it is a constant of the
+              shipped module, imported rather than transcribed, and it is not a result.
+            </p>
+          </div>
+        </div>
+        <pre id="primes-report" class="text-view" data-region="primes/report" data-kind="text-view" data-source="the #primes-report text view"></pre>
+      </section>
+
+      <section class="wrap" id="s-pi" role="tabpanel" tabindex="0" aria-labelledby="nav-pi" hidden>
+        <div class="surface-head">
+          <p class="kicker">Workload C · π by the Madhava-Leibniz series</p>
+          <h2>The only workload with a real aggregation.</h2>
+          <p class="lede">
+            Every term is non-zero, so a lost index moves the total immediately, where a
+            lost prime-range often changes nothing. Both defences were measured rather
+            than argued: the same planted deletion was caught here at the first shard
+            count tried.
+          </p>
+        </div>
+
+        <!--
+          P1 and P2 — the two arguments this page WOULD send, on screen before anything is
+          dispatched. They are `control` regions for the same reason C1 and C2 are: nothing
+          has been asked of the fabric yet, so there is nothing to read.
+
+          The expressions, recorded here as well as in `surfaces/pi.ts` where they are
+          computed: shards = 4 x (1 + computePeers().length), terms = 250000 x shards. The
+          term count PER SHARD is therefore fixed, which is the arc this surface draws —
+          a second device does not only make the run shorter, it makes the claim tighter,
+          because the remainder bound is 4/(2N+1) over the total.
+
+          The explanatory clause is in the `card-note`, never in a `<dt>`: `dl`'s first
+          column is `max-content`, so a long term establishes a floor wider than a 320px
+          viewport and B1 in `demo-viewport.e2e.test.ts` goes red.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What this page will send</p>
+            <dl>
+              <dt>terms</dt>
+              <dd
+                data-region="pi/terms-arg"
+                data-kind="control"
+                data-source="the argument this page will send: the term count"
+              >Nothing dispatched yet — this is what would be sent.</dd>
+              <dt>shards</dt>
+              <dd
+                data-region="pi/shards-arg"
+                data-kind="control"
+                data-source="the argument this page will send: the shard count"
+              >Nothing dispatched yet — this is what would be sent.</dd>
+            </dl>
+            <p class="card-note">
+              Every shard sums the same number of terms, so a second device adds terms
+              rather than only splitting them. The series remainder bound falls as the
+              total rises — more devices, a tighter claim. Both figures move as peers join,
+              before anything is dispatched.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Partials — signed fixed point, at a scale of π over four</p>
+            <p class="card-body">
+              A shard whose range starts on an odd index sums negative. The sign is a fact
+              about where the range began, not an error.
+            </p>
+          </div>
+        </div>
+
+        <p class="controls">
+          <button id="run-pi" class="btn btn-primary" disabled>Run the reduce</button>
+          <!--
+            Digit-free in every state it can reach, deliberately. `#run-status` on the
+            colouring surface reads `settled n = 500` after a run — an undeclared digit
+            inside `#main` that P2 does not catch because P2 runs on the stopped page. It
+            is logged in `deferred-items.md`, and this surface does not add a second one.
+          -->
+          <span class="note" id="pi-status" role="status">start a node first</span>
+        </p>
+
+        <!--
+          P3, P4, P5 — the MAP half, which even a lone tab really did do — and P6, the
+          reduce. Every one of them is written by `applyRender('pi', …)` out of the same
+          record that writes `#pi-report` below, so neither view can format anything the
+          other does not have.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The map — every shard, on some node</p>
+            <dl>
+              <dt>terms</dt>
+              <dd data-region="pi/terms" data-kind="reading" data-source="TabApi.runPi().terms"></dd>
+              <dt>shards</dt>
+              <dd data-region="pi/shards" data-kind="reading" data-source="TabApi.runPi().shards"></dd>
+              <dt>all agreed</dt>
+              <dd data-region="pi/complete" data-kind="reading" data-source="TabApi.runPi().complete"></dd>
+            </dl>
+            <p class="card-note">
+              This half needs no second device. Every shard is executed and its replicas
+              have to agree; what a lone tab cannot do is the combine above them.
+            </p>
+          </div>
+          <div class="card blueprint card-accent">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The reduce, and whether it could start</p>
+            <!--
+              The lone-tab copy USED TO STAND HERE as static prose, headline and all. It was
+              removed and is now rendered into the region below, out of the same record as
+              every other reading. Static copy would have said *this claim needs a second
+              device* to a visitor whose reduce had just run, and a spec asserting the
+              sentence would have been asserting the markup rather than the run.
+            -->
+            <p class="quote" data-region="pi/reduce-attempted" data-kind="reading" data-source="TabApi.runPi().reduceAttempted with .reduceReason"></p>
+            <p class="card-note">
+              There is no receipt on this surface, and the reason is the reading rather
+              than a choice: <code>runPi</code> returns no attestation field, so the
+              aggregation's own claim is carried by the reduce and what this page receives
+              does not include the map's receipt. The receipt on the colouring surface is a
+              receipt for a different job.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          P7, P8, P9 — the tree, and what the reading of it does and does not carry. The
+          diagram is text and CSS: rows in a `<pre>`, no SVG sprite and no icon font, and
+          no per-combine node state, because `TabPiRun` carries none to draw.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The reduce tree</p>
+            <div class="scroller">
+              <pre data-region="pi/tree-depth" data-kind="reading" data-source="TabApi.runPi().treeDepth"></pre>
+            </div>
+            <dl>
+              <dt>aggregate</dt>
+              <dd data-region="pi/combined" data-kind="reading" data-source="TabApi.runPi().combined"></dd>
+              <dt>combines</dt>
+              <dd data-region="pi/combines" data-kind="reading" data-source="TabApi.runPi().combines"></dd>
+            </dl>
+            <p class="card-note">
+              A depth and a count of combines are the whole of what this reading carries —
+              no per-node outcome and no per-node executor — so the rows above are layers
+              and not nodes, and nothing here draws a box whose state the page would have
+              had to invent. That a reduce started and that it produced an aggregate are
+              two different answers and they stay two rows.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Per-shard partials</p>
+            <p class="card-body">
+              No per-shard partials: the reading this page receives carries the aggregate
+              and not the shard rows.
+            </p>
+            <p class="card-note">
+              The mockup drew a table of them. It is neither dropped in silence nor filled
+              with plausible rows: what it would need is a per-shard field on
+              <code>TabPiRun</code>, and there is none.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          P10, P11, P12 — the aggregate against a published constant, P13 and P14.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The aggregate, checked against published mathematics</p>
+            <dl>
+              <dt>estimate</dt>
+              <dd data-region="pi/estimate" data-kind="reading" data-source="TabApi.runPi().estimate"></dd>
+              <dt>bound</dt>
+              <dd data-region="pi/error-bound" data-kind="reading" data-source="TabApi.runPi().errorBound"></dd>
+            </dl>
+            <div class="scroller">
+              <pre data-region="pi/against-published" data-kind="reading" data-source="TabApi.runPi().estimate against the published constant, with .errorBound beside it"></pre>
+            </div>
+            <p class="card-note">
+              The estimate is fetched from the store the combines wrote to and is never
+              recomputed here, so this page has no second opinion to fall back on and says
+              so when there is nothing to read. The constant it is checked against is
+              published mathematics, quoted with its provenance beside it, and both
+              operands are on screen so the subtraction is one a reader can do.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What left this device</p>
+            <pre data-region="pi/egress" data-kind="reading" data-source="TabApi.runPi().egress"></pre>
+            <p class="card-note">
+              The withheld count and the sentence beside it are one region and one
+              function, because the figure on its own would read as a proof of sovereignty
+              and this run may simply have had nothing to hold back.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">How long the whole dispatch took</p>
+            <p class="card-body" data-region="pi/elapsed" data-kind="reading" data-source="TabApi.runPi().elapsedMs"></p>
+          </div>
+        </div>
+
+        <pre id="pi-report" class="text-view" data-region="pi/report" data-kind="text-view" data-source="the #pi-report text view">nothing dispatched yet</pre>
+      </section>
+
+      <!--
+        BRING YOUR OWN — UI-SPEC section 4.5's thirteen, over `TabApi.runJob`.
+
+        **This section is the caller audit finding G4 says the page does not have.** The
+        heading said *"wired but not exposed on this page"* until Plan 27-07, which was true
+        when it was written and is now false; `runJob` has a caller and it is `#byo-form`'s
+        submit handler below.
+
+        **Seven inputs, all required, and the copy above them says so before anything is
+        submitted.** `runJob` requires `moduleRecord` by construction — its own docblock gives
+        the reason, that making the field optional *would let a caller write the refusal
+        rather than the job and discover it as a timeout*. A CID-only form here would produce
+        nothing but refusals discovered as timeouts. So the control stays disabled until all
+        seven are present and the record's cid matches the module cid, and `#byo-validity`
+        names what is missing rather than leaving a disabled control with no explanation.
+
+        The form ships filled with **this bundle's own** module and record. Not a convenience:
+        `scripts/sign-kernel.ts` discards its private half on every run, so nobody outside this
+        repository can sign under the anchor this tab pins, and an empty form would open at a
+        state no visitor could leave. `surfaces/byo.ts`'s header carries the whole argument.
+      -->
+      <section class="wrap" id="s-byo" role="tabpanel" tabindex="0" aria-labelledby="nav-byo" hidden>
+        <div class="surface-head">
+          <p class="kicker">Workload D · bring your own</p>
+          <h2>Dispatch a module of your own, and read the provenance check.</h2>
+          <p class="lede">
+            One of the two escape hatches is on this page now. The other is a build-time
+            pipeline with nothing to read here, and it says so rather than drawing a figure.
+          </p>
+        </div>
+
+        <!--
+          UI-SPEC section 4.5's copy, above the form and before anything is submitted, because
+          discovering it as a timeout is the failure this surface exists to prevent. Written
+          from `surfaces/byo.ts` into an empty paragraph rather than typed here, for the reason
+          Plan 27-05 removed the lone-tab card's static copy: a sentence a spec asserts must
+          have one author. Digit-free, so its being undeclared does not concern P2.
+        -->
+        <div class="card blueprint card-accent">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <p class="card-kicker">runJob</p>
+          <h3 class="card-title">Dispatch any WASM module by CID — with a record that vouches for it.</h3>
+          <p class="card-body" id="byo-notice"></p>
+        </div>
+
+        <!--
+          The form. Not `.rendered-only`: a control a visitor uses must survive the text-view
+          toggle, exactly as `#run` and `#run-pi` do.
+
+          Every input has a visible `<label for=...>` — UI-SPEC section 7.5 — and no
+          placeholder stands in for one. The submit's `aria-describedby` points at the reason
+          element, and the form's points at the refusal region, so the fabric's own words are
+          associated with the form that produced them.
+        -->
+        <form id="byo-form" class="form-grid" aria-describedby="byo-failures">
+          <div class="field">
+            <label for="byo-module-cid">module CID</label>
+            <input class="input mono" id="byo-module-cid" name="moduleCid" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="byo-record-name">record name</label>
+            <input class="input mono" id="byo-record-name" name="name" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="byo-record-cid">record CID</label>
+            <input class="input mono" id="byo-record-cid" name="cid" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="byo-record-version">record version</label>
+            <input class="input mono" id="byo-record-version" name="version" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="byo-record-expires">record expiry</label>
+            <input class="input mono" id="byo-record-expires" name="expiresAt" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="byo-record-signer">record signer</label>
+            <input class="input mono" id="byo-record-signer" name="signer" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="byo-record-signature">record signature</label>
+            <input class="input mono" id="byo-record-signature" name="signature" type="text" autocomplete="off" spellcheck="false">
+          </div>
+
+          <!--
+            The sovereign option is ONE control pair and the two halves are never separable.
+            `TabApi.runJob`'s `sovereign` field is one object for the same reason: `submitJob`
+            refuses a sovereign shard with no owner by name (`shard-missing-owner`), and *a
+            pair of loose optionals is a way to spell a refusal rather than a job*. So the
+            checkbox and the owner id are rendered together and validated together.
+          -->
+          <div class="field">
+            <label class="check" for="byo-sovereign">
+              <input type="checkbox" id="byo-sovereign" name="sovereign">
+              <span>sovereign — submit every shard owner-pinned rather than public</span>
+            </label>
+          </div>
+          <div class="field">
+            <label for="byo-owner-id">owner id</label>
+            <input class="input mono" id="byo-owner-id" name="ownerId" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <p class="card-note">
+            An owner-pinned shard is placed only on a node that declares the same owner, and
+            no node in this fabric declares one for a visitor — so a sovereign dispatch from
+            here is reported as unplaceable rather than run somewhere it should not be. That
+            refusal is the property working, and it is shown below in the fabric's own words
+            rather than left to be discovered.
+          </p>
+
+          <!--
+            AOT-05's last mile. A dispatch names a module and carries no bytes, so a CID this
+            bundle does not ship has to be *pulled* before it can be dispatched — and until this
+            control existed there was no way to pull one, which made every foreign CID a
+            `module block missing` on every shard.
+
+            `type="button"`, deliberately: this is not the form's submit and pressing Enter in
+            any field must still reach `#run-byo`. And it is NOT disabled by the validity model.
+            Two of the refusals it exists to show — a record that vouches for some other
+            artifact, a gateway that answers an error page — can only be *read* if the control
+            can be pressed in the state that produces them.
+          -->
+          <div class="field">
+            <label for="byo-gateway">gateway root</label>
+            <input class="input mono" id="byo-gateway" name="gatewayBase" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <p class="card-note">
+            A path-gateway root ending in a slash, with no query string: the engine’s code
+            cache is keyed on the URL, so a cache-busting parameter makes every visit a miss
+            and the loader refuses such a base rather than building one. The gateway must answer
+            <code>Content-Type: application/wasm</code> — the streaming compiler accepts nothing
+            else — and the fetched bytes are checked against the CID before they are stored.
+            A gateway that answers anything else is named below rather than worked around.
+          </p>
+          <p class="controls">
+            <button id="fetch-byo" type="button" class="btn" aria-describedby="byo-fetch">Fetch this module</button>
+          </p>
+
+          <p class="controls">
+            <button id="run-byo" type="submit" class="btn btn-primary" disabled aria-describedby="byo-validity">Dispatch this module</button>
+            <!--
+              Digit-free in every state it can reach, as `#pi-status` is and for the same
+              reason: it carries no `data-region`, and P2 runs on the stopped page where it
+              reads `start a node first`. Logged in `deferred-items.md` beside the other two.
+            -->
+            <span class="note" id="byo-status" role="status">start a node first</span>
+          </p>
+          <!--
+            The disabled state's visible reason, and it is never empty. It names every missing
+            field, or the cid disagreement, or — when the form is complete and the node is not
+            running — which of the two is actually blocking. A disabled control with no reason
+            is the same defect as a placeholder.
+          -->
+          <p class="note" id="byo-validity"></p>
+        </form>
+
+        <!--
+          Y1 and Y2 — the two constants. Both `.mono`, which carries `overflow-wrap: anywhere`,
+          because a 64-character anchor in a card at 320 CSS pixels is exactly the string that
+          would push B1 red.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What this tab pins, and what each shard receives</p>
+            <dl>
+              <dt>build authority</dt>
+              <dd class="mono" data-region="byo/pinned-anchor" data-kind="constant" data-source="@o2/demo.KERNEL_TRUST_ANCHOR"></dd>
+              <dt>shard input</dt>
+              <dd class="mono" data-region="byo/shard-input" data-kind="constant" data-source="packages/browser/demo/main.ts runJob() — the per-shard literal { a: &lt;shard index&gt; }"></dd>
+            </dl>
+            <p class="card-note">
+              A supplied anchor list replaces this one rather than joining it, and no value
+              enterable above changes either of these. The module named in the form is this
+              bundle's own, which is the one record in existence that the authority above
+              vouches for — the key that signed it was discarded at signing time.
+            </p>
+            <p class="card-note">
+              A dispatch names a module and carries no bytes. This page holds the bytes of the
+              modules it ships and puts them in this tab's store before dispatching; a CID
+              naming anything else has to be reachable already, and the fabric answers
+              <code>module block missing</code> when it is not.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The dispatch</p>
+            <dl>
+              <dt>every shard agreed</dt>
+              <dd data-region="byo/complete" data-kind="reading" data-source="TabApi.runJob().complete"></dd>
+              <dt>verification cost</dt>
+              <dd data-region="byo/verification-multiplier" data-kind="reading" data-source="TabApi.runJob().verificationMultiplier"></dd>
+              <dt>blocks pulled</dt>
+              <dd data-region="byo/fetched" data-kind="reading" data-source="TabApi.runJob().fetched"></dd>
+              <dt>blocks refused</dt>
+              <dd data-region="byo/rejected" data-kind="reading" data-source="TabApi.runJob().rejected"></dd>
+            </dl>
+            <p class="card-note">
+              A block is refused when its bytes do not hash to the CID that was asked for.
+              That count is this tab's own, over the whole of its life, and not only over
+              this dispatch.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          Y4, Y5, Y6 — per shard. `-1` is never rendered as a number: it is `no agreement`
+          where the shard reached none, and a named absence where the shard agreed on an
+          output that carries no partition field. `surfaces/byo.ts`'s header records the
+          measurement that separates the two.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Per shard</p>
+            <p class="card-note">partition index</p>
+            <div class="scroller">
+              <pre class="mono" data-region="byo/partitions" data-kind="reading" data-source="TabApi.runJob().partitions"></pre>
+            </div>
+            <p class="card-note">replicas that agreed</p>
+            <div class="scroller">
+              <pre class="mono" data-region="byo/replicas" data-kind="reading" data-source="TabApi.runJob().replicas"></pre>
+            </div>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Placement — which nodes agreed on which shard</p>
+            <div class="scroller">
+              <pre class="mono" data-region="byo/agreeing" data-kind="reading" data-source="TabApi.runJob().agreeing"></pre>
+            </div>
+            <p class="card-note">
+              Placement is reported rather than requested. Nothing in the form chooses a
+              node, and the executor set is every peer that answered an offer plus this tab.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          Y10 and Y11. The refusal block is UI-SPEC section 1.5's one bring-your-own use of
+          `--color-refusal`, and section 7.2 fixes how: the prose is `--color-text` with a
+          refusal-coloured left rule, never refusal-coloured text. Every string in it is the
+          fabric's own, verbatim, into `textContent`.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Refusals, in the fabric's own words</p>
+            <div class="scroller">
+              <pre class="mono refusal" id="byo-failures" data-region="byo/failures" data-kind="reading" data-source="TabApi.runJob().failures"></pre>
+            </div>
+            <p class="card-note">
+              A refusal here is quoted and never paraphrased. The page has no better words
+              for one than the node that issued it, and a provenance refusal names the anchor
+              it could not find rather than saying that something went wrong.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">How strongly the answer was attested</p>
+            <p class="quote" data-region="byo/attestation" data-kind="reading" data-source="TabApi.runJob().attestation"></p>
+            <p class="card-note">
+              The kernel's own sentence, passed through. The command line prints the same
+              field from the same value, so there is one author of these words and neither
+              surface holds a copy of them.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          Y12 and Y13 — and this is the one egress panel in the demo whose withheld branch can
+          actually fire. Every cube the colouring surface submits is `label: 'public'`, so
+          `violations` is empty there by construction; a sovereign dispatch from this form
+          registers owner rows and makes the refusal arm of `egressLines` live, with no change
+          to that function.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What left this device</p>
+            <pre data-region="byo/egress" data-kind="reading" data-source="TabApi.runJob().egress"></pre>
+            <p class="card-note">
+              The withheld count and the sentence beside it are one region and one function,
+              because the figure on its own would read as a proof of sovereignty and a run
+              may simply have had nothing to hold back.
+            </p>
+            <p class="card-note">
+              Measured, and worth knowing before reading the count: no owner-pinned shard
+              dispatched from this page has yet reached the point where a byte of it could
+              leave. A sovereign shard is placed only on a node that declares the same owner,
+              and every executor here refuses one it holds no owner key for — so the work is
+              refused above the guard rather than withheld by it, and the sentence beside the
+              count reports what the guard saw rather than what the run submitted.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">How the shards were labelled</p>
+            <p class="card-body" data-region="byo/sovereign-label" data-kind="reading" data-source="TabApi.runJob().egress — whether the submitted job carried sovereign"></p>
+            <p class="card-note">
+              Read from what was submitted rather than from what the form says now, so
+              editing the checkbox after a dispatch cannot change what this panel says about
+              the job that ran.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          The mockup's second bring-your-own card. It ports as prose with **no figure
+          regions**: UI-SPEC section 4.5 says so, and the reason is that it describes a
+          build-time pipeline with no page-side reading. The mockup drew three exit codes
+          beside it; they are dropped rather than transcribed, because a number a page cannot
+          read is a number that should not be on it.
+        -->
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <p class="card-kicker">tools/aot — the lift pipeline, command line only</p>
+          <h3 class="card-title" data-region="byo/prose-lift-target" data-kind="prose" data-source="the name of the instruction set architecture the lift pipeline reads">AArch64 ELF to WebAssembly, scanned for non-determinism.</h3>
+          <p class="card-body">
+            Relaxed SIMD, shared memory, float NaN sources. Then publish and sign the
+            artifact. This is a build-time pipeline with no page-side reading, and it
+            says so rather than drawing one.
+          </p>
+          <p class="card-note">
+            Its exit code is not trusted and is not shown: the driver measures the module it
+            produced, because the tool has been observed exiting cleanly on a binary it could
+            not fully translate.
+          </p>
+        </div>
+
+        <!--
+          What the gateway fetch did, in the loader's own words. Its own view rather than a line
+          in `#byo-report`: a fetch happens before a dispatch, can happen without one following,
+          and must survive the one that does — see the catalogue entry for `byo/fetch`.
+        -->
+        <pre id="byo-fetch" class="text-view" data-region="byo/fetch" data-kind="text-view" data-source="the #byo-fetch text view">nothing fetched yet</pre>
+
+        <pre id="byo-report" class="text-view" data-region="byo/report" data-kind="text-view" data-source="the #byo-report text view">nothing dispatched yet</pre>
+      </section>
+
+      <section class="wrap" id="s-fabric" role="tabpanel" tabindex="0" aria-labelledby="nav-fabric" hidden>
+        <div class="surface-head">
+          <p class="kicker">Cross-cutting state</p>
+          <h2>Every reading here has a source of truth.</h2>
+        </div>
+
+        <!--
+          F1 through F5 — who this tab is connected to, and which of those connections can
+          actually carry a job. The second question is the one `peers()` cannot answer:
+          `libp2p.getPeers()` counts a peer reachable over nothing but a limited relay
+          circuit as connected, so a page with only that reading says two nodes are
+          computing about a pair that cannot run the work. `heldPeers().carriesWork` is a
+          positive test and F4 renders it per peer.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Connections, and which of them can work</p>
+            <!--
+              **Every `<dt>` on this surface is terse, and that is a layout constraint
+              rather than a style.** `demo.css`'s `dl` is
+              `grid-template-columns: max-content 1fr`, so a `<dt>` never wraps: its whole
+              phrase sets the first track's width. The first draft used sentences here —
+              *peers held over a connection that can carry a job* — and B1 in
+              `demo-viewport.e2e.test.ts` went red at both 320 and 360 with
+              `documentElement.scrollWidth 388`, the same figure at both widths because it
+              is an intrinsic width and not a viewport one. The explanation belongs in the
+              note below, which wraps.
+
+              Not "every libp2p connection" either, which is the accurate phrase and
+              carries a digit inside the library's name. P2 caught that one: a number on
+              screen with no declared ancestor is a number nothing states the source of,
+              and the guard has no exception for a digit that is part of a word.
+            -->
+            <dl>
+              <dt>connections</dt>
+              <dd data-region="fabric/peers-all" data-kind="reading" data-source="TabApi.peers().length"></dd>
+              <dt>answered an offer</dt>
+              <dd data-region="fabric/compute-peers" data-kind="reading" data-source="TabApi.computePeers().length"></dd>
+              <dt>can carry a job</dt>
+              <dd data-region="fabric/held-peers" data-kind="reading" data-source="TabApi.heldPeers().length"></dd>
+            </dl>
+            <p class="card-note">
+              The first is every connection this tab holds and always includes the relay,
+              because holding a reservation is a connection. The second is the peers that
+              answered an offer — established by asking, never by classifying, because a
+              relay signals and does not compute. The third is the subset this tab holds
+              over a connection that can carry work.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Peers this tab holds</p>
+            <div class="scroller">
+              <pre class="mono" data-region="fabric/peer-rows" data-kind="reading" data-source="TabApi.heldPeers().peer with .carriesWork"></pre>
+            </div>
+            <p class="card-note">A pair that is connected and cannot carry a job</p>
+            <p class="mono" data-region="fabric/relayed-only" data-kind="reading" data-source="TabApi.connectDiscoveredPeers().relayedOnly with .stalled"></p>
+            <p class="card-note">
+              A relayed circuit is a signalling channel with a duration and a data limit,
+              which this project's constraints say may not carry a job. A pair can end up
+              holding nothing else after a simultaneous mutual dial. This reading is the
+              last discovery round the page ran on its own timer — nothing on this surface
+              dials, because a display that caused what it displays would be reporting
+              itself.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          F6, F7, F8 — the last receipt any surface in this tab produced, and F7 is
+          `attestation.description` VERBATIM. UI-SPEC section 5.1: the page composes no
+          sentence of its own here. It goes through `render.ts`'s `attestationLines`, the
+          same function the colouring and bring-your-own surfaces call, so one result
+          cannot be described two ways on one page.
+
+          F9, F10, F11 — the manifest of that same run. F11 is ONE region, count and
+          sentence together, section 5.2.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">How strongly the last answer was attested</p>
+            <dl>
+              <dt>strength</dt>
+              <dd class="mono" data-region="fabric/attestation-strength" data-kind="reading" data-source="TabApi.runColouring().attestation.strength"></dd>
+            </dl>
+            <p class="quote" data-region="fabric/attestation-description" data-kind="reading" data-source="TabApi.runColouring().attestation.description"></p>
+            <p class="card-note" data-region="fabric/attestation-counts" data-kind="reading" data-source="TabApi.runColouring().attestation.replicas with .operators and .sharedRelay"></p>
+            <p class="card-note">
+              Whichever surface ran last. The kernel's own sentence, passed through — the
+              command line prints the same field from the same value, so there is one
+              author of these words and no surface holds a copy of them.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">What left this device on that run</p>
+            <dl>
+              <dt>frames sent</dt>
+              <dd data-region="fabric/egress-frames" data-kind="reading" data-source="TabApi.runColouring().egress.entries.length"></dd>
+              <dt>bytes sent</dt>
+              <dd data-region="fabric/egress-bytes" data-kind="reading" data-source="TabApi.runColouring().egress.totalBytes"></dd>
+            </dl>
+            <pre data-region="fabric/egress-withheld" data-kind="reading" data-source="TabApi.runColouring().egress.violations"></pre>
+            <p class="card-note">
+              The withheld count and the sentence beside it are one region and one
+              function, because the figure on its own would read as a proof of sovereignty
+              and a run may simply have had nothing to hold back.
+            </p>
+            <p class="card-note">
+              A limit this surface inherits rather than introduces, and it is a claim about
+              sovereignty so it is stated here: the sentence reports what the egress guard
+              saw, not what the run submitted. A dispatch whose shards were owner-pinned
+              but refused above the guard leaves it saying that nothing sovereign was
+              registered. The manifest carries no field that would let the sentence tell
+              those apart, and rewording it on this surface alone would make this page a
+              second author of the sentence that carries the claim.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          F12 through F16, and the surface's one input. The slider is a control and NOT a
+          `.btn-primary`: UI-SPEC section 11 gives this surface no primary CTA, and
+          `demo-liveness.e2e.test.ts` discovers run controls by asking for
+          `#s-fabric .btn-primary` — finding one here would make it drive a surface that
+          runs nothing.
+
+          Not `.rendered-only`, for the reason the bring-your-own form is not: a control a
+          visitor uses must survive the text-view toggle.
+        -->
+        <div class="cards">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">This tab's capacity, and the cap you set</p>
+            <dl>
+              <dt>effective rate</dt>
+              <dd data-region="fabric/duty-user" data-kind="reading" data-source="TabApi.capacity().dutyCycle"></dd>
+              <dt>slots advertised</dt>
+              <dd data-region="fabric/slots" data-kind="reading" data-source="TabApi.capacity().slots"></dd>
+            </dl>
+            <p class="field">
+              <label for="duty-slider">your CPU cap for this tab</label>
+              <!--
+                The slider's own value is deliberately not echoed anywhere as text. The
+                effective rate is `capacity().dutyCycle` — the lower of this cap and the
+                visibility governor's — and it is the declared region above. A second
+                figure beside it would be an undeclared copy of a declared reading, and it
+                would disagree with it whenever the tab is in the background.
+              -->
+              <input type="range" id="duty-slider" min="5" max="100" step="5" value="100" disabled>
+            </p>
+            <!--
+              Digit-free in every state it can reach EXCEPT one, and the exception is
+              stated rather than left to be found: a `RangeError` from the governor is
+              rendered here verbatim and that message names the value it refused. It
+              carries no `data-region`, and P2 runs on the stopped page where this reads
+              the sentence below, so nothing catches a digit written here after a refusal.
+              Logged in `deferred-items.md` beside `#run-status`, `#pi-status` and
+              `#byo-status`.
+            -->
+            <p class="note" id="duty-status" role="status"></p>
+          </div>
+          <div class="card blueprint rendered-only">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The visibility governor</p>
+            <dl>
+              <dt>in the background</dt>
+              <dd data-region="fabric/governor-hidden" data-kind="reading" data-source="TabApi.governor().hidden"></dd>
+              <dt>governor rate</dt>
+              <dd data-region="fabric/governor-duty" data-kind="reading" data-source="TabApi.governor().dutyCycle"></dd>
+              <dt>transitions</dt>
+              <dd data-region="fabric/governor-transitions" data-kind="reading" data-source="TabApi.governor().transitions with .sleptMs"></dd>
+            </dl>
+            <p class="card-note">
+              Whether this tab is in the background, the rate the governor is asking for,
+              and how many times it has changed its mind — with the time it has spent
+              asleep. The governor and your cap compose by taking the lower of the two, so
+              a backgrounded tab throttles whatever you set here.
+            </p>
+          </div>
+        </div>
+
+        <!--
+          F17 — the only reading on this surface that needs no node, and the one row where
+          "stopped wins" had to be decided. `render.ts`'s header names this reading in that
+          rule and P3 enforces it, so the booleans are on screen while a node is running
+          and the catalogue's sentence is on screen when there is none. The page does not
+          take the reading while stopped, because that sentence says it has not.
+
+          F20, F21 — blocks held, and where this tab can be dialled.
+        -->
+        <div class="cards rendered-only">
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">The page hosting this node</p>
+            <p class="mono" data-region="fabric/isolation" data-kind="reading" data-source="TabApi.isolation().crossOriginIsolated with .hasSharedArrayBuffer and .inIframe"></p>
+            <p class="card-note">
+              Cross-origin isolation would unlock shared memory and WebAssembly threads. It
+              needs response headers a static host does not send, and threads are a source
+              of non-determinism anyway, so this page expects to read no on all three.
+            </p>
+          </div>
+          <div class="card blueprint">
+            <i class="corner tl"></i><i class="corner tr"></i>
+            <i class="corner bl"></i><i class="corner br"></i>
+            <p class="card-kicker">Blocks, and how this tab can be reached</p>
+            <dl>
+              <dt>blocks held</dt>
+              <dd data-region="fabric/blocks" data-kind="reading" data-source="TabApi.storedBlocks() with activity().fetched and .rejected"></dd>
+            </dl>
+            <div class="scroller">
+              <pre class="mono" data-region="fabric/addresses" data-kind="reading" data-source="TabApi.addresses().peerId with .webrtc and .circuit"></pre>
+            </div>
+            <p class="card-note">
+              A block is refused when its bytes do not hash to the CID that was asked for.
+              The first line is this tab's peer id; the rest are the addresses another
+              device can dial it on.
+            </p>
+          </div>
+        </div>
+
+        <div class="card blueprint rendered-only">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <h3 class="card-title">How often does this fail to start?</h3>
+          <p class="card-body">
+            A browser that blocks this page does not announce it — it looks like fewer
+            volunteers. These are the reports this node has heard, including what they
+            cannot see.
+          </p>
+          <dl>
+            <dt>peers that answered</dt>
+            <!--
+              F18. The cliff — every peer asked, none answered — is NAMED here rather than
+              rendered as a zero. `TabStartReport`'s own docblock calls that pair the
+              blocklist seen from the inside, and it is the most actionable condition on
+              this surface; behind a figure a reader has to interpret, it is not reported
+              at all.
+            -->
+            <dd data-region="fabric/start-reached" data-kind="reading" data-source="TabApi.startReport().reached with .asked"></dd>
+          </dl>
+          <p class="card-note">One row per browser family, merged across every peer that answered</p>
+          <div class="scroller">
+            <pre class="mono" data-region="fabric/start-tallies" data-kind="reading" data-source="TabApi.startReport().byBrowser"></pre>
+          </div>
+          <p class="card-note">
+            A family this tab is not is the reading that carries the criterion. There is no
+            expression on this page that could produce such a row, so it can only have come
+            from a peer's own ledger.
+          </p>
+        </div>
+        <!--
+          `#report` and `#refresh-report` moved here from the colouring section, and the
+          move is safe for a specific reason that must STAY true: `peer-ledger.e2e.test.ts`
+          and `two-tabs.e2e.test.ts` reach them with `getElementById(...).click()` and
+          `textContent`, both of which work on a panel that is `hidden`. Do not convert
+          either of those to a locator click without also making this panel the default.
+
+          **`#report`'s initial text is exactly `not asked yet` — lowercase, no full stop.**
+          UI-SPEC section 4.6's F18 row says `Not asked yet.` and UI-SPEC is wrong: both
+          specs above wait on `textContent !== 'not asked yet'`, so a page rendering
+          UI-SPEC's string satisfies that wait immediately and both specs would read a
+          panel that had not been refreshed. Do not "fix" the capitalisation.
+
+          **There are TWO `<pre class="text-view">` elements on this one surface and they
+          are not interchangeable.** This is exactly the arrangement in which somebody
+          later merges them, so each says what it is:
+
+          - `#report` is `describeStartReport`'s own output, plus one line naming how many
+            peers the rows came from. **Reformatted by nobody.** The command line renders
+            the same function's output, so a second formatter here would be a second place
+            the same sentence is written.
+          - `#fabric-report` below is this surface's text view, written by `applyRender`
+            out of the same record that writes the twenty-one regions — which is what
+            makes P6 assertable. Nothing in it is `describeStartReport`'s.
+
+          `#refresh-report` is a `.btn-secondary` and there is deliberately no
+          `.btn-primary` anywhere in this panel. UI-SPEC section 11: *Fabric state — none;
+          the surface reads, it does not run.*
+        -->
+        <pre id="report" class="text-view" data-region="fabric/start-outcome-text" data-kind="text-view" data-source="the #report text view — describeStartReport() output, reformatted by nobody">not asked yet</pre>
+        <p class="controls"><button id="refresh-report" class="btn btn-secondary">Refresh</button></p>
+        <pre id="fabric-report" class="text-view" data-region="fabric/report" data-kind="text-view" data-source="the #fabric-report text view">This tab's node is stopped. Start it from the panel at the top of the page to take a reading.</pre>
+      </section>
+
+      <!--
+        Benchmarks — UI-SPEC section 4.7. Two `cited` region groups and nothing else.
+
+        Three things about this markup are decisions rather than defaults:
+
+        1. **Nothing here is `rendered-only`.** Every other surface marks its cards so the
+           "Text only" position of `#view-mode` collapses them, which is safe there because
+           each of those surfaces has a `<pre class="text-view">` left standing. This one
+           does not — UI-SPEC section 2.2 lists six text views and Benchmarks is not among
+           them — so `rendered-only` here would make "Text only" show an empty surface.
+           The figures are already monospace text; there is nothing to collapse to.
+        2. **The two region elements are `<pre class="citation">` inside a `.scroller`**,
+           which is the pattern Plan 27-06 established for the Primes surface's published
+           oracle: `render.ts` writes with `textContent` and never `innerHTML`, so a cited
+           table is text, and `.citation` is `--color-neutral-700` at body size rather than
+           the Heading-size figure treatment a live reading gets. That is UI-SPEC section
+           4.7 requirement 2 — a reader can tell a cited figure from a measured one without
+           reading the label beside it.
+        3. **Both `<pre>` elements are empty in the markup.** Every character in them is
+           written from `./surfaces/bench.ts`, which transcribes
+           `docs/perf/prime-and-pi-benchmarks.md`. A figure typed here would be a figure
+           with a second author, and P9 exists because that is the defect UI-SPEC says this
+           surface is most likely to introduce.
+      -->
+      <section class="wrap" id="s-bench" role="tabpanel" tabindex="0" aria-labelledby="nav-bench" hidden>
+        <div class="surface-head">
+          <p class="kicker">Measured elsewhere, on one machine, in a recorded run</p>
+          <h2>Splitting is free. Parallelism is near-linear to four.</h2>
+          <!--
+            UI-SPEC section 4.7 requirement 1: the provenance line sits at the TOP of the
+            surface, before the first card, and never in a footnote. Written from
+            `surfaces/bench.ts` rather than typed here, so the sentence UI-SPEC section 11
+            fixes has one author; `demo-bench.e2e.test.ts` compares the screen against that
+            same export. It carries three figures — the date, the core count and the engine
+            version — and every one of them occurs in the committed document, so P9 covers
+            this paragraph as well as the two tables.
+          -->
+          <p class="lede citation" data-region="bench/prose-provenance" data-kind="prose" data-source="docs/perf/prime-and-pi-benchmarks.md — the date, the machine and the engine of the recorded run"></p>
+        </div>
+        <div class="card blueprint">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <!--
+            The kicker spells its section number as a word. P2 forbids an undeclared digit
+            anywhere inside `#main`, and a card kicker is not a region — so `section 5`
+            here would be a number on screen that nothing declares, which is precisely the
+            property this surface is the most likely to trip. The digits live inside the
+            region, where the citation block names the section again.
+          -->
+          <p class="card-kicker">Real parallel speedup · section five of the document</p>
+          <div class="scroller">
+            <pre class="citation bench-table" data-region="bench/speedup" data-kind="cited" data-source="docs/perf/prime-and-pi-benchmarks.md section 5 — Real parallel speedup"></pre>
+          </div>
+          <p class="card-note">
+            Separate operating-system processes, one per shard, each competing for a real
+            core — not the in-process fabric, which shares one event loop and would report
+            a flat makespan as a consequence of the process model. The speedup and
+            efficiency columns are the document's own; nothing on this page divides one
+            number by another.
+          </p>
+        </div>
+        <div class="card blueprint">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <p class="card-kicker">Overhead and cost · sections two, three and four</p>
+          <div class="scroller">
+            <pre class="citation bench-table" data-region="bench/overhead" data-kind="cited" data-source="docs/perf/prime-and-pi-benchmarks.md sections 2, 3 and 4 — decomposition cost, cold instantiate, fabric overhead"></pre>
+          </div>
+          <p class="card-note">
+            The fabric's cost over local execution, the cost of splitting a domain, and what
+            it costs to bring a guest module up cold. The overhead table's local column is a
+            same-moment reference measured seconds from the fabric reading, because absolute
+            milliseconds on a shared machine do not carry a claim and a ratio between two
+            things measured seconds apart does.
+          </p>
+        </div>
+        <div class="card blueprint">
+          <i class="corner tl"></i><i class="corner tr"></i>
+          <i class="corner bl"></i><i class="corner br"></i>
+          <p class="card-kicker">Provenance</p>
+          <p class="card-body">
+            <a href="./perf/index.html">Prime counting and a π series on this fabric</a> —
+            throughput, decomposition cost, fabric overhead and real parallel speedup, with
+            the method, the reading that was thrown away, and the numbers that disagreed
+            with the prediction. The same report the footer links, served from this origin:
+            it is emitted into the bundle at build time from the one committed copy, and the
+            build fails rather than shipping a link to nothing.
+          </p>
+        </div>
+        <!--
+          Benchmarks gets NO text view, and that is deliberate rather than an omission:
+          UI-SPEC section 2.2 lists six and this surface is not among them. Nothing here
+          is a reading, so there is no reading to render twice.
+        -->
+      </section>
     </section>
 
     <!--
@@ -171,18 +1673,50 @@
       before running anything is exactly the reader who has not pressed the button,
       so a link inside either section would be invisible to the only audience for it.
     -->
+    <!--
+      `./perf/index.html`, not `./perf/`, and the difference was measured rather than
+      chosen. Until Plan 27-09 this link read `./perf/` and the built bundle contained no
+      `perf/` directory at all, so it resolved nowhere — UI-SPEC section 10 records the gap
+      and leaves the packaging to the plan. The file now exists: `vite.config.ts` emits
+      `docs/perf/prime-and-pi-benchmarks.html` into the bundle as `perf/index.html` and
+      serves the same committed file at `/perf/` in dev, from one source and with the build
+      failing if that source is absent.
+
+      The trailing `index.html` is explicit because a directory URL only resolves where the
+      host performs directory-index resolution. GitHub Pages does; the deliberately dumb
+      static server in `built-bundle.e2e.test.ts` does not, and making that server smarter
+      to satisfy a link would be widening the instrument to fit the page. Naming the file
+      resolves on both, and `built-bundle.e2e.test.ts` measures it on the dumb one.
+    -->
     <footer class="note" id="measurements">
       Measured, with the method and the numbers that disagreed with the prediction:
-      <a href="./perf/">prime counting and a pi series on this fabric</a> — throughput,
-      decomposition cost, fabric overhead and real parallel speedup.
+      <a href="./perf/index.html">prime counting and a pi series on this fabric</a> —
+      throughput, decomposition cost, fabric overhead and real parallel speedup.
     </footer>
 
-    <!-- BROW-04. Rendered only while a node exists; never dismissible while it does. -->
-    <div id="bar" hidden>
-      <strong id="bar-what">idle</strong>
-      <span id="bar-stats"></span>
-      <span class="spacer"></span>
-      <button id="stop">Stop</button>
+    <!--
+      BROW-04. Rendered only while a node exists; never dismissible while it does.
+
+      **The three `data-region` attributes are new in Plan 27-09 and they were the
+      precondition for putting `bar` into `WIRED_SURFACES` at all.** UI-SPEC section 4.1
+      enumerates B1, B2 and B3 as three of the 91 and the catalogue has held them since
+      Plan 27-03, and until now no element on this page carried their ids — so appending
+      `'bar'` to that array would have been a greppable admission that a surface had
+      arrived over three regions that existed only in the catalogue. The attributes come
+      first; the array entry follows them.
+
+      The bar's absence copy is the element not being there — `activity() === null` removes
+      it — which is what `absenceMode: 'element-removed'` says, and it is why these three
+      carry no `data-absence`. The bar also sits OUTSIDE `#main`, so P2 does not walk it and
+      the counters it renders are not undeclared digits under that property; declaring them
+      here is about P1, not about P2.
+    -->
+    <div id="bar" role="status" hidden>
+      <strong id="bar-what" aria-live="polite" data-region="bar/what" data-kind="reading" data-source="TabApi.activity().servedFor with .peers">idle</strong>
+      <!-- `aria-live="off"`: these counters change about once a second, and a screen
+           reader announcing a task counter continuously is worse than silence. -->
+      <span id="bar-stats" aria-live="off" data-region="bar/stats" data-kind="reading" data-source="TabApi.activity().dutyCycle with .hidden, .tasksExecuted and .fetched"></span>
+      <button id="stop" data-region="bar/stop" data-kind="control" data-source="the Stop control, calling TabApi.stop()">Stop</button>
     </div>
 
   </body>
