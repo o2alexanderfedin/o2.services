@@ -186,8 +186,18 @@ const NODE_MEASUREMENT = {
    *
    * **The tolerance was not moved**, for the third pass running — see
    * `FILE_COUNT_TOLERANCE` in `packages/node/src/slow-specs.node.test.ts`.
+   *
+   * **206 -> 212 on 2026-08-28, by a COMPARATIVE reading rather than a re-run of the table.**
+   * Six files landed after the run above. The span table is untouched because none of them
+   * belongs in it, and that is measured rather than assumed: the three added this session ran
+   * in the same invocation as `slow-specs.node.test.ts` — 646 ms, 2 ms and 5 ms against the
+   * 1000 ms cut, taken together so host load cancels instead of being assumed away. The host
+   * was at 3.5 load per core, under the ceiling the run's own conditions banner enforces.
+   * `tests` below is left at its run's figure for the same reason `files` moved: the count is
+   * what the tolerance reads, and inventing a test total nobody counted would be the defect
+   * this table exists to prevent.
    */
-  files: 206,
+  files: 212,
   tests: 2948,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
@@ -371,7 +381,7 @@ const NODE_MEASUREMENT = {
    * hour once spread 25.69 / 33.68 / 22.39 s — 1.5x end to end. Any comparison against this
    * number that turns on less than half of it is reading the host's weather.
    */
-  unitFiles: 128,
+  unitFiles: 134,
   unitTests: 2317,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
