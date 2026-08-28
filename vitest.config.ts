@@ -396,10 +396,18 @@ const NODE_MEASUREMENT = {
  *
  * Both runs on **2026-08-25**, after `tools/**` moved to the `aot` project:
  *
+ * **The last `--reporter=` line is not optional and is the one hole this repository cannot
+ * close from configuration.** A CLI `--reporter=` OVERRIDES the `reporters` array at the root
+ * of this file, so a run that passes any of these flags silently loses the host-conditions
+ * banner — which is exactly the run most likely to have a duration quoted out of it. Naming it
+ * here puts it back on the documented path; `host-conditions-wired.node.test.ts` reads this
+ * block and goes red if it is dropped.
+ *
  * ```
  * O2_MODULE_SPAN_OUT=$OUT/node-modulespans.json /usr/bin/time -p npx vitest run \
  *   --project node --reporter=default --reporter=json \
- *   --outputFile.json=$OUT/node2.json --reporter=./tools/measure/module-span-reporter.js
+ *   --outputFile.json=$OUT/node2.json --reporter=./tools/measure/module-span-reporter.js \
+ *   --reporter=./tools/measure/host-conditions-reporter.ts
  *   -> 198 files / 2853 tests, real 163.21  user 701.81  sys 170.87, ratio 5.35, load 5.20
  *
  * /usr/bin/time -p npx vitest run --project aot
@@ -1074,6 +1082,28 @@ const PERF_GATE = process.env['O2_PERF'] === '1'
  */
 export default defineConfig({
   test: {
+    /**
+     * Every run says what the machine was doing while it was taken.
+     *
+     * **`'default'` is listed first and must stay.** `reporters` REPLACES the default rather
+     * than adding to it, so omitting it makes every run silent — verified by running it both
+     * ways rather than read off the documentation.
+     *
+     * At the ROOT and not inside a project: reporters are run-level in vitest 4.1.10, so this
+     * is the one place that reaches all five lanes — including `browser`, which is the lane
+     * that produced the wrong conclusion and the one lane whose specs cannot read the load
+     * themselves, there being no `node:os` in a browser.
+     *
+     * The hole this does NOT close, stated rather than discovered: a CLI `--reporter=` flag
+     * overrides these, so a run that passes one loses its conditions. The repository's own
+     * `--reporter=json` measurement recipe below therefore names this file alongside the
+     * module-span reporter.
+     *
+     * `host-conditions-wired.node.test.ts` parses this file and goes red if the entry is
+     * removed or if `'default'` stops leading it.
+     */
+    reporters: ['default', './tools/measure/host-conditions-reporter.ts'],
+
     /**
      * Coverage is an instrument, not a gate — see `.planning/COVERAGE-BASELINE.md`
      * for the first measurement this project has ever taken and for what a floor
