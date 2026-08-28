@@ -25,7 +25,18 @@ removes the second independent executor. The system therefore splits the claim:
 | Sovereign (owner-pinned) | Map is **owner-attested**; the aggregation *over* contributions is verified |
 
 Stated plainly: *the owner's contribution is trusted; the aggregation over
-contributions is verified.* The sovereignty claim itself is carried by an egress
+contributions is verified.*
+
+N-version verification compares **results**, never executions: nodes compare the
+`canonicalCid` of the output. Each shard must therefore be a function of (artifact,
+input). Parallelism *across* shards — workers on one device, or many devices — does
+not affect this. An artifact declares whether its output is byte-reproducible; that
+declaration is signed with it. Comparison has three outcomes, not two: agree,
+disagree, and **cannot decide**. An artifact that declared reproducibility and does
+not deliver it makes honest nodes disagree, so a mismatch marks the **artifact**,
+never the nodes that ran it.
+
+The sovereignty claim itself is carried by an egress
 manifest and coverage report, not by a quorum.
 
 ### Constraints
@@ -267,7 +278,7 @@ manifest and coverage report, not by a quorum.
 | **NaN bit patterns** from float arithmetic | ❌ | **Cannot be fixed at runtime in V8.** Verified: `node --v8-options` has no canonicalization flag. Fix at publish time via Binaryen's `denan` pass (converts NaN→0), **or** forbid floats in the guest ABI and use fixed-point integers, **or** accept the risk for workloads whose outputs never carry NaN. |
 | **NaN sign bit** when no NaN input | ❌ | Same treatment. |
 | **Relaxed SIMD** (`f32x4.relaxed_madd` etc.) | ❌ | **Cannot be disabled in V8.** Verified: `node --v8-options \| grep -i relaxed` returns nothing — the proposal shipped and there is no off switch. Must be **rejected at publish time** by scanning opcodes with `wabt`/`binaryen`. Non-relaxed SIMD (`simd128`) *is* deterministic and is fine. |
-| **Threads / shared memory** | ❌ | Reject `shared` memory in the module's memory section at publish time. Bonus: in the browser, `SharedArrayBuffer` requires COOP/COEP cross-origin isolation anyway — **which GitHub Pages cannot set**, so threads are already off the table for the demo tier. |
+| **Threads / shared memory** | ❌ | **Permitted in guest modules.** A publisher may ship a threaded module; how it makes its own output stable is the publisher's problem, not the fabric's. The artifact declares two things instead: the features it requires, and whether its output is byte-reproducible. A node that cannot supply a required feature refuses the task. `SharedArrayBuffer` needs COOP/COEP cross-origin isolation, which GitHub Pages does not serve, so a threaded module does not run on that tier — a capability mismatch, not a rule. |
 | **Host imports** (clock, random, I/O) | ❌ by construction | You control this. Whitelist imports via `WebAssembly.Module.imports(module)` before instantiation. Supply a **virtualized deterministic WASI**: fixed epoch clock, seeded PRNG derived from the job ID, no filesystem, no sockets. |
 | **Resource exhaustion** (OOM, stack, `memory.grow` failure) | ❌ | Pin `memory` `initial === maximum` at publish time so `memory.grow` cannot fail differently per host. Bound stack depth at compile time. |
 | **Engine feature-set drift** | ❌ | Put the required feature set in the artifact's cache key (design §I.6 already does) and gate execution on `wasm-feature-detect`. |
@@ -319,7 +330,6 @@ manifest and coverage report, not by a quorum.
 | `benchmark@2.1.4` | Last published 2023, Node-oriented, poor ESM story. | `tinybench@6.1.2` |
 | `node:wasi` for guest execution | Experimental, Node-only, and gives you *different host semantics from the browser* — which is a determinism bug by construction. | `@bjorn3/browser_wasi_shim` on both platforms |
 | Wasmtime / WasmEdge / Marine **in the node agent** | Would fork the agent into browser and non-browser builds, destroying the "one codebase" property that is the project's core bet. | V8's built-in `WebAssembly`. Server-side runtimes belong in the Part I *build* pipeline only. |
-| `SharedArrayBuffer` / WASM threads in the browser tier | Requires COOP/COEP cross-origin isolation headers. **GitHub Pages serves no custom headers**, so this is unavailable on the declared hosting target — and threads are a nondeterminism source anyway. | Multiple dedicated Workers with `postMessage`, one WASM instance each |
 | TS `moduleResolution: "node"` / `"node10"` / `"classic"`, `baseUrl` | **Removed in TypeScript 7.0 — hard errors, not warnings.** | `moduleResolution: "bundler"`, path mapping via `paths` without `baseUrl` |
 ## Stack Patterns by Variant
 - Transports: `webRTC()`, `webRTCDirect()`, `webSockets()`, `circuitRelayTransport()`
