@@ -28,12 +28,15 @@ stopped_at: >-
   PHASE 29 CLOSES UNCOUNTED, which is the phases 20/21/22 precedent. Criteria 3-7
   are met, three of them with plants watched red. Criterion 1 — the billing alert
   preceding the first Durable Object — is REFUTED and permanently unsatisfiable
-  by owner decision taken with the consequence in front of him. Criterion 2 holds
-  on three legs of four: an outside peer dials, identify completes, and the PeerId
-  survives a redeploy; the identity surviving an EVICTION is carried only by an
-  agent-taken reading of 2026-08-28 and rests on one assumption only the owner can
-  discharge. HOST-01 is `Partial`, HOST-10 is the ledger's first `Refuted` row.
-  STILL OPEN AND OWNER-OWNED: confirming that reading; giving the tester cohort a
+  by owner decision taken with the consequence in front of him, and IT IS THE ONLY
+  THING HOLDING THE PHASE'S CHECKBOX OFF. Criterion 2 is MET IN FULL as of
+  2026-08-28: an outside peer dials, identify completes, and one PeerId spans BOTH
+  construction boundaries — a redeploy, and an eviction observed after an ≈8 h 50 m
+  idle interval with no deploy in it, the owner having confirmed no manual deploy
+  ran in that window. The eviction was OBSERVED, NOT FORCED; the forcing lever is
+  still unverified with its one candidate refuted, so nothing here makes that
+  reading repeatable on demand. HOST-01 is `Done`, HOST-10 is the ledger's first
+  `Refuted` row. STILL OPEN AND OWNER-OWNED: giving the tester cohort a
   build (Phase 39 criterion 4). STILL OPEN AND MINE: the load-sensitive
   multi-process specs — late-combine's two recorded defects are fixed AND IT STILL
   FAILED ONCE on 2026-08-28, one of six cold combines hitting the 1500 ms budget
@@ -44,8 +47,8 @@ stopped_at: >-
   REQUIREMENTS.md rows stale in the pessimistic direction (HOST-05, HOST-08,
   HOST-11, HOST-12) plus two false clauses in NET-03's; and no concurrency limit
   by core count anywhere in the tree, which is the next thing the owner named.
-last_updated: "2026-08-28T18:45:00.000Z"
-last_activity: 2026-08-28 — the hosted tier deployed and released four times, the browser client published and fixed, Phase 29 closed uncounted
+last_updated: "2026-08-28T19:40:00.000Z"
+last_activity: 2026-08-28 — the hosted tier deployed and released four times, the browser client published and fixed, criterion 2 met in full, Phase 29 closed uncounted on criterion 1 alone
 progress:
   total_phases: 13
   completed_phases: 0

@@ -8,9 +8,10 @@ requires:
   - .planning/phases/phase-29-hosted-tier-assembly-and-first-deploy/29-REPORT.md
 provides:
   - "criterion 1 recorded REFUTED and permanently unsatisfiable, by owner decision rather than by accident"
-  - "criterion 2 carried on three of its four readings, with the eviction arm named and its residual assumption stated"
+  - "criterion 2 MET IN FULL — evidence row 2 obtained by waiting, and the owner's answer discharging its one assumption"
   - "HOST-10 as the ledger's first Refuted row, and the seventh status word declared after the guard was watched refusing it"
-  - "HOST-01 moved Not started -> Partial and entered the re-read register, raising REREAD_REGISTER_CEILING 3 -> 4"
+  - "HOST-01 Not started -> Partial -> Done inside one day, entering and leaving the re-read register with both moves recorded"
+  - "a title witness for HOST-01 in hosted-identity.test.ts, scoped in its own docblock to the mechanism and not the deployed half"
   - "Q6's prediction refuted a second time: the deploy happened and the unreachable count did not move"
 affects:
   - .planning/REQUIREMENTS.md
@@ -35,13 +36,30 @@ key-files:
     - packages/node/src/requirements-ledger.node.test.ts
 decisions:
   - "HOST-10 is `Refuted`, not `Not started` and not `Partial` — the claim is an ordering that is now permanently false, not a claim behind schedule"
-  - "HOST-01 keeps its box OFF: the eviction leg rests on an agent-taken reading, and the owner-boundary ruling makes criterion 2 his to confirm"
-  - "The eviction reading is recorded HERE and NOT written into 29-EVIDENCE.md, whose rule is that every slot is a thing the owner saw"
-  - "Phase 29's ROADMAP checkbox stays unticked — the phases 20/21/22 precedent: verified-but-uncounted, the open criterion carried to a named destination"
+  - "HOST-01's box came on only after the OWNER answered; the reading alone was held as Partial for as long as its one assumption was open"
+  - "The eviction reading was written into 29-EVIDENCE.md only once the owner had read it and discharged its assumption — never straight from an agent's measurement"
+  - "The HOST-01 title witness is scoped in a docblock to the mechanism, so a reader cannot take it as covering the deployed or dialable halves"
+  - "Phase 29's ROADMAP checkbox stays unticked even with criterion 2 fully met — criterion 1 is unrepairable, and the phases 20/21/22 precedent is verified-but-uncounted"
 metrics:
-  duration: ~70 min
+  duration: ~70 min writing, plus a ~9 h idle interval the eviction reading needed
   completed: 2026-08-28
 ---
+
+> ## Read this first — the file changed twice on the day it was written
+>
+> It was written while criterion 2 stood at **three legs of four**, and the missing leg — the
+> identity surviving an eviction — was carried only by an agent-taken reading whose one
+> assumption the owner had not yet discharged. `HOST-01` was `Partial` with its box off, and the
+> reading was deliberately kept out of `29-EVIDENCE.md`.
+>
+> **The owner answered the same day: no manual deploy ran in that window.** So evidence row 2 is
+> now filled, **criterion 2 is MET IN FULL**, and `HOST-01` is `Done` with a title witness.
+>
+> The body below is kept as written rather than rewritten, because the reasoning that held the
+> box off is the record of how it came on. Where it says `Partial`, read it as the state that
+> held for part of 2026-08-28. **Two things it says are still true and are the point**: the
+> eviction was *observed, not forced*, and criterion 1 is still refuted, so **the phase still
+> does not get its checkbox.**
 
 # Phase 29 Plan 01: The Two Owner Acts, Closed From What They Actually Produced — Summary
 
@@ -216,3 +234,38 @@ uncounted, the open criterion carried to a named destination rather than rewritt
 destination here is one owner confirmation, not a phase.
 
 A criterion is not rewritten to let a phase close.
+
+---
+
+## Addendum, 2026-08-28 — the destination was reached the same day
+
+The owner was asked whether he had run `scripts/deploy-hosted.sh --live` by hand between ≈09:30Z
+and 18:21:13Z. **He answered no.** That was the whole of what criterion 2 was waiting on, so:
+
+| | before | after |
+|---|---|---|
+| evidence row 2 | NOT OBTAINED | filled — `f57ced1f…` → `8ac6c674…`, one PeerId, ≈8 h 50 m, no deploy |
+| criterion 2 | three legs of four | **MET IN FULL** |
+| `HOST-01` | `Partial`, box off | **`Done`**, box on |
+| re-read register | `HOST-01` entered, ceiling 3 → 4 | `HOST-01` left, ceiling 4 → 3 |
+| title witness | none — `witnesses: []` measured | `packages/cloudflare/src/hosted-identity.test.ts` |
+
+**The `[x]` needed a test naming the id**, which is the audit half of the ledger's rule, and the
+id went into an existing describe title rather than into an exemption list — the same move
+`28-04` recorded for `CRYPTO-04`. Its docblock states what the witness does **not** carry: the
+block proves the identity comes from storage and survives a fresh construction, and nothing in
+this process deploys or dials. That half is owner evidence and no test can hold it.
+
+**Two limits travel with the tick and are written into the row rather than absorbed:**
+
+1. **The eviction was observed, not forced.** The object went quiet and came back a different
+   construction; nothing here makes that repeatable on demand. The forcing lever is still
+   unverified with its one candidate refuted.
+2. **The reading's own precision is soft at one end.** Reading A was never timestamped when it
+   was taken, so the interval's lower bound is exact and its upper is reconstructed.
+
+**Nothing else moved, and the phase still does not count.** Criterion 1 is refuted permanently —
+the first object exists and its creation time is fixed — so the ROADMAP checkbox stays off for
+the reason it was already off. What changed is which criterion is holding it there, and that is
+worth saying plainly: it is no longer *"one confirmation away"*, it is *"one criterion that
+cannot be repaired."*
