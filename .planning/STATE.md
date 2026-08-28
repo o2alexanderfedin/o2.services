@@ -4,38 +4,62 @@ milestone: v2.0
 milestone_name: Open the Doors
 status: executing
 stopped_at: >-
-  CORRECTED BY HAND 2026-08-25. The tooling rewrote this frontmatter after the
-  session's commits and wrote four things that were false. `status` read
-  `completed` — a value that is not in this file's own vocabulary (its history
-  holds only planning / ready-to-execute / executing / verifying /
-  milestone_complete) and untrue besides, with all 13 v2.0 phases unstarted;
-  it is `executing`, because Phase 29 criterion 3 has landed. `total_phases`
-  read 42 against a milestone of 13. `milestone_name` had grown a leading
-  em-dash. And `stopped_at` read "context exhaustion at 84%", which the
-  tooling took from a claim I made and the owner immediately refuted —
-  a third of the window was left. THE GUARD DID NOT CATCH ANY OF IT:
-  `state-frontmatter.node.test.ts` checks that the eight keys are PRESENT,
-  not that their values are true, and it passed 6/6 over this.
-  Where the work actually stands: Phase 29 has criterion 3 (packages/cloudflare,
-  a DoDatastore over Durable Object storage) and nothing else; criteria 1 and 2
-  are owner acts at the Cloudflare boundary and stay open by ruling. Landed this
-  session beyond that: the audit findings F-44/F-45/F-46, the `aot` test lane
-  that closed Phase 21's W1 by serialising rather than by a larger budget,
-  BENCH-06 re-read and re-recorded, and all 38 mvp-mode phase goals restated as
-  user stories by owner ruling. Still open and owner-owned: the live multi-machine
-  run (Phase 39 criterion 4), whose only remaining gate is giving the tester
-  cohort a build. Still open and mine: the load-sensitive multi-process specs —
-  late-combine is fixed, admission-agents, coverage-agents, dht-registration,
-  discovery-agents and speculation-agents are not.
-last_updated: "2026-08-26T03:10:00.000Z"
-last_activity: 2026-08-25 — audit fixes, the aot lane, user-story goals
+  WRITTEN BY HAND 2026-08-28, and by hand for a recorded reason. On 2026-08-25
+  the tooling rewrote this frontmatter after the session's commits and wrote four
+  false values — `status: completed` against 13 unstarted phases, a phase total
+  reading 42 against a milestone of 13, an em-dash grown onto `milestone_name`,
+  and a `stopped_at` the owner had already refuted. (That total is written in
+  words here on purpose: the guard reads the FIRST `total_phases:` followed by
+  digits anywhere in this frontmatter, so quoting the wrong value in prose feeds
+  it the wrong value — measured 2026-08-28, when doing exactly that turned the
+  case red at `expected 42 to be 13`.) THE GUARD DID NOT CATCH THE 2026-08-25 SET:
+  `state-frontmatter.node.test.ts` checks that the eight keys are PRESENT, not
+  that their values are true, and it passed 6/6 over the lot. Edit this block by
+  hand or it will be wrong again.
+  WHERE THE WORK STANDS. The hosted tier is DEPLOYED and live: four tagged
+  releases 2026-08-27..28 (v2.0.0-rc.1..rc.4), the node answering at
+  o2-bootstrap.af-4a0.workers.dev with a PeerId persisted in Durable Object
+  storage, `GET /self` naming its own build, and both deployments — the node and
+  the browser client — running from one script each on a `release: published`
+  trigger, identically from a laptop and from CI. The browser client is published
+  to GitHub Pages and, since rc.4, can actually join: it had fetched
+  `bootstrap.json` from the domain apex on a subpath host since 2026-08-06 and
+  had therefore never reached the fabric at all.
+  PHASE 29 CLOSES UNCOUNTED, which is the phases 20/21/22 precedent. Criteria 3-7
+  are met, three of them with plants watched red. Criterion 1 — the billing alert
+  preceding the first Durable Object — is REFUTED and permanently unsatisfiable
+  by owner decision taken with the consequence in front of him. Criterion 2 holds
+  on three legs of four: an outside peer dials, identify completes, and the PeerId
+  survives a redeploy; the identity surviving an EVICTION is carried only by an
+  agent-taken reading of 2026-08-28 and rests on one assumption only the owner can
+  discharge. HOST-01 is `Partial`, HOST-10 is the ledger's first `Refuted` row.
+  STILL OPEN AND OWNER-OWNED: confirming that reading; giving the tester cohort a
+  build (Phase 39 criterion 4). STILL OPEN AND MINE: the load-sensitive
+  multi-process specs — late-combine is fixed, admission-agents, coverage-agents,
+  dht-registration, discovery-agents and speculation-agents are not; four
+  REQUIREMENTS.md rows stale in the pessimistic direction (HOST-05, HOST-08,
+  HOST-11, HOST-12) plus two false clauses in NET-03's; and no concurrency limit
+  by core count anywhere in the tree, which is the next thing the owner named.
+last_updated: "2026-08-28T18:45:00.000Z"
+last_activity: 2026-08-28 — the hosted tier deployed and released four times, the browser client published and fixed, Phase 29 closed uncounted
 progress:
   total_phases: 13
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 1
+  completed_plans: 1
   percent: 0
 ---
+
+<!--
+**`completed_phases: 0` with `completed_plans: 1` is not an inconsistency, 2026-08-28.**
+Phase 29's one plan executed and its summary is written. The phase still does not count,
+because criterion 1 is refuted and criterion 2 holds on three legs of four — the phases
+20/21/22 precedent, where a phase is verified but uncounted and its open criterion is
+carried to a named destination rather than rewritten. A plan is complete when it is
+executed; a phase is complete when a verifier says so. These two counters measure the two
+different things, and collapsing them is how a phase closes by arithmetic.
+-->
+
 
 <!--
 **v2.0 header, added 2026-08-25**
