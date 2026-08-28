@@ -202,6 +202,26 @@ function unanchoredRows(
  * a `startsWith('Done')` test and silently exempt its row from nothing at all, and the
  * guard would read exactly like a healthy one. This repository has shipped a
  * classifier that matched nothing once already.
+ *
+ * ## `Refuted` — added 2026-08-28, and the refusal that preceded it is the point
+ *
+ * The six words above could not say what `HOST-10` became. *Not started* was false — the
+ * deploy happened — and *Partial* means one leg reaches production while another does not,
+ * which is a statement about progress. `HOST-10` asserts an **ordering**: the billing alert
+ * precedes the first Durable Object. That object was created on 2026-08-27T16:00:29Z with no
+ * alert configured, by an owner decision taken with the consequence in front of him, and its
+ * creation time is now fixed. The claim is not behind schedule; it is permanently false.
+ *
+ * The word was written into the ledger FIRST and the guard was watched refusing it —
+ * `HOST-10 at .planning/REQUIREMENTS.md:1877 reads "Refuted"`, one failure, 46 other cases
+ * green — before this entry was added. That refusal is the mechanism working: a status this
+ * set does not know is an unreviewed vocabulary change, and the review is adding the line.
+ *
+ * **It widens the vocabulary and not what counts as delivered.** `delivered()` is
+ * `startsWith('Done')`, so a `Refuted` row's checkbox must stay off exactly as a *Not started*
+ * row's does, and the `[x]`-iff-`Done` join scores it identically. What changes is that the
+ * ledger can now record a requirement that was measured and came back negative, instead of
+ * being forced to describe it as one that has not been attempted.
  */
 const RECOGNISED_STATUSES: readonly string[] = [
   'Done',
@@ -209,6 +229,7 @@ const RECOGNISED_STATUSES: readonly string[] = [
   'Done against the amended criterion, with its granularity stated',
   'Built, not wired',
   'Partial',
+  'Refuted',
   'Not started',
 ]
 

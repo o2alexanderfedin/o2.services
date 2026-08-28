@@ -878,8 +878,21 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * surface able to hand *a tab or an agent* a real owner identity — and the agent got one. The
  * half it did not get is recorded in the row rather than absorbed here, which is the
  * distinction a ceiling cannot make and a removal note must.
+ *
+ * **Raised 3 → 4 on 2026-08-28, in the same commit that added `HOST-01`** — the first raise
+ * after three consecutive lowerings, and it is raised by exactly the one entry that arrived,
+ * so a second cannot slip in under a bound sized for one.
+ *
+ * The entry is not a row going quiet. `HOST-01` moved *Not started* → **Partial** because
+ * Phase 29's deploy happened: the hosted node is live, an outside peer dialled it and identify
+ * completed. What keeps it off `Done` is a single leg — the identity observed surviving an
+ * **eviction** — and that leg has no shape this file can read, because there is no symbol and
+ * no caller in it. It is an observation of a deployed edge object, which no in-process spec can
+ * force. So this raise records a requirement that got closer while becoming *less* machine-
+ * checkable, which is the one direction the register exists to keep visible rather than let
+ * pass as progress.
  */
-const REREAD_REGISTER_CEILING = 3
+const REREAD_REGISTER_CEILING = 4
 
 /**
  * ## The rule this list encodes
@@ -1591,6 +1604,27 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // allows — a row acquiring a checkable claim. **This is the whole point of the device:
   // nothing about the tree changed, and the row had been exempt from a check it could
   // always have passed.**
+  //
+  // `HOST-01` entered on 2026-08-28, when its row went *Not started* → *Partial* on the
+  // owner's captured evidence for Phase 29. It carries no claim this file can read for a
+  // reason that is structural rather than an omission: **the open leg is not a symbol with
+  // no caller, it is a reading nobody has taken.** The node is deployed, an outside peer
+  // dialled it and identify completed; what is missing is an observation of the identity
+  // surviving an **eviction**, and there is no code path this register could point at that
+  // would carry it. `because: 'experiment-not-run'` is the bucket for exactly that.
+  //
+  // **`witnesses: []` is a measurement, not a blank.** Scanned on the day of entry: no spec
+  // in `packages/**` or `tools/**` names `HOST-01` in a test title — nor anywhere else in a
+  // spec file — so the measured set is empty and `witnessDrift` will fire the moment one
+  // appears. Whether one *can* appear is the honest question this entry leaves open: the
+  // guard's own docblock records that every caller on the hosted tier is the platform, and
+  // no in-process test can evict a deployed edge object.
+  {
+    id: 'HOST-01',
+    because: 'experiment-not-run',
+    reread: '2026-08-28',
+    witnesses: [],
+  },
 ]
 
 /**
