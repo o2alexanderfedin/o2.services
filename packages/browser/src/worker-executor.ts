@@ -27,6 +27,14 @@ export interface BrowserWorkerExecutorOptions {
   readonly createWorker: WorkerFactory
   readonly maxOutputBytes?: number
   readonly deadlineMs?: number
+  /**
+   * Tasks the tab runs at once. Defaults to `navigator.hardwareConcurrency`.
+   *
+   * Forwarded rather than swallowed, for the same reason `deadlineMs` is: a value this
+   * factory dropped would be a setting that exists on the class, is documented on the
+   * class, and silently does nothing on the tier that has the most cores to spend.
+   */
+  readonly maxThreads?: number
 }
 
 /** A {@link WorkerExecutor} over a DOM `Worker`. */
@@ -37,5 +45,6 @@ export function browserWorkerExecutor(options: BrowserWorkerExecutorOptions): Wo
     createThread: () => domThread(options.createWorker),
     ...(options.maxOutputBytes === undefined ? {} : { maxOutputBytes: options.maxOutputBytes }),
     ...(options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs }),
+    ...(options.maxThreads === undefined ? {} : { maxThreads: options.maxThreads }),
   })
 }

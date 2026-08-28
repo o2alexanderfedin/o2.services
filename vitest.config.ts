@@ -196,8 +196,15 @@ const NODE_MEASUREMENT = {
    * `tests` below is left at its run's figure for the same reason `files` moved: the count is
    * what the tolerance reads, and inventing a test total nobody counted would be the defect
    * this table exists to prevent.
+   *
+   * **212 -> 213 on 2026-08-28**, one file: `packages/core/src/executor/core-count.test.ts`,
+   * landing with the worker pool. Comparative reading again rather than a re-run of the span
+   * table, and it does not belong in that table — it ran in the same invocation as
+   * `slow-specs.node.test.ts` at well under the 1000 ms cut, with no thread, no process and
+   * no socket in it. `unitFiles` moves by the same one, because the file is not excluded in
+   * the node lane and the two counts are joined by an assertion rather than by hand.
    */
-  files: 212,
+  files: 213,
   tests: 2948,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
@@ -381,7 +388,7 @@ const NODE_MEASUREMENT = {
    * hour once spread 25.69 / 33.68 / 22.39 s — 1.5x end to end. Any comparison against this
    * number that turns on less than half of it is reading the host's weather.
    */
-  unitFiles: 134,
+  unitFiles: 135,
   unitTests: 2317,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
