@@ -35,7 +35,11 @@ stopped_at: >-
   discharge. HOST-01 is `Partial`, HOST-10 is the ledger's first `Refuted` row.
   STILL OPEN AND OWNER-OWNED: confirming that reading; giving the tester cohort a
   build (Phase 39 criterion 4). STILL OPEN AND MINE: the load-sensitive
-  multi-process specs — late-combine is fixed, admission-agents, coverage-agents,
+  multi-process specs — late-combine's two recorded defects are fixed AND IT STILL
+  FAILED ONCE on 2026-08-28, one of six cold combines hitting the 1500 ms budget
+  on the first full sweep and not reproducing on the second; load did not
+  discriminate, the red run reading 3.69 per core and the green run 3.99, so
+  do not write load down as the cause. Also unfixed: admission-agents, coverage-agents,
   dht-registration, discovery-agents and speculation-agents are not; four
   REQUIREMENTS.md rows stale in the pessimistic direction (HOST-05, HOST-08,
   HOST-11, HOST-12) plus two false clauses in NET-03's; and no concurrency limit
