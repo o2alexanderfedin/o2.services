@@ -78,6 +78,7 @@ So the ledger now distinguishes three states:
 | `[x]` | Delivered on a path reachable from a runnable entry point |
 | `[ ]` + **Built, not wired** | Mechanism exists and is unit-verified; nothing calls it |
 | `[ ]` + **Partial** | One leg reaches production, another does not |
+| `[ ]` + **Refuted** | Measured and came back negative, unrepairably — not behind schedule, false. Added 2026-08-28 with `HOST-10`, whose claim is an *ordering* (the billing alert precedes the first Durable Object) that no later work can make true |
 
 **The 3 unchecked boxes are 0 + 3 + 0**, and the three markers are not one label:
 0 are *Built, not wired*, 3 are *Partial*, and 0 are *Not started*.
