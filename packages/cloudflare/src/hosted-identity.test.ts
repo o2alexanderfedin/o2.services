@@ -35,7 +35,18 @@ import {
   stubFor,
 } from './hosted-object.ts'
 
-describe('criterion 2 — the identity survives a fresh instantiation over storage that did', () => {
+/**
+ * **`HOST-01` is named in the title below as of 2026-08-28, and the name is narrower than the
+ * row.** The row says a *deployed* node is *dialable* over WSS at an identity unchanged across
+ * eviction and redeploy. Nothing in this process is deployed and nothing here dials; that half
+ * is owner-captured evidence (`29-EVIDENCE.md`) and no test can carry it.
+ *
+ * What this block carries is the mechanism the row rests on: the identity comes from the
+ * storage rather than from the instance, so a construction boundary — which is what an eviction
+ * and a redeploy have in common — does not mint a new PeerId. The id is in the title so that
+ * when this goes red, the report says which ledger row just became false.
+ */
+describe('HOST-01, criterion 2 — the identity survives a fresh instantiation over storage that did', () => {
   it('gives one PeerId across two nodes built over the same storage, and a different one over different storage', async () => {
     const storage = new FakeDurableObjectStorage()
 

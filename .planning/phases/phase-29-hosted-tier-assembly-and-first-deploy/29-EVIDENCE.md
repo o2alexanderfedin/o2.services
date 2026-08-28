@@ -1,9 +1,9 @@
 ---
 phase: 29-hosted-tier-assembly-and-first-deploy
 captured_by: owner
-status: filled 2026-08-27 from a real deploy — criterion 1 REFUTED by owner ruling, criterion 2 met on the redeploy arm
-criterion_1: REFUTED — no alert existed when the first object was created; the owner ruled the ordering aside knowingly
-criterion_2: MET — dialled from outside, identify completed, same PeerId across a redeploy; the eviction arm is separately OPEN
+status: filled 2026-08-27 from a real deploy; completed 2026-08-28 when the eviction row was observed and the owner confirmed no manual deploy in the interval
+criterion_1: REFUTED — no alert existed when the first object was created; the owner ruled the ordering aside knowingly, and no later alert repairs an ordering
+criterion_2: MET IN FULL — dialled from outside, identify completed, and one PeerId across BOTH construction boundaries: a redeploy (row 3) and an eviction (row 2, ≈8 h 50 m idle, no deploy in the interval)
 ---
 
 # Phase 29 — the owner's captured evidence
@@ -104,7 +104,7 @@ carries that. Both columns are filled for each row.
 | 1 | fresh, right after deploy | `12D3KooWKm587f…rb7rsz` | `c89125c7…` | **NOT TAKEN** | 16:00:29Z |
 | 1b | warm re-read | `12D3KooWKm587f…rb7rsz` | `c89125c7…` | — | immediate |
 | 1c | warm re-read | `12D3KooWKm587f…rb7rsz` | `c89125c7…` | — | immediate |
-| 2 | after an eviction | — | — | — | **NOT OBTAINED — reported open** |
+| 2 | **after an eviction** | `12D3KooWKm587f…rb7rsz` | **`8ac6c674…`** | **`12D3KooWKm587f…rb7rsz` — IDENTIFY COMPLETED** | ≈8 h 50 m idle, no deploy in the interval — see below |
 | 3 | **after a redeploy** | `12D3KooWKm587f…rb7rsz` | **`83ebb81c…`** | — | version `8024e518-f76d-4bab-9ff8-2c77a5debee7`, 16:01:07Z |
 | 4 | **outside dial, after two more deploys** | — | — | **`12D3KooWKm587f…rb7rsz` — IDENTIFY COMPLETED** | version `0149cbc4-1574-4954-add5-61e37b982d90` |
 
@@ -144,10 +144,41 @@ All three of the criterion's terms are now carried: **dials** (row 4), **complet
 `/o2/kad/1.0.0` are advertised by the deployed node — not asserted here as working, only as
 announced.
 
-**Row 2 was not obtained** and is reported open rather than covered by row 3. The forcing lever
-stays UNVERIFIED with one candidate refuted (wrangler's `evictDurableObject` is Miniflare's
-local-dev simulator, not a lever over a deployed edge object), and a redeploy is a different
-event from an eviction even though both cross a construction boundary.
+### Row 2 — obtained 2026-08-28, by waiting rather than by forcing
+
+**This row read NOT OBTAINED until 2026-08-28**, and the forcing lever is still UNVERIFIED with
+its one candidate refuted (wrangler's `evictDurableObject` is Miniflare's local-dev simulator,
+not a lever over a deployed edge object). What produced the row is the procedure the runbook
+named as the fallback: **let the object go quiet with no connection held, wait, and read again,
+recording the wall-clock interval.**
+
+| | UTC | `instance` | `peerId` | `version` |
+|---|---|---|---|---|
+| A | ≈09:30Z | `f57ced1f-75fc-49d2-a2f9-8106b350c858` | `12D3KooWKm587f…rb7rsz` | `2.0.0-rc.4` |
+| B | 18:21:13Z | **`8ac6c674-05ac-461b-ab3b-2c27f1bb0c4a`** | `12D3KooWKm587f…rb7rsz` | `2.0.0-rc.4` |
+| control | 18:21:32Z, 18:21:33Z, 18:21:33Z | `8ac6c674…` ×3 | identical | identical |
+| dial | 18:22:10Z | — | **`12D3KooWKm587f…rb7rsz` — IDENTIFY COMPLETED** | — |
+
+**No deploy occurred between A and B**, which is what makes this row an eviction rather than a
+second copy of row 3. The last `Deploy hosted node` run is `33157043966`, 2026-08-28T08:52:11Z,
+for `v2.0.0-rc.4`; the workflow's only trigger is `release: published` and no release followed.
+
+**The owner discharged the one assumption this rests on.** Automatic deploys are readable from
+the run list; a manual `scripts/deploy-hosted.sh --live` is not. Asked directly whether he had
+deployed by hand in that window, he answered **no** on 2026-08-28. Without that answer the row
+stays open, because a hand deploy would make B a redeploy and this table would then hold row 3
+twice while appearing to hold two different events.
+
+**The control is what makes B a construction and not noise**, and the dial is what carries the
+criterion's middle term — *completes identify* — on the post-boundary instance rather than on a
+`/self` answer. The dial was an ordinary `libp2p@3.3.6` Node peer (`webSockets` + `noise` +
+`yamux` + `identify`), with the remote peer read off the `peer:identify` event and never off the
+peer store, for the reason row 4 already records.
+
+**Two defects in how this reading was taken, recorded because they cost it precision.** Reading A
+was not timestamped when taken, so its minute is reconstructed and only the interval's lower end
+is exact. And nothing scheduled the observation — it exists because the interval happened. A
+second reading of this leg should fix both.
 
 ### The `instance` column is the one a plan check added, and why
 
@@ -160,9 +191,10 @@ changed marker is a construction boundary the reading itself demonstrates.
 different from row 1's.** An unchanged marker is a *not yet*, never a pass.
 
 ```
-all peerIds identical?           YES — rows 1, 1b, 1c, 3, byte-identical
-row 2 instance differs?          n/a — row 2 not obtained
+all peerIds identical?           YES — rows 1, 1b, 1c, 2, 3, 4, byte-identical
+row 2 instance differs?          YES — c89125c7… -> 8ac6c674…, and NO DEPLOY in the interval
 row 3 instance differs from 1?   YES — c89125c7… -> 83ebb81c…
+CRITERION 2:                     MET — every term carried, both boundary rows filled
 dialled from:            a plain Node peer on the developer machine — libp2p 3.3.6,
                          webSockets + noise + yamux + identify, nothing Cloudflare-shaped
 multiaddr dialled:       /dns4/o2-bootstrap.af-4a0.workers.dev/tcp/443/tls/ws/p2p/12D3KooWKm587fnGat5xncq9kaWUk4bN5gUJQiF4q8EwJnrb7rsz
@@ -179,9 +211,17 @@ an object under one does not hibernate at all.
 So: let it go quiet with **no** connection held, wait, and read again — recording the wall-clock
 interval. A reading after an unmeasured interval is not a reading.
 
+**That fallback is what produced row 2 on 2026-08-28**, at an ≈8 h 50 m idle interval. So the
+paragraph above stands as written — forcing an eviction is still unverified and the refuted
+candidate is still refuted — and what changed is only that waiting turned out to be enough. The
+distinction matters for the next reading: this row was **observed**, not **caused**, so nothing
+here makes it repeatable on demand.
+
 Row 3's redeploy is the certain lever, since a redeploy constructs a fresh instance by
 definition. **If row 2 cannot be obtained, row 3 still carries the criterion's substance and row
-2 is reported open** — say which, rather than letting row 3 stand in for both.
+2 is reported open** — say which, rather than letting row 3 stand in for both. That contingency
+was exercised for a day and is kept rather than deleted: it is the rule that stopped row 3 being
+written into row 2's slot while the wait was still running.
 
 ---
 

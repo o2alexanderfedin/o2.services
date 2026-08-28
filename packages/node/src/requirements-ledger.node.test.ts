@@ -891,8 +891,16 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * force. So this raise records a requirement that got closer while becoming *less* machine-
  * checkable, which is the one direction the register exists to keep visible rather than let
  * pass as progress.
+ *
+ * **Lowered 4 → 3 on 2026-08-28, in the same commit that removed `HOST-01`** — the ordinary
+ * exit, and it happened within hours of the raise above rather than after the fourteen days the
+ * bound allows. The raise named the missing thing as an experiment; the experiment was run and
+ * the row is `Done`. Nothing was descoped and no definition of passing was widened: the row's
+ * two remaining limits — the eviction was observed rather than forced, and the ledger-side
+ * witness carries only the mechanism — are written into the row itself, which is where a limit
+ * survives and a ceiling is not able to record one.
  */
-const REREAD_REGISTER_CEILING = 4
+const REREAD_REGISTER_CEILING = 3
 
 /**
  * ## The rule this list encodes
@@ -1605,26 +1613,30 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // nothing about the tree changed, and the row had been exempt from a check it could
   // always have passed.**
   //
-  // `HOST-01` entered on 2026-08-28, when its row went *Not started* → *Partial* on the
-  // owner's captured evidence for Phase 29. It carries no claim this file can read for a
-  // reason that is structural rather than an omission: **the open leg is not a symbol with
-  // no caller, it is a reading nobody has taken.** The node is deployed, an outside peer
-  // dialled it and identify completed; what is missing is an observation of the identity
-  // surviving an **eviction**, and there is no code path this register could point at that
-  // would carry it. `because: 'experiment-not-run'` is the bucket for exactly that.
+  // `HOST-01` was here for part of one day — added and **REMOVED on 2026-08-28** — and it is
+  // recorded rather than silently skipped, because the shortest membership this register has
+  // held is also the one that best shows what it is for.
   //
-  // **`witnesses: []` is a measurement, not a blank.** Scanned on the day of entry: no spec
-  // in `packages/**` or `tools/**` names `HOST-01` in a test title — nor anywhere else in a
-  // spec file — so the measured set is empty and `witnessDrift` will fire the moment one
-  // appears. Whether one *can* appear is the honest question this entry leaves open: the
-  // guard's own docblock records that every caller on the hosted tier is the platform, and
-  // no in-process test can evict a deployed edge object.
-  {
-    id: 'HOST-01',
-    because: 'experiment-not-run',
-    reread: '2026-08-28',
-    witnesses: [],
-  },
+  // It entered at `because: 'experiment-not-run'`, `witnesses: []`, when the row went *Not
+  // started* → *Partial*. The reason it carried no claim this file can read was structural: the
+  // open leg was not a symbol with no caller, it was **a reading nobody had taken** — an
+  // observation of the identity surviving an eviction on a deployed edge object, which no
+  // in-process spec can force. The register said so, which is what made the missing thing a
+  // named experiment instead of an unexplained `Partial`.
+  //
+  // It leaves by the second of the two exits the rule allows: **its row is `Done`**. The
+  // experiment was run — the object went quiet for ≈8 h 50 m, came back with the same PeerId
+  // under a different construction marker with no deploy in the interval, and an outside peer
+  // dialled the post-boundary instance and completed identify. The owner discharged the one
+  // assumption the run list cannot show, that no manual deploy happened in the window.
+  // {@link REREAD_REGISTER_CEILING} follows it down in the same commit.
+  //
+  // **The row acquired a title witness in the same commit**, which is the first exit rather
+  // than this one and would have removed it either way: `packages/cloudflare/src/hosted-identity.test.ts`
+  // now names `HOST-01` in a describe title. That witness carries the MECHANISM only — identity
+  // from storage, unchanged across a fresh construction — and deliberately not the deployed or
+  // dialable halves, which are owner evidence. Recorded here so nobody reads the witness as
+  // covering the whole row.
 ]
 
 /**
