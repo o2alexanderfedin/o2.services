@@ -69,3 +69,45 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ── The browser client ─────────────────────────────────────────────────────────────────
+  #
+  # `needs: deploy`, and the ordering is the whole point rather than tidiness: this job asks
+  # the deployed node for its PeerId and writes it into the `bootstrap.json` every visitor
+  # fetches. Run before the node deploy, it would publish the address of the build being
+  # replaced.
+  #
+  # **The PeerId is the one value that cannot differ across that boundary** — it is persisted
+  # in Durable Object storage and `deploy-hosted.sh` rolls a deploy back if it changes — so the
+  # dependency buys ordering rather than correctness. It is declared anyway, because a reader
+  # should not have to know that invariant to see why the order is right.
+  #
+  # ONE SCRIPT, the same as the node tier: `scripts/deploy-pages.sh --live` runs identically on
+  # a laptop. Two copies of a procedure diverge; one cannot.
+  publish-client:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Wider than the job above, and only here: publishing means committing a built site to the
+    # `gh-pages` branch. The Cloudflare job keeps `contents: read` from the workflow default.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+          # The publish reads how far `gh-pages` was behind and writes it into the commit
+          # message, which a shallow clone cannot answer.
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Publish the browser client
+        run: scripts/deploy-pages.sh --live
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
