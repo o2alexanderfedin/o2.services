@@ -423,7 +423,14 @@ async function runDiscoveryRound(): Promise<TabDiscoveryRound> {
   //    LAN because it also carries the seed's own direct address, which needs no
   //    relay circuit at all — so a lone visitor has a peer immediately.
   try {
-    const response = await fetch('/bootstrap.json', { cache: 'no-store' })
+    // **Resolved against the DOCUMENT, never root-absolute.** GitHub Pages serves this
+    // repository at a subpath (`/o2.services/`), so a leading slash reaches the domain
+    // apex instead of the site. The 404 is not an error anybody sees: `discoverRelays`
+    // answers `source: 'none'`, which `tab-api.ts` documents as the NORMAL state of a
+    // static host, so a page that can never join looks exactly like one that was simply
+    // given no relay. Same discipline as `vite.config.ts`'s `base: './'`, which already
+    // keeps every other asset reference relative; the bootstrap document was left out.
+    const response = await fetch(new URL('bootstrap.json', document.baseURI), { cache: 'no-store' })
     if (response.ok) {
       const info = (await response.json()) as { peerAddrs?: unknown }
       if (Array.isArray(info.peerAddrs)) {
@@ -1227,7 +1234,7 @@ const api: TabApi = {
     //    Absolute: the seed mounts it at the root, and on a static host it simply 404s.
     //    `no-store` because a stale relay address is worse than a slow one.
     try {
-      const response = await fetch('/bootstrap.json', { cache: 'no-store' })
+      const response = await fetch(new URL('bootstrap.json', document.baseURI), { cache: 'no-store' })
       if (response.ok) {
         const info = (await response.json()) as {
           relayAddrs?: unknown
