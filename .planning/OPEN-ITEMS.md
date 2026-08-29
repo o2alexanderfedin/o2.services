@@ -283,6 +283,20 @@ on 2026-08-29 lives in that same component. What looked like two platform proble
 engine's crypto backend, with two distinct defects in it. Full account:
 `.planning/consults/2026-08-29-webkit-linux-ed25519-keygen-rca.md`.
 
+**The key-generation half is a known upstream bug, and it is unowned.** Searched on 2026-08-29,
+after the root cause was established rather than before: the symptom is reported twice on
+bugs.webkit.org, both on 2026-02-05, both still `NEW` with nobody assigned, no patch and no
+diagnosis — [307095](https://bugs.webkit.org/show_bug.cgi?id=307095) (`generateKey` flaky for
+X25519 and Ed25519, `0.8%` over 1055 runs) and
+[307140](https://bugs.webkit.org/show_bug.cgi?id=307140) (the WPT `eddsa_curve25519` worker
+test). 307095's title names empty usages as the cause, which they are not; the refusal happens
+on the draw and the usages check runs after it, so a refused draw arrives as `OperationError`
+where `SyntaxError` was due. Reproduced their exact case here at 0.78% for Ed25519 and 0.35%
+for X25519 — half, which is this cause's signature and is in neither report. So the retry in
+`ed25519-backend.ts` is not a stopgap waiting on a fix that is coming: nothing has changed in
+`CryptoKeyOKPGCrypt.cpp` since the 2023 commit that wrote it. Analysis ready to post as a
+comment on 307095: `.planning/consults/2026-08-29-webkit-bug-report-draft.md`.
+
 **Why it matters here.** If the same message has two different valid signatures, then anything
 that treats a signature as a name for something — counting them, removing duplicates, refusing a
 repeat — can be fooled by handing it the other form. This fabric's signed statements travel

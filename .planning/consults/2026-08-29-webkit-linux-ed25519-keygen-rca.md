@@ -319,3 +319,44 @@ container runs produced **zero** Ed25519 failures where the skeptic's 12 webkit-
 produced three. At p≈0.19 per run, zero in twelve is an 8% outcome — unlikely rather than
 impossible, and the two loops differed in engine scope. Neither number is discarded; both are
 recorded, and no rate claim in this report rests on either alone.
+
+---
+
+## Postscript, 2026-08-29 — the symptom was already reported upstream, twice, and is unowned
+
+Searched **after** the chain was built, deliberately in that order: an existing report is a
+hypothesis source under this protocol's evidence contract, never an evidence slot, and reading
+one first would have handed both investigators a suspect the brief was written to withhold.
+
+| Bug | Filed | Reporter | State on 2026-08-29 |
+|-----|-------|----------|---------------------|
+| [307095](https://bugs.webkit.org/show_bug.cgi?id=307095) — `[glib] X25519 and Ed25519 generateKey tests are flaky` | 2026-02-05 | Alicia Boya García | `NEW`, unassigned, no patch, **no cause identified** |
+| [307140](https://bugs.webkit.org/show_bug.cgi?id=307140) — `[GTK][WPE] …/sign_verify/eddsa_curve25519…worker.html is flaky` | 2026-02-05 | Fujii Hironori | `NEW`, unassigned, no patch, **no cause identified** |
+
+**They corroborate WHY-4 and WHY-5 from outside this project.** 307095 quotes `0.8%` over 1055
+WPT runs against this report's 0.72–0.88% and its predicted 0.781%: a different reporter, a
+different harness, the same number.
+
+**And this chain explains a fact their reports do not contain.** Reproducing 307095's own case —
+`generateKey({name}, true, [])`, which the spec requires to be `SyntaxError` every time —
+20 000 draws each on a bare page:
+
+```
+Ed25519  SyntaxError 19844   OperationError 156  -> 0.78%
+X25519   SyntaxError 19930   OperationError  70  -> 0.35%
+```
+
+X25519 is **half**, as WHY-6's reading of `gcryptGenerateX25519Keys` requires and as this report
+already measured on the normal path. 307095 lists both algorithms as flaky and does not note the
+ratio; a race, an initialisation fault or entropy starvation predicts no such ratio at all.
+
+**307095's title misstates the cause.** Empty usages cause nothing — the refusal happens on the
+draw, and the usages check runs after it, so a refused draw arrives as `OperationError` where
+`SyntaxError` was due. The same refusal occurs with `['sign','verify']`, which is every one of
+this project's own failures.
+
+**No fix is in flight.** `Source/WebCore/crypto/gcrypt/CryptoKeyOKPGCrypt.cpp` has had no
+functional change since `2023-09-05 "Specific methods for the GCrypt based OKP key generation"`
+— the commit that wrote the code this chain indicts. Everything after is refactoring. So
+`KEYGEN_ATTEMPTS` is not a stopgap held against an imminent upstream fix; it is the standing
+answer until someone lands one.
