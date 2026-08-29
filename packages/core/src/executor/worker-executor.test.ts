@@ -24,9 +24,12 @@ function fakeThread(): ComputeThread & {
   readonly posted: readonly WorkerTaskRequest[]
   kills: number
   answer(response: WorkerTaskResponse): void
+  /** Kill this thread from the outside, the way a real worker's `error` event does. */
+  die(reason: string): void
 } {
   const posted: WorkerTaskRequest[] = []
   let onResponse: ((response: WorkerTaskResponse) => void) | null = null
+  let onError: ((reason: string) => void) | null = null
   return {
     posted,
     kills: 0,
@@ -36,13 +39,41 @@ function fakeThread(): ComputeThread & {
     onResponse: (handler) => {
       onResponse = handler
     },
-    onError: () => {},
+    onError: (handler) => {
+      onError = handler
+    },
+    die: (reason) => {
+      onError?.(reason)
+    },
     kill(): void {
       this.kills += 1
     },
     answer: (response) => {
       onResponse?.(response)
     },
+  }
+}
+
+/**
+ * Wait for a state this executor can be ASKED about, not for a number of milliseconds.
+ *
+ * **Replaces `await new Promise(r => setTimeout(r, 10))` throughout, 2026-08-29.** Those
+ * sleeps were sequencing devices — "let the block reads settle so the next task is really
+ * queued" — and a sequencing device written as an absolute span is exactly what this
+ * repository's conventions warn against: it encodes the machine it was written on. It held on
+ * a quiet laptop and lost twice in twelve full-lane runs inside a Linux container, in webkit
+ * and in chromium, on a case whose subject is not timing at all.
+ *
+ * A predicate over `queued`/`threadCount` is the same intent stated as a condition, so a slow
+ * host waits longer and a fast one waits less. The 2 s ceiling is a stuck-test guard rather
+ * than a timing assertion: it fails saying what it was waiting for, instead of failing on an
+ * assertion about a state the executor never reached.
+ */
+async function until(what: string, holds: () => boolean): Promise<void> {
+  const deadline = Date.now() + 2_000
+  while (!holds()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for: ${what}`)
+    await new Promise((resolve) => setTimeout(resolve, 1))
   }
 }
 
@@ -146,26 +177,36 @@ describe('SCHED-06 — a task that will not come back is bounded by wall clock',
       // beside it. At the default pool size this scenario cannot be constructed.
       maxThreads: 1,
       createThread: () => threads[built++] as ComputeThread,
-      deadlineMs: 60,
+      // Far out of the way. **The head's thread is killed as an EVENT below, not by this
+      // deadline**, and that is the whole difference between this case and the one it
+      // replaced on 2026-08-29. Driven by the deadline, both tasks armed timers within
+      // microseconds of each other and the head's expiry raced the tail's — a coin flip
+      // that the old version won only because an absolute 10 ms sleep separated the two
+      // submissions. It lost that flip twice in twelve container runs. What this case is
+      // about is a thread DYING under a queued task, and a worker `error` says so with no
+      // clock in it at all.
+      deadlineMs: 60_000,
     })
 
     const first = executor.execute(task)
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await until('the first task to hold the only thread', () => executor.threadCount === 1)
     const second = executor.execute(task)
-    // Let the second task's block reads settle so it is really in the queue before the
-    // first task's deadline fires. Without this the ordering is the scheduler's choice.
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    // Waited for as a STATE, not as a span: how long the block reads take is the host's
+    // business, and the case only needs the tail to really be in the queue.
+    await until('the second task to be queued behind it', () => executor.queued === 1)
     expect(built).toBe(1)
+
+    threads[0]?.die('the worker crashed')
 
     const a = await first
     expect(a.ok).toBe(false)
     if (a.ok) return
-    expect(a.reason).toMatch(/exceeded 60ms/)
+    expect(a.reason).toMatch(/worker error: the worker crashed/)
     expect(threads[0]?.kills).toBe(1)
 
     // The queued task was not failed by its neighbour's death. It was dispatched to a
     // replacement thread and is waiting for an answer, which it now gets.
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await until('the queued task to reach a replacement thread', () => built === 2)
     expect(built).toBe(2)
     const request = threads[1]?.posted[0]
     expect(request).toBeDefined()
@@ -191,7 +232,7 @@ describe('SCHED-06 — a task that will not come back is bounded by wall clock',
       deadlineMs: 5_000,
     })
     const running = executor.execute(task)
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await until('the task to reach a thread', () => executor.threadCount === 1)
     executor.terminate()
 
     const outcome = await running
@@ -277,7 +318,7 @@ describe('the pool runs as many tasks at once as the host has cores, and no more
     })
 
     const running = [executor.execute(task), executor.execute(task), executor.execute(task)]
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await until('all three tasks to be dispatched', () => executor.threadCount === 3)
 
     // Three is a literal, not `running.length` — an assertion that reuses the value it
     // tests goes green when both sides move together.
@@ -304,7 +345,7 @@ describe('the pool runs as many tasks at once as the host has cores, and no more
     })
 
     const running = [executor.execute(task), executor.execute(task), executor.execute(task)]
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await until('the pool to fill and the third task to queue', () => executor.queued === 1)
 
     expect(executor.threadCount).toBe(2)
     expect(built.threads.length).toBe(2)
@@ -328,7 +369,7 @@ describe('the pool runs as many tasks at once as the host has cores, and no more
 
     const first = executor.execute(task)
     const second = executor.execute(task)
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await until('the second task to be queued', () => executor.queued === 1)
     expect(executor.queued).toBe(1)
 
     const output = encodeCanonical(11)
@@ -390,9 +431,9 @@ describe('the pool runs as many tasks at once as the host has cores, and no more
     })
 
     const running = executor.execute(task)
-    await new Promise((resolve) => setTimeout(resolve, 5))
+    await until('the head to take the only thread', () => executor.threadCount === 1)
     const waiting = executor.execute(task)
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await until('the tail to be queued behind it', () => executor.queued === 1)
     expect(executor.queued).toBe(1)
     expect(built.threads.length).toBe(1)
 
@@ -431,7 +472,7 @@ describe('the pool runs as many tasks at once as the host has cores, and no more
     })
 
     const outcomes = Promise.all([executor.execute(task), executor.execute(task), executor.execute(task)])
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await until('two running and one queued', () => executor.threadCount === 2 && executor.queued === 1)
     expect(executor.threadCount).toBe(2)
     expect(executor.queued).toBe(1)
 

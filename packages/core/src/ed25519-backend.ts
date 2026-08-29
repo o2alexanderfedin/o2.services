@@ -362,20 +362,61 @@ export async function subtleKeyPairSigner(
  * whether `subtle` exists at all can look, and `visitor-key.ts` does, because it must not
  * offer a visitor a key this origin cannot keep.
  *
- * @throws whatever `subtle.generateKey` throws — an engine without Ed25519, or a
- *   non-secure origin where `crypto.subtle` is `undefined` in its entirety.
+ * @throws whatever `subtle.generateKey` throws on its LAST attempt — an engine without
+ *   Ed25519, or a non-secure origin where `crypto.subtle` is `undefined` in its entirety.
  */
+/**
+ * How many times a key is drawn before a refusal is believed.
+ *
+ * **Three, and the number is measured rather than chosen.** `generateKey` on the Linux
+ * WebKit build this project's CI installs refuses ~0.78% of draws, and the refusal is a
+ * property of the VALUE drawn, not of the moment: WebKit's libgcrypt backend converts the
+ * generated key's components to bytes without left-padding
+ * (`CryptoKeyOKPGCrypt.cpp:90-91`) and then discards any pair that is not exactly 32+32
+ * (`:138-139`), so a key whose seed or public half happens to begin `0x00` — two chances in
+ * 256, giving 1−(255/256)² = 0.781% against 0.72–0.88% measured — is thrown away as
+ * `OperationError`.
+ *
+ * **That is why a retry is the right instrument and not a papering-over.** Each attempt is a
+ * fresh random draw, so the condition that refused is re-drawn rather than re-asked. Measured
+ * on the real engine: 45 refusals in 6000 at one attempt, **0 in 6000 at three, with exactly
+ * 45 second attempts** — every refusal cleared on its redraw, so the independence this
+ * residual assumes is a reading and not an assumption. Three takes 0.78% to ~5×10⁻⁷.
+ *
+ * **What it must NOT do is hide a real absence.** An engine that genuinely lacks Ed25519
+ * refuses all three and the last refusal is rethrown by name — verified against an injected
+ * engine, and against Ed448, which answered `NotSupportedError` 8000 times out of 8000.
+ *
+ * The full account, including the rival chains and what each skeptic broke, is
+ * `.planning/consults/2026-08-29-webkit-linux-ed25519-keygen-rca.md`.
+ */
+export const KEYGEN_ATTEMPTS = 3
+
 export async function generateSubtleKeyPair(
   subtle: SubtleCrypto = globalThis.crypto.subtle,
 ): Promise<CryptoKeyPair> {
-  const generated = await subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
-  // `generateKey` is overloaded and answers `CryptoKey | CryptoKeyPair`. Narrowed rather
-  // than cast: an asymmetric algorithm returns a pair, and a host answering otherwise would
-  // reach `subtleKeyPairSigner` as a broken object and fail somewhere that cannot say why.
-  if (!('privateKey' in generated)) {
-    throw new TypeError('subtle.generateKey answered a single key where a pair was required')
+  let lastRefusal: unknown
+  for (let attempt = 1; attempt <= KEYGEN_ATTEMPTS; attempt += 1) {
+    let generated: CryptoKey | CryptoKeyPair
+    try {
+      generated = await subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+    } catch (cause) {
+      lastRefusal = cause
+      continue
+    }
+    // `generateKey` is overloaded and answers `CryptoKey | CryptoKeyPair`. Narrowed rather
+    // than cast: an asymmetric algorithm returns a pair, and a host answering otherwise would
+    // reach `subtleKeyPairSigner` as a broken object and fail somewhere that cannot say why.
+    //
+    // **Deliberately OUTSIDE the retry**: a host that answered a single key has answered, and
+    // asking it twice more only delays the same verdict. The loop exists for a refusal that a
+    // fresh draw can clear, and this is not one.
+    if (!('privateKey' in generated)) {
+      throw new TypeError('subtle.generateKey answered a single key where a pair was required')
+    }
+    return generated
   }
-  return generated
+  throw lastRefusal
 }
 
 let backendPromise: Promise<CryptoBackend> | undefined

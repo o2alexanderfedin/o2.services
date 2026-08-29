@@ -2,6 +2,7 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { describe, expect, it } from 'vitest'
 import { fromHex, toHex } from './capability.ts'
 import { decodeX509Certificate } from './x509.ts'
+import { generateSubtleKeyPair } from './ed25519-backend.ts'
 import {
   EnrollmentAuthority,
   UserKeyMismatchError,
@@ -340,8 +341,11 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
    * not merely about an alternative signing library.
    */
   it('builds a request from a non-extractable CryptoKey the process cannot read', async () => {
-    const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
-    if (!('privateKey' in pair)) throw new Error('expected a CryptoKeyPair')
+    // Through the production helper: this case is about a NON-EXTRACTABLE key reaching
+    // `subtleUserSigner`, not about whether `generateKey` answers. Raw, it drew once per run
+    // against an engine that refuses ~0.78% of draws. The helper retries a refusal and still
+    // returns the same non-extractable pair, so nothing this case asserts is weakened.
+    const pair = await generateSubtleKeyPair()
     await expect(crypto.subtle.exportKey('pkcs8', pair.privateKey)).rejects.toThrow()
 
     const signer = await subtleUserSigner(pair)

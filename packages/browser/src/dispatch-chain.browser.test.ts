@@ -1,4 +1,4 @@
-import { toHex, verifyChain } from '@o2/core'
+import { generateSubtleKeyPair, toHex, verifyChain } from '@o2/core'
 import { subtleUserSigner } from '@o2/core'
 import { audienceKeyOf } from '@o2/libp2p'
 import { describe, expect, it } from 'vitest'
@@ -20,12 +20,17 @@ import { TAB_CHAIN_TTL_MS, chainsForOwner } from './dispatch-chain.ts'
  * question the node asks.
  */
 describe('chainsForOwner — a tab mints a chain for a key it cannot export', () => {
-  /** A real non-extractable pair, which is what a visitor's tab holds. */
+  /**
+   * A real non-extractable pair, which is what a visitor's tab holds.
+   *
+   * **Through the production helper as of 2026-08-29, not `crypto.subtle` directly.** This
+   * function wants *a key*; it is not measuring key generation. Asking the engine raw made
+   * seven draws per run against a WebKit build that refuses ~0.78% of them, and this file
+   * was the most frequent single casualty in CI. `visitor-key.ts:144` already asks this way.
+   * See `.planning/consults/2026-08-29-webkit-linux-ed25519-keygen-rca.md`.
+   */
   async function visitorPair(): Promise<CryptoKeyPair> {
-    return (await crypto.subtle.generateKey({ name: 'Ed25519' }, false, [
-      'sign',
-      'verify',
-    ])) as CryptoKeyPair
+    return generateSubtleKeyPair()
   }
 
   // Two well-formed peer ids. Their exact value does not matter; that they are DIFFERENT
