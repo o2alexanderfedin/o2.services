@@ -360,3 +360,11 @@ functional change since `2023-09-05 "Specific methods for the GCrypt based OKP k
 — the commit that wrote the code this chain indicts. Everything after is refactoring. So
 `KEYGEN_ATTEMPTS` is not a stopgap held against an imminent upstream fix; it is the standing
 answer until someone lands one.
+
+**One is now proposed, from here: [WebKit PR 72772](https://github.com/WebKit/WebKit/pull/72772).**
+Three lines, extracting the drawn components with `mpiZeroPrefixedData(…, 32)`. It does not
+change what this repository does — `KEYGEN_ATTEMPTS` stays regardless, because every WebKit
+build already shipped keeps the defect for its lifetime, and because the retry costs nothing on
+an engine that does not need it. The harnesses behind the PR's numbers, including the one that
+could have refuted it — an independent RFC 8032 implementation asked whether the discarded keys
+are real keys — are in `2026-08-29-webkit-keygen-harness/`.
