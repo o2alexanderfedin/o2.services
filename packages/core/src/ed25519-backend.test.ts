@@ -194,7 +194,12 @@
 
 import { ed25519, x25519 } from '@noble/curves/ed25519.js'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { createNobleSyncVerifier, nobleCryptoBackend, subtleCryptoBackend } from './ed25519-backend.ts'
+import {
+  createNobleSyncVerifier,
+  generateSubtleKeyPair,
+  nobleCryptoBackend,
+  subtleCryptoBackend,
+} from './ed25519-backend.ts'
 import type { Ed25519Backend } from './ed25519-backend.ts'
 
 /**
@@ -1291,5 +1296,94 @@ describe('the gate does not mistake one bad moment for an incapable engine', () 
     await mod.createCryptoBackend()
 
     expect(mod.lastProbeRefusal()).toBeUndefined()
+  })
+})
+
+/**
+ * `generateSubtleKeyPair` survives a draw the engine throws away — the CI defect, in a spec.
+ *
+ * Established 2026-08-29 by two independent investigations and two cross-assigned skeptics,
+ * full account in `.planning/consults/2026-08-29-webkit-linux-ed25519-keygen-rca.md`. The
+ * shape being defended against is narrow and is what makes a retry legitimate here: WebKit's
+ * Linux backend discards a generated key whose seed or public half begins `0x00` and reports
+ * it as `OperationError`, so **the refusal is a property of the value drawn, not of the
+ * engine's capability**. A redraw clears it — measured 45 refusals cleared by exactly 45
+ * second attempts on the real engine.
+ *
+ * These cases drive an injected `SubtleCrypto`, which is where the mechanism lives: how many
+ * times it asks, what it does with a refusal, and what it must NOT retry.
+ */
+describe('a key generation the engine throws away is redrawn, not passed on', () => {
+  /** Refuses its first `count` draws with the engine's own error, then works. */
+  function refusingFirst(count: number): { readonly subtle: SubtleCrypto; calls: () => number } {
+    const real = globalThis.crypto.subtle
+    let calls = 0
+    return {
+      calls: () => calls,
+      subtle: {
+        generateKey: async (...args: unknown[]) => {
+          calls += 1
+          if (calls <= count) {
+            throw new DOMException('The operation failed for an operation-specific reason', 'OperationError')
+          }
+          return (real.generateKey as (...a: unknown[]) => unknown)(...args)
+        },
+      } as unknown as SubtleCrypto,
+    }
+  }
+
+  it('returns a real pair when the first draw is thrown away', async () => {
+    const engine = refusingFirst(1)
+
+    const pair = await generateSubtleKeyPair(engine.subtle)
+
+    expect(pair.privateKey.type).toBe('private')
+    expect(pair.publicKey.type).toBe('public')
+    // Two is a literal, not a read of `KEYGEN_ATTEMPTS`: an assertion that reuses the value
+    // it tests goes green when both sides move together.
+    expect(engine.calls()).toBe(2)
+  })
+
+  it('survives two thrown-away draws and stops at three', async () => {
+    const engine = refusingFirst(2)
+
+    expect((await generateSubtleKeyPair(engine.subtle)).privateKey.type).toBe('private')
+    expect(engine.calls()).toBe(3)
+  })
+
+  it('rethrows the engine’s own refusal when every draw is refused, and does not loop', async () => {
+    // The half that matters most: an engine which genuinely lacks Ed25519 must still fail by
+    // name. A retry that turned a real absence into a hang, or into a different error, would
+    // be worse than the defect it fixes.
+    const engine = refusingFirst(Number.POSITIVE_INFINITY)
+
+    await expect(generateSubtleKeyPair(engine.subtle)).rejects.toThrow(
+      /operation-specific reason/,
+    )
+    expect(engine.calls(), 'a bounded retry, not a loop').toBe(3)
+  })
+
+  it('does not redraw when the host answered a single key — that is an answer, not a refusal', async () => {
+    // Asking again cannot change a host that returns the wrong SHAPE, so this narrowing sits
+    // outside the loop deliberately. Asserted, because putting it inside would look harmless
+    // and would triple the work on every such host.
+    let calls = 0
+    const single = {
+      generateKey: async () => {
+        calls += 1
+        return { type: 'secret' } as unknown as CryptoKey
+      },
+    } as unknown as SubtleCrypto
+
+    await expect(generateSubtleKeyPair(single)).rejects.toThrow(/single key where a pair/)
+    expect(calls).toBe(1)
+  })
+
+  it('asks exactly once when the engine is healthy, so the retry costs nothing normally', async () => {
+    const engine = refusingFirst(0)
+
+    await generateSubtleKeyPair(engine.subtle)
+
+    expect(engine.calls()).toBe(1)
   })
 })
