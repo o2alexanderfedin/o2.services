@@ -66,6 +66,26 @@ import { forgetVisitorKey, visitorKeyPair } from './visitor-key.ts'
  */
 
 /** Concurrent openers. Four gives a last-writer-wins race three losers. */
+/**
+ * A one-shot barrier: every caller waits until `count` of them have arrived.
+ *
+ * Small enough to write here rather than depend on: the whole point is that the window
+ * under test is opened by construction, so the thing that opens it must be readable in the
+ * same screen as the case that uses it.
+ */
+function readBarrier(count: number): () => Promise<void> {
+  let arrived = 0
+  let release = (): void => {}
+  const open = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return async () => {
+    arrived += 1
+    if (arrived >= count) release()
+    return open
+  }
+}
+
 const RACERS = 4
 
 /** A fresh database name per case, so no case reads another's winner. */
@@ -87,10 +107,22 @@ describe('the cold-start mint race', () => {
     const name = freshName('naive')
     const stores = await openAll(name)
     try {
-      // Issued in one synchronous pass: every `loadSeed` is outstanding before any resolves.
+      // **The interleaving is CONSTRUCTED, not hoped for — 2026-08-29.** This read *"issued in
+      // one synchronous pass: every `loadSeed` is outstanding before any resolves"*, and that
+      // was a statement about how the scheduler happened to behave rather than about the code.
+      // It held on a quiet machine and lost 2 of 12 full-lane runs inside a Linux container,
+      // always in firefox: under contention one racer can complete its save before another
+      // reads, the later racer then finds a seed and returns it, and four distinct identities
+      // become three. **A test that asserts a race OCCURRED is asserting an accident.**
+      //
+      // The barrier makes it a fact: nobody writes until everybody has read. That is precisely
+      // the window the naive shape leaves open, so the case now demonstrates the defect instead
+      // of waiting for the defect to demonstrate itself.
+      const everyoneHasRead = readBarrier(RACERS)
       const minted = await Promise.all(
         stores.map(async (store) => {
           const stored = await store.loadSeed()
+          await everyoneHasRead()
           if (stored !== null) return stored
           const seed = generateSeed()
           await store.saveSeed(seed)
