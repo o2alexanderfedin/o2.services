@@ -1343,19 +1343,37 @@ describe('the gate does not mistake one bad moment for an incapable engine', () 
  * times it asks, what it does with a refusal, and what it must NOT retry.
  */
 describe('a key generation the engine throws away is redrawn, not passed on', () => {
-  /** Refuses its first `count` draws with the engine's own error, then works. */
+  /**
+   * One real pair, drawn once through the production helper, handed back by every fake below.
+   *
+   * **The fakes must NOT delegate to `crypto.subtle` on their success path, and this comment
+   * is here because they did until 2026-08-29 and it cost a red run.** `refusingFirst(2)`
+   * refuses two draws and lets the third through to the real engine — which on Linux WebKit
+   * refuses ~0.78% of draws itself. So the third attempt had no margin left, the whole call
+   * threw, and the case that proves the retry works was broken by the very defect the retry
+   * exists for. Measured: 1 red in 12 full container lane runs, in webkit, on exactly that case.
+   *
+   * Drawn through `generateSubtleKeyPair` rather than raw, so this line has the retry behind
+   * it; and drawn ONCE in `beforeAll`, so the number of real draws in this describe is one
+   * regardless of how many cases run.
+   */
+  let realPair: CryptoKeyPair
+  beforeAll(async () => {
+    realPair = await generateSubtleKeyPair()
+  })
+
+  /** Refuses its first `count` draws with the engine's own error, then answers. */
   function refusingFirst(count: number): { readonly subtle: SubtleCrypto; calls: () => number } {
-    const real = globalThis.crypto.subtle
     let calls = 0
     return {
       calls: () => calls,
       subtle: {
-        generateKey: async (...args: unknown[]) => {
+        generateKey: async () => {
           calls += 1
           if (calls <= count) {
             throw new DOMException('The operation failed for an operation-specific reason', 'OperationError')
           }
-          return (real.generateKey as (...a: unknown[]) => unknown)(...args)
+          return realPair
         },
       } as unknown as SubtleCrypto,
     }
