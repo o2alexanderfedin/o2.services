@@ -1,13 +1,39 @@
-# Upstream bug report, ready to file — WebKit (GTK/libgcrypt)
+# Upstream report — WebKit (GTK/libgcrypt)
 
 **Status: DRAFTED, NOT FILED.** Filing needs a bugs.webkit.org account, which is the owner's
-to use. Everything below is measured and pasteable as-is. Component: *WebCore Misc.* or
-*Web Crypto*; platform *GTK*, OS *Linux*.
+to use.
+
+**CORRECTED 2026-08-29 — this must NOT be filed as a new bug.** The draft was written as one,
+and a duplicate search afterwards found the symptom already reported twice, six months ago,
+both still `NEW`, both unassigned, neither carrying a cause:
+
+| Bug | Filed | Reporter | Title | State |
+|-----|-------|----------|-------|-------|
+| [307095](https://bugs.webkit.org/show_bug.cgi?id=307095) | 2026-02-05 | Alicia Boya García | `[glib] X25519 and Ed25519 generateKey tests are flaky: Empty usages causes OperationError sometimes` | NEW, unassigned, no patch, no diagnosis |
+| [307140](https://bugs.webkit.org/show_bug.cgi?id=307140) | 2026-02-05 | Fujii Hironori | `[GTK][WPE] …/WebCryptoAPI/sign_verify/eddsa_curve25519.https.any.worker.html is flaky` | NEW, unassigned, no patch, no diagnosis |
+
+So the body below is an **analysis comment for 307095**, cross-referencing 307140 — not a new
+report. What it adds is the part neither bug has: which values are refused, why, and the
+one-line fix. See §"Why this is the same defect" for the measurement that ties them together.
+
+**307095's title states a cause that is not the cause**, and anyone acting on it would look in
+the wrong place. Empty usages do not *cause* anything: `generateKey({name:'Ed25519'}, true, [])`
+must raise `SyntaxError`, and that check runs *after* the draw, so a refused draw surfaces as
+`OperationError` in place of the expected `SyntaxError`. The same refusal happens with normal
+usages — this project's own failures are all `['sign','verify']`.
+
+**Nothing has been fixed in the file since.** `Source/WebCore/crypto/gcrypt/CryptoKeyOKPGCrypt.cpp`
+has had no functional commit since 2023-09-05 *"Specific methods for the GCrypt based OKP key
+generation"* — the commit that introduces this code. Everything after it is refactoring
+(`WTFMove` → `WTF::move`, licence headers, `Vector::data()`, an X25519 parameter rename).
 
 ---
 
-**Title:** `crypto.subtle.generateKey({name:'Ed25519'})` intermittently throws `OperationError`
-(~0.8%) — zero-leading key material discarded instead of zero-extended
+**Component:** *WebCore Misc.* or *Web Crypto*; platform *GTK*, OS *Linux*.
+
+**Summary line, if a title is ever needed:** `crypto.subtle.generateKey({name:'Ed25519'})`
+intermittently throws `OperationError` (~0.8%) — zero-leading key material discarded instead of
+zero-extended
 
 **Summary**
 
@@ -129,3 +155,36 @@ here as 45 refusals in 6000 at one attempt and 0 in 6000 at three, with exactly 
 attempts, i.e. every refusal cleared on its redraw. Three attempts take 0.78% to ~5×10⁻⁷. Keep
 the retry bounded and rethrow the last refusal, or an engine that genuinely lacks the algorithm
 stops failing by name.
+
+---
+
+## Why this is the same defect, and not merely a similar one
+
+Reproduced 307095's own case verbatim — empty usages, which the spec requires to be
+`SyntaxError` every time — on `mcr.microsoft.com/playwright:v1.62.0-noble`, 20 000 draws each,
+on a bare page over `http://127.0.0.1` with no framework and no page scripts:
+
+```
+generateKey({name}, true, [])         Ed25519  SyntaxError 19844   OperationError 156  -> 0.78%
+                                      X25519   SyntaxError 19930   OperationError  70  -> 0.35%
+```
+
+Three things follow.
+
+1. **The rate is theirs.** 0.78% against the `0.8%` quoted in 307095 over 1055 runs, and against
+   `1 − (255/256)² = 0.781%` predicted from the source reading. Independent reporter, different
+   harness (WPT, not this project's specs), same number.
+2. **X25519 is half, and that asymmetry is the signature of this cause specifically.**
+   `gcryptGenerateX25519Keys` passes only `d` through the minimal-length conversion, so one
+   component is filtered instead of two: `1 − 255/256 = 0.39%` predicted, 0.35% measured. A
+   generic race, an initialisation fault, or entropy starvation predicts no such ratio. 307095
+   reports both algorithms as flaky and does not note that one is half the other.
+3. **It is not about usages.** The refusal happens on the draw, before the usages check; the same
+   0.78% appears with `['sign','verify']` on the same build:
+
+```
+generateKey({name:'Ed25519'}, false, ['sign','verify'])   ok 19864   OperationError 136  -> 0.68%
+```
+
+Both probes are in this session's scratchpad; either is ~25 lines and needs only `playwright`
+and the image.
