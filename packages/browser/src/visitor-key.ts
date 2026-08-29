@@ -54,6 +54,16 @@
  * Two tabs running as two nodes in one profile are two seeds and **one** visitor.
  *
  * Same-target rules as the rest of `packages/browser/src`: no `node:` imports.
+ *
+ * **QUALIFIED 2026-08-29: "succeeds" is ~99.2% on Linux WebKit, not 100%.** The 2026-08-16
+ * measurement was taken on macOS and holds there; the generalisation to every engine on every
+ * platform is what did not. WebKit's Linux WebCrypto backend discards ~0.78% of the keys it
+ * draws and reports it as `OperationError` — mechanism, numbers and flip test in
+ * `@o2/core`'s `KEYGEN_ATTEMPTS` and
+ * `.planning/consults/2026-08-29-webkit-linux-ed25519-keygen-rca.md`. The route below draws
+ * through `generateSubtleKeyPair`, which redraws, so this file is not exposed to it. The
+ * refusal of `exportKey` — the property this docblock is actually about — is unaffected and
+ * holds everywhere measured.
  */
 
 import { generateSubtleKeyPair, subtleUserSigner } from '@o2/core'
