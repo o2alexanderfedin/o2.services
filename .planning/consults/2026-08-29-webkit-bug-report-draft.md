@@ -1,7 +1,25 @@
 # Upstream report — WebKit (GTK/libgcrypt)
 
-**Status: DRAFTED, NOT FILED.** Filing needs a bugs.webkit.org account, which is the owner's
-to use.
+**Status, 2026-08-29: A FIX IS FILED UPSTREAM; THE BUGZILLA COMMENT IS NOT.**
+
+- **[WebKit PR 72772](https://github.com/WebKit/WebKit/pull/72772)** — open, from
+  `o2alexanderfedin/WebKit`, branch `eng/OKP-zero-extend-generated-key-components`, one commit,
+  one file, `+7 −3`. It references bug 307095 in the WebKit commit-message form, so the bug and
+  the change are linked from the WebKit side. WebKit's EWS builds the GTK port and runs the web
+  platform tests on it; that is the end-to-end reading this project could not take locally.
+- **Still owed: a comment on [307095](https://bugs.webkit.org/show_bug.cgi?id=307095) itself**,
+  which needs a bugs.webkit.org account — the owner's to use. The body below is what to post.
+
+The fix is three lines: `gcryptGenerateEd25519Keys` and `gcryptGenerateX25519Keys` extract the
+drawn components with `mpiZeroPrefixedData(…, 32)` instead of `mpiData(…)`. The helper already
+existed in `GCryptUtilities` and is what the import paths use; it was simply never called on
+the generation path.
+
+**The discarded keys are valid keys, and that is measured rather than argued.** 100 draws the
+shipping code rejects were extracted with the patched call and handed to `@noble/curves`, an
+unrelated RFC 8032 implementation: it derived the same public half from the private half in
+100 of 100. 100 accepted draws were run through the same check as a control, also 100 of 100.
+Harnesses and readings: `2026-08-29-webkit-keygen-harness/`.
 
 **CORRECTED 2026-08-29 — this must NOT be filed as a new bug.** The draft was written as one,
 and a duplicate search afterwards found the symptom already reported twice, six months ago,

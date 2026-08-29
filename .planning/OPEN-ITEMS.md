@@ -297,6 +297,17 @@ for X25519 — half, which is this cause's signature and is in neither report. S
 `CryptoKeyOKPGCrypt.cpp` since the 2023 commit that wrote it. Analysis ready to post as a
 comment on 307095: `.planning/consults/2026-08-29-webkit-bug-report-draft.md`.
 
+**And as of the same day a fix is proposed upstream:
+[WebKit PR 72772](https://github.com/WebKit/WebKit/pull/72772).** Three lines — the generation
+path extracts the drawn components with `mpiZeroPrefixedData(…, 32)` rather than `mpiData(…)`,
+a helper that already existed beside it and that the import paths already use. Confirmed at the
+library boundary against libgcrypt 1.10.1 with no WebKit involved (shipping extraction discards
+0.800% of Ed25519 draws and 0.365% of X25519, patched extraction discards none), and confirmed
+semantically by an unrelated RFC 8032 implementation deriving the correct public half from 100
+of 100 discarded keys, with 100 accepted keys as a control. **No WebKitGTK build was made**, so
+nothing here observed the fix end to end in a browser; WebKit's EWS does that on the pull
+request. Harnesses: `.planning/consults/2026-08-29-webkit-keygen-harness/`.
+
 **Why it matters here.** If the same message has two different valid signatures, then anything
 that treats a signature as a name for something — counting them, removing duplicates, refusing a
 repeat — can be fooled by handing it the other form. This fabric's signed statements travel
