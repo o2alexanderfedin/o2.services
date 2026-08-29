@@ -224,9 +224,20 @@ import type { Ed25519Backend } from './ed25519-backend.ts'
  */
 function isKnownMalleabilityPlatform(vectorName: string): boolean {
   if (!vectorName.includes('non-canonical S')) return false
-  const platform = globalThis.navigator?.platform ?? ''
+  // **Narrowed from the platform to the ENGINE, 2026-08-29.** It read
+  // `platform.includes('Linux') || agent.includes('Linux') || agent.includes('X11')`, which
+  // was broader than the finding in the exact direction that matters: `navigator.platform`
+  // reads `Linux x86_64` in ALL THREE engines on a Linux host, so the allowance covered
+  // Chromium and Firefox — both measured REJECTING the vector, 200 times out of 200. It was
+  // harmless only because a second conjunct at the call site requires an actual disagreement
+  // before the skip fires: an allowance surviving on a guard somewhere else.
+  //
+  // WebKit is identified by `AppleWebKit` WITHOUT `Chrome`/`Chromium`, the standard
+  // discrimination, because Chromium's user agent also carries `AppleWebKit`. Safari on macOS
+  // matches too, and that is deliberate — the vector is a property of the engine's verifier,
+  // so this predicate follows the engine wherever it runs instead of re-encoding a host.
   const agent = globalThis.navigator?.userAgent ?? ''
-  return platform.includes('Linux') || agent.includes('Linux') || agent.includes('X11')
+  return agent.includes('AppleWebKit') && !agent.includes('Chrome') && !agent.includes('Chromium')
 }
 
 /**
@@ -531,15 +542,33 @@ describe('differential-conformance guard — every backend this host can run', (
   })
 
   /**
-   * ## MEASURED 2026-08-27, on the browser lane's first CI run — and it is a real finding
+   * ## MEASURED 2026-08-27, CORRECTED 2026-08-29 — the split is by ENGINE, not by OS
    *
-   * `non-canonical S component (S >= L)` is **accepted by `subtle` on Linux and rejected by
-   * it on macOS**, in all three engines. Read that way round deliberately: the split is by
-   * OS, not by browser. Same Playwright build (`webkit-2336`) in both places; three engines
-   * agreed with each other on each host and disagreed across hosts.
+   * `non-canonical S component (S >= L)` is **accepted by WebKit's `subtle` and rejected by
+   * Chromium's and Firefox's**. This read *"accepted by `subtle` on Linux and rejected by it
+   * on macOS, in all three engines … the split is by OS, not by browser"* — the CI job's
+   * summary read one level too coarse. A job goes red as a whole; only one of its three
+   * engine instances was failing, and the job's own per-engine lines said so.
    *
-   *   GitHub Actions, ubuntu-latest   noble false, subtle **true**   -> disagreement
-   *   this developer machine, macOS   noble false, subtle false      -> agreement
+   * Falsified by direct measurement in one Linux container, one page per engine, the same
+   * malleated signature, 200 verifications each:
+   *
+   *   chromium  {"goodTrue":200,"badTrue":0,"badFalse":200}   rejects
+   *   firefox   {"goodTrue":200,"badTrue":0,"badFalse":200}   rejects
+   *   webkit    {"goodTrue":200,"badTrue":200,"badFalse":0}   ACCEPTS
+   *
+   * 200/200 settles a second thing the old reading left open: this is deterministic, not an
+   * intermittent draw — which is what separates it from the keygen defect `KEYGEN_ATTEMPTS`
+   * is about, and why the two must not be counted together when reading this lane's redness.
+   *
+   * **The correction unifies two findings into one component.** WebKit's Linux WebCrypto is
+   * built on libgcrypt — `ldd` on its WebProcess shows `libgcrypt.so.20` and no OpenSSL — and
+   * the keygen defect lives in that same backend. Two separate entries in this repository's
+   * open items were one component all along.
+   *
+   *   GitHub Actions, ubuntu-latest, webkit             noble false, subtle **true**
+   *   GitHub Actions, ubuntu-latest, chromium/firefox   noble false, subtle false
+   *   this developer machine, macOS, all three          noble false, subtle false
    *
    * **What it means.** Ed25519 signatures are malleable unless the verifier checks that `S`
    * is canonical — below the group order `L`. Add `L` to a valid `S` and you get different
