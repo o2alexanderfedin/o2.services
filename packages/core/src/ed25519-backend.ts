@@ -220,30 +220,62 @@ export function nobleCryptoBackend(): CryptoBackend {
  * auto-select.
  */
 export function subtleCryptoBackend(subtle: SubtleCrypto = globalThis.crypto.subtle): CryptoBackend {
+  // The arm noble would have given us, built once and used only when `subtle` refuses a
+  // call it had said it could do. Both arms produce the same Ed25519 and X25519 values —
+  // the differential guard above is what holds that — so a fallback changes which
+  // implementation ran and nothing a caller can observe about the result.
+  const noble = nobleCryptoBackend()
+
   return {
     arm: 'subtle',
     async signEd25519(seed, message) {
-      const publicKey = ed25519.getPublicKey(seed)
-      const key = await subtle.importKey('jwk', ed25519PrivateJwk(seed, publicKey), { name: 'Ed25519' }, false, ['sign'])
-      const signature = await subtle.sign({ name: 'Ed25519' }, key, toBufferSource(message))
-      return new Uint8Array(signature)
+      try {
+        const publicKey = ed25519.getPublicKey(seed)
+        const key = await subtle.importKey('jwk', ed25519PrivateJwk(seed, publicKey), { name: 'Ed25519' }, false, ['sign'])
+        const signature = await subtle.sign({ name: 'Ed25519' }, key, toBufferSource(message))
+        return new Uint8Array(signature)
+      } catch {
+        // **The gate probes less than this function uses**, and that gap is why this
+        // `catch` exists rather than being defensive padding. `detectCryptoBackend`
+        // exercises `generateKey` and nothing else; the two calls above are
+        // `importKey('jwk', …)` and `sign`, neither of which the probe has ever seen the
+        // engine perform. An engine that passes the probe and refuses one of these threw
+        // `OperationError` straight at the caller until 2026-08-28.
+        //
+        // The seed is ours, so there is no malformed input to distinguish here: a throw
+        // means the engine could not do it, and noble can.
+        return noble.signEd25519(seed, message)
+      }
     },
     async verifyEd25519(publicKey, signature, message) {
       try {
         const key = await subtle.importKey('raw', toBufferSource(publicKey), { name: 'Ed25519' }, false, ['verify'])
         return await subtle.verify({ name: 'Ed25519' }, key, toBufferSource(signature), toBufferSource(message))
       } catch {
-        // Malformed-input rejection (wrong-length key/signature) or an
-        // unsupported-algorithm rejection both read as "not valid", never as a throw.
-        return false
+        // **This used to `return false`, and that was a defect rather than a policy.**
+        // A verification the engine could not PERFORM is not a signature that is
+        // INVALID, and answering `false` sent the difference downstream as an accusation
+        // about whoever signed. Handing it to noble keeps the boolean contract and
+        // separates the two cases: noble's own `verifyEd25519` still answers `false` for
+        // a structurally impossible key or signature, so malformed input reads exactly as
+        // it did before, and a real signature the engine merely could not check now reads
+        // as valid because it is.
+        return noble.verifyEd25519(publicKey, signature, message)
       }
     },
     async agreeX25519(seed, peerPublicKey) {
-      const publicKey = x25519.getPublicKey(seed)
-      const privateKey = await subtle.importKey('jwk', x25519PrivateJwk(seed, publicKey), { name: 'X25519' }, false, ['deriveBits'])
-      const peerKey = await subtle.importKey('jwk', x25519PublicJwk(peerPublicKey), { name: 'X25519' }, false, [])
-      const bits = await subtle.deriveBits({ name: 'X25519', public: peerKey }, privateKey, 256)
-      return new Uint8Array(bits)
+      try {
+        const publicKey = x25519.getPublicKey(seed)
+        const privateKey = await subtle.importKey('jwk', x25519PrivateJwk(seed, publicKey), { name: 'X25519' }, false, ['deriveBits'])
+        const peerKey = await subtle.importKey('jwk', x25519PublicJwk(peerPublicKey), { name: 'X25519' }, false, [])
+        const bits = await subtle.deriveBits({ name: 'X25519', public: peerKey }, privateKey, 256)
+        return new Uint8Array(bits)
+      } catch {
+        // X25519 is not probed by the gate AT ALL — not even the single call Ed25519
+        // gets. So this arm was selected on evidence about a different algorithm, and
+        // this is the one path where the probe says nothing whatsoever.
+        return noble.agreeX25519(seed, peerPublicKey)
+      }
     },
   }
 }
@@ -375,16 +407,57 @@ export function createCryptoBackend(): Promise<CryptoBackend> {
  * Measured on this host (Node v25.9.0): `subtle` Ed25519 sign+verify succeeds, so the
  * subtle arm is selected here.
  */
+/**
+ * How many times the probe asks before it believes the answer.
+ *
+ * **Two, and the second one is what a measured failure bought.** The probe ran once and a
+ * bare `catch {}` conceded noble — and because {@link createCryptoBackend} memoises, that
+ * concession was permanent for the process. On `browser (webkit)` / ubuntu-24.04 the same
+ * repository tree passed and failed CI seconds apart on an identical runner image, Node
+ * version and WebKit revision, 12 times in 47 attempts, with the engine's `generateKey`
+ * intermittently throwing `OperationError`. One reading of an intermittent host is not a
+ * capability verdict.
+ *
+ * It is a bounded retry and not a loop, for the reason every ceiling in this repository is
+ * bounded: an engine that genuinely lacks Ed25519 must reach noble promptly rather than
+ * spin, and a spec asserts the count so a third attempt cannot arrive unnoticed.
+ */
+const PROBE_ATTEMPTS = 2
+
+/** Why the last probe conceded, or `undefined` if it never had to. */
+let probeRefusal: string | undefined
+
+/**
+ * The reason {@link createCryptoBackend} chose noble, when it chose noble by refusal.
+ *
+ * **Not exported from the package barrel, deliberately.** It is a diagnostic for whoever
+ * is looking at a node that unexpectedly went slow, not part of the crypto contract; a
+ * barrel export nothing calls would join the reachability register for no gain. It reads
+ * `undefined` when `subtle` was absent entirely — an insecure context is a different
+ * finding from an engine that refused, and collapsing them is what the bare `catch` did.
+ */
+export function lastProbeRefusal(): string | undefined {
+  return probeRefusal
+}
+
 async function detectCryptoBackend(): Promise<CryptoBackend> {
   const subtle = globalThis.crypto?.subtle
   if (subtle !== undefined) {
-    try {
-      // The real probe. Discarded on success — this call's only purpose is to
-      // observe whether it throws.
-      await subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
-      return subtleCryptoBackend(subtle)
-    } catch {
-      // Falls through to noble.
+    for (let attempt = 1; attempt <= PROBE_ATTEMPTS; attempt += 1) {
+      try {
+        // The real probe. Discarded on success — this call's only purpose is to
+        // observe whether it throws.
+        await subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+        probeRefusal = undefined
+        return subtleCryptoBackend(subtle)
+      } catch (cause) {
+        // Recorded rather than discarded: "this engine has no Ed25519" and "this engine
+        // had a bad moment twice" produced the same silence before, and they want
+        // different answers from whoever reads the node afterwards.
+        probeRefusal = `Ed25519 probe refused on attempt ${attempt} of ${PROBE_ATTEMPTS}: ${
+          cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)
+        }`
+      }
     }
   }
   return nobleCryptoBackend()

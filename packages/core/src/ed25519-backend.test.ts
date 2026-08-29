@@ -383,15 +383,26 @@ it('the vector corpus stays weighted toward rejection (CRYPTO-04)', () => {
 async function subtleSupportsEd25519(): Promise<boolean> {
   const subtle = globalThis.crypto?.subtle
   if (subtle === undefined) return false
-  try {
-    const key = await subtle.generateKey('Ed25519', true, ['sign', 'verify'])
-    const kp = key as CryptoKeyPair
-    const message = new Uint8Array([1, 2, 3])
-    const signature = await subtle.sign('Ed25519', kp.privateKey, message)
-    return await subtle.verify('Ed25519', kp.publicKey, signature, message)
-  } catch {
-    return false
+  // **Two attempts, matching the production gate's `PROBE_ATTEMPTS`, added 2026-08-28.**
+  // This probe decides which arms the differential guard (:414) and the cross-arm case
+  // (:665) run against. Asking once on an intermittent engine made those skip or refuse
+  // for a reason that was not about the host's capability — CI job 98673569341 reported
+  // "a differential guard needs two implementations… this host offered 1: noble" on a
+  // machine that does have Ed25519. The literal is duplicated rather than imported: this
+  // probe is deliberately INDEPENDENT of the module under test, and importing its
+  // constant would make the two move together.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const key = await subtle.generateKey('Ed25519', true, ['sign', 'verify'])
+      const kp = key as CryptoKeyPair
+      const message = new Uint8Array([1, 2, 3])
+      const signature = await subtle.sign('Ed25519', kp.privateKey, message)
+      return await subtle.verify('Ed25519', kp.publicKey, signature, message)
+    } catch {
+      // Next attempt, or false below.
+    }
   }
+  return false
 }
 
 interface Backend {
@@ -816,15 +827,49 @@ describe('the surviving gate probes, it does not infer from presence', () => {
     } as unknown as SubtleCrypto
   }
 
-  it('the arm it selects matches an independent round-trip probe of this host', async () => {
-    // Unconditional on purpose: the expectation is derived from this file's own probe
-    // rather than hard-coded to whichever arm this host happens to win, so the case
-    // binds on a capable engine and on an incapable one alike.
-    const capable = await subtleSupportsEd25519()
+  /**
+   * **Rewritten 2026-08-28. It used to compare TWO probes and was red by construction.**
+   *
+   * It read:
+   *
+   * ```
+   * const capable = await subtleSupportsEd25519()      // this file's own generateKey
+   * const backend = await mod.createCryptoBackend()    // the module's generateKey
+   * expect(backend.arm).toBe(capable ? 'subtle' : 'noble')
+   * ```
+   *
+   * Two independent, non-atomic observations of the same host, asserted to agree. On an
+   * engine whose Ed25519 is intermittent that is a coin flip, and CI flipped it **in both
+   * directions** — `expected 'subtle' to be 'noble'` in job 98682654510 and `expected
+   * 'noble' to be 'subtle'` in 98977779745. A test that fails in both directions is not
+   * measuring the code.
+   *
+   * The claim it exists to make — *the gate probes, it does not infer from presence* — does
+   * not need two probes. It is made here from **one** observation, and made more strongly:
+   * whichever arm this host wins, that arm is required to actually work end to end. A
+   * presence-only gate on an incapable engine hands back a backend whose every operation
+   * rejects, and the round trip below is what catches that. The engine-refuses case is
+   * covered separately, on a planted engine, by the case after next.
+   */
+  it('selects an arm that actually performs, whichever arm this host wins', async () => {
     const mod = await freshEd25519Module()
 
     const backend = await mod.createCryptoBackend()
-    expect(backend.arm).toBe(capable ? 'subtle' : 'noble')
+    expect(['subtle', 'noble']).toContain(backend.arm)
+
+    // The round trip through the selected arm. Signed and verified through the backend the
+    // gate chose, then checked against noble computed independently, so a backend that
+    // returned plausible bytes rather than a signature fails here.
+    const seed = new Uint8Array(32).fill(5) as Uint8Array<ArrayBuffer>
+    const message = new Uint8Array([7, 7, 7]) as Uint8Array<ArrayBuffer>
+    const signature = await backend.signEd25519(seed, message)
+    expect(await backend.verifyEd25519(ed25519.getPublicKey(seed), signature, message)).toBe(true)
+    expect(ed25519.verify(signature, message, ed25519.getPublicKey(seed))).toBe(true)
+
+    // If it conceded noble it must say why; if it won subtle there is nothing to explain.
+    // This is the same single observation read from its other side, not a second probe.
+    if (backend.arm === 'noble') expect(mod.lastProbeRefusal()).toBeDefined()
+    else expect(mod.lastProbeRefusal()).toBeUndefined()
 
     await mod.initEd25519()
     // The deliberate inversion Phase 25 chose and Phase 28 keeps: even when subtle wins
@@ -863,7 +908,14 @@ describe('the surviving gate probes, it does not infer from presence', () => {
       backend.arm,
       'an engine that advertises SubtleCrypto and refuses Ed25519 must select noble',
     ).toBe('noble')
-    expect(counter.calls, 'the gate must actually call generateKey — a presence check would not').toBe(1)
+    // **1 -> 2 on 2026-08-28, and the claim is unchanged.** What this line has always
+    // asserted is that the gate CALLS `generateKey` rather than reading `typeof
+    // subtle.sign` — a presence check calls it zero times, and zero is what a plant puts
+    // here. The probe now asks twice before believing a refusal, because CI measured the
+    // same tree passing and failing seconds apart on an intermittent WebKit build. The
+    // literal is written out rather than read from `PROBE_ATTEMPTS`: an assertion that
+    // reuses the value it tests goes green when both sides move together.
+    expect(counter.calls, 'the gate must actually call generateKey — a presence check would not').toBe(2)
 
     // And the selected arm works, which is the point: a presence check here would have
     // handed back a backend whose every operation rejects.
@@ -884,7 +936,13 @@ describe('the surviving gate probes, it does not infer from presence', () => {
     // Counted, not inferred. Two memos live in the merged module — `initPromise` and
     // `createCryptoBackend`'s `backendPromise` — and this is the one that says the
     // probe itself ran at most once.
-    expect(counter.calls).toBe(1)
+    //
+    // **The number is 2 rather than 1 as of 2026-08-28 and this case is still about the
+    // memo.** One probe run costs two `generateKey` calls against an engine that refuses
+    // both, because the gate retries once before conceding. Two concurrent callers
+    // therefore cost 2 and not 4 — which is precisely the memo doing its job, and is what
+    // a plant removing `backendPromise ??=` turns into 4.
+    expect(counter.calls).toBe(2)
   })
 
   it('the async port is an adapter over the same CryptoBackend, reordered in exactly one place', async () => {
@@ -1029,4 +1087,209 @@ describe('sync port and async port agree on every reject vector (T-25-16)', () =
       ).toBe(syncVerdict)
     },
   )
+})
+
+/**
+ * **A probed-capable engine that then refuses a real operation — CI's actual failure.**
+ *
+ * Established 2026-08-28 by two independent investigations plus a local measurement, and
+ * every link below is a fact about THIS repository rather than about the engine:
+ *
+ * - The gate probes ONE call, `subtle.generateKey({name:'Ed25519'}, false, [...])`
+ *   (`ed25519-backend.ts:384`). Production then calls `importKey('jwk')` + `sign`
+ *   (`:225-230`), `importKey('raw')` + `verify` (`:231-240`) and X25519 `deriveBits`
+ *   (`:241-247`). **The gate probes strictly less than production uses.**
+ * - `signEd25519` and `agreeX25519` had no `catch` and no fallback, so an engine that
+ *   passed the probe and then threw sent `OperationError` to the caller. Measured against
+ *   an injected `subtle` that generates keys happily and refuses to sign: `RESULT: THREW,
+ *   no fallback -> OperationError`.
+ * - `verifyEd25519` caught *everything* and answered `false`, so **"I could not verify
+ *   this" reached a trust path as "this signature is invalid"** — an engine hiccup
+ *   presented as an accusation about a peer.
+ * - `backendPromise` is memoised (`:358`), so one transient failure at start-up pinned the
+ *   whole process to noble for its lifetime, with the reason discarded by a bare `catch {}`.
+ *
+ * The occasion was `browser (webkit)` on ubuntu-24.04 — 12 of 47 CI attempts since the lane
+ * landed on 2026-08-27, at a rate no evidence shows changed, with the same tree passing and
+ * failing seconds apart on identical runner image, Node and WebKit revision. **Why that
+ * build throws is unestablished and is not what these cases are about.** They are about the
+ * repository having no answer when it does.
+ */
+describe('a probed-capable engine that then refuses is survived, not passed on', () => {
+  const SEED = new Uint8Array(32).fill(9) as Uint8Array<ArrayBuffer>
+  const MESSAGE = new Uint8Array([1, 2, 3]) as Uint8Array<ArrayBuffer>
+
+  /** Real WebCrypto for everything except the one operation named, which refuses. */
+  function refusing(operation: 'sign' | 'verify' | 'deriveBits' | 'importKey'): SubtleCrypto {
+    const real = globalThis.crypto.subtle
+    const boom = async (): Promise<never> => {
+      throw new DOMException('The operation failed for an operation-specific reason', 'OperationError')
+    }
+    return {
+      generateKey: real.generateKey.bind(real),
+      importKey: operation === 'importKey' ? boom : real.importKey.bind(real),
+      exportKey: real.exportKey.bind(real),
+      sign: operation === 'sign' ? boom : real.sign.bind(real),
+      verify: operation === 'verify' ? boom : real.verify.bind(real),
+      deriveBits: operation === 'deriveBits' ? boom : real.deriveBits.bind(real),
+    } as unknown as SubtleCrypto
+  }
+
+  it('signs through noble when subtle refuses, and the signature is a real one', async () => {
+    const backend = subtleCryptoBackend(refusing('sign'))
+
+    const signature = await backend.signEd25519(SEED, MESSAGE)
+
+    // Verified with noble directly rather than through the same backend: a fallback that
+    // returned a plausible-looking 64 bytes would pass a length check and fail this.
+    expect(signature.length).toBe(64)
+    expect(ed25519.verify(signature, MESSAGE, ed25519.getPublicKey(SEED))).toBe(true)
+  })
+
+  it('signs through noble when subtle refuses at the key import, not only at the sign', async () => {
+    // `importKey('jwk')` is the call the gate never exercises at all, so it is the one
+    // most likely to diverge from the probe on a partial engine.
+    const backend = subtleCryptoBackend(refusing('importKey'))
+
+    const signature = await backend.signEd25519(SEED, MESSAGE)
+
+    expect(ed25519.verify(signature, MESSAGE, ed25519.getPublicKey(SEED))).toBe(true)
+  })
+
+  it('does not call a VALID signature invalid because the engine could not check it', async () => {
+    // The defect this replaces, stated as the failure it produced: a refusing `verify`
+    // answered `false`, which downstream reads as "this peer signed badly".
+    const publicKey = ed25519.getPublicKey(SEED)
+    const signature = ed25519.sign(MESSAGE, SEED)
+    const backend = subtleCryptoBackend(refusing('verify'))
+
+    expect(
+      await backend.verifyEd25519(publicKey, signature, MESSAGE),
+      'a verification the engine refused must not be reported as an invalid signature',
+    ).toBe(true)
+  })
+
+  it('still answers false for a signature that is genuinely wrong', async () => {
+    // The fallback must not turn into "always true". Same refusing engine, a signature
+    // over a different message.
+    const publicKey = ed25519.getPublicKey(SEED)
+    const wrong = ed25519.sign(new Uint8Array([9, 9, 9]), SEED)
+    const backend = subtleCryptoBackend(refusing('verify'))
+
+    expect(await backend.verifyEd25519(publicKey, wrong, MESSAGE)).toBe(false)
+  })
+
+  it('still answers false for structurally impossible input, on both arms', async () => {
+    const backend = subtleCryptoBackend(refusing('verify'))
+
+    // A 3-byte public key is not a key. Noble throws on it; the answer is a refusal.
+    expect(await backend.verifyEd25519(new Uint8Array([1, 2, 3]), new Uint8Array(64), MESSAGE)).toBe(
+      false,
+    )
+  })
+
+  it('agrees an X25519 secret through noble when subtle refuses', async () => {
+    // X25519 is never probed by the gate at ALL — not even the one call Ed25519 gets.
+    const peerSeed = new Uint8Array(32).fill(4) as Uint8Array<ArrayBuffer>
+    const peerPublic = x25519.getPublicKey(peerSeed)
+    const backend = subtleCryptoBackend(refusing('deriveBits'))
+
+    const secret = await backend.agreeX25519(SEED, peerPublic)
+
+    // The expected value is computed by the other party's half, so the assertion cannot
+    // pass by echoing whatever the code under test produced.
+    expect(Array.from(secret)).toEqual(Array.from(x25519.getSharedSecret(peerSeed, x25519.getPublicKey(SEED))))
+  })
+})
+
+describe('the gate does not mistake one bad moment for an incapable engine', () => {
+  const shadow = subtleShadow()
+  afterEach(() => {
+    shadow.restore()
+  })
+
+  /** Refuses Ed25519 every time — an engine that genuinely lacks it. */
+  function alwaysIncapable(counter: { calls: number }): SubtleCrypto {
+    const refuse = (): Promise<never> =>
+      Promise.reject(new Error("NotSupportedError: Unrecognized algorithm name 'Ed25519'"))
+    return {
+      sign: refuse,
+      verify: refuse,
+      importKey: refuse,
+      exportKey: refuse,
+      deriveBits: refuse,
+      generateKey: () => {
+        counter.calls++
+        return refuse()
+      },
+    } as unknown as SubtleCrypto
+  }
+
+  /** Fails its first `generateKey` and works from then on — a transient, not a capability. */
+  function hiccupping(): { readonly subtle: SubtleCrypto; readonly calls: () => number } {
+    const real = globalThis.crypto.subtle
+    let calls = 0
+    return {
+      calls: () => calls,
+      subtle: {
+        ...(real as unknown as Record<string, unknown>),
+        generateKey: async (...args: unknown[]) => {
+          calls += 1
+          if (calls === 1) {
+            throw new DOMException('The operation failed for an operation-specific reason', 'OperationError')
+          }
+          return (real.generateKey as (...a: unknown[]) => unknown)(...args)
+        },
+        importKey: real.importKey.bind(real),
+        exportKey: real.exportKey.bind(real),
+        sign: real.sign.bind(real),
+        verify: real.verify.bind(real),
+        deriveBits: real.deriveBits.bind(real),
+      } as unknown as SubtleCrypto,
+    }
+  }
+
+  it('retries the probe once, so one transient failure does not pin the process to noble', async () => {
+    const engine = hiccupping()
+    shadow.install(engine.subtle)
+    const mod = await freshEd25519Module()
+
+    const backend = await mod.createCryptoBackend()
+
+    expect(backend.arm, 'a single hiccup is not evidence that the engine lacks Ed25519').toBe(
+      'subtle',
+    )
+    // Two is a literal rather than a re-read of the counter: the retry budget is the
+    // thing under test, and an assertion that reuses the value it tests cannot fail.
+    expect(engine.calls()).toBe(2)
+  })
+
+  it('still concedes noble when the engine refuses every time, and does not probe forever', async () => {
+    const counter = { calls: 0 }
+    shadow.install(alwaysIncapable(counter))
+    const mod = await freshEd25519Module()
+
+    expect((await mod.createCryptoBackend()).arm).toBe('noble')
+    expect(counter.calls, 'a bounded retry, not a loop').toBe(2)
+  })
+
+  it('records why it conceded, instead of discarding the reason', async () => {
+    // A bare `catch {}` made "this engine has no Ed25519" and "this engine had a bad
+    // moment twice" indistinguishable after the fact. They need different answers.
+    const counter = { calls: 0 }
+    shadow.install(alwaysIncapable(counter))
+    const mod = await freshEd25519Module()
+    await mod.createCryptoBackend()
+
+    expect(mod.lastProbeRefusal()).toBeDefined()
+    expect(mod.lastProbeRefusal()).toContain('Ed25519')
+  })
+
+  it('reports no refusal when the engine was never asked, so the reading is not stale', async () => {
+    shadow.install(undefined)
+    const mod = await freshEd25519Module()
+    await mod.createCryptoBackend()
+
+    expect(mod.lastProbeRefusal()).toBeUndefined()
+  })
 })
