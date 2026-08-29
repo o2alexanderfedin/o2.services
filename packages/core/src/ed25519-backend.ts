@@ -352,9 +352,17 @@ export async function subtleKeyPairSigner(
  *
  * Measured in chromium, firefox and webkit on 2026-08-16 and recorded in
  * `.planning/consults/2026-08-16-visitor-device-key-is-cryptographically-available.md`:
- * generation succeeds in all three and `exportKey('pkcs8', privateKey)` is refused in all
- * three, and a signature made by such a key verifies under `@noble/curves` — which is what
- * an enrolment provider uses and which has no idea WebCrypto exists.
+ * generation succeeds in all three, `exportKey('pkcs8', privateKey)` is refused in all three,
+ * and a signature made by such a key verifies under `@noble/curves` — which is what an
+ * enrolment provider uses and which has no idea WebCrypto exists.
+ *
+ * **QUALIFIED 2026-08-29: "generation succeeds" is ~99.2%, not 100%, on Linux WebKit.** The
+ * 2026-08-16 measurement was taken on macOS and was right there; the generalisation to "all
+ * three" was the part that did not hold. WebKit's Linux backend discards ~0.78% of drawn keys
+ * — see {@link KEYGEN_ATTEMPTS} for the mechanism and the numbers — which is why the call
+ * below draws more than once. The other two claims are unaffected: the refusal of
+ * `exportKey('pkcs8')` and the noble-verifiability of the signature hold on every engine and
+ * both platforms measured.
  *
  * **No capability probe**, for {@link subtleKeyPairSigner}'s reason inverted: this is the
  * call that *fails* on an engine without Ed25519, and it fails saying so. A caller that

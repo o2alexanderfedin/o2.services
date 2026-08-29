@@ -241,7 +241,7 @@ keeping: a measured "no" is more useful than a softened "in progress".
 
 ---
 
-## 5. The same message can carry two valid signatures, on Linux
+## 5. The same message can carry two valid signatures, in WebKit
 
 **Found 2026-08-27 by the browser CI lane on its first run, which is the reason that lane was
 added.** Nothing here is broken code in this repository. It is a fact about the platform, and
@@ -254,10 +254,34 @@ precisely so a disagreement cannot go unnoticed:
 
 | where | the library (`@noble/curves`) | the platform's own | verdict |
 |---|---|---|---|
-| GitHub's Linux runners, all three browsers | rejects | **accepts** | **they disagree** |
+| GitHub's Linux runners, **WebKit** | rejects | **accepts** | **they disagree** |
+| GitHub's Linux runners, Chromium and Firefox | rejects | rejects | they agree |
 | the developer's Mac, all three browsers | rejects | rejects | they agree |
 
-Same browser build in both places. The split is by operating system, not by browser.
+**CORRECTED 2026-08-29. The split is by BROWSER ENGINE, not by operating system.** The row
+above read *"GitHub's Linux runners, all three browsers … they disagree"*, followed by *"the
+split is by operating system, not by browser"*, and both were wrong for the same reason: a CI
+job goes red as a whole, and the summary was read without descending to the job's own
+per-engine lines, which said only one of three was failing.
+
+Measured directly — one Linux container, one page per engine, the same rewritten signature,
+200 verifications each:
+
+```
+chromium  {"goodTrue":200,"badTrue":0,"badFalse":200}   rejects
+firefox   {"goodTrue":200,"badTrue":0,"badFalse":200}   rejects
+webkit    {"goodTrue":200,"badTrue":200,"badFalse":0}   ACCEPTS
+```
+
+200 out of 200 also settles something the old reading left open: this is **deterministic**, not
+an occasional event. That matters for counting, because a separate intermittent defect lives in
+the same place and the two were being read together.
+
+**And the correction joins two entries in this file into one.** WebKit's Linux cryptography is
+built on libgcrypt and links nothing else; the intermittent key-generation failure investigated
+on 2026-08-29 lives in that same component. What looked like two platform problems is one
+engine's crypto backend, with two distinct defects in it. Full account:
+`.planning/consults/2026-08-29-webkit-linux-ed25519-keygen-rca.md`.
 
 **Why it matters here.** If the same message has two different valid signatures, then anything
 that treats a signature as a name for something — counting them, removing duplicates, refusing a

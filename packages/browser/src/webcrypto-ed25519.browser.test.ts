@@ -1,5 +1,5 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { EnrollmentAuthority, requestEnrollment, subtleUserSigner, verifyCertificate } from '@o2/core'
+import { EnrollmentAuthority, generateSubtleKeyPair, requestEnrollment, subtleUserSigner, verifyCertificate } from '@o2/core'
 import { SEED_BYTES } from '@o2/libp2p'
 import { describe, expect, it } from 'vitest'
 
@@ -82,6 +82,12 @@ describe('a visitor owner key the page cannot read', () => {
   })
 
   it('generates a non-extractable Ed25519 key and refuses to export the private half', async () => {
+    // **Raw on purpose — this case's SUBJECT is `generateKey` itself.** Every other keygen in
+    // this file was routed through `generateSubtleKeyPair` on 2026-08-29 because those cases
+    // want *a key*; this one is the measurement, and a silent redraw here would hide the very
+    // defect the redraw exists for. If it fails with `OperationError` on Linux WebKit, that is
+    // the finding rather than a flake: see `@o2/core`'s `KEYGEN_ATTEMPTS` and
+    // `.planning/consults/2026-08-29-webkit-linux-ed25519-keygen-rca.md`.
     const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
 
     // `generateKey` is overloaded and returns `CryptoKey | CryptoKeyPair`; narrow rather
@@ -99,7 +105,7 @@ describe('a visitor owner key the page cannot read', () => {
   })
 
   it('exports a public key of the length the fabric already uses for a userKey', async () => {
-    const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+    const pair = await generateSubtleKeyPair()
     if (!('privateKey' in pair)) throw new Error('expected a CryptoKeyPair')
 
     const raw = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey))
@@ -110,7 +116,7 @@ describe('a visitor owner key the page cannot read', () => {
   })
 
   it('produces signatures @noble/curves verifies — the arm the design rests on', async () => {
-    const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+    const pair = await generateSubtleKeyPair()
     if (!('privateKey' in pair)) throw new Error('expected a CryptoKeyPair')
 
     const publicKey = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey))
@@ -134,7 +140,7 @@ describe('a visitor owner key the page cannot read', () => {
     // A noble key is bytes and therefore portable between devices; a browser-held key is
     // not, and that is the trade the owner accepted. Recorded as a behaviour rather than
     // as prose so a later `importKey`-based "fix" has to delete a passing assertion.
-    const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+    const pair = await generateSubtleKeyPair()
     if (!('privateKey' in pair)) throw new Error('expected a CryptoKeyPair')
 
     const publicKey = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey))
@@ -180,7 +186,7 @@ describe('a visitor owner key the page cannot read, carried through enrolment', 
     })
 
   it('gets a certificate naming a key this page cannot export', async () => {
-    const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+    const pair = await generateSubtleKeyPair()
     if (!('privateKey' in pair)) throw new Error('expected a CryptoKeyPair')
     // Restated inside this case rather than inherited from the block above, so that a
     // future edit which made the key extractable would fail *here*, where the claim is.
@@ -208,8 +214,8 @@ describe('a visitor owner key the page cannot read, carried through enrolment', 
     // The `CryptoKeyPair` mix-up, which is the defect a browser build can actually make:
     // one generation's private half beside another's public half. Nothing is malformed and
     // no type catches it — the refusal is behavioural or it does not exist.
-    const first = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
-    const second = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+    const first = await generateSubtleKeyPair()
+    const second = await generateSubtleKeyPair()
     if (!('privateKey' in first) || !('publicKey' in second)) throw new Error('expected CryptoKeyPairs')
 
     const crossed = await subtleUserSigner({ privateKey: first.privateKey, publicKey: second.publicKey })

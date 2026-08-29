@@ -72,15 +72,77 @@ const UNREACHABLE_RELAY =
  * delete blocked on one stays blocked forever and the grace period below expires.
  */
 async function deleteIsBlocked(name: string): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
+  const outcome = await deleteOutcome(name)
+  if (outcome === DeleteOutcome.Undecided) {
+    throw new Error(
+      `indexedDB.deleteDatabase("${name}") delivered neither blocked nor success within ` +
+        `${DELETE_STUCK_GUARD_MS}ms — the answer is UNKNOWN, not "not blocked"`,
+    )
+  }
+  return outcome === DeleteOutcome.Blocked
+}
+
+/**
+ * How long to wait before calling a silent `deleteDatabase` stuck.
+ *
+ * **A stuck-test guard, not a verdict — and the distinction is what this replaces.** The
+ * original waited 500 ms and then answered `sawBlocked`, which made "the event has not
+ * arrived yet" indistinguishable from "the database is not blocked". That held on a quiet
+ * machine and lost **6 of 12** full-lane runs inside a Linux container, always in firefox,
+ * always by answering `false` where the case asserts `true`. It never failed in isolation —
+ * 15 of 15 green — which is the signature of a span that encodes the machine rather than the
+ * behaviour.
+ *
+ * Twenty seconds is deliberately far past anything IndexedDB does when it is working: the
+ * number is not a threshold this test measures against, it is the point at which the browser
+ * is declared unresponsive and the case says so instead of guessing. The enclosing cases carry
+ * a 60 s vitest timeout, so a genuine hang still ends as a failure rather than a hang.
+ */
+const DELETE_STUCK_GUARD_MS = 20_000
+
+/**
+ * Blocked, completed, or the browser never answered — three outcomes, not two.
+ *
+ * **A frozen `as const` object rather than a TypeScript `enum`, and the reason is measured
+ * rather than stylistic.** `tsconfig.json:35` sets `erasableSyntaxOnly`, and an `enum` here
+ * does not compile:
+ *
+ *     error TS1294: This syntax is not allowed when 'erasableSyntaxOnly' is enabled.
+ *
+ * That flag is load-bearing, not taste — the file's own comment says why: parts of this tree
+ * run `.ts` directly under `node --experimental-strip-types`, so syntax needing a real compile
+ * is a runtime failure rather than a lint complaint. This shape is the erasable equivalent and
+ * gives what an enum would: one named place for the values, `DeleteOutcome.Blocked` at the use
+ * site, a string underlying type, and exhaustiveness on the union.
+ */
+const DeleteOutcome = {
+  Blocked: 'blocked',
+  Completed: 'completed',
+  Undecided: 'undecided',
+} as const
+
+type DeleteOutcome = (typeof DeleteOutcome)[keyof typeof DeleteOutcome]
+
+/**
+ * Race `deleteDatabase`'s own events instead of a clock.
+ *
+ * `onblocked` and `onsuccess` are mutually exclusive as a FIRST event: a delete held up by a
+ * live connection fires `blocked`, one that proceeds fires `success`. A genuinely stranded
+ * connection has nothing left that will ever close it, so `blocked` is terminal for this
+ * test's purposes and is reported the moment it arrives — no waiting out a grace period to
+ * confirm a thing that has already happened.
+ */
+async function deleteOutcome(name: string): Promise<DeleteOutcome> {
+  return new Promise<DeleteOutcome>((resolve) => {
     const request = indexedDB.deleteDatabase(name)
-    let sawBlocked = false
-    request.onblocked = () => {
-      sawBlocked = true
+    const settle = (outcome: DeleteOutcome): void => {
+      clearTimeout(guard)
+      resolve(outcome)
     }
-    request.onsuccess = () => resolve(false)
-    request.onerror = () => resolve(false)
-    setTimeout(() => resolve(sawBlocked), 500)
+    const guard = setTimeout(() => resolve(DeleteOutcome.Undecided), DELETE_STUCK_GUARD_MS)
+    request.onblocked = () => settle(DeleteOutcome.Blocked)
+    request.onsuccess = () => settle(DeleteOutcome.Completed)
+    request.onerror = () => settle(DeleteOutcome.Completed)
   })
 }
 
