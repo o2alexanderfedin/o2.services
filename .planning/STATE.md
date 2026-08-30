@@ -37,6 +37,23 @@ stopped_at: >-
   still unverified with its one candidate refuted, so nothing here makes that
   reading repeatable on demand. HOST-01 is `Done`, HOST-10 is the ledger's first
   `Refuted` row. STILL OPEN AND OWNER-OWNED: giving the tester cohort a
+  READ `completed_phases: 0` WITH THIS, 2026-08-30. The zero is CORRECT and it is not a
+  measure of progress: it counts ticked checkboxes, and phase 29's is deliberately
+  untickable on a permanently-refuted criterion. What the zero does not say is that the
+  hosted tier is LIVE — re-verified 2026-08-30, `GET /self` answering
+  `12D3KooWKm587fnGat5xncq9kaWUk4bN5gUJQiF4q8EwJnrb7rsz` at version `2.0.0-rc.4`, THE SAME
+  PeerId `29-EVIDENCE.md` recorded on 2026-08-28, so identity has now survived two further
+  days of eviction rather than the single interval that was measured. The browser client
+  answers 200 on GitHub Pages and its `bootstrap.json` hands out that same PeerId, so the
+  two halves point at each other. PHASES 30-41 HAVE NO DIRECTORY AND NO PLAN — twelve of
+  thirteen are unplanned rather than merely undone, and that is the real shape of this
+  milestone. FOUR LEDGER ROWS FIXED 2026-08-30: HOST-05, HOST-08, HOST-11 and HOST-12 read
+  `Not started` while being phase 29's criteria 3-6, three of the four carrying plants
+  watched red. They now read `Done` with their evidence and a dated correction each, and
+  their checkboxes were ticked to match, because the guard's rule is `[x]` iff the verdict
+  begins `Done`. NET-03 KEPT ITS VERDICT and gained a dated amendment instead: it still
+  does not close, and what aged out were two supporting sentences — *nothing is deployed*
+  and *the INBOUND half is not built* — neither of which moved the verdict.
   build (Phase 39 criterion 4). STILL OPEN AND MINE: the load-sensitive
   multi-process specs — late-combine's two recorded defects are fixed AND IT STILL
   FAILED ONCE on 2026-08-28, one of six cold combines hitting the 1500 ms budget
@@ -47,7 +64,7 @@ stopped_at: >-
   REQUIREMENTS.md rows stale in the pessimistic direction (HOST-05, HOST-08,
   HOST-11, HOST-12) plus two false clauses in NET-03's; and no concurrency limit
   by core count anywhere in the tree, which is the next thing the owner named.
-last_updated: "2026-08-28T19:40:00.000Z"
+last_updated: "2026-08-30T21:55:00.000Z"
 last_activity: 2026-08-28 — the hosted tier deployed and released four times, the browser client published and fixed, criterion 2 met in full, Phase 29 closed uncounted on criterion 1 alone
 progress:
   total_phases: 13

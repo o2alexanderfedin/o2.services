@@ -195,9 +195,32 @@ stays efficient under churn, locality, and trust constraints simultaneously;
 tree-reduce robustness when the aggregation backbone itself churns; keeping the
 verification tax affordable at scale.
 
-**Legal posture.** Dual-licensed and source-available, not open source. The
-default track permits viewing and a 32-day commercial trial; anything more needs
-a signed commercial agreement. Both licenses are unreviewed drafts.
+**Legal posture.** Dual-licensed: **AGPL-3.0-or-later** by default, or a
+commercial licence by agreement. The AGPL applies automatically and is free —
+use, modification and redistribution included — in exchange for §5's copyleft
+and §13's obligation to offer source to the users of a modified version reached
+over a network. The commercial track exists to release a licensee from those two
+obligations and to supply the warranty and indemnity §§15–17 disclaim; it is not
+permission to use the software, which the AGPL already grants. See
+`LICENSING.md`.
+
+**CHANGED 2026-08-30, and it resolves a contradiction this file created.** The
+default track was the *O2.services Source-Available Trial License 1.0* — view
+only, 32-day evaluation, no modification — which is neither open source nor OSI
+approved, and said so in its own notice, while line 118 of this file records the
+owner's 2026-08-24 ruling as *"open source, with monetization for commercial use
+added later"*. The licence and the ruling could not both stand. The ruling wins;
+the superseded terms are preserved at `LICENSE-TRIAL-1.0.md` so that anyone who
+accepted them keeps that grant, and the change only loosens.
+
+**Patent rights are now GRANTED rather than reserved**, by AGPL §11, and that is
+deliberate rather than tolerated: the repository has been public since
+2026-07-26 and the EPO and China have no grace period, so those rights were
+already forfeited by publication. A reservation that protects nothing but reads
+as a threat is worse than an honest grant.
+
+The AGPL text is the Free Software Foundation's, unmodified. `LICENSING.md` and
+`LICENSE-COMMERCIAL.md` are this project's own and remain unreviewed drafts.
 
 ## Constraints
 
