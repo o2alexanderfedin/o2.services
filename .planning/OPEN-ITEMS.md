@@ -308,6 +308,29 @@ of 100 discarded keys, with 100 accepted keys as a control. **No WebKitGTK build
 nothing here observed the fix end to end in a browser; WebKit's EWS does that on the pull
 request. Harnesses: `.planning/consults/2026-08-29-webkit-keygen-harness/`.
 
+**AMENDED 2026-08-30 — the defect is five sites, and the generation half was the mild one.**
+Auditing the rest of `CryptoKeyOKPGCrypt.cpp` after the PR opened found that **every** one of
+its five `mpiData` calls was on key material of a fixed 32-byte width, and every one was wrong.
+`importPkcs8` cannot read back a key **this same engine exported** — measured 20/20 exported,
+0/20 re-imported on WebKit against 20/20 both ways on Chromium and Firefox — and `importSpki`
+refuses a valid public key from another implementation. Those two are **not recoverable by
+retry**: the bytes are the caller's, not drawn here, and a private key has no second copy. That
+is data loss at 1 in 256, and it is silent, because the write succeeds and only the read fails.
+
+**We are not exposed to that half, measured rather than assumed.** `ed25519-backend.ts` imports
+as **JWK** only (`:234`, `:252`, `:269-270`) and the JWK path accepted 20/20 on WebKit in the
+same probe; `grep` for `'spki'`/`'pkcs8'` across `packages/*/src` finds neither format in use;
+and the visitor key is generated `extractable: false` (`visitor-key.ts:134`), so it is never
+exported and never re-imported. Only the generation half ever touched this repository, and
+`KEYGEN_ATTEMPTS` answers it.
+
+PR 72772 now carries all five fixes, is retitled, and states the data-loss finding in its
+description and in a comment correcting my own earlier assessment. EWS on the first commit:
+**29 of 30 green**, including `gtk`, `wpe`, `gtk3-gcc`, `api-gtk`, `api-wpe`. The one red is
+`win-tests`, which is red on **10 of 10** sampled builds across unrelated PRs, whose 61 failures
+are all animation and compositing and contain the word `crypto` zero times — and Windows does
+not build the gcrypt backend at all.
+
 **Why it matters here.** If the same message has two different valid signatures, then anything
 that treats a signature as a name for something — counting them, removing duplicates, refusing a
 repeat — can be fooled by handing it the other form. This fabric's signed statements travel
