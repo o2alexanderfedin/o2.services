@@ -2,6 +2,47 @@
 
 **Status, 2026-08-29: A FIX IS FILED UPSTREAM; THE BUGZILLA COMMENT IS NOT.**
 
+**AMENDED 2026-08-30 — the defect is FIVE sites, not two, and the worst of them is not a
+refusal to generate but a refusal to READ BACK A STORED PRIVATE KEY.** Everything below about
+generation still holds; what changed is that generation turned out to be the mildest of three
+symptoms. Auditing the rest of `CryptoKeyOKPGCrypt.cpp` found that **every** one of its five
+`mpiData` calls was on key material of a fixed 32-byte width, and every one was wrong.
+
+| Site | Symptom | Can the caller recover? |
+|------|---------|-------------------------|
+| `gcryptGenerateEd25519Keys`, `gcryptGenerateX25519Keys` | `generateKey` refuses, 0.78% / 0.35% | **Yes** — redraw. This is what `KEYGEN_ATTEMPTS` does. |
+| `importPkcs8` | a key **this same engine exported** cannot be read back, 1 in 256 | **No.** It is a private key; there is no second copy and nothing to redraw. |
+| `importSpki` | a valid public key from another implementation is refused, 1 in 256 | **No** — the bytes are the caller's, not drawn here. |
+| `generateJwkX` | the `x` field of an exported private key comes back empty, 1 in 256 | **No**, same reason. |
+
+Measured, 20 keys per engine whose seed begins `0x00`, full persistence round trip:
+
+```
+WebKit    export 20/20 succeeded, re-import 20/20 DataError
+Chromium  20/20 round-tripped        Firefox  20/20 round-tripped
+```
+
+and at the library boundary with no browser, seeds beginning `0x00`, n=2000: shipping
+extraction accepts **0**, patched accepts **2000**, bytes wrong **0**; controls 2000/2000 both
+ways.
+
+**This project is not exposed to the import half, and that is measured rather than assumed.**
+`packages/core/src/ed25519-backend.ts` imports keys as **JWK** only (`:234`, `:252`, `:269-270`)
+— the JWK path was probed alongside the others and accepted 20/20 on WebKit — and `grep` for
+`'spki'`/`'pkcs8'` across `packages/*/src` finds no use of either broken format. The visitor key
+is generated `extractable: false` (`visitor-key.ts:134`), so it is never exported and never
+re-imported at all. **Only the generation half ever touched us**, and `KEYGEN_ATTEMPTS` answers
+that one.
+
+**Upstream state:** [WebKit PR 72772](https://github.com/WebKit/WebKit/pull/72772) now carries
+all five fixes, is retitled to name the real defect, and its description and a follow-up comment
+both state the data-loss finding explicitly. On its first commit EWS returned **29 of 30 green**,
+including `gtk`, `wpe`, `gtk3-gcc`, `api-gtk` and `api-wpe` — the ports that build this file. The
+one red, `win-tests`, is red on **10 of 10** sampled builds across unrelated pull requests, its
+61 failures are all animation and compositing tests, and the word `crypto` appears zero times in
+them; Windows does not build the gcrypt backend at all.
+
+
 - **[WebKit PR 72772](https://github.com/WebKit/WebKit/pull/72772)** — open, from
   `o2alexanderfedin/WebKit`, branch `eng/OKP-zero-extend-generated-key-components`, one commit,
   one file, `+7 −3`. It references bug 307095 in the WebKit commit-message form, so the bug and

@@ -72,6 +72,55 @@ node verify.mjs
 than the patch. Both agree, so the bytes WebKit throws away are a correct key pair and
 left-padding recovers it exactly.
 
+## The import/export half — found on 2026-08-30, and worse than the generation half
+
+Generation only ever *refuses*, and a refusal can be answered by drawing again. These two
+probes cover the paths where nothing is drawn, so nothing can be redrawn.
+
+| File | What it settles |
+|------|-----------------|
+| `browser-probe-import-export.mjs` | `importSpki` refuses a valid public key from another implementation, and `generateJwkX` loses the `x` field — both at 1 in 256, both WebKit-only. Runs all three engines side by side, with keys whose first byte is not `0x00` as the control. |
+| `browser-probe-pkcs8-roundtrip.mjs` | The full persistence round trip: import a key, `exportKey('pkcs8')`, then read it back. **WebKit exports 20/20 and re-imports 0/20.** |
+
+Both need Ed25519 keys whose leading byte is `0x00`, which this engine cannot generate — so
+they are drawn with `@noble/curves` and brought in from outside.
+
+```
+browser-probe-import-export.mjs      webkit   spki import: DataError 20/20   (chromium/firefox: 20/20 ok)
+browser-probe-pkcs8-roundtrip.mjs    webkit   export 20/20 ok, re-import DataError 20/20
+                                     chromium 20/20 round-tripped   firefox 20/20 round-tripped
+                                     controls pass on every engine
+```
+
+`roundtrip.c` replays that same asymmetry at the library boundary, so the reading does not
+depend on a browser at all — seeds beginning `0x00`, n=2000:
+
+```
+libgcrypt 1.10.1
+seed first byte 0x00, n=2000:  SHIPPING accepts 0     PATCHED accepts 2000  (bytes wrong: 0)
+control seeds,      n=2000:  SHIPPING accepts 2000  PATCHED accepts 2000
+```
+
+## A check that came back negative, kept because negative is the answer
+
+`asan.c` tests something that is *not* a defect, and is here so nobody has to re-derive that.
+`mpiZeroPrefixedData` hands `gcry_mpi_print` a buffer bound of `targetLength` while the space
+after the zero prefix is only `targetLength - prefixLength` — an overstated bound, in a helper
+this fix makes three more call sites use. Driven under AddressSanitizer over every value length
+0..32 including the all-zero MPI, with a heap buffer of exactly the target size:
+
+```
+libgcrypt 1.10.1
+all-zero MPI: r=0 (length 0, pointer one past the end, nothing written)
+cases=2112 refused=0 mismatch=0
+no ASAN report — no byte was written outside the exact-size buffer
+```
+
+**Inert, and the reason it is inert is that `gcry_mpi_print` writes exactly `*length` bytes,
+which is exactly the space that remains.** The bound is still wrong as written, and it is the
+only thing between a future change in libgcrypt's behaviour and a heap overflow, which is why
+it was raised with the reviewers rather than silently fixed inside an unrelated change.
+
 ## What none of these does
 
 No WebKitGTK build was made, so the fix has not been observed end to end in a browser — only
