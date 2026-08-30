@@ -6,27 +6,50 @@ The software in this repository is **dual-licensed**:
 
 | Track | Terms | Who it applies to |
 | ----- | ----- | ----------------- |
-| **Default** | [LICENSE](LICENSE) — source-available, 32-day commercial trial, no modification, no derivatives, no redistribution | Everyone, automatically |
+| **Default** | [LICENSE](LICENSE) — **AGPL-3.0-or-later**. Free. Use, modify and redistribute, provided §5 and §13 are honoured | Everyone, automatically |
 | **Commercial** | This document, executed as a signed agreement | Only parties who sign |
 
 The default track applies to you unless and until you sign a commercial
 agreement. This is **not** a choice-of-license offer — you cannot elect the
 commercial track unilaterally.
 
+**CHANGED 2026-08-30.** Until that date the default track was the *O2.services
+Source-Available Trial License 1.0* — view only, 32-day evaluation, no
+modification and no redistribution — preserved at
+[LICENSE-TRIAL-1.0.md](LICENSE-TRIAL-1.0.md). Anyone who accepted those terms
+keeps them. Everything below was rewritten for the AGPL, because under the trial
+licence almost every ordinary use needed an agreement and under the AGPL almost
+none does. See [LICENSING.md](LICENSING.md).
+
 ---
 
 ## Why the commercial track exists
 
-The default license permits evaluation only, for fewer than 32 consecutive
-calendar days. On expiry it terminates automatically. Any of the following
-requires a commercial agreement:
+**Not to grant permission to use the software.** The AGPL already does that, at
+no cost, including in production and including modification and redistribution.
+Anyone who reaches for this document because they think they need permission to
+*use* o2.services does not need it.
 
-- Use in production, or any use after the trial period ends
-- Use beyond evaluating suitability for a particular application
-- Modifying, adapting, porting, or refactoring the software
-- Creating derivative works
-- Redistributing, sublicensing, hosting, or embedding the software in a product
-- Any patent rights (the default license grants none)
+The commercial track exists to **release a licensee from the AGPL's two
+obligations**, and for the things the AGPL expressly declines to provide:
+
+- **AGPL §13, remote network interaction.** If you modify the software and let
+  users interact with your modified version over a network, §13 entitles those
+  users to your modified source. A commercial licence removes that obligation.
+  This is the single most common reason to sign one.
+- **AGPL §5, copyleft on distribution.** If you distribute a modified version,
+  §5 requires it to be licensed under the AGPL as a whole. A commercial licence
+  lets you distribute or embed it under your own terms.
+- **Warranty, SLA, indemnification.** AGPL §§15–17 disclaim all of these
+  absolutely. Only a signed agreement can supply them.
+- **A patent position narrower or wider than §11's.** §11 already grants every
+  AGPL recipient a licence to the licensor's patent claims covering the
+  software; a commercial agreement can define scope, field of use and defensive
+  terms explicitly rather than by statute.
+
+Being a node in the public fabric triggers none of this. A volunteer running the
+browser client is a *user* of the fabric and never a provider of it, so §13 does
+not reach them and they need no agreement.
 
 ## What a commercial agreement can grant
 
@@ -36,11 +59,11 @@ Grants are negotiated per deal. The licensor may extend any subset of:
 | ----- | ----- |
 | Production use | Scoped by seats, nodes, sites, or revenue band |
 | Term | Perpetual for a version, or subscription |
-| Modification | Optionally with a source-escrow or change-disclosure obligation |
+| Release from §13 and §5 | The principal grant: modify, run as a service, distribute or embed without the copyleft and network-source obligations |
 | Derivative works | Scoped to defined products or fields of use |
 | Redistribution / OEM / embedding | Typically royalty-bearing |
 | Patent license | Express grant or covenant not to sue, scoped to the licensed use |
-| Support, SLA, indemnification, warranties | None of which the default track provides |
+| Support, SLA, indemnification, warranties | AGPL §§15–17 disclaim all of these; only a signed agreement supplies them |
 
 ## Commercially negotiated terms
 

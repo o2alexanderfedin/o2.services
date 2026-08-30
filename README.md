@@ -298,26 +298,39 @@ branch-protection hook:
 
 ## License
 
-**Dual-licensed**, source-available, **not** open source. The default track
-applies automatically; the commercial track requires a signed agreement. You
-cannot elect between them.
+**[AGPL-3.0-or-later](LICENSE)** by default — free to use, modify and
+redistribute — **or a [commercial licence](LICENSE-COMMERCIAL.md)** for anyone
+who cannot accept AGPL §13. The AGPL applies automatically; you sign nothing and
+ask no one. Full explanation: **[LICENSING.md](LICENSING.md)**.
 
-| | [Default](LICENSE) | [Commercial](LICENSE-COMMERCIAL.md) |
+| | [AGPL-3.0-or-later](LICENSE) | [Commercial](LICENSE-COMMERCIAL.md) |
 | --- | --- | --- |
 | Applies to | everyone, automatically | signed parties only |
-| View source | ✅ | ✅ |
-| Commercial trial evaluation | ✅ up to 32 days | ✅ |
-| Use beyond trial / production | ❌ | ✅ negotiated |
-| Modification | ❌ | ✅ negotiated |
-| Derivative works | ❌ | ✅ negotiated |
-| Redistribution / embedding | ❌ | ✅ negotiated |
-| Patent rights | ❌ reserved | ✅ negotiated |
-| Support, SLA, indemnity | ❌ | ✅ negotiated |
+| Cost | free | negotiated |
+| Use, including in production | ✅ | ✅ |
+| Modification, derivative works | ✅ | ✅ |
+| Redistribution, embedding | ✅ | ✅ |
+| Patent licence | ✅ granted (§11) | ✅ negotiated |
+| **Publish your source changes** | ✅ **required** | ❌ not required |
+| **Publish source to network users** | ✅ **required** (§13) | ❌ not required |
+| Warranty, SLA, indemnity | ❌ none | ✅ negotiated |
+
+**If you are a volunteer running a node, you owe nothing.** §13 asks the source
+of a *modified* version from whoever *offers it as a service*. Joining the fabric
+is using it, not offering it.
 
 Commercial licensing: **af@O2.services**
 
-> **Draft — not reviewed by counsel.** Do not rely on either license or execute a
-> commercial agreement before an attorney reviews them.
+**Changed 2026-08-30.** The previous default was the source-available
+*O2.services Trial License 1.0* — view only, 32-day evaluation, no modification.
+It contradicted this project's own recorded decision to be open source, and is
+preserved at [LICENSE-TRIAL-1.0.md](LICENSE-TRIAL-1.0.md) so that anyone who
+accepted it keeps that grant. The change only loosens: everyone else now has
+strictly more than those terms allowed.
+
+> **Draft — not reviewed by counsel.** The AGPL text is the Free Software
+> Foundation's, unmodified. `LICENSE-COMMERCIAL.md` and `LICENSING.md` are this
+> project's own and have not been reviewed by an attorney.
 
 ## Contributions
 

@@ -64,7 +64,7 @@ function emittedBundle(): string {
   return bundle
 }
 
-describe('criterion 5 — a configuration that would create a preview deployment', () => {
+describe('HOST-11, criterion 5 — a configuration that would create a preview deployment', () => {
   it('states `preview_urls: false` rather than leaning on the default', () => {
     // wrangler's own schema gives this key `"default": false` — read out of
     // `node_modules/wrangler/config-schema.json`, not out of documentation. Stating it anyway
@@ -187,7 +187,7 @@ describe('the emitted bundle — open question 1, and the trap beside it', () =>
   }, 180_000)
 })
 
-describe('criteria 4 and 6 — one call site, and no name a visitor can choose', () => {
+describe('HOST-08 and HOST-12, criteria 4 and 6 — one call site, and no name a visitor can choose', () => {
   /** Every tracked TypeScript source, so a second call site cannot hide in an untracked file. */
   function trackedSources(): readonly string[] {
     return execFileSync('git', ['ls-files', '*.ts', '*.tsx'], { cwd: ROOT, encoding: 'utf8' })
