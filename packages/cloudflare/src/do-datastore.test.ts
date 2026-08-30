@@ -80,7 +80,7 @@ async function keysOf(prefix?: string): Promise<string[]> {
   return seen.sort()
 }
 
-describe('the datastore contract', () => {
+describe('HOST-05 — the datastore contract, reached through `interface-datastore`', () => {
   it('reads back what it wrote', async () => {
     await store.put(new Key('/peers/bafzaaeyabc'), new Uint8Array([1, 2, 3]))
 
