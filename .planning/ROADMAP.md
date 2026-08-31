@@ -2370,6 +2370,15 @@ The busy window moved the relay LESS than the idle one. Thirty-eight rounds of w
 
 **And a finding that belongs to a later phase rather than this one: the deployed relay does not answer the fabric's rendezvous.** `findReservedPeers` (`packages/net/src/rendezvous.ts:76`) asks each connected peer over the fabric's own RPC, and `hosted-libp2p.ts` registers no such handler — so `connectDiscoveredPeers()` gets `answered: 0` against it and two tabs on the deployed relay **cannot find each other without being told**. This run supplied B's address from the harness, exactly as `two-tabs.e2e.test.ts` does for `NET-02`; criterion 1 asks that B reach A *only through* the relay and then upgrade, which is what was measured, and says nothing about discovery.
 
+**CRITERION 2 IS MET, IN A STRONGER FORM THAN IT DESCRIBES, AND WITHOUT TOUCHING PRODUCTION — 2026-08-31.** The criterion asks that removing `addresses.announce` be watched turning criterion 1 red *with empty reservations*. On the deployed object that would mean pushing a knowingly broken configuration to the owner's account, so it was run against a real local `workerd` instead — same runtime, same module, `--var ANNOUNCE_MULTIADDRS:` emptied, `--persist-to` its own directory. Two arms in one run:
+
+| arm | result |
+|---|---|
+| announce present | reservation GRANTED — `/ip4/127.0.0.1/tcp/8796/ws/p2p/<node>/p2p-circuit/p2p/<holder>` |
+| announce emptied | **the dial fails outright**, `500`, and the worker's own log reads `Uncaught NoAnnouncedAddressError` |
+
+**The predicted failure did not occur, and what occurred instead is better.** The criterion expected a relay that grants empty reservations silently — consult §13's measurement. This assembly cannot reach that state: `hostedAddresses` refuses to build with nothing announced, so there is no relay left to hand anything out. The silent failure the criterion exists to catch has been made **unconstructible** rather than merely detectable, and the refusal is read by name from the runtime's own output rather than inferred from a failed dial — `[object ErrorEvent]` on the client side would not have distinguished it from any other transport failure, and reading only that would have been attribution by plausibility.
+
 ### Phase 33: Three Regions, and a Relay Killed on Purpose
 **Goal**: As a fabric operator, I want `bootstrap-us`, `bootstrap-eu` and `bootstrap-sam` to exist as three identities in three objects under the closed name set, with nothing anywhere claiming where any of them actually runs, so that a scheduled, repeated drill measures what a region's loss costs instead of my discovering it during the run.
 **The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): `bootstrap-us`, `bootstrap-eu` and `bootstrap-sam` exist as three identities in three objects under the closed name set, nothing anywhere claims where any of them actually runs, and a scheduled, repeated drill measures what a region's loss costs instead of discovering it during the run
