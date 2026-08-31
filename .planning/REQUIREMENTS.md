@@ -1489,7 +1489,7 @@ a branch inside `fabric-node.ts`.
       public cohort. Durable Object storage is durable by construction, unlike the browser's
       evictable IndexedDB, so this is the first tier where records that never expire simply
       accumulate. A sweep that ships after persistence has already lost the property
-- [ ] **HOST-15**: The hosted node's socket is written against the hibernation API and gives a
+- [x] **HOST-15**: The hosted node's socket is written against the hibernation API and gives a
       defined answer for the absent `bufferedAmount`. Billing on this platform is duration of
       held sockets rather than messages carried, so a non-hibernating socket is the cost, and a
       backpressure signal that silently reads `undefined` is a correctness defect that looks
@@ -1499,7 +1499,7 @@ a branch inside `fabric-node.ts`.
 
 ### Transport, fallback, and the peer-to-peer / relay split (existing `NET-` prefix)
 
-- [ ] **NET-11**: The hosted tier's inbound listener declares `direction: 'inbound'` and
+- [x] **NET-11**: The hosted tier's inbound listener declares `direction: 'inbound'` and
       derives each connection's remote address from `CF-Connecting-IP`. **Both fail silently
       when omitted**, and without the second libp2p treats the whole internet as one host and
       caps admission at five connections per second. The verification uses **more than five**
@@ -1880,8 +1880,8 @@ sentence corrects — and a bare `:NNN` shorthand is a reading of its own date, 
 | HOST-12 | Phase 29 — Hosted Tier Assembly & First Deploy | **Done** — Phase 29 criterion 6. The silent violation this row anticipated is exactly what the guard tests: `hosted-tier-deploy.node.test.ts` *"derives no object name from a request"*, alongside the two-file enumeration. **Plant watched red.** **Corrected 2026-08-30** — this row read *"Not started — no name set exists"*, written before the tier was built |
 | HOST-13 | v2.0 — phase not yet numbered | **Not started** — a port rather than a build: the policy ships today and is read across two processes under NET-06. What is missing is a driver that fires on workerd, where `setInterval` does not, because time does not advance without I/O |
 | HOST-14 | v2.0 — phase not yet numbered | **Not started** — the value records have no sweep on any tier. It is a hosted-tier requirement because durable storage is the first place their absence accumulates rather than being cleared by eviction |
-| HOST-15 | v2.0 — phase not yet numbered | **Not started** — no socket implementation exists. Both halves fail in ways that look healthy: a non-hibernating socket bills for its whole life, and an undefined backpressure reading is a defect that reports nothing |
-| NET-11 | v2.0 — phase not yet numbered | **Not started** — both settings fail silently when omitted, which is why the verification is specified rather than left to the executor: more than five concurrent distinct client addresses. A two-peer test on this cannot go red and so proves nothing |
+| HOST-15 | v2.0 — Phase 30 | **Done** — `packages/cloudflare/src/websocket-connection.ts` holds the socket against the hibernation API and answers `canSendMore` from a stated value rather than the absent `bufferedAmount`. Read by `websocket-connection.test.ts`, which names this id. **CORRECTED 2026-08-30** — this cell read *"no socket implementation exists"*, which was true when written and stopped being true at `351fa4e`. The anti-vacuity case matters more than the count: every earlier case ran against a socket with **no** `bufferedAmount`, so a pass-through implementation would have answered `undefined === 0` and stayed green; the case added beside them supplies a socket that HAS the field, and a plant reading the raw field was watched red on 2 cases |
+| NET-11 | v2.0 — Phase 30 | **Done** — the listener declares `direction: 'inbound'` and derives each connection's remote address from `CF-Connecting-IP` (`packages/cloudflare/src/hosted-libp2p.ts`, read by `hosted-libp2p.node.test.ts`, which names this id). **The row's own warning was paid for rather than avoided**: the first e2e spec written for this asserted on HTTP 101s, and both plants stayed GREEN against it, because a 101 is a statement about the platform and not about admission. `inbound-listener.e2e.test.ts` dials the locally-run object with **eight** separate real libp2p nodes instead. Unconfigured, four were admitted and four refused with `EncryptionFailedError: The operation was aborted due to timeout` — libp2p's default `inboundConnectionThreshold` is 5/second/host, which on this tier is the whole fabric's admission rate. `hostedConnectionManagerInit()` now states 256 and 128; both are finite, and raising a bound is not removing it |
 | NET-12 | v2.0 — phase not yet numbered | **Not started** — there is no TURN in the stack at all, and a pair behind symmetric NAT simply fails. Where TURN runs is open question 4 and this row deliberately names no provider |
 | NET-13 | v2.0 — phase not yet numbered | **Not started** — the 64 KiB-per-direction figure is measured (2026-08-24) and no protocol specification states it, and no boundary test exercises the relayed path. The measured figure without the test is exactly how a design comes to assume twice the room |
 | NET-14 | v2.0 — phase not yet numbered | **Not started** — neither counter exists. Structural rather than instrumentation polish: the failure it detects is the median outcome for hosted-relay systems, not a tail case |
@@ -1929,3 +1929,15 @@ and every one of their verdicts begins `Not started`**, which is what a mileston
 begun looks like in this table; the four v2.0 carries — `NET-03`, `BENCH-06`, `AOT-03`,
 `AOTW-06` — mint no new id and keep the rows they already have. Read the figures rather than
 quoting them, by the two `grep -c` commands above.
+
+**AMENDED 2026-08-30 — the sentence above is kept because it is a claim with a date on it, and
+the date is what has expired.** *"All 36 are unchecked and every one of their verdicts begins
+`Not started`"* was a true reading of the table on 2026-08-25 and is false now: **nine** of the
+36 are ticked — `HOST-01`, `HOST-05`, `HOST-08`, `HOST-11`, `HOST-12`, `HOST-15`, `NET-11`,
+`DEMO-05` and `DEMO-06`. Six of those nine were ticked on 2026-08-30 as *corrections*: the work
+had landed and the rows had not moved with it, which is the drift this whole paragraph exists to
+warn about, arriving inside the paragraph's own subject. `HOST-10` is the one row whose verdict
+is **`Refuted`** rather than `Not started` or `Done`, and its checkbox stays off for the reason
+the legend gives — `startsWith('Done')` is the rule, and a refuted criterion is not a met one.
+The mapping figure of 138 of 138 is unaffected: ticking a box changes no id. Read the figures by
+the `grep -c` commands rather than by this paragraph, which will expire again.
