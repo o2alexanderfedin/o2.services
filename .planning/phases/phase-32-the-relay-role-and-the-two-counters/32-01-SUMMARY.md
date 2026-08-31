@@ -123,6 +123,34 @@ lazily on the first inbound upgrade and `/self` deliberately does not build one.
 browser to reserve on it. Written down so that a reservation appearing later does not silently
 retire the claim.
 
+## The granularity, stated because the number reads wider than it is
+
+Three limits, and none of them is a hedge.
+
+**1. `/self` answers about this node's own connections, not about what it relays.** The hosted
+node dials through no relay, so its `relayed` column is structurally zero — the e2e pins it at
+zero after eight dials, which is correct and also the shape of the limit. Relayed payload
+transits this node as circuit **hop/stop protocol streams riding direct WebSocket legs**, and
+`trackProtocolStream` is deliberately inert. So when Phase 32 criteria 1–2 land and two
+browsers meet through the deployed relay, **every byte it carries is counted `direct` by this
+surface.** Read the hosted node's split as *how much of my traffic is relayed*, never as *how
+much do I relay*.
+
+**2. The other half is hop-stream counting, and it lands with criteria 1 and 2.** That is the
+first arrangement in which relay-carried bytes are observable at all; building the counter
+before the arrangement would be building against no reading.
+
+**3. The counters are per-instance and reset on eviction.** A Durable Object is reconstructed
+constantly, and a hibernation-woken socket is closed with `CLOSED_AFTER_HIBERNATION` (1012)
+and must be redialled — a redial re-enters the upgrader and starts a fresh count, while the
+pre-eviction connection's seconds and bytes go with the instance. So this is a **live**
+reading, not a lifetime total, and specifically **not** a billing total: Phase 30's cost
+argument is about the duration of held sockets across the object's whole life, which no
+per-instance counter sums.
+
+`NET-14`'s ledger row carries all three, and its verdict is *Done against the amended
+criterion, with its granularity stated* rather than a bare `Done`.
+
 ## Verification
 
 ```
