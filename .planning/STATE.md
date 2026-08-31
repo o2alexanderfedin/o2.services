@@ -83,6 +83,21 @@ stopped_at: >-
   order changed nothing, because `@multiformats/multiaddr-matcher@3.0.2` already answers
   `Circuit.matches` false for the browser WebRTC form; the property is re-pinned on the
   library's own answer instead.
+  `v2.0.0-rc.5` IS DEPLOYED, 2026-08-31, through CI on the `release: published` trigger.
+  `https://o2-bootstrap.af-4a0.workers.dev/self` answers `version: 2.0.0-rc.5` with the new
+  `traffic` field reading two zeroed columns, on PeerId
+  `12D3KooWKm587fnGat5xncq9kaWUk4bN5gUJQiF4q8EwJnrb7rsz` — the same identity since 2026-08-27,
+  so the deploy is also a further crossing of a redeploy boundary for `HOST-01`. The Pages
+  client's `bootstrap.json` hands out that same PeerId.
+  AND THAT DEPLOY REFUTED A BASIS I HAD RECORDED HOURS EARLIER. Phase 32 criterion 3's
+  ordering — counters reporting BEFORE the relay accepts its first browser reservation — was
+  written as resting on *"nothing publishes the relay's address to any browser"*. False:
+  `bootstrap.json` publishes `relayAddrs` naming this node, and `browser-node.ts:597` listens
+  on `['/p2p-circuit', '/webrtc']`, which is a reservation request. The published client has
+  been joinable since `v2.0.0-rc.4` on 2026-08-28, three days before the counters existed.
+  Whether a browser reserved in that window is unreadable from here — the counters are
+  per-instance and hold no history — so the ORDERING IS UNVERIFIED AND MAY BE PERMANENTLY
+  FALSE, the same shape as `HOST-10`. The reporting itself stands; the ordering does not.
   PHASE 41 CLOSED NO CRITERION AND FOUND ITS BLOCKER FALSE, 2026-08-30.
   `tools/aot/cross-machine.node.test.ts` said `AOT-03` needs a second `aarch64` Linux machine,
   *"which is a thing this repository does not have and cannot synthesise"*. `gh repo view
@@ -105,7 +120,7 @@ stopped_at: >-
   REQUIREMENTS.md rows stale in the pessimistic direction (HOST-05, HOST-08,
   HOST-11, HOST-12) plus two false clauses in NET-03's; and no concurrency limit
   by core count anywhere in the tree, which is the next thing the owner named.
-last_updated: "2026-08-31T04:10:00.000Z"
+last_updated: "2026-08-31T05:20:00.000Z"
 last_activity: 2026-08-28 — the hosted tier deployed and released four times, the browser client published and fixed, criterion 2 met in full, Phase 29 closed uncounted on criterion 1 alone
 progress:
   total_phases: 13
