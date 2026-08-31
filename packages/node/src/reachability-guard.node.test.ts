@@ -674,6 +674,16 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // one. Read behaviourally by `relay-service-log.e2e.test.ts` against a real
       // `circuitRelayServer` and by `worker.test.ts` against the storage fixture. Raised by
       // exactly the five that arrived.
+      //
+      // 2026-08-31 (the rendezvous): 112 -> 113. One row, `net/serveReservations`, and it is
+      // the FIRST on this standing condition that is not declared in `packages/cloudflare`.
+      // That matters to a reader of the paragraph above, which says no wiring inside
+      // `packages/cloudflare` will empty this section because every caller there is the
+      // platform. This symbol is declared in a PORTABLE package and lands here anyway, for
+      // the same reason and one hop further out: its caller is `createHostedFabric`, whose
+      // caller is `BootstrapObject`. So the condition is not "declared on the hosted tier"
+      // but "reached only through it", which is a wider set than the earlier raises implied.
+      // Raised by exactly the one that arrived.
     ).toBeLessThanOrEqual(UNREACHABLE_CEILING)
   }, GRAPH_TIMEOUT_MS)
 
@@ -1441,7 +1451,7 @@ interface OpenFinding {
  * symbols; this number exists so a seventh arrival cannot slip in under a bound that was
  * sized for six.
  */
-const UNREACHABLE_CEILING = 112
+const UNREACHABLE_CEILING = 113
 
 const OPEN_FINDINGS: readonly OpenFinding[] = [
   {
@@ -1539,6 +1549,28 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       + 'real `circuitRelayServer`, which is where the direction claim every counter depends '
       + 'on is checked; planted by inverting `stream.direction`, watched red on both cases, '
       + 'restored `cmp`-clean.',
+  },
+  {
+    key: 'net/serveReservations',
+    declaredIn: 'packages/net/src/rendezvous.ts',
+    callers: 'unreachable-only',
+    reason:
+      'NET-03 — the ANSWERING half of the rendezvous, added 2026-08-31 because the deployed '
+      + 'hosted relay had none. `findReservedPeers` speaks `/o2/rpc/1.0.0` and '
+      + '`hosted-libp2p.ts` registered no handler for it, so the one always-reachable node in '
+      + 'this fabric answered nothing and two tabs reserved on it stayed invisible to each '
+      + 'other. `serveAgent` could not be used: `AgentOptions` requires an `executor` and a '
+      + '`blockstore` with no named opt-out (`agent.ts:395-399`), so wiring it would have put '
+      + 'a WASM executor on a node whose whole job is to relay. '
+      + 'Wired: `createHostedFabric` starts a `Libp2pTransport`, constructs an `RpcEndpoint` '
+      + 'over it and serves this. Unreachable for this tier’s standing reason: that assembly’s '
+      + 'own caller is `BootstrapObject`, which the Workers runtime invokes and no call '
+      + 'expression in this repository reaches. '
+      + 'Read behaviourally by `packages/net/src/rendezvous.test.ts` over the memory transport '
+      + '(two plants watched red, restored `cmp`-clean) and by '
+      + '`packages/cloudflare/src/hosted-rendezvous.e2e.test.ts` against a real workerd, which '
+      + 'failed with `answered: 0` on the tree before the fix — the reproduction of the '
+      + 'finding rather than a check written after it.',
   },
   {
     key: 'cloudflare/readRelayServiceJournal',
