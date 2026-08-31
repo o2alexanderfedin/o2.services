@@ -645,6 +645,18 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // this section**, and a reader should stop expecting it to. The condition that closes
       // these rows is a deploy, which is an owner act, and the tracer has no entry point for
       // a platform.
+      //
+      // 2026-08-30 (Phase 31): 103 -> 104. **One row, and it is the first on this tier whose
+      // closing condition is NOT a deploy** — `cloudflare/hostedCapabilities`. It is
+      // unreachable because the hosted node holds no certificate, so there is nothing for a
+      // capability record to accompany and nothing calls the producer. That makes the
+      // paragraph above true in a second way it did not anticipate: it says no wiring inside
+      // `packages/cloudflare` will empty this section because every caller is the platform.
+      // This row is not waiting on the platform at all. It is waiting on hosted **enrollment**,
+      // which is in no requirement of this phase, and it was written ahead of its caller on
+      // purpose — HOST-04's whole subject is that the record must carry no execution BEFORE
+      // anything can publish one. A guard written after the publisher is a guard written after
+      // the window it exists for.
     ).toBeLessThanOrEqual(UNREACHABLE_CEILING)
   }, GRAPH_TIMEOUT_MS)
 
@@ -1412,7 +1424,7 @@ interface OpenFinding {
  * symbols; this number exists so a seventh arrival cannot slip in under a bound that was
  * sized for six.
  */
-const UNREACHABLE_CEILING = 103
+const UNREACHABLE_CEILING = 104
 
 const OPEN_FINDINGS: readonly OpenFinding[] = [
   {
@@ -1471,6 +1483,25 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       'its reads through a caller-chosen generic, which is an assertion wearing a type ' +
       'parameter — so the value is PROVED to be bytes at runtime instead of being declared to ' +
       'be. Same thrower and same closing condition as the two rows above.',
+  },
+  {
+    key: 'cloudflare/hostedCapabilities',
+    declaredIn: 'packages/cloudflare/src/hosted-capabilities.ts',
+    callers: 'none',
+    reason:
+      'HOST-04, Phase 31 — the record the hosted tier will publish, guarded before anything ' +
+      'can publish one. It has no caller because the hosted node holds NO CERTIFICATE: ' +
+      '`hostedIdentity` returns a seed, a node key and a peer id, and `NodeRecords` requires ' +
+      'a certificate beside the capabilities, so this tier publishes no records at all today ' +
+      'and HOST-04\'s "published" half is satisfied by an absence rather than by this ' +
+      'function. **Its closing condition is not a deploy**, which every other row on this ' +
+      'tier waits on — it is hosted enrollment, which is in no requirement of this phase and ' +
+      'was deliberately not invented to give this symbol a caller. Writing it after its ' +
+      'publisher would be writing the guard after the window it exists for: the point of ' +
+      'HOST-04 is that the fabric is never told this tier executes, and the moment to fix ' +
+      'that is before the first record leaves. Read by ' +
+      '`packages/cloudflare/src/hosted-capabilities.test.ts`, whose two plants — one engine ' +
+      'feature, one sovereign key — were each watched red and restored `cmp`-clean.',
   },
   {
     key: 'cloudflare/HostedNode',

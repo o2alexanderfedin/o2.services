@@ -12,6 +12,11 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { publishCapabilities } from '@o2/core'
+import type { NodeCertificate } from '@o2/core'
+import { dhtKeyForNodeKey } from '@o2/libp2p'
+import { encodeNodeRecords } from '@o2/net'
 import { Key } from 'interface-datastore'
 import { afterEach, describe, expect, it } from 'vitest'
 import { FakeDurableObjectAlarms, FakeDurableObjectStorage } from './do-storage.fixture.ts'
@@ -226,3 +231,157 @@ describe('NET-11 — the inbound limits, because the library defaults are a fabr
     expect(source).toContain('connectionManager: hostedConnectionManagerInit()')
   })
 })
+
+/**
+ * The `dht` service, narrowed rather than asserted.
+ *
+ * `createHostedLibp2p` returns a plain `Libp2p`, so `services` is `Record<string, unknown>`
+ * and the service arrives untyped. This tree does not permit `as`, so the shape is *checked*
+ * — which is also the honest thing: if the assembly ever stopped installing a `dht`, a cast
+ * would sail past and this case would fail somewhere less legible.
+ */
+interface PuttingDht {
+  put(key: Uint8Array, value: Uint8Array, options: { signal: AbortSignal }): AsyncIterable<unknown>
+}
+
+/**
+ * A user-defined type guard, which is what this tree permits in place of `as`.
+ *
+ * `'put' in service` narrows to an object carrying the key, so `service.put` is readable
+ * without a cast; the predicate then states the shape once, for the one call site.
+ */
+function isPuttingDht(service: unknown): service is PuttingDht {
+  return (
+    typeof service === 'object' &&
+    service !== null &&
+    'put' in service &&
+    typeof service.put === 'function'
+  )
+}
+
+/**
+ * Drain a `dht.put`, bounded — **and the bound is a measurement, not impatience.**
+ *
+ * `put` stores locally and *then* pipes `getClosestPeers`. On a node whose routing table is
+ * empty that query never returns: measured here as a 30 s test timeout, and independently on
+ * 2026-08-23 on two server-mode nodes that had completed identify — *"a `put` yielded no
+ * events at all and `getClosestPeers` never returned"*. The local store is unaffected, because
+ * it happens before the first event is yielded (`content-fetching/index.js:100-107`), so
+ * aborting the query is how this case reaches its subject rather than a way around it.
+ */
+async function putThroughDht(service: unknown, key: Uint8Array, value: Uint8Array): Promise<void> {
+  if (!isPuttingDht(service)) {
+    throw new Error('the hosted assembly installed no dht service with a `put`')
+  }
+  try {
+    for await (const _event of service.put(key, value, { signal: AbortSignal.timeout(1_000) })) {
+      // Drained.
+    }
+  } catch (cause) {
+    if (!(cause instanceof Error) || !/abort|timeout/i.test(cause.name + cause.message)) throw cause
+  }
+}
+
+/** A record for `seed`'s own node key, expiring at `expiresAt` — signed the way the fabric signs one. */
+function nodeRecordBytes(
+  seed: Uint8Array,
+  issuedAt: number,
+  expiresAt: number,
+): { key: Uint8Array; value: Uint8Array } {
+  const hex = (bytes: Uint8Array): string =>
+    [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')
+  const nodeKey = hex(ed25519.getPublicKey(seed))
+  // The certificate is not signature-checked by `o2RecordValidator` — see that function: a
+  // disinterested storer holds no issuer set, so the ownable half of the key is the node's
+  // own signature over its own capabilities, and that one below is real.
+  const certificate: NodeCertificate = {
+    nodeKey,
+    userKey: nodeKey,
+    operatorId: 'host-14',
+    discoverability: 'seed',
+    relayIds: [],
+    issuedAt,
+    expiresAt,
+    issuer: nodeKey,
+    signature: '00'.repeat(64),
+  }
+  return {
+    key: dhtKeyForNodeKey(nodeKey),
+    value: encodeNodeRecords({
+      certificate,
+      capabilities: publishCapabilities(seed, {
+        features: [],
+        sovereignFor: [],
+        issuedAt,
+        expiresAt,
+        extensions: [],
+      }),
+    }),
+  }
+}
+
+describe('HOST-14 — `/o2/<nodeKey>` value records expire, and the sweep walks what kad-dht WROTE', () => {
+  /**
+   * **"Records the fabric actually wrote, not synthetic fixtures"** is the criterion's own
+   * wording, and it is the whole difference between this case and
+   * `dht-record-sweep.test.ts`, which seeds a datastore by hand.
+   *
+   * Here `kadDHT()`'s own `put` does the writing. Its first act is a local store —
+   * `content-fetching/index.js:100-107`, `datastore.put(bufferToRecordKey(prefix, key), …)` —
+   * so a node with an empty routing table still writes a real `Libp2pRecord` under kad-dht's
+   * real key derivation, into the real `DoDatastore` the assembly handed it. Nothing about
+   * the bytes, the prefix or the encoding is this test's opinion.
+   *
+   * The sweep then reads it back through `decodeNodeRecords`, the same function the wire is
+   * read with, and deletes on `capabilities.expiresAt <= now` and nothing else.
+   */
+  it('DELETES a record kad-dht itself stored, once its capabilities have expired', async () => {
+    const storage = new FakeDurableObjectStorage()
+    const alarms = new FakeDurableObjectAlarms()
+    const issuedAt = 1_000
+    const expiresAt = 2_000
+    // One clock for the whole assembly, moved by hand — the sweep reads the same `now` the
+    // rest of the node does, which is what makes "the clock is the only variable" true.
+    let clock = issuedAt
+    running = await createHostedFabric({ storage, alarms, announce: ANNOUNCE, now: () => clock })
+
+    const { key, value } = nodeRecordBytes(new Uint8Array(32).fill(14), issuedAt, expiresAt)
+
+    await putThroughDht(running.libp2p.services['dht'], key, value)
+
+    const written = await all(running.datastore.queryKeys({ prefix: '/dht/record' }))
+    expect(written.length, 'kad-dht wrote no record into the store it was given').toBe(1)
+
+    // One millisecond past the record's own `expiresAt`. Nothing else about the record
+    // changes, so the clock is the only variable.
+    clock = expiresAt + 1
+    const counts = await running.sweep.run()
+
+    expect(counts.values.swept).toBe(1)
+    expect(await all(running.datastore.queryKeys({ prefix: '/dht/record' }))).toEqual([])
+  }, 30_000)
+
+  it('KEEPS the same record while it is still valid — the clock is the only variable', async () => {
+    // Anti-vacuity. A sweep that deleted everything it walked would pass the case above.
+    const storage = new FakeDurableObjectStorage()
+    const alarms = new FakeDurableObjectAlarms()
+    let clock = 1_000
+    running = await createHostedFabric({ storage, alarms, announce: ANNOUNCE, now: () => clock })
+
+    const { key, value } = nodeRecordBytes(new Uint8Array(32).fill(14), 1_000, 2_000)
+    await putThroughDht(running.libp2p.services['dht'], key, value)
+
+    clock = 1_999
+    const counts = await running.sweep.run()
+
+    expect(counts.values.swept).toBe(0)
+    expect((await all(running.datastore.queryKeys({ prefix: '/dht/record' }))).length).toBe(1)
+  }, 30_000)
+})
+
+/** Collect an async iterable. Local, so this file adds no dependency for four lines. */
+async function all<T>(source: AsyncIterable<T> | Iterable<T>): Promise<T[]> {
+  const out: T[] = []
+  for await (const item of source) out.push(item)
+  return out
+}

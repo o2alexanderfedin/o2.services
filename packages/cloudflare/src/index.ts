@@ -31,9 +31,12 @@ export type {
   CloudflareWebSocket,
   CloudflareWebSocketConnectionInit,
 } from './websocket-connection.ts'
+export { hostedCapabilities } from './hosted-capabilities.ts'
+export type { CapabilityWindow } from './hosted-capabilities.ts'
 export {
   EXPIRY_SWEEP_INTERVAL_MS,
   ExpirySweep,
+  MIN_RESCHEDULE_INTERVAL_MS,
   UnarmedSweepError,
   armExpirySweep,
 } from './expiry-alarm.ts'

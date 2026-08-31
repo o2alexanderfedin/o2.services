@@ -17,7 +17,13 @@ import { BaseDatastore } from 'datastore-core'
 import { Key } from 'interface-datastore'
 import { describe, expect, it } from 'vitest'
 import { FakeDurableObjectAlarms } from './do-storage.fixture.ts'
-import { EXPIRY_SWEEP_INTERVAL_MS, ExpirySweep, UnarmedSweepError, armExpirySweep } from './expiry-alarm.ts'
+import {
+  EXPIRY_SWEEP_INTERVAL_MS,
+  ExpirySweep,
+  MIN_RESCHEDULE_INTERVAL_MS,
+  UnarmedSweepError,
+  armExpirySweep,
+} from './expiry-alarm.ts'
 import type { KeyQuery, Pair, Query } from 'interface-datastore'
 
 /**
@@ -132,7 +138,83 @@ describe('arming is what a caller gets instead of a flag', () => {
   })
 })
 
-describe('a pass sweeps both prefixes and re-arms', () => {
+describe('HOST-09 — a reschedule cannot be tighter than the floor', () => {
+  /**
+   * The half of HOST-09 that `arm()`'s `getAlarm()` check does not cover.
+   *
+   * `getAlarm()` stops a *pending* alarm being pushed forward. It says nothing about how
+   * far ahead the next one is set, and the hot path is not `arm()` at all — it is `run()`'s
+   * `finally`, which sets unconditionally because the alarm that just fired is gone. A
+   * sweep configured with a tiny interval therefore re-arms itself at that interval on
+   * every firing, on an object nobody is watching, and each firing is billed.
+   *
+   * So the floor is enforced on the ONE place both paths read, `intervalMs`, rather than at
+   * the two call sites — a clamp at a call site is a clamp the next call site can forget.
+   */
+  it('REFUSES a zero delay at the floor rather than arming hot', async () => {
+    // Criterion 4's plant, written as the case rather than left to a planter: an interval
+    // of zero is exactly "reschedule yourself immediately, forever".
+    const alarms = new FakeDurableObjectAlarms()
+    await armExpirySweep({
+      datastore: new RecordingDatastore(),
+      alarms,
+      selfPeerId: SELF,
+      now: () => 1_000,
+      intervalMs: 0,
+    })
+
+    // The literal, not `MIN_RESCHEDULE_INTERVAL_MS` — an assertion that reads the constant
+    // it is testing moves whenever the constant does and can never disagree with it.
+    expect(alarms.setCalls).toEqual([1_000 + 60_000])
+  })
+
+  it('holds the floor on the RE-ARM too, which is the path that would run hot', async () => {
+    const alarms = new FakeDurableObjectAlarms()
+    let clock = 1_000
+    const sweep = await armExpirySweep({
+      datastore: new RecordingDatastore(),
+      alarms,
+      selfPeerId: SELF,
+      now: () => clock,
+      intervalMs: 1,
+    })
+
+    clock = 500_000
+    await alarms.fire(async () => {
+      await sweep.run()
+    })
+
+    expect(alarms.setCalls).toEqual([1_000 + 60_000, 500_000 + 60_000])
+  })
+
+  it('leaves an interval ABOVE the floor exactly where the caller put it', async () => {
+    // Anti-vacuity. A clamp that returned the floor unconditionally would pass both cases
+    // above and silently slow the sweep to a minute forever. Plant that reddens this:
+    // `return MIN_RESCHEDULE_INTERVAL_MS` from the getter.
+    const alarms = new FakeDurableObjectAlarms()
+    await armExpirySweep({
+      datastore: new RecordingDatastore(),
+      alarms,
+      selfPeerId: SELF,
+      now: () => 1_000,
+      intervalMs: 123_456,
+    })
+
+    expect(alarms.setCalls).toEqual([1_000 + 123_456])
+  })
+
+  it('sits far enough below the policy interval that it never binds in normal operation', () => {
+    // The floor is a bound on a runaway, not a second schedule. At 60 s it caps a
+    // self-rescheduling alarm at 60 firings an hour instead of unbounded, while the sweep
+    // the policy actually asks for runs 4 times an hour — so the clamp is inert on every
+    // path this tier takes and only ever binds a caller asking for something the policy
+    // would never produce.
+    expect(MIN_RESCHEDULE_INTERVAL_MS).toBe(60_000)
+    expect(EXPIRY_SWEEP_INTERVAL_MS).toBeGreaterThan(MIN_RESCHEDULE_INTERVAL_MS * 10)
+  })
+})
+
+describe('HOST-13 — a pass sweeps both prefixes and re-arms, on the platform’s own timer', () => {
   it('points the sweep at both of kad-dht’s own prefixes', async () => {
     const recorder = new RecordingDatastore()
     const sweep = await newSweep(recorder, new FakeDurableObjectAlarms(), () => 1_000)

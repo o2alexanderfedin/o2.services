@@ -899,8 +899,18 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * two remaining limits — the eviction was observed rather than forced, and the ledger-side
  * witness carries only the mechanism — are written into the row itself, which is where a limit
  * survives and a ceiling is not able to record one.
+ *
+ * **Raised 3 → 4 again on 2026-08-30, in the same commit that moved `HOST-13` to `Partial`**,
+ * and it is the same shape as the `HOST-01` raise above rather than a coincidence. `HOST-13`'s
+ * port is done — `EXPIRY_SWEEP_INTERVAL_MS` derives from `providerRecordPolicy()`,
+ * `BootstrapObject.alarm()` is the driver, and arming, not-pushing-a-pending-alarm-forward and
+ * re-arming-after-a-throw are all read. What is missing has no shape this file can read,
+ * because it contains no symbol and no caller: **the platform firing the alarm on a fresh
+ * instance after an eviction.** Every entry point on this tier is invoked by the Workers
+ * runtime and by nothing in this repository, so a call-site search cannot express the open leg
+ * — which is exactly `entry-point-not-driven`. Raised by the one entry that arrived.
  */
-const REREAD_REGISTER_CEILING = 3
+const REREAD_REGISTER_CEILING = 4
 
 /**
  * ## The rule this list encodes
@@ -1578,6 +1588,18 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // measures why the local route is not a second machine, which is a different sentence from
   // measuring the row. What AOT-03 needs is a second *aarch64 Linux* host running the same
   // elfconv build.
+  // ── Added 2026-08-30 (Phase 31) ────────────────────────────────────────────────────
+  //
+  // `HOST-13` went *Not started* → **Partial**: the Durable Object alarm driver is built and
+  // read, and the leg that stays open is a platform invocation nothing here can force. It
+  // leaves this list when that reading is taken on a deployed object — request, fire, evict,
+  // re-read from a new instance, the methodology `expiry-alarm.ts`'s own header names.
+  {
+    id: 'HOST-13',
+    because: 'entry-point-not-driven',
+    reread: '2026-08-30',
+    witnesses: ['packages/cloudflare/src/expiry-alarm.test.ts'],
+  },
   {
     id: 'AOT-03',
     because: 'experiment-not-run',
