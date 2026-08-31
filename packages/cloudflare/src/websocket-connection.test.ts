@@ -126,7 +126,7 @@ describe('requirement 2 — the remote address is the real client, or nothing', 
   })
 })
 
-describe('requirement 3 — the answer taken for absent backpressure, stated as a reading', () => {
+describe('HOST-15 — requirement 3, the answer taken for absent backpressure, stated as a reading', () => {
   it('reports every byte sent and always room for more', () => {
     const { socket, connection } = connect()
     // Through `send`, the stream's own public surface, rather than by calling the abstract
