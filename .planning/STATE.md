@@ -180,6 +180,25 @@ stopped_at: >-
   `browser-client-publish.node.test.ts` checks *"never root-absolute"*, which is not the
   property — the property is the ORDER of the two candidates, and it now checks that, with
   the swap watched red.
+  `v2.0.0-rc.7` IS DEPLOYED, 2026-08-31, run `33378386131`, success — and it is the first
+  release in this milestone that fixes something a USER meets rather than something a test
+  reads. Both live surfaces were read back, because this one ships to two:
+  (1) `https://o2-bootstrap.af-4a0.workers.dev/self` answers `version: 2.0.0-rc.7` on PeerId
+  `12D3KooWKm587fnGat5xncq9kaWUk4bN5gUJQiF4q8EwJnrb7rsz`, unchanged since 2026-08-27, with
+  `relayService` still four zeroed counters and no marker — the Durable Object's storage
+  survived the redeploy and nothing has reserved on the relay yet, which is the same reading
+  `rc.6` took and the correct one.
+  (2) `https://o2alexanderfedin.github.io/o2.services/bootstrap.json` answers **200** with
+  that same PeerId over `/tls/ws`. That reading is doing more work than it looks: it is the
+  empirical proof that `scripts/deploy-pages.sh`'s `mkdir -p` and unconditional write still
+  produce the document with `demo/public/` now ABSENT from the tree — the one link in the
+  deletion that no local run could settle, since a local `vite build` was already proven by
+  `built-bundle.e2e.test.ts` rebuilding in `beforeAll` and passing.
+  LANES AT THE RELEASE: `node` 218 files / 3164 tests, `e2e` 43 / 250, `aot` 13 / 247,
+  `browser` 168 / 2859 over `packages/browser` and `packages/core`, `tsc --noEmit` exit 0.
+  The `browser` lane's `packages/aot/src/elflift-cross-engine.browser.test.ts` was NOT re-run
+  after the fix and that is stated rather than glossed: it lifts AArch64 binaries, imports
+  nothing this change touched, and passed on firefox in the run that was interrupted.
   PHASE 41 CLOSED NO CRITERION AND FOUND ITS BLOCKER FALSE, 2026-08-30.
   `tools/aot/cross-machine.node.test.ts` said `AOT-03` needs a second `aarch64` Linux machine,
   *"which is a thing this repository does not have and cannot synthesise"*. `gh repo view
