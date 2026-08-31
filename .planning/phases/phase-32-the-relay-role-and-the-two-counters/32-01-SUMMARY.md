@@ -116,12 +116,32 @@ those must not be confusable.
 The counter is held by the **Durable Object**, not by the fabric, because the fabric is built
 lazily on the first inbound upgrade and `/self` deliberately does not build one.
 
-**What cannot be read from here is the deployed object's reservation history.** So criterion
-3's *"before the relay accepts its first browser reservation"* rests on a stated basis, dated
-2026-08-30: nothing publishes the relay's address to any browser — the browser client's
+**The basis I first recorded for criterion 3 was false, and it survived less than a day.**
+
+It read: *nothing publishes the relay's address to any browser — the browser client's
 `bootstrap.json` hands out the hosted node's PeerId for dialling, and no code path asks a
-browser to reserve on it. Written down so that a reservation appearing later does not silently
-retire the claim.
+browser to reserve on it.* Both halves are wrong, and the deploy that shipped these counters is
+what showed it:
+
+```
+$ curl https://o2alexanderfedin.github.io/o2.services/bootstrap.json
+{"relayAddrs":["/dns4/o2-bootstrap.af-4a0.workers.dev/tcp/443/tls/ws/p2p/12D3KooW…"], …}
+```
+
+`relayAddrs` names this node, and `browser-node.ts:597` listens on
+`['/p2p-circuit', '/webrtc']` — which *is* asking for a reservation. The published client has
+been able to join since `v2.0.0-rc.4` on 2026-08-28, **three days before these counters
+existed.**
+
+Whether any browser actually reserved in that window cannot be read from here: the counters are
+per-instance and hold no history, and the reservation record is the operator's. So criterion
+3's ordering is **unverified and may already be permanently false** — the same shape as
+`HOST-10`, whose criterion is an ordering that no later action can satisfy. Recorded as that
+rather than left resting on a basis that does not hold.
+
+What the deploy DID establish, and it is worth separating from what it refuted: the counters
+report on the deployed object. `https://o2-bootstrap.af-4a0.workers.dev/self` answers
+`version: 2.0.0-rc.5` with two zeroed columns, on the PeerId it has carried since 2026-08-27.
 
 ## The granularity, stated because the number reads wider than it is
 
