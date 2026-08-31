@@ -152,16 +152,25 @@ const nodes: FabricNode[] = []
  * `peer-gate.node.test.ts` and `certificate-verification.node.test.ts`.
  */
 async function until(predicate: () => Promise<boolean>, timeoutMs: number, what: string): Promise<void> {
+  // This file already carried the throw guard — it is the working example the 2026-08-31
+  // repair was checked against, and the reason the guard belongs in every copy. What it
+  // lacked is the re-check below: without it the message is built from a later observation
+  // than the last evaluation, and a timeout can report a condition that is already true.
   const deadline = Date.now() + timeoutMs
   let last = ''
-  while (Date.now() < deadline) {
+  const attempt = async (): Promise<boolean> => {
     try {
-      if (await predicate()) return
+      return await predicate()
     } catch (cause) {
       last = cause instanceof Error ? cause.message : String(cause)
+      return false
     }
+  }
+  while (Date.now() < deadline) {
+    if (await attempt()) return
     await new Promise((r) => setTimeout(r, 100))
   }
+  if (await attempt()) return
   throw new Error(`timed out waiting for ${what}${last === '' ? '' : `; last error: ${last}`}`)
 }
 
