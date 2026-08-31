@@ -117,7 +117,34 @@ stopped_at: >-
   THIS DOES NOT MOVE CRITERION 3. Nothing reconstructs history it did not observe, so the
   `rc.4`→`rc.5` window stays dark and the ordering stays unverified. What changed is that the
   NEXT such question has an answer. Limits 2 and 3 of `NET-14`'s stated granularity are
-  retired with dated amendments in the ledger and in `32-01-SUMMARY.md`; limit 1 is not.
+  retired with dated amendments in the ledger, the ROADMAP and `32-01-SUMMARY.md`; limit 1 is
+  not.
+  `v2.0.0-rc.6` IS DEPLOYED, 2026-08-31, through CI on the `release: published` trigger, run
+  `33368032080`, success. `https://o2-bootstrap.af-4a0.workers.dev/self` answers
+  `version: 2.0.0-rc.6` on PeerId `12D3KooWKm587fnGat5xncq9kaWUk4bN5gUJQiF4q8EwJnrb7rsz` —
+  unchanged since 2026-08-27, a fifth crossing of a redeploy boundary for `HOST-01` — with
+  `relayService` reporting four zeroed counters, zero bytes, and NO `firstInboundHopStreamAt`
+  KEY AT ALL. That absence is the correct first reading and not a dud: `JSON.stringify` drops
+  an `undefined` field, `rc.5` never wrote a journal, and a store that has never seen a hop
+  stream has no beginning to name.
+  AND THE FULL e2e LANE IS RED IN AN AREA THIS WORK DID NOT TOUCH — 2026-08-31, ATTRIBUTED BY
+  MEASUREMENT AND NOT BY PLAUSIBILITY. The first full `e2e` lane run of this session reported
+  24 failures across 12 files. One was mine and is fixed: `inbound-listener.e2e.test.ts` read
+  `relay-service-journal.e2e.test.ts`'s history, because both spawn `wrangler dev` with
+  `cwd: PACKAGE_DIR` and the default persist location is shared — `--persist-to` a mkdtemp
+  directory fixed it, proven by running the journal file twice back to back and
+  inbound-listener after it, 7/7. The other 22 were re-run on a QUIET host and 22 still
+  failed, so they are not the load artefact the banner warns about. They were then run at
+  `6cb5767`, the `develop` head BEFORE any of this work, and produced an IDENTICAL failure
+  set — same five case names on `seed-discovery` and `peer-ledger`. So they are PRE-EXISTING
+  and were present when `rc.5` was cut and deployed, unnoticed because only a subset of the
+  lane was run then. The dominant symptom is one string —
+  *"no relay available: this page was not served by a seed node, and no `?relay=` was given"*
+  — plus its inverse in `built-bundle.e2e.test.ts`, which expected `'none'` and read
+  `'origin'`. Ten files: `attestation-ui`, `built-bundle`, `cold-start-seed-race`,
+  `gated-admission`, `gated-seed`, `owner-domain-tabs`, `peer-ledger`, `seed-binary-join`,
+  `seed-discovery`, `static-rendezvous`, `visitor-enrolment`. NOT DIAGNOSED, NOT SCOPED, AND
+  OWED TO THE OWNER AS A DECISION rather than absorbed quietly into the next phase.
   PHASE 41 CLOSED NO CRITERION AND FOUND ITS BLOCKER FALSE, 2026-08-30.
   `tools/aot/cross-machine.node.test.ts` said `AOT-03` needs a second `aarch64` Linux machine,
   *"which is a thing this repository does not have and cannot synthesise"*. `gh repo view
