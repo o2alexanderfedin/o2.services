@@ -675,19 +675,29 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
     const client = await startClient('cost-client')
     await client.dial(provider.multiaddrs[0] as string)
 
-    const outcomes = await Promise.all(
-      Array.from({ length: 20 }, async (_, i) =>
-        enrolOverRpc(
-          client.rpc,
-          provider.peerId,
-          await requestEnrollment(
-            new Uint8Array(SEED_BYTES).fill(i + 1),
-            new Uint8Array(SEED_BYTES).fill(i + 101),
-            { operatorId: 'cost-ops', discoverability: 'seed', relayIds: [] },
+    // Batched at the transport's own per-peer cap, for the reason written out at the 67-burst
+    // above: twenty enrolments are FORTY round trips through one connection that admits eight
+    // streams, so a `Promise.all` would start every clock at once and charge the tail for the
+    // queue. Nothing the provider sees changes — it already saw at most eight.
+    const outcomes: EnrolOutcome[] = []
+    for (let start = 0; start < 20; start += MAX_CONCURRENT_STREAMS_PER_PEER) {
+      const size = Math.min(MAX_CONCURRENT_STREAMS_PER_PEER, 20 - start)
+      outcomes.push(
+        ...(await Promise.all(
+          Array.from({ length: size }, async (_, k) =>
+            enrolOverRpc(
+              client.rpc,
+              provider.peerId,
+              await requestEnrollment(
+                new Uint8Array(SEED_BYTES).fill(start + k + 1),
+                new Uint8Array(SEED_BYTES).fill(start + k + 101),
+                { operatorId: 'cost-ops', discoverability: 'seed', relayIds: [] },
+              ),
+            ),
           ),
-        ),
-      ),
-    )
+        )),
+      )
+    }
 
     expect(outcomes.filter((o) => o.ok)).toHaveLength(20)
     // Twenty different subjects, so this is twenty node identities and not one repeated.

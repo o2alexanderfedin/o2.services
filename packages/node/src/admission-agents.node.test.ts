@@ -606,7 +606,7 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
    * assertions still fail in seconds rather than at a timeout.
    */
   it('clause 1 — a spawned agent with no certificate holds no circuit through a gated relay, while an enrolled one does', async () => {
-    const { relay, stranger, member } = await standUp()
+    const { relay, stranger, member, provider, otherProvider, outsider, reader } = await standUp()
 
     // The admitted arm, asserted FIRST. Every absence below is then read against a relay this
     // run has already watched grant a circuit, which is what makes the absence attributable to
@@ -653,7 +653,30 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
     // standing rule says is evidence of the timeout and of nothing else. With the order below
     // it fails in about two seconds naming the fact: a refused peer that holds a circuit.
     expect(circuitsThrough(stranger, relay.peerId)).toStrictEqual([])
-    expect(stranger.relays).toStrictEqual([])
+    // **Named, not just counted — added 2026-08-31 after a whole-lane red printed two circuit
+    // addresses and no way to tell whose they were.** The claim is *no circuit at all*, and
+    // its interesting failure is a circuit through some OTHER relay-capable peer; a bare
+    // `toStrictEqual([])` shows the address and leaves the reader to guess which participant
+    // that peer id belongs to. The same gap cost a detour on this file's grant-line wait the
+    // same day.
+    const byPeerId: Record<string, string> = {
+      [provider.peerId]: 'provider',
+      [otherProvider.peerId]: 'other-provider',
+      [relay.peerId]: 'relay (the gated one)',
+      [member.peerId]: 'member',
+      [outsider.peerId]: 'outsider',
+      [stranger.peerId]: 'stranger (itself)',
+      [reader.peerId]: 'reader (the in-process instrument)',
+    }
+    expect(
+      stranger.relays,
+      `the uncertificated arm holds a circuit. Holders: ${JSON.stringify(
+        stranger.relays.map((addr) => {
+          const holder = /\/p2p\/([^/]+)\/p2p-circuit/.exec(addr)?.[1] ?? '?'
+          return { holder, is: byPeerId[holder] ?? 'NOT A FIXTURE PEER', addr }
+        }),
+      )}`,
+    ).toStrictEqual([])
 
     // The joiner's own side, which is the operator-facing half. `bin/agent.ts` prints this
     // through `ReservationWatcher`; libp2p throws `PERMISSION_DENIED` and

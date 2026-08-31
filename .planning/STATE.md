@@ -76,9 +76,14 @@ stopped_at: >-
   produce that result. (The first attempt at it, 8 peers over 1705 ms, was DISCARDED as
   vacuous: the default would have passed 8 over that span.) Phase 31 criterion 2 got its
   deployed reading at `17:17:07Z` and is recorded further down with the control arm that made
-  it a reading rather than a bare absence. **Phase 31 now closes; Phase 30 does not**, and the
-  reason has changed rather than gone: what holds it is criterion 3, whose deployed half asks
-  for an address the tier serves no route to answer. That local runtime is itself the session's
+  it a reading rather than a bare absence. **Phase 31 closes, and so does Phase 30** — the
+  latter later the same day. Criterion 3's deployed half asked for an address the tier serves
+  no route to answer, and the answer was that it did not need one: `identify` already puts
+  `connection.remoteAddr` on the wire as `observedAddr`, so the node hands every peer the entry
+  from its own connection list. The deployed node reported `/ip4/208.99.52.121/…`, matching a
+  public address obtained independently from the same edge's `/cdn-cgi/trace`. The local case
+  that stood for this could not fail — its justification named a 5/second limiter this tier
+  sets to 256 — and the plant that had left it green now reddens it alone. That local runtime is itself the session's
   most reusable finding — `wrangler dev` runs real workerd with no account, which
   reclassified Phase 30 from an owner act to executable work and retired two docblocks
   claiming the platform half was untestable.

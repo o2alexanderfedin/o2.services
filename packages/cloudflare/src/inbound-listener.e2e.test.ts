@@ -294,16 +294,76 @@ describe('criterion 3 — each connection carries the client’s address, not on
         nodes.map((node) => node.dial(address, { signal: AbortSignal.timeout(30_000) })),
       )
 
-      // Distinct connection ids and distinct local peers. If the listener were folding every
-      // client onto one remote address, libp2p's per-host inbound limiter would refuse from
-      // the sixth onward — which is the production defect, and it would look like this test
-      // simply not finishing.
+      // Distinct connection ids and distinct local peers.
+      //
+      // **CORRECTED 2026-08-31: the justification this carried was false, and it mattered.**
+      // It read *"if the listener were folding every client onto one remote address, libp2p's
+      // per-host inbound limiter would refuse from the sixth onward."* That is the LIBRARY
+      // default of 5/second/host — and this tier sets `HOSTED_INBOUND_THRESHOLD = 256`
+      // (NET-11, the whole point of criterion 1), so eight clients folded onto one address
+      // are admitted exactly as eight distinct ones are. **These two assertions therefore
+      // cannot go red on the failure the criterion names**, and they are kept only for what
+      // they do say: the clients are eight separate nodes and got eight separate connections.
+      // The reading that can go red is the case below, which asks the NODE what it saw.
       expect(new Set(connections.map((c) => c.id)).size).toBe(CONCURRENT_CLIENTS)
       expect(new Set(nodes.map((n) => n.peerId.toString())).size).toBe(CONCURRENT_CLIENTS)
     } finally {
       await Promise.all(nodes.map((node) => node.stop()))
     }
   }, 180_000)
+
+  /**
+   * **The node's OWN view of the client, read back without adding a route.**
+   *
+   * Criterion 3 asks for *"each accepted connection's remote address, read back from the
+   * node's own connection list"*. This tier serves no route that answers that, and adding one
+   * to close a criterion would make a test the reason a capability ships — the rule that every
+   * route is a surface. So the value is taken over a protocol the node ALREADY registers:
+   * `@libp2p/identify` puts `connection.remoteAddr.bytes` on the wire as `observedAddr`
+   * (`node_modules/@libp2p/identify/dist/src/identify.js:126`), gated on
+   * `IP_OR_DOMAIN.matches`, which was run against this tier's exact address form
+   * (`/ip4/x/tcp/443/tls/ws`) rather than read off a type — it matches.
+   *
+   * So `observedAddr` **is** the entry in the node's connection list, delivered by the node
+   * itself to the peer it is about. Nothing new is exposed: identify already told every peer
+   * this, on every connection, before this case existed.
+   *
+   * `127.0.0.1` as a literal because that is what **workerd stamps** as `CF-Connecting-IP`,
+   * measured with a bare probe worker echoing every header while curl sent none — recorded in
+   * this file's criterion 3 docblock above. Deriving it from the client instead would be an
+   * assertion reusing the value it tests.
+   */
+  it('reports each client the address the RUNTIME stamped, not one shared or edge value', async () => {
+    const node = await dialer()
+    try {
+      const identified = new Promise<{ observedAddr?: { toString: () => string } }>((resolve) => {
+        node.addEventListener('peer:identify', (evt) => {
+          resolve(evt.detail)
+        })
+      })
+      // The AUTOMATIC identify every real peer runs on connect. Calling `identify()` a second
+      // time by hand was tried against the deployed object and reset the stream — two
+      // identifies on one connection is not the production path and does not need to be.
+      await node.dial(multiaddr(workerAddress()), { signal: AbortSignal.timeout(30_000) })
+      const result = await Promise.race([
+        identified,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => {
+            reject(new Error('the node sent no identify inside 30 s'))
+          }, 30_000),
+        ),
+      ])
+
+      const observed = result.observedAddr?.toString()
+      expect(observed, 'the node sent no observedAddr, so it holds no address for this peer').toBeDefined()
+      // The IP the node holds for this connection. A listener that dropped `CF-Connecting-IP`
+      // would report the edge's address or a constant here, and this is where that goes red —
+      // watched, by planting a fixed address into `remoteAddrFromRequest`.
+      expect(observed).toContain('/ip4/127.0.0.1/tcp/443/tls/ws')
+    } finally {
+      await node.stop()
+    }
+  }, 120_000)
 })
 
 describe('NET-14 — the two counters report before the relay carries anything', () => {
