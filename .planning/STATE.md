@@ -3063,3 +3063,45 @@ or two isolated browser contexts on one machine, per the testing-standard ruling
 had already been closed in a stronger form than the restatement asks — an iPhone running
 Safari and a laptop running Chromium, on genuinely different machines, over direct WebRTC
 with the relay carrying SDP only. That stronger result stands in the record.
+
+DEPLOYED READINGS, 2026-08-31 — the owner chose to close 30/31/32 against the live node
+rather than plan phase 33, and four of the five open criteria moved.
+PHASE 30 CRITERION 1 — **MET**. 24 peers dialled `v2.0.0-rc.7` together, 24 of 24 admitted in
+987 ms. The anti-vacuity is arithmetic and not a plant: an 8-peer run took 1 705 ms and was
+DISCARDED, because the library default of five per second per host would have passed eight
+over that span too. Criterion 3's deployed half stays OPEN — it wants the remote address read
+off the node's own connection list and this tier serves no route that answers it. Adding one
+to close a criterion would invert the rule that every route is a surface.
+PHASE 32 CRITERION 1 — **MET**. Two real Chromium tabs reserved on the deployed relay and met
+over WebRTC, `{limited: false, webrtc: true}`, with the signalling circuit still open beside
+it. The criterion's own observable — *the relay's byte counter flat* — was CORRECTED by
+measurement and the correction is stronger: the circuit stays open and yamux keeps it alive,
+so an absolute flat would fail on a fabric doing the right thing. Idle 12 s window `+3 376`
+relay bytes; busy 12 s window with 38 compute rounds `+2 728`, less, while the pair moved
+`+20 710` of its own.
+PHASE 32 CRITERION 2 — **MET, and without touching production.** Run on a real local workerd
+with `ANNOUNCE_MULTIADDRS` emptied. The predicted empty reservation did not occur and what
+occurred is better: `Uncaught NoAnnouncedAddressError`, read from the runtime's own log, so
+the assembly refuses to build and there is no relay left to hand anything out. The silent
+failure is unconstructible rather than merely detectable.
+PHASE 31 CRITERION 2 — **HALF TAKEN, HALF PENDING ON A CLOCK.** A provider record is published
+on the deployed object at `2026-08-31T16:01:02.294Z`, CID
+`bafkreidss5xiinknhpb5p3kwdr2ft6jmka3pzon4f5x7ai3k2q5a2547oi`, and PRESENT AT T read back by
+a different freshly-minted peer. Both numbers come from `providerRecordPolicy()`: gone by
+`17:01:02Z`, swept by `17:16:02Z`. The second read is scheduled and until it lands the
+criterion and `HOST-13` stay open.
+AND I RECORDED A DEFECT THAT WAS NOT THERE, then withdrew it within the hour. The first
+attempt at the record above used DIAL-ONLY probe peers; `@libp2p/kad-dht`'s
+`add-provider.js` ignores a provider whose message carries no addresses and answers the RPC
+anyway, so the write was acknowledged and dropped. I read that as *the deployed object accepts
+ADD_PROVIDER and does not serve it back* and committed it. Three hypotheses were killed by
+measurement before the cause was found — the `DoDatastore` namespace refusal, the prefix
+query, and a cache in `providers.js` — and what settled it was reading the LOCAL workerd's
+Durable Object storage through `--persist-to` and finding no `/dht/provider/` key at all,
+which moved the question from the read path to the write path. **The readings were accurate
+and the conclusion was attribution by plausibility.**
+ONE MORE FINDING, BELONGING TO A LATER PHASE: the deployed relay answers no fabric
+rendezvous. `findReservedPeers` speaks the fabric's own RPC and `hosted-libp2p.ts` registers
+no handler, so two tabs on the deployed relay CANNOT DISCOVER EACH OTHER without being told.
+Criterion 1's run supplied the address from the harness, exactly as `two-tabs.e2e.test.ts`
+does for `NET-02`, and criterion 1 says nothing about discovery — but a public run would.
