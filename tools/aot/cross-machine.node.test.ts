@@ -40,9 +40,22 @@ import { ELFCONV_IMAGE_TAG, liftElf } from './lift.ts'
  *
  * There is no artifact on the second machine to compare, so nothing about reproducibility
  * was learned — and that is the finding. **What AOT-03 needs is a second host running the
- * SAME elfconv build**, i.e. a second `aarch64` Linux machine, which is a thing this
- * repository does not have and cannot synthesise. `CROSS_MACHINE_BLIND_SPOT` stays attached
- * to every artifact.
+ * SAME elfconv build**, i.e. a second `aarch64` Linux machine. ~~which is a thing this
+ * repository does not have and cannot synthesise~~ — **RETIRED 2026-08-30, and it was wrong
+ * rather than merely stale.** `o2alexanderfedin/o2.services` is a PUBLIC repository, read
+ * with `gh repo view --json visibility` answering `{"visibility":"PUBLIC"}`, and GitHub
+ * offers hosted **Linux arm64** runners. A second aarch64 Linux host is obtainable; what the
+ * retired clause described was effort, not a physical wall, and this project has a standing
+ * record of stating the second when it means the first.
+ *
+ * The arrangement now exists — `.github/workflows/aot-cross-host.yml`, dispatched by hand
+ * and by nothing else, with `tools/aot/cross-host-lift.mjs` producing one host's reading.
+ * **What is still unmeasured is whether `ubuntu-24.04-arm` is schedulable for this
+ * repository**, which is a claim read off documentation; the workflow's cheap `report-host`
+ * job is that experiment, and a job that never starts is the answer as much as one that
+ * finishes. `CROSS_MACHINE_BLIND_SPOT` stays attached to every artifact until two readings
+ * exist and have been compared — the dispatch is an owner act, because it is a push to a
+ * public repository.
  *
  * ## Why this is a spec rather than a note in a planning document
  *

@@ -1,0 +1,96 @@
+# AOT-03's second host — Phase 41 criterion 1, dispatched by hand and never by a push.
+#
+# ## What this exists to remove
+#
+# `CROSS_MACHINE_BLIND_SPOT` is attached to every artifact this project lifts, and its note
+# says two lifts on two hosts have never been compared. `tools/aot/cross-machine.node.test.ts`
+# recorded WHY: swapping elfconv's `:amd64` image swaps the translator rather than the
+# machine, because `backend/remill/lib/Arch/Arch.cpp` gates the AArch64 dispatch behind
+# `ELFCONV_AARCH64_BUILD` and no build defines both fronts. What AOT-03 needs is a second
+# host running the SAME elfconv build — a second aarch64 Linux machine.
+#
+# That spec then said such a machine is "a thing this repository does not have and cannot
+# synthesise". **That sentence is retired by this file, and it was wrong rather than merely
+# stale.** `o2alexanderfedin/o2.services` is a PUBLIC repository — read on 2026-08-30 with
+# `gh repo view --json visibility`, which answered `{"visibility":"PUBLIC"}` — and GitHub
+# offers hosted **Linux arm64** runners. A second aarch64 Linux host is therefore obtainable,
+# and the blocker was a description of effort rather than of a physical wall.
+#
+# ## What is NOT yet measured, and this file is where it gets measured
+#
+# Whether `ubuntu-24.04-arm` is actually schedulable for this repository, at what cost, is a
+# claim read off documentation and NOT experimentally confirmed. The first dispatch of this
+# workflow is that experiment: a job that never starts is the answer as much as one that
+# finishes. `report-host` runs first and cheaply for exactly that reason — it costs seconds
+# and settles the availability question before the six-minute lift is attempted.
+#
+# ## Why `workflow_dispatch` and nothing else
+#
+# The same rule `deploy.yml` states and `DEMO-04` guards: a job with a cost does not start by
+# itself. A lift is minutes of a container per run, and a trigger on push would run it on
+# every branch. Widening this trigger is a two-word diff, which is why the guard in
+# `tools/aot/cross-host-workflow.node.test.ts` reads the trigger set rather than trusting it.
+name: AOT cross-host determinism
+
+on:
+  workflow_dispatch:
+    inputs:
+      fixture:
+        description: 'Repo-relative path of the AArch64 static ELF to lift'
+        required: false
+        default: 'tools/aot/fixtures/elf/hello_static'
+
+permissions:
+  contents: read
+
+jobs:
+  # Criterion 2: the host is recorded by its OWN reported platform, read off that host and
+  # never off a driver. A same-host run relabelled as two is the failure that criterion
+  # exists to catch, and the only defence against it is that each side prints its own uname.
+  report-host:
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      machine: ${{ steps.uname.outputs.machine }}
+    steps:
+      - id: uname
+        run: |
+          echo "kernel: $(uname -a)"
+          echo "machine=$(uname -m)" >> "$GITHUB_OUTPUT"
+          echo "cpus: $(nproc)"
+
+  lift:
+    needs: report-host
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Refuse a host that is not aarch64
+        run: |
+          MACHINE='${{ needs.report-host.outputs.machine }}'
+          echo "runner reports: $MACHINE"
+          # Fail loudly rather than lift on the wrong front end. The `:amd64` image is an X86
+          # build and reaches `LOG(FATAL)` on an AArch64 fixture — measured 2026-08-17, exit
+          # 134 — so a silent fallback here would produce no artifact and no finding.
+          test "$MACHINE" = "aarch64"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+
+      - run: npm ci
+
+      # The same entry point the local half uses, so the two sides differ in host and in
+      # nothing else this repository controls.
+      - name: Lift and report the artifact's digest
+        run: node tools/aot/cross-host-lift.mjs '${{ inputs.fixture }}'
+
+      # Resolved 2026-08-30 with `gh api repos/actions/upload-artifact/git/ref/tags/v4`.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cross-host-lift
+          path: |
+            cross-host-lift.json
+            cross-host-lift.wasm
+          if-no-files-found: error
