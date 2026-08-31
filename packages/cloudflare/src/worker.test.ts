@@ -70,11 +70,32 @@ const ENV: HostedEnv = {
   BOOTSTRAP: undefined as unknown as HostedEnv['BOOTSTRAP'],
 }
 
+interface TrafficLegReading {
+  readonly connectionSeconds: number
+  readonly bytes: number
+}
+
 interface SelfReading {
   readonly peerId: string
   readonly nodeKey: string
   readonly instance: string
   readonly version: string
+  /** NET-14's split. Required here, so a route that stopped reporting it fails at the read. */
+  readonly traffic: { readonly direct: TrafficLegReading; readonly relayed: TrafficLegReading }
+}
+
+function readLeg(value: unknown, name: string): TrafficLegReading {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('connectionSeconds' in value) ||
+    !('bytes' in value) ||
+    typeof value.connectionSeconds !== 'number' ||
+    typeof value.bytes !== 'number'
+  ) {
+    throw new Error(`GET /self reported a ${name} leg that is not two numbers: ${JSON.stringify(value)}`)
+  }
+  return { connectionSeconds: value.connectionSeconds, bytes: value.bytes }
 }
 
 async function readSelf(object: BootstrapObject): Promise<SelfReading> {
@@ -87,11 +108,15 @@ async function readSelf(object: BootstrapObject): Promise<SelfReading> {
     !('peerId' in body) ||
     !('nodeKey' in body) ||
     !('instance' in body) ||
-    !('version' in body)
+    !('version' in body) ||
+    // **Five fields as of 2026-08-30, not four** — NET-14's split joined them. Read here
+    // rather than in one case, so a route that dropped it fails everywhere it is read
+    // instead of in the one place somebody remembered to look.
+    !('traffic' in body)
   ) {
-    throw new Error(`GET /self did not answer with the four declared fields: ${JSON.stringify(body)}`)
+    throw new Error(`GET /self did not answer with the five declared fields: ${JSON.stringify(body)}`)
   }
-  const { peerId, nodeKey, instance, version } = body
+  const { peerId, nodeKey, instance, version, traffic } = body
   if (
     typeof peerId !== 'string' ||
     typeof nodeKey !== 'string' ||
@@ -100,7 +125,16 @@ async function readSelf(object: BootstrapObject): Promise<SelfReading> {
   ) {
     throw new Error(`GET /self answered non-string fields: ${JSON.stringify(body)}`)
   }
-  return { peerId, nodeKey, instance, version }
+  if (typeof traffic !== 'object' || traffic === null || !('direct' in traffic) || !('relayed' in traffic)) {
+    throw new Error(`GET /self answered no two-column traffic split: ${JSON.stringify(body)}`)
+  }
+  return {
+    peerId,
+    nodeKey,
+    instance,
+    version,
+    traffic: { direct: readLeg(traffic.direct, 'direct'), relayed: readLeg(traffic.relayed, 'relayed') },
+  }
 }
 
 describe('criterion 2’s evidence — one PeerId across a construction boundary, and the boundary is visible', () => {
@@ -208,5 +242,51 @@ describe('`GET /self` names the build it is running', () => {
     expect(before.version).toBe('2.0.0-rc.1')
     expect(after.version).toBe('2.0.0')
     expect(after.peerId, 'a version bump must not mint a new identity').toBe(before.peerId)
+  })
+})
+
+describe('NET-14 — `GET /self` carries the split, and carries it before there is one', () => {
+  /**
+   * The unit half of criterion 3's ordering. The e2e file reads the same field off a real
+   * workerd after eight peers have dialled; what belongs here is the state that exists for
+   * most of a Durable Object's life and is the harder one to get right — **nothing has
+   * connected yet.**
+   *
+   * Two zeroed columns is what a counter that exists and has seen nothing looks like. A
+   * missing field is what a counter added later looks like. A reader must be able to tell
+   * them apart, which is why `readSelf` refuses a body without `traffic` rather than letting
+   * one case assert it.
+   */
+  it('answers two zeroed columns on an object that has never built a libp2p node', async () => {
+    // **`ENV` declares no announce list, and that is the evidence rather than a detail.**
+    // `createHostedFabric` REFUSES to assemble with nothing announced — `hosted-libp2p`'s own
+    // `NoAnnouncedAddressError`, read by `hosted-libp2p.node.test.ts`. So this reading is
+    // only obtainable because `/self` did NOT construct the network stack: a version holding
+    // the counter on the fabric and reaching it through `#fabricOnce()` would throw here
+    // rather than answer. That is the plant, and it is structural instead of hypothetical.
+    const object = new BootstrapObject(
+      newState(new FakeDurableObjectStorage(), new FakeDurableObjectAlarms()),
+      ENV,
+    )
+
+    expect((await readSelf(object)).traffic).toEqual({
+      direct: { connectionSeconds: 0, bytes: 0 },
+      relayed: { connectionSeconds: 0, bytes: 0 },
+    })
+  })
+
+  it('gives two separate objects two separate counters, so the split is per-instance', async () => {
+    // The granularity NET-14's row states: a Durable Object is reconstructed constantly and a
+    // hibernation-woken socket is closed 1012 and redialled, so the counter is a LIVE reading
+    // and not a lifetime total. Two objects over one storage share a PeerId and share no
+    // count — which is the same distinction `instance` draws for identity.
+    const storage = new FakeDurableObjectStorage()
+    const alarms = new FakeDurableObjectAlarms()
+    const first = await readSelf(new BootstrapObject(newState(storage, alarms), ENV))
+    const second = await readSelf(new BootstrapObject(newState(storage, alarms), ENV))
+
+    expect(second.peerId).toBe(first.peerId)
+    expect(second.instance).not.toBe(first.instance)
+    expect(second.traffic).toEqual(first.traffic)
   })
 })
