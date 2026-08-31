@@ -58,6 +58,9 @@
 
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
@@ -74,19 +77,45 @@ const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url))
 const PORT = 8793
 const HOST = '127.0.0.1'
 
+/**
+ * This file's OWN Durable Object storage, and it is load-bearing twice over.
+ *
+ * **MEASURED 2026-08-31: without it this file reddens `inbound-listener.e2e.test.ts`.**
+ * `wrangler dev` persists to `<cwd>/.wrangler/state` by default, and both files run
+ * `cwd: PACKAGE_DIR` — so they share one object's storage. That file's relay-service case
+ * asserts all zeros, correctly, because its eight clients carry no `circuitRelayTransport`.
+ * With shared state it read this file's history instead and failed:
+ * `expected { inboundHopStreams: 1, … } to deeply equal { inboundHopStreams: +0, … }`, with a
+ * `firstInboundHopStreamAt` this file wrote.
+ *
+ * The second reason is this file's own repeatability. It asserts that the store holds NO
+ * marker before it starts, and then writes one — so on shared, persisted state it would pass
+ * once and fail on every later run. A check that only works the first time is not a check.
+ *
+ * A fresh directory per run, wiped at the end. `--persist-to` is the documented flag:
+ * `wrangler dev --help` — *"Specify directory to use for local persistence (defaults to
+ * .wrangler/state)"* — read from the installed CLI rather than from documentation.
+ */
+const PERSIST_DIR = mkdtempSync(join(tmpdir(), 'o2-relay-journal-'))
+
 let worker: ChildProcess | undefined
 
 afterAll(() => {
   worker?.kill('SIGTERM')
+  rmSync(PERSIST_DIR, { recursive: true, force: true })
 })
 
 /** Start `wrangler dev` and wait until `/self` answers. */
 async function startWorker(): Promise<void> {
-  worker = spawn('npx', ['wrangler', 'dev', '--port', String(PORT), '--local-protocol', 'http'], {
-    cwd: PACKAGE_DIR,
-    env: { ...process.env, CLOUDFLARE_API_TOKEN: '', WRANGLER_SEND_METRICS: 'false' },
-    stdio: 'ignore',
-  })
+  worker = spawn(
+    'npx',
+    ['wrangler', 'dev', '--port', String(PORT), '--local-protocol', 'http', '--persist-to', PERSIST_DIR],
+    {
+      cwd: PACKAGE_DIR,
+      env: { ...process.env, CLOUDFLARE_API_TOKEN: '', WRANGLER_SEND_METRICS: 'false' },
+      stdio: 'ignore',
+    },
+  )
   const deadline = Date.now() + 120_000
   let lastError: unknown
   while (Date.now() < deadline) {
@@ -200,14 +229,14 @@ describe('a relay hop stream is recorded, and the record outlives the process th
     // **Step 1 — nothing recorded.** The whole ordering claim in miniature: the field is a
     // reading before there is anything to read, not a field added once there was.
     //
-    // NOTE this is only zero on a store that has never seen a hop stream. `.wrangler/state`
-    // persists across runs, so the assertion is written as "no marker" rather than skipped —
-    // if a previous run of this file left one, this line is what says so out loud instead of
-    // the case silently passing on stale state.
+    // The store is a fresh directory per run — see `PERSIST_DIR`, which exists because the
+    // default location is SHARED with `inbound-listener.e2e.test.ts` and this file reddened
+    // it. The assertion is kept anyway rather than dropped as guaranteed: it is what would
+    // say so out loud if the isolation ever stopped working.
     const before = await readSelf()
     expect(
       before.relayService.firstInboundHopStreamAt,
-      'this store already holds a hop-stream marker — delete packages/cloudflare/.wrangler/state to re-take this reading from nothing',
+      `${PERSIST_DIR} already holds a hop-stream marker — this run\'s storage was not isolated`,
     ).toBeUndefined()
     expect(before.relayService.inboundHopStreams).toBe(0)
 
