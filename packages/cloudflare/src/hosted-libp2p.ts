@@ -249,6 +249,49 @@ export function hostedAddresses(announce: readonly string[]): HostedAddresses {
  * every decision it makes is one of the three `…Init` values above, each of which has a
  * spec of its own. What is left is the wiring, and wiring is what a deploy checks.
  */
+/**
+ * The inbound limits, and why leaving them at their defaults is a defect on THIS tier.
+ *
+ * **NET-11, and it was measured rather than reasoned.** libp2p's `inboundConnectionThreshold`
+ * defaults to **5 connections per second per remote host**
+ * (`libp2p/dist/src/connection-manager/constants.defaults.js`), and the limiter keys on
+ * `config.host` derived from the connection's `remoteAddr`
+ * (`connection-manager/index.js`, `inboundConnectionRateLimiter.consume(config.host, 1)`).
+ *
+ * Eight libp2p peers dialling the locally-run object together were admitted **four** and
+ * refused four, each with `EncryptionFailedError: The operation was aborted due to timeout`
+ * — the shape a rate-limited handshake takes, because the refusal happens before Noise
+ * completes and the dialler sees a stall rather than a rejection.
+ *
+ * On an ordinary node that default is a sensible anti-abuse bound. **On this tier it is a
+ * ceiling on the entire fabric**, and the reason is the same one criterion 3 exists for:
+ * every connection's `remoteAddr` is derived from `CF-Connecting-IP`, so a *correct*
+ * derivation gives distinct hosts and a *broken* one gives every peer the same host — at
+ * which point five per second is the global admission rate. The defect is silent in both
+ * directions: nothing logs above `log()`, and the dialler's error names encryption.
+ *
+ * **The numbers are the platform's own, not invented here.** A Durable Object is a single
+ * isolate with no per-host abuse surface of its own — requests reach it through Cloudflare's
+ * edge, which does the rate limiting this bound duplicates — so the values are set high
+ * enough that the per-host bound stops being the fabric's admission rate, and left finite so
+ * a genuine flood still meets a wall.
+ */
+export function hostedConnectionManagerInit(): {
+  readonly inboundConnectionThreshold: number
+  readonly maxIncomingPendingConnections: number
+} {
+  return {
+    inboundConnectionThreshold: HOSTED_INBOUND_THRESHOLD,
+    maxIncomingPendingConnections: HOSTED_MAX_PENDING_INBOUND,
+  }
+}
+
+/** Per-host inbound connections per second. The library default of 5 is the defect NET-11 names. */
+export const HOSTED_INBOUND_THRESHOLD = 256
+
+/** Inbound handshakes in flight at once. The library default is 10. */
+export const HOSTED_MAX_PENDING_INBOUND = 128
+
 export async function createHostedLibp2p(init: HostedLibp2pInit): Promise<Libp2p> {
   const now = init.now ?? Date.now
   const addresses = hostedAddresses(init.announce)
@@ -257,6 +300,7 @@ export async function createHostedLibp2p(init: HostedLibp2pInit): Promise<Libp2p
     privateKey: init.identity.privateKey,
     datastore: init.datastore,
     addresses: { listen: [...addresses.listen], announce: [...addresses.announce] },
+    connectionManager: hostedConnectionManagerInit(),
     transports: [
       // Dial-only here, which is what a browser needs at the other end of it.
       webSockets(),
