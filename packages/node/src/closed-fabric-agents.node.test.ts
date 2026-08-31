@@ -89,7 +89,7 @@
  */
 import { spawn } from 'node:child_process'
 import type { ChildProcess, ChildProcessByStdio } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
@@ -253,6 +253,28 @@ async function stopChild(child: ChildProcess): Promise<void> {
  * in this file that can name what arrived is a round trip, so every one of these thunks is
  * async and the await is load-bearing rather than prospective.
  *
+ * **A PREDICATE THAT THROWS IS `false`, NOT A FAILURE — corrected 2026-08-31 against a
+ * measured red.** Every predicate here is a round trip over a live libp2p connection, and a
+ * connection that drops between two polls is exactly the *"not yet"* a 60 000 ms budget exists
+ * to absorb. Until today the loop abandoned that budget on the first one and the file failed a
+ * whole-lane run with `RpcFailure: … The connection muxer is "closed" and not "open"` — which
+ * {@link preconditionOrSkip} could not have caught, because it guards a budget that ran out and
+ * this budget never ran. **The error is carried to the timeout rather than swallowed**: a fault
+ * that never clears is still named, and named beside the wait it was waiting for.
+ *
+ * **AND THE PREDICATE IS RE-CHECKED ONCE AFTER THE DEADLINE**, on a second measured red the
+ * same day: `admission-agents.node.test.ts` reported *"timed out waiting for the enrolled agent
+ * to name its grant on stderr"* while its own diagnostics showed that line present. That
+ * predicate reads an accumulated buffer, so it is monotonic, and the file spawns one relay, so
+ * the line can name no other peer — the only arrangement producing both facts is a line that
+ * arrived between the last poll and the message. A loop that reports without re-checking
+ * reports a stale answer, and the repair costs one evaluation rather than a larger budget.
+ *
+ * `observed()` is guarded for the same reason one hop further out. A diagnostics thunk that
+ * throws would replace the one message a timeout has with a red herring about the instrument.
+ * Three of this file's four thunks already carried a `.catch` of their own; the fourth did not,
+ * and a rule kept in one place cannot be the one that is forgotten.
+ *
  * Defined locally rather than imported: importing a helper from another `.test.ts` re-registers
  * that file's whole suite.
  */
@@ -263,12 +285,40 @@ async function until(
   observed?: () => unknown | Promise<unknown>,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs
+  let lastError: unknown
+  const attempt = async (): Promise<boolean> => {
+    try {
+      if (await predicate()) return true
+      lastError = undefined
+      return false
+    } catch (cause) {
+      lastError = cause
+      return false
+    }
+  }
   while (Date.now() < deadline) {
-    if (await predicate()) return
+    if (await attempt()) return
     await new Promise((r) => setTimeout(r, 100))
   }
-  const tail = observed === undefined ? '' : `; observed ${JSON.stringify(await observed())}`
-  throw new Error(`timed out waiting for ${what}${tail}`)
+  // One last look, AFTER the deadline and immediately before the report. Without it the
+  // message is built from a LATER observation than the last evaluation, which is how a
+  // timeout comes to say `waiting for X; observed X present`.
+  if (await attempt()) return
+  const threw =
+    lastError === undefined
+      ? ''
+      : `; last attempt threw ${lastError instanceof Error ? lastError.message : String(lastError)}`
+  const tail = observed === undefined ? '' : `; observed ${JSON.stringify(await describe_(observed))}`
+  throw new Error(`timed out waiting for ${what}${threw}${tail}`)
+}
+
+/** Run a diagnostics thunk, answering its failure rather than throwing it. */
+async function describe_(observed: () => unknown | Promise<unknown>): Promise<unknown> {
+  try {
+    return await observed()
+  } catch (cause) {
+    return `the diagnostics thunk itself failed: ${cause instanceof Error ? cause.message : String(cause)}`
+  }
 }
 
 /**
@@ -896,6 +946,119 @@ function intruders(
   return found
 }
 
+/**
+ * {@link until}'s own contract, and it is here because the file has already been red for want
+ * of it.
+ *
+ * **MEASURED 2026-08-31 on a whole-lane run.** Criterion 8 failed with
+ * `RpcFailure: rpc send to <peer> failed: The connection muxer is "closed" and not "open"`,
+ * and the failure was NOT the starved-host case {@link preconditionOrSkip} exists for — that
+ * run printed `standUp 17838ms` against a gate of 15308 ms, so a budget that ran out would
+ * have SKIPPED. It did not skip, so the error escaped a path that has no guard: an `until`
+ * whose predicate is {@link advertisedBy}, which sends an RPC over a live libp2p connection.
+ *
+ * A connection that drops between two polls is exactly the *"not yet"* a 60 000 ms budget
+ * exists to absorb, and a loop that abandons its budget on the first one is not polling. The
+ * second case below is what stops the repair from becoming a swallow: a fault that never
+ * clears must still be named, and named WITH the wait it was waiting for.
+ */
+describe('`until` polls through a transient failure, because that is what a budget is for', () => {
+  it('retries a predicate that threw and succeeds on a later attempt', async () => {
+    let calls = 0
+    await until(
+      async () => {
+        calls += 1
+        if (calls === 1) throw new Error('The connection muxer is "closed" and not "open"')
+        return true
+      },
+      5_000,
+      'a predicate that throws once',
+    )
+    // 2 as a literal: the predicate is called once, throws, and is called again.
+    expect(calls).toBe(2)
+  })
+
+  it('names the wait AND the last error when the budget runs out', async () => {
+    // Both halves. Without the first this case is vacuous — the unfixed loop rethrows the
+    // raw error and would satisfy an assertion that only looked for it.
+    await expect(
+      until(
+        async () => {
+          throw new Error('muxer closed')
+        },
+        300,
+        'a predicate that always throws',
+      ),
+    ).rejects.toThrow(/timed out waiting for a predicate that always throws[\s\S]*muxer closed/)
+  })
+
+  it('re-checks once after the deadline, because the state can arrive during the last sleep', async () => {
+    // **MEASURED 2026-08-31 in `admission-agents.node.test.ts`**, which failed with
+    // `timed out waiting for the enrolled agent to name its grant on stderr` while its own
+    // diagnostics showed that very line present. The predicate reads an ACCUMULATED stderr
+    // buffer, so it is monotonic — once the line is there it stays — and that file spawns
+    // exactly one relay, so the line can name no other peer. The only arrangement that
+    // produces both facts is a line that arrived after the last poll and before the message
+    // was built. A loop that reports a timeout it never re-checked reports a stale answer.
+    const state = { ready: false }
+    let polls = 0
+    await until(
+      () => {
+        polls += 1
+        const answer = state.ready
+        // Arrives immediately after the poll that did not see it — the window itself.
+        state.ready = true
+        return answer
+      },
+      50,
+      'a condition that becomes true during the last sleep',
+    )
+    // 2 as a literal: one poll inside the loop, one re-check after the deadline.
+    expect(polls).toBe(2)
+  })
+
+  it('holds every sibling `until` that polls across a boundary to the same two rules', async () => {
+    // **Ten copies of this helper exist and they must not drift**, which is not a style
+    // preference: `peer-dial.node.test.ts` already carried the throw guard before today, and
+    // the nine that did not are how two whole-lane runs came back red for reasons that were
+    // not about the code. A structural check is the only thing that can hold copies together
+    // when the reason for keeping them separate — *"importing a helper from another
+    // `.test.ts` re-registers that file's whole suite"* — is itself sound.
+    //
+    // Scoped to helpers whose predicate may be async, because those are the ones that poll
+    // across a process or a network boundary. A synchronous predicate over local state cannot
+    // throw transiently and cannot gain its answer during a sleep.
+    const dir = fileURLToPath(new URL('.', import.meta.url))
+    const files = (await readdir(dir)).filter((name) => name.endsWith('.test.ts'))
+    const drifted: string[] = []
+    for (const name of files) {
+      const source = await readFile(join(dir, name), 'utf8')
+      const at = source.indexOf('async function until(')
+      if (at < 0) continue
+      const head = source.slice(at, at + 1_400)
+      if (!head.includes('Promise<boolean>')) continue
+      // The FUNCTION-BODY indent, not the loop's. **This mattered**: the first form of this
+      // check looked for the bare call, which also matches the `if (await attempt()) return`
+      // INSIDE the while loop — present in every copy — so it was green against a plant that
+      // deleted the re-check. A proof that cannot fail is not a proof; this one was watched
+      // red before it was kept.
+      if (!head.includes('\n  if (await attempt()) return')) drifted.push(name)
+    }
+    expect(
+      drifted.sort(),
+      'these files poll an async predicate and do not re-check it after the deadline, so a ' +
+        'condition arriving during the last sleep is reported as a timeout',
+    ).toStrictEqual([])
+  })
+
+  it('still reports a predicate that answers false without ever throwing', async () => {
+    // The ordinary timeout must not have acquired an error clause it cannot fill.
+    await expect(until(async () => false, 200, 'a predicate that is simply not true yet')).rejects.toThrow(
+      /timed out waiting for a predicate that is simply not true yet/,
+    )
+  })
+})
+
 describe('criterion 8 — over a fabric whose every relay-capable peer was told to close', () => {
   /**
    * **R1, R2 and R3, in one run, on one instrument, in that order.**
@@ -1147,7 +1310,22 @@ describe('criterion 8 — over a fabric whose every relay-capable peer was told 
     // R3's assertion, beside R2 so the pair reads as one statement: the same process, in the
     // same run, is refused at every closed door and admitted at the one nobody closed. Its
     // absence above is a **refusal**, not inaction.
-    expect(await advertisedBy(reader, openControl.peerId)).toContain(stranger.peerId)
+    //
+    // Read through {@link until} rather than directly, on the same 2026-08-31 correction: this
+    // is one more round trip over a live connection, and a muxer that drops on it would fail
+    // the run for a reason that is not R3. Nothing is weakened — the loop retries only a
+    // *throw*, and a control that has genuinely stopped advertising is read fine and named by
+    // the assertion below.
+    let controlHolds: readonly string[] = []
+    await until(
+      async () => {
+        controlHolds = await advertisedBy(reader, openControl.peerId)
+        return true
+      },
+      RESERVATION_BUDGET_MS,
+      'the open control to answer R3’s re-read at all',
+    )
+    expect(controlHolds).toContain(stranger.peerId)
 
     // And the stranger holds no circuit through any closed door, read from its own side rather
     // than from anybody's advertisement — the instrument-independent half.

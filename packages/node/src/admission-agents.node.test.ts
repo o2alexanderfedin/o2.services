@@ -334,13 +334,35 @@ async function until(
   what: string,
   observed?: () => unknown | Promise<unknown>,
 ): Promise<void> {
+  // Two measured reds on 2026-08-31, both false. (1) A predicate here is a round trip over a
+  // live connection or another process, and a drop between two polls is the *"not yet"* the
+  // budget exists to absorb — so a throw is `false`, carried to the report rather than
+  // swallowed. (2) The predicate is re-checked ONCE after the deadline, or the message is
+  // built from a later observation than the last evaluation and can read `waiting for X;
+  // observed X`. Full working: `closed-fabric-agents.node.test.ts`'s `until`.
   const deadline = Date.now() + timeoutMs
+  let lastError: unknown
+  const attempt = async (): Promise<boolean> => {
+    try {
+      if (await predicate()) return true
+      lastError = undefined
+      return false
+    } catch (cause) {
+      lastError = cause
+      return false
+    }
+  }
   while (Date.now() < deadline) {
-    if (await predicate()) return
+    if (await attempt()) return
     await new Promise((r) => setTimeout(r, 100))
   }
+  if (await attempt()) return
+  const threw =
+    lastError === undefined
+      ? ''
+      : `; last attempt threw ${lastError instanceof Error ? lastError.message : String(lastError)}`
   const tail = observed === undefined ? '' : `; observed ${JSON.stringify(await observed())}`
-  throw new Error(`timed out waiting for ${what}${tail}`)
+  throw new Error(`timed out waiting for ${what}${threw}${tail}`)
 }
 
 /**
@@ -605,7 +627,15 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
       () => member.stderr().includes(`relay reservation granted: ${relay.peerId}`),
       RESERVATION_BUDGET_MS,
       'the enrolled agent to name its grant on stderr',
-      () => ({ stderr: member.stderr(), snapshot: member.relays }),
+      // `awaited` beside `stderr`, added 2026-08-31: without it a red here is UNDIAGNOSABLE.
+      // A run failed with this message while the stderr it printed contained a grant line, and
+      // the two readings that separate "the wrong relay granted" from "the right one granted
+      // late" are the awaited id and the observed id — only one of which was in the message.
+      () => ({
+        awaited: `relay reservation granted: ${relay.peerId}`,
+        stderr: member.stderr(),
+        snapshot: member.relays,
+      }),
     )
     expect(member.stderr()).toContain(`agent.ts: relay reservation granted: ${relay.peerId}`)
 
