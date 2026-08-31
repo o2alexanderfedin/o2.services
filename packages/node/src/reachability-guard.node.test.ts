@@ -657,6 +657,13 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // purpose — HOST-04's whole subject is that the record must carry no execution BEFORE
       // anything can publish one. A guard written after the publisher is a guard written after
       // the window it exists for.
+      //
+      // 2026-08-30 (Phase 32, NET-14): 104 -> 107. Three rows, all
+      // `packages/libp2p/src/traffic-split.ts`, and they are back on this section's standing
+      // condition rather than the exception above: the counters ARE wired — into
+      // `createHostedLibp2p`'s `metrics` and onto `BootstrapObject`'s `/self` — and their
+      // callers are `fetch` and `#upgrade`, which the Workers runtime invokes and no line in
+      // this tree does. Raised by exactly the three that arrived.
     ).toBeLessThanOrEqual(UNREACHABLE_CEILING)
   }, GRAPH_TIMEOUT_MS)
 
@@ -1424,7 +1431,7 @@ interface OpenFinding {
  * symbols; this number exists so a seventh arrival cannot slip in under a bound that was
  * sized for six.
  */
-const UNREACHABLE_CEILING = 104
+const UNREACHABLE_CEILING = 107
 
 const OPEN_FINDINGS: readonly OpenFinding[] = [
   {
@@ -1483,6 +1490,30 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       'its reads through a caller-chosen generic, which is an assertion wearing a type ' +
       'parameter — so the value is PROVED to be bytes at runtime instead of being declared to ' +
       'be. Same thrower and same closing condition as the two rows above.',
+  },
+  {
+    key: 'libp2p/TrafficSplitCounter',
+    declaredIn: 'packages/libp2p/src/traffic-split.ts',
+    callers: 'unreachable-only',
+    reason: 'NET-14, Phase 32 — the peer-to-peer / relayed split. Wired: `createHostedLibp2p` passes `metrics: () => trafficSplitMetrics(init.traffic)`, and `BootstrapObject` holds the counter and reports it as a field on `GET /self`. Unreachable for this tier’s standing reason and not a new one: the callers are `fetch` and `#upgrade`, which the Workers runtime invokes and no call expression in this repository does. Read behaviourally by `packages/libp2p/src/traffic-split.e2e.test.ts` against a real circuit relay and by `packages/cloudflare/src/inbound-listener.e2e.test.ts` against a real workerd; planted by making `trackMultiaddrConnection` a no-op, watched red, restored `cmp`-clean.',
+  },
+  {
+    key: 'libp2p/trafficSplitMetrics',
+    declaredIn: 'packages/libp2p/src/traffic-split.ts',
+    callers: 'unreachable-only',
+    reason: 'NET-14, Phase 32 — the peer-to-peer / relayed split. Wired: `createHostedLibp2p` passes `metrics: () => trafficSplitMetrics(init.traffic)`, and `BootstrapObject` holds the counter and reports it as a field on `GET /self`. Unreachable for this tier’s standing reason and not a new one: the callers are `fetch` and `#upgrade`, which the Workers runtime invokes and no call expression in this repository does. Read behaviourally by `packages/libp2p/src/traffic-split.e2e.test.ts` against a real circuit relay and by `packages/cloudflare/src/inbound-listener.e2e.test.ts` against a real workerd; planted by making `trackMultiaddrConnection` a no-op, watched red, restored `cmp`-clean.',
+  },
+  {
+    key: 'libp2p/classifyConnection',
+    declaredIn: 'packages/libp2p/src/traffic-split.ts',
+    callers: 'unreachable-only',
+    reason:
+      'NET-14, Phase 32 — the rule that decides which column a connection lands in. It is '
+      + 'called by `TrafficSplitCounter.track`, whose own callers are the platform, so it '
+      + 'inherits that row\'s reason. Exported separately because the classification is the '
+      + 'part with a trap in it and a spec should be able to read it without a network '
+      + 'stack: `traffic-split.test.ts` feeds it the `<relay>/p2p-circuit/webrtc/p2p/<self>` '
+      + 'form directly.',
   },
   {
     key: 'cloudflare/hostedCapabilities',

@@ -67,6 +67,7 @@ import {
   acceptInboundSocket,
   isInboundUpgradeTarget,
 } from './hibernatable-socket.ts'
+import { TrafficSplitCounter } from '@o2/libp2p'
 import { announcedAddresses, createHostedFabric, hostedExpirySweep } from './hosted-libp2p.ts'
 import type { HibernationCapableState } from './hibernatable-socket.ts'
 import type { HostedFabric } from './hosted-libp2p.ts'
@@ -223,6 +224,17 @@ export class BootstrapObject {
    * rests on, which is why `hosted-identity.test.ts` tests the same boundary one level down.
    */
   readonly #instance = crypto.randomUUID()
+  /**
+   * NET-14's two counters, held by the OBJECT rather than by the fabric.
+   *
+   * The fabric is built lazily on the first inbound upgrade, and `GET /self` deliberately
+   * does not build one — so a counter reachable only through the fabric would make reporting
+   * the split either impossible before the first connection or expensive on every read.
+   * Holding it here means the split is readable **from before the relay carries anything**,
+   * which is criterion 3's ordering claim, and reads as two zeroed columns rather than as a
+   * missing field.
+   */
+  readonly #traffic = new TrafficSplitCounter()
   #fabric: Promise<HostedFabric> | undefined
 
   constructor(state: HostedObjectStateWithSockets, env: HostedEnv) {
@@ -244,6 +256,7 @@ export class BootstrapObject {
       storage: this.#state.storage,
       alarms: this.#state.storage,
       announce: announcedAddresses(this.#env.ANNOUNCE_MULTIADDRS),
+      traffic: this.#traffic,
     })
     return this.#fabric
   }
@@ -329,6 +342,14 @@ export class BootstrapObject {
       nodeKey: identity.nodeKey,
       instance: this.#instance,
       version: this.#env.O2_VERSION ?? UNVERSIONED,
+      // NET-14 — the peer-to-peer / relayed split, reported as a FIELD on the one route this
+      // object serves and not as a second one, for the reason `instance` is a field: every
+      // route is a surface, and this tier's surfaces are not. `version` is the precedent.
+      //
+      // **Reporting starts before the relay carries anything**, which is the ordering
+      // criterion 3 is about rather than a dashboard added later. Two zeroed columns is a
+      // reading; a missing field is not.
+      traffic: this.#traffic.report(),
     })
   }
 

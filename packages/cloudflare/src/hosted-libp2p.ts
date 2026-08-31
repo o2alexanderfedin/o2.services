@@ -71,6 +71,7 @@ import {
   o2RecordValidator,
   providerRecordPolicy,
 } from '@o2/libp2p'
+import { TrafficSplitCounter, trafficSplitMetrics } from '@o2/libp2p'
 import type { ProviderRecordPolicy } from '@o2/libp2p'
 import type { NodeIdentity } from '@o2/libp2p'
 import type { PeerInfoMapper, Selectors, Validators } from '@libp2p/kad-dht'
@@ -153,6 +154,17 @@ export interface HostedLibp2pInit {
   readonly providerRecordValidityMs?: number
   /** Reservation slots this relay grants. Defaults to {@link O2_MAX_RESERVATIONS}. */
   readonly maxReservations?: number
+  /**
+   * NET-14's two counters — the peer-to-peer / relayed split.
+   *
+   * **Required, with no default, and the requirement is an ordering rather than a
+   * preference.** The split has to be reporting *before* this relay accepts its first
+   * browser reservation, because a hosted tier becoming load-bearing while every document
+   * still says peer-to-peer is the median outcome for hosted-relay systems and is invisible
+   * from inside. A defaulted counter would let an assembly be written that runs the relay
+   * and counts nothing, which is exactly the arrangement the ordering exists to forbid.
+   */
+  readonly traffic: TrafficSplitCounter
 }
 
 /**
@@ -299,6 +311,9 @@ export async function createHostedLibp2p(init: HostedLibp2pInit): Promise<Libp2p
   return createLibp2p({
     privateKey: init.identity.privateKey,
     datastore: init.datastore,
+    // NET-14. `libp2p/dist/src/upgrader.js:140` calls `trackMultiaddrConnection` on every
+    // upgrade in both directions, which is the one seam every transport passes through.
+    metrics: () => trafficSplitMetrics(init.traffic),
     addresses: { listen: [...addresses.listen], announce: [...addresses.announce] },
     connectionManager: hostedConnectionManagerInit(),
     transports: [
@@ -356,6 +371,8 @@ export interface HostedFabricInit {
   readonly now?: () => number
   readonly providerRecordValidityMs?: number
   readonly maxReservations?: number
+  /** NET-14's counters. Defaults to a fresh one, because an assembly always has exactly one. */
+  readonly traffic?: TrafficSplitCounter
 }
 
 /**
@@ -385,6 +402,8 @@ export interface HostedFabric {
   readonly libp2p: Libp2p
   readonly sweep: ExpirySweep
   readonly identity: NodeIdentity
+  /** NET-14's two counters, reading the connections this node actually holds. */
+  readonly traffic: TrafficSplitCounter
   /**
    * **The very store handed to libp2p** — not one equal to it.
    *
@@ -412,9 +431,11 @@ export async function createHostedFabric(init: HostedFabricInit): Promise<Hosted
   // Bound to a name so that the one handed to libp2p and the one reported back are the same
   // object; two constructions would let the report be true of a store nothing writes through.
   const datastore = new DoDatastore(init.storage, sweep)
+  const traffic = init.traffic ?? new TrafficSplitCounter()
   const libp2p = await createHostedLibp2p({
     identity,
     datastore,
+    traffic,
     announce: init.announce ?? [],
     ...(init.now === undefined ? {} : { now: init.now }),
     ...(init.providerRecordValidityMs === undefined
@@ -422,7 +443,7 @@ export async function createHostedFabric(init: HostedFabricInit): Promise<Hosted
       : { providerRecordValidityMs: init.providerRecordValidityMs }),
     ...(init.maxReservations === undefined ? {} : { maxReservations: init.maxReservations }),
   })
-  return { libp2p, sweep, identity, datastore }
+  return { libp2p, sweep, identity, datastore, traffic }
 }
 
 /**

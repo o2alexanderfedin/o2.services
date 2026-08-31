@@ -54,6 +54,23 @@ stopped_at: >-
   begins `Done`. NET-03 KEPT ITS VERDICT and gained a dated amendment instead: it still
   does not close, and what aged out were two supporting sentences — *nothing is deployed*
   and *the INBOUND half is not built* — neither of which moved the verdict.
+  PHASES 30 AND 31 ARE EXECUTED AND MERGED, 2026-08-30, and both closed a defect rather
+  than only shipping a feature. Phase 30 found that `createHostedLibp2p` passed no
+  `connectionManager` at all, so libp2p's default `inboundConnectionThreshold` of
+  5/second/host stood as the whole fabric's admission rate: eight peers dialling together
+  were admitted four and refused four, and the refusal names the wrong subsystem
+  (`EncryptionFailedError`). Phase 31 found that BOTH plants criterion 1 names stay GREEN
+  against a write-then-read through the object — `peerInfoMapper` because directly-connected
+  peers consult no routing table, and `selectors` because `bestRecord` is called only from
+  the QUERYING node's own `getValue` — and both criteria are amended against the
+  measurement rather than descoped. NET-11, HOST-15, HOST-03, HOST-04, HOST-09 and HOST-14
+  are `Done`; HOST-13 is `Partial` and in the re-read register. NEITHER PHASE'S CHECKBOX IS
+  TICKED and the reason is one word in each: Phase 30 criterion 1 says the *deployed* node
+  and Phase 31 criterion 2 says *observed on the deployed object*, while every reading in
+  both was taken on a locally-run `workerd`. That local runtime is itself the session's
+  most reusable finding — `wrangler dev` runs real workerd with no account, which
+  reclassified Phase 30 from an owner act to executable work and retired two docblocks
+  claiming the platform half was untestable.
   build (Phase 39 criterion 4). STILL OPEN AND MINE: the load-sensitive
   multi-process specs — late-combine's two recorded defects are fixed AND IT STILL
   FAILED ONCE on 2026-08-28, one of six cold combines hitting the 1500 ms budget
