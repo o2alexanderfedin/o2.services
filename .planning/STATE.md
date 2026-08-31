@@ -98,6 +98,26 @@ stopped_at: >-
   Whether a browser reserved in that window is unreadable from here — the counters are
   per-instance and hold no history — so the ORDERING IS UNVERIFIED AND MAY BE PERMANENTLY
   FALSE, the same shape as `HOST-10`. The reporting itself stands; the ordering does not.
+  AND THE NODE NOW WRITES LOGS, WHICH IS WHAT THE OWNER ASKED FOR AFTER READING THAT.
+  *"Думаю, что надо писать логи, и верифицировать это в тестах."* `RelayServiceLog`
+  (`packages/libp2p/src/relay-service-log.ts`) gives the previously-inert
+  `trackProtocolStream` a body: it recognises the circuit hop and stop codecs and keeps four
+  counters kept apart by `stream.direction`, because a relay someone used and a relay this
+  node used are the same protocol string. `relay-service-journal.ts` banks the record into
+  Durable Object storage — one key holding six numbers, not an append-only log — and refuses
+  any write that would shorten it, so a fresh instance banking zeros is an error rather than
+  a discipline. `/self` reports it as `relayService`, a THIRD reading beside the split's two
+  columns and never folded into them.
+  VERIFIED THE WAY THE FAILURE HAPPENED: `relay-service-journal.e2e.test.ts` reserves against
+  a real workerd, KILLS AND RESTARTS wrangler, and reads the record back from a different
+  process while `traffic` reads zero in the same answer. Seven plants; five red. The two that
+  stayed green are recorded beside the cases that carry their claims — the journal's headline
+  refusal case stayed green under a planted-away counter guard because the marker check
+  refused first, and an isolating assertion is now beside it.
+  THIS DOES NOT MOVE CRITERION 3. Nothing reconstructs history it did not observe, so the
+  `rc.4`→`rc.5` window stays dark and the ordering stays unverified. What changed is that the
+  NEXT such question has an answer. Limits 2 and 3 of `NET-14`'s stated granularity are
+  retired with dated amendments in the ledger and in `32-01-SUMMARY.md`; limit 1 is not.
   PHASE 41 CLOSED NO CRITERION AND FOUND ITS BLOCKER FALSE, 2026-08-30.
   `tools/aot/cross-machine.node.test.ts` said `AOT-03` needs a second `aarch64` Linux machine,
   *"which is a thing this repository does not have and cannot synthesise"*. `gh repo view

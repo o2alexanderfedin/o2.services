@@ -345,9 +345,16 @@ describe('NET-14 — the two counters report before the relay carries anything',
     // or that ignored `direction`, would be non-zero here: identify and the muxer's own
     // streams ran on all eight connections.
     //
-    // What this file cannot show is the field moving, because `wrangler dev` is not running a
-    // relay these clients could reserve on. That half is
-    // `packages/libp2p/src/relay-service-log.e2e.test.ts`, against a real `circuitRelayServer`.
+    // **Why nothing moved it, stated correctly.** An earlier draft of this comment said
+    // `wrangler dev` *"is not running a relay these clients could reserve on"*. That is FALSE
+    // and was caught before it shipped: `hosted-libp2p.ts:348` puts `circuitRelayServer` in
+    // the hosted assembly, so this workerd IS a relay. What none of these eight clients has
+    // is `circuitRelayTransport` — `dialer()` above lists `webSockets()` and nothing else —
+    // so no reservation is ever attempted. The zero is a fact about the CLIENTS.
+    //
+    // A client that does carry it, dialling this same worker, is
+    // `relay-service-journal.e2e.test.ts`, which also kills and restarts wrangler to read the
+    // record back across a process death.
     const after = readSelfReport(
       await (await fetch(`http://${HOST}:${PORT}/self`, { signal: AbortSignal.timeout(5000) })).json(),
     )

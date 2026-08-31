@@ -252,6 +252,27 @@ export class BootstrapObject {
    */
   readonly #relayLog = new RelayServiceLog()
   #relayRestored: Promise<RelayServiceLog> | undefined
+  /**
+   * Whether storage already holds a `firstInboundHopStreamAt`.
+   *
+   * **This exists because banking only on close has a hole at exactly the boundary the
+   * journal was built to survive.** The hibernation API's whole purpose is that the platform
+   * evicts this object *while its sockets stay open* — that path never reaches
+   * {@link webSocketClose}. So a browser could reserve, set the marker in memory, and have the
+   * instance evicted with nothing written; the next frame arrives on a fresh object whose log
+   * is empty, and the one datum the log exists for is gone. Worse, a reservation that is never
+   * closed would never bank at all.
+   *
+   * A frame is therefore a banking opportunity — {@link webSocketMessage} is an async handler
+   * the platform awaits — but writing on every frame would put a storage write on the hot
+   * path. This flag makes it **one write, ever**: a boolean test per frame, and the write only
+   * while the in-memory marker is one storage does not have.
+   *
+   * It says nothing about the four counters or the byte total, which still bank on close only.
+   * Those are cumulative and a lost instance costs a partial count; the marker is a fact about
+   * the past and losing it loses the answer.
+   */
+  #markerBanked = false
   #fabric: Promise<HostedFabric> | undefined
 
   constructor(state: HostedObjectStateWithSockets, env: HostedEnv) {
@@ -296,6 +317,8 @@ export class BootstrapObject {
   #relayLogOnce(): Promise<RelayServiceLog> {
     this.#relayRestored ??= readRelayServiceJournal(this.#node.store).then((banked) => {
       this.#relayLog.restore(banked)
+      // Storage already has one, so the frame path has nothing to write.
+      if (banked.firstInboundHopStreamAt !== undefined) this.#markerBanked = true
       return this.#relayLog
     })
     return this.#relayRestored
@@ -312,7 +335,20 @@ export class BootstrapObject {
    */
   async #bankRelayLog(): Promise<void> {
     if (!this.#relayLog.restored) return
-    await writeRelayServiceJournal(this.#node.store, this.#relayLog.report())
+    const written = await writeRelayServiceJournal(this.#node.store, this.#relayLog.report())
+    if (written.firstInboundHopStreamAt !== undefined) this.#markerBanked = true
+  }
+
+  /**
+   * True while this instance knows something storage does not, and it is the marker.
+   *
+   * See {@link #markerBanked} for why a frame is where this is asked. Read off `report()`
+   * rather than kept as a second flag beside the log: two places recording the same fact are
+   * two places that can disagree, and the log is the one that observes it.
+   */
+  #markerIsOnlyInMemory(): boolean {
+    if (this.#markerBanked || !this.#relayLog.restored) return false
+    return this.#relayLog.report().firstInboundHopStreamAt !== undefined
   }
 
   /**
@@ -324,6 +360,11 @@ export class BootstrapObject {
    */
   async webSocketMessage(socket: CloudflareWebSocket, message: ArrayBuffer | string): Promise<void> {
     this.#sockets.message(socket, message)
+    // The first frame after someone starts using this node as a relay is where the marker
+    // becomes durable. One boolean per frame; one write for the life of the object. Without
+    // it a reservation on a socket that is hibernated rather than closed is observed and then
+    // lost — see `#markerBanked`.
+    if (this.#markerIsOnlyInMemory()) await this.#bankRelayLog()
   }
 
   /**
