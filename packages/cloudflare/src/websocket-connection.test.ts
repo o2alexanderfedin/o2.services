@@ -140,6 +140,28 @@ describe('requirement 3 — the answer taken for absent backpressure, stated as 
     expect([...new Uint8Array(socket.sent[0] as ArrayBuffer)]).toEqual([1, 2, 3, 4, 5])
   })
 
+  it('does not derive the answer from a socket that HAS bufferedAmount', () => {
+    /**
+     * **HOST-15, criterion 4's anti-vacuity case, and without it the two readings above are
+     * satisfied by a pass-through.**
+     *
+     * The criterion asks for a *stated* answer where the field is absent, and for a test that
+     * *fails when the field is passed through raw*. Every other case here runs against a fake
+     * socket with no `bufferedAmount` at all — so an implementation that simply forwarded
+     * `this.#socket.bufferedAmount === 0` would answer `undefined === 0`, i.e. `false`… and
+     * would never be caught, because no case supplies a socket that has the field.
+     *
+     * This one does, and reports a full buffer. `true` is still the required answer: the
+     * decision is this adapter's stated policy — **no backpressure on this connection** —
+     * and not a reading of the socket. Plant that reddens it:
+     * `canSendMore: this.#socket.bufferedAmount === 0`.
+     */
+    const socket = new FakeCloudflareWebSocket()
+    Object.assign(socket, { bufferedAmount: 1_000_000 })
+    const { connection } = connect(socket)
+    expect(connection.send(new Uint8Array([7]))).toBe(true)
+  })
+
   it('hands the socket a COPY, not the caller’s view', () => {
     // `send` is asynchronous from this frame's point of view, so a view handed straight through
     // would carry whatever the caller wrote into it next. Mutating after the call is what makes
