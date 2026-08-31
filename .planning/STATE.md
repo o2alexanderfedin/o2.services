@@ -71,6 +71,30 @@ stopped_at: >-
   most reusable finding — `wrangler dev` runs real workerd with no account, which
   reclassified Phase 30 from an owner act to executable work and retired two docblocks
   claiming the platform half was untestable.
+  PHASE 32 IS HALF-DONE ON PURPOSE, 2026-08-30. `NET-14` is `Done`: connection-seconds and
+  bytes, peer-to-peer against relayed, fed from `trackMultiaddrConnection` and reported as a
+  FIELD on `/self`, held by the Durable Object rather than by the lazily-built fabric so the
+  split reads BEFORE the relay carries anything — which is criterion 3's ordering and not a
+  dashboard. Measured on a real workerd: two zeroed columns before any peer dialled, a moved
+  `direct` column with `relayed` still exactly zero after eight did. Criteria 1 and 2 —
+  `HOST-02`, two browsers meeting through the DEPLOYED relay and the `addresses.announce`
+  plant — were NOT attempted, and `HOST-02` stays `Not started` rather than being
+  half-closed. ONE PLANT STAYED GREEN and is recorded: swapping the classifier's WebRTC-first
+  order changed nothing, because `@multiformats/multiaddr-matcher@3.0.2` already answers
+  `Circuit.matches` false for the browser WebRTC form; the property is re-pinned on the
+  library's own answer instead.
+  PHASE 41 CLOSED NO CRITERION AND FOUND ITS BLOCKER FALSE, 2026-08-30.
+  `tools/aot/cross-machine.node.test.ts` said `AOT-03` needs a second `aarch64` Linux machine,
+  *"which is a thing this repository does not have and cannot synthesise"*. `gh repo view
+  --json visibility` answers `PUBLIC`, and GitHub offers hosted Linux arm64 runners — so the
+  second host is obtainable and the sentence described effort rather than a physical wall,
+  which is the pattern this project has a standing record of. The arrangement is built and
+  guarded (`.github/workflows/aot-cross-host.yml`, dispatch-only, every job on an `-arm`
+  runner, a refusal to lift where `uname -m` is not `aarch64`). NOTHING IS MEASURED YET: no
+  second reading exists, nothing has been compared, `CROSS_MACHINE_BLIND_SPOT` stays on every
+  artifact, and whether `ubuntu-24.04-arm` is schedulable here is read off documentation
+  rather than run. THE DISPATCH IS OWNER-OWNED, because it is a push to a public repository
+  and publication is a separately-triggered gate here.
   build (Phase 39 criterion 4). STILL OPEN AND MINE: the load-sensitive
   multi-process specs — late-combine's two recorded defects are fixed AND IT STILL
   FAILED ONCE on 2026-08-28, one of six cold combines hitting the 1500 ms budget
@@ -81,7 +105,7 @@ stopped_at: >-
   REQUIREMENTS.md rows stale in the pessimistic direction (HOST-05, HOST-08,
   HOST-11, HOST-12) plus two false clauses in NET-03's; and no concurrency limit
   by core count anywhere in the tree, which is the next thing the owner named.
-last_updated: "2026-08-30T21:55:00.000Z"
+last_updated: "2026-08-31T04:10:00.000Z"
 last_activity: 2026-08-28 — the hosted tier deployed and released four times, the browser client published and fixed, criterion 2 met in full, Phase 29 closed uncounted on criterion 1 alone
 progress:
   total_phases: 13
