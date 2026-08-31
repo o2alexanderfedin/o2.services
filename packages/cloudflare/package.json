@@ -15,7 +15,7 @@
     "@libp2p/kad-dht": "16.4.0",
     "@libp2p/keychain": "6.1.6",
     "@libp2p/ping": "3.1.9",
-    "@libp2p/utils": "7.3.0",
+    "@libp2p/utils": "7.4.0",
     "@libp2p/websockets": "10.1.17",
     "@multiformats/multiaddr": "13.0.3",
     "@o2/libp2p": "*",
