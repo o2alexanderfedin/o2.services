@@ -10,6 +10,7 @@ import {
   submitJob,
 } from '@o2/core'
 import type { Blockstore, CanonicalValue, Task } from '@o2/core'
+import { MAX_CONCURRENT_STREAMS_PER_PEER } from '@o2/libp2p'
 import { RemoteExecutor, encodeRequest, parseResponse, pausedRefusal } from '@o2/net'
 import type { AgentResponse } from '@o2/net'
 import type { CID } from 'multiformats/cid'
@@ -111,6 +112,47 @@ interface NoReply {
 }
 
 /** Dispatch over the real wire and read the raw reply, not `RemoteExecutor`'s flattening. */
+/**
+ * Run `jobs` with at most `limit` in flight, refilling as each settles.
+ *
+ * **A repair, not a relaxation — measured 2026-08-31.** A `Promise.all` over all 32 requests
+ * per requestor starts every one's `rpcTimeoutMs` clock at once, while `Libp2pTransport` admits
+ * `MAX_CONCURRENT_STREAMS_PER_PEER` streams to a peer — so the tail spends its budget QUEUEING
+ * and the budget becomes a reading of the machine, which `CLAUDE.md` § Measurement says a wall
+ * clock over a waiting process always is. On a whole-lane run eight of the sixty-four came back
+ * `rpc to <peer> timed out after 20000ms`. Comparative reading on a quiet host, one variable,
+ * the budget swept until each form breaks:
+ *
+ * | dispatch | passes at | fails at |
+ * |---|---:|---:|
+ * | `Promise.all` over all 32 per requestor | 3 000 ms | 2 500 ms |
+ * | bounded at `MAX_CONCURRENT_STREAMS_PER_PEER` | 1 000 ms | 700 ms |
+ *
+ * **A threefold gain in headroom, and the floor that remains is the exchange itself** — an
+ * `exec` request runs real WASM — rather than the queue in front of it. The shipped 20 000 ms
+ * therefore stops being marginal under contention without being raised.
+ *
+ * **The pressure the node under test feels is unchanged**, which is the whole reason this is
+ * safe here: the limit is the transport's own cap, refilled continuously, so exactly as many
+ * requests are in flight per connection as before — 8 each from two requestors against a node
+ * holding 2 slots. The refusals, the peak and the `2 of 2 slots in use` reading are all taken
+ * against the same arrival rate. What changes is only when a request's own clock starts.
+ */
+async function inFlight<T>(limit: number, jobs: readonly (() => Promise<T>)[]): Promise<T[]> {
+  const results = new Array<T>(jobs.length)
+  let next = 0
+  await Promise.all(
+    Array.from({ length: Math.min(limit, jobs.length) }, async () => {
+      for (let i = next++; i < jobs.length; i = next++) {
+        const job = jobs[i]
+        if (job === undefined) return
+        results[i] = await job()
+      }
+    }),
+  )
+  return results
+}
+
 async function dispatch(from: FabricNode, to: string, task: Task): Promise<AgentResponse | NoReply | null> {
   try {
     return parseResponse(await from.rpc.request(to, encodeRequest({ kind: 'exec', task })))
@@ -195,14 +237,25 @@ describe('SCHED-06 criterion 1 — 64 concurrent exec requests from two real pee
       label: 'public',
     })
 
-    const replies = await Promise.all([
-      ...Array.from({ length: PER_REQUESTOR }, (_, i) =>
-        dispatch(alpha, nodeUnderTest.peerId, taskFor(alphaInput, i)),
+    // One bounded pool per REQUESTOR, because the transport's cap is per peer connection and
+    // the two requestors hold different ones. See {@link inFlight}.
+    const [alphaReplies, betaReplies] = await Promise.all([
+      inFlight(
+        MAX_CONCURRENT_STREAMS_PER_PEER,
+        Array.from(
+          { length: PER_REQUESTOR },
+          (_, i) => () => dispatch(alpha, nodeUnderTest.peerId, taskFor(alphaInput, i)),
+        ),
       ),
-      ...Array.from({ length: PER_REQUESTOR }, (_, i) =>
-        dispatch(beta, nodeUnderTest.peerId, taskFor(betaInput, i)),
+      inFlight(
+        MAX_CONCURRENT_STREAMS_PER_PEER,
+        Array.from(
+          { length: PER_REQUESTOR },
+          (_, i) => () => dispatch(beta, nodeUnderTest.peerId, taskFor(betaInput, i)),
+        ),
       ),
     ])
+    const replies = [...alphaReplies, ...betaReplies]
 
     // The instrument is live before anything is claimed about what it did not see:
     // every dispatch came back, and work really did reach the executor.
