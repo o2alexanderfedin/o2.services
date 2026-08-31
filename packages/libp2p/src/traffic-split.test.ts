@@ -169,6 +169,34 @@ describe('NET-14 — the two counters', () => {
     expect(counter.report().direct.connectionSeconds).toBe(2)
   })
 
+  it('counts a REDIAL as its own connection, which is what hibernation produces', () => {
+    // The hosted tier's shape, as a rule rather than as a note. A hibernation-woken socket is
+    // closed with `CLOSED_AFTER_HIBERNATION` (1012) and the peer must redial, so what the
+    // counter sees is one connection ending and a second beginning at the same address — not
+    // one connection resuming. Both must count, and neither must count twice.
+    let clock = 0
+    const counter = new TrafficSplitCounter(() => clock)
+    const address = `/ip4/127.0.0.1/tcp/4001/ws/p2p/${SELF}`
+
+    const before = new FakeConnection(address)
+    track(counter, before)
+    before.send(new Uint8Array(40))
+    clock = 5_000
+    before.closeNow()
+
+    const after = new FakeConnection(address)
+    track(counter, after)
+    after.send(new Uint8Array(2))
+    clock = 8_000
+
+    const split = counter.report()
+    expect(split.direct.bytes).toBe(42)
+    // 5 s banked from the closed one plus 3 s live on the redial. Written as the sum's parts
+    // rather than as `8`, because the two halves come from different code paths and a clamp
+    // that lost one of them would still produce a plausible total.
+    expect(split.direct.connectionSeconds).toBe(5 + 3)
+  })
+
   it('reports two zeroed columns before anything has connected', () => {
     // Not vacuous cheer: the report must be readable from before the relay carries anything,
     // which is criterion 3's whole ordering claim. A counter that threw or answered
