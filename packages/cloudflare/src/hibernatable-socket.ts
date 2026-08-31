@@ -228,9 +228,15 @@ export interface AcceptInboundInit {
  * Adopt an inbound socket and start its libp2p upgrade — the whole listener, minus the platform.
  *
  * Everything Cloudflare-shaped is left to the caller: constructing the `WebSocketPair` and
- * returning a 101 with the client half are two lines that no local run can execute, and keeping
- * them out means the decisions can be read by a spec while the untestable remainder stays too
- * small to hide one.
+ * returning a 101 with the client half. Keeping them out means the decisions here can be read
+ * by an ordinary unit spec with no runtime at all, which is worth doing on its own merits.
+ *
+ * **CORRECTED 2026-08-30 — those two lines were described here as ones "no local run can
+ * execute", and that is false.** `wrangler dev` runs real workerd with no account and no
+ * credential of any kind, so `WebSocketPair` is constructible and the 101 is observable; the separation above
+ * is a design preference, not a testability constraint, and it was being justified by a
+ * limitation that does not exist. The lines are now driven end to end by
+ * `inbound-listener.e2e.test.ts`. See the matching correction on `worker.ts`'s `#upgrade`.
  *
  * **The upgrade is deliberately NOT awaited**, and that is the same rule `acceptWebSocket`
  * records on the other acceptance path: no byte moves until the 101 response is returned, so

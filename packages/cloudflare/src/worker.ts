@@ -333,12 +333,23 @@ export class BootstrapObject {
   }
 
   /**
-   * The inbound listener — Phase 30, and the two untestable lines are here on purpose.
+   * The inbound listener — Phase 30.
    *
    * Everything that decides anything is in `acceptInboundSocket`: the `CF-Connecting-IP`
    * refusal, the adoption through the hibernation API, and the upgrade that must not be
-   * awaited. What is left here is constructing the pair and returning the 101, which no local
-   * run can execute and which therefore has nothing in it worth hiding.
+   * awaited. What is left here is constructing the pair and returning the 101.
+   *
+   * **CORRECTED 2026-08-30 — this docblock said the pair and the 101 are "the two untestable
+   * lines… which no local run can execute". Both halves are false, and the correction is the
+   * whole of Phase 30's testability.** `wrangler dev` runs the real workerd runtime locally
+   * with no account and `CLOUDFLARE_API_TOKEN` blanked: it creates a genuine Durable Object,
+   * `WebSocketPair` — the global said to be unreachable — is present, and a raw upgrade
+   * request is answered `HTTP/1.1 101 Switching Protocols` with an RFC 6455 accept value that
+   * verifies. The claim was reasonable when written, because nothing in the `node` lane can
+   * construct a `WebSocketPair` and the deployed object was the only workerd anyone had
+   * reached; what it missed is that a local workerd is still workerd. Measured by
+   * `inbound-listener.e2e.test.ts`, which drives eight concurrent distinct clients through
+   * exactly these lines.
    */
   async #upgrade(request: Request): Promise<Response> {
     const fabric = await this.#fabricOnce()

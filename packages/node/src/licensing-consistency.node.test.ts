@@ -165,11 +165,16 @@ describe('DEMO-05 — CONTRIBUTING.md states the policy the requirement names', 
     expect(flatten(CONTRIBUTING)).toMatch(/triaged, never merged/i)
   })
 
-  it('says a fix is written independently of the submitted diff', () => {
+  it('says a fix is implemented independently of the reported diff', () => {
     // The clause that binds the MAINTAINER rather than the submitter, and the one the
     // requirement singles out: absorbing an approach from a diff is the provenance risk
     // a CLA would otherwise cover.
-    expect(flatten(CONTRIBUTING)).toMatch(/independently of the submitted diff/i)
+    // **The requirement's own words, quoted rather than paraphrased.** Written as
+    // "submitted diff" first, which means the same thing and is not what DEMO-05 says —
+    // `REQUIREMENTS.md:1584` and `ROADMAP.md:2422` both read *"independently of the
+    // reported diff"*. A guard that accepts a synonym lets the document and the ledger
+    // drift apart in exactly the way this file exists to prevent.
+    expect(flatten(CONTRIBUTING)).toMatch(/independently of the reported diff/i)
   })
 
   it('says there is no CLA and none is planned', () => {

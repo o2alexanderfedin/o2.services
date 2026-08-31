@@ -32,7 +32,7 @@ AGPL as §5 requires, and do not expect a pull request here to be merged.
 
 Pull requests are **triaged, never merged.** A report may well identify a real
 defect, and the defect gets fixed — but the fix is implemented **independently of
-the submitted diff**, from the description of the problem rather than from the
+the reported diff**, from the description of the problem rather than from the
 code. This is the discipline that keeps sole authorship intact without CLA
 machinery (owner ruling 2026-08-24: rely on the civilised world rather than
 build the paperwork). Reading a diff closely and then absorbing its approach is

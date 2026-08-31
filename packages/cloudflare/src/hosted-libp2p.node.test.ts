@@ -11,14 +11,18 @@
  * is dialled: that is Group B in `ARCHITECTURE.md` §7 and an owner act.
  */
 
+import { readFileSync } from 'node:fs'
 import { Key } from 'interface-datastore'
 import { afterEach, describe, expect, it } from 'vitest'
 import { FakeDurableObjectAlarms, FakeDurableObjectStorage } from './do-storage.fixture.ts'
 import {
+  HOSTED_INBOUND_THRESHOLD,
+  HOSTED_MAX_PENDING_INBOUND,
   NoAnnouncedAddressError,
   announcedAddresses,
   createHostedFabric,
   hostedAddresses,
+  hostedConnectionManagerInit,
   hostedDhtInit,
   hostedRelayInit,
 } from './hosted-libp2p.ts'
@@ -175,5 +179,50 @@ describe('what the node announces comes from the deployment, never from a visito
     // say the same thing differently.
     expect(announcedAddresses(undefined)).toEqual([])
     expect(() => hostedAddresses(announcedAddresses(undefined))).toThrow(NoAnnouncedAddressError)
+  })
+})
+
+describe('NET-11 — the inbound limits, because the library defaults are a fabric-wide ceiling', () => {
+  /**
+   * **Measured, not reasoned, and the measurement is in `inbound-listener.e2e.test.ts`.**
+   * Eight libp2p peers dialling the locally-run object together were admitted four and
+   * refused four — `EncryptionFailedError: The operation was aborted due to timeout` on peers
+   * 4 through 7, which is what a rate-limited handshake looks like from the dialling side.
+   *
+   * The cause is libp2p's `inboundConnectionThreshold`, whose default is **5 per second per
+   * remote host** and whose limiter keys on the host derived from `remoteAddr`. On this tier
+   * that is the whole fabric's admission rate, and it is silent in both directions: nothing
+   * surfaces above `log()`, and the dialler is told its encryption timed out.
+   */
+  it('raises the per-host inbound threshold above the library default of five', () => {
+    // The literal is written out rather than compared against the library's constant: reading
+    // `INBOUND_CONNECTION_THRESHOLD` here would make the assertion agree with whatever the
+    // dependency happens to say, which is the mistake this repository has paid for before.
+    expect(HOSTED_INBOUND_THRESHOLD).toBeGreaterThan(5)
+    expect(hostedConnectionManagerInit().inboundConnectionThreshold).toBe(HOSTED_INBOUND_THRESHOLD)
+  })
+
+  it('raises the in-flight inbound handshake bound above the library default of ten', () => {
+    expect(HOSTED_MAX_PENDING_INBOUND).toBeGreaterThan(10)
+    expect(hostedConnectionManagerInit().maxIncomingPendingConnections).toBe(
+      HOSTED_MAX_PENDING_INBOUND,
+    )
+  })
+
+  it('leaves both bounds FINITE, so a flood still meets a wall', () => {
+    // Raising a bound is not removing it. `Infinity` here would trade a silent ceiling for a
+    // silent absence of one, which is the same class of defect in the other direction.
+    expect(Number.isFinite(HOSTED_INBOUND_THRESHOLD)).toBe(true)
+    expect(Number.isFinite(HOSTED_MAX_PENDING_INBOUND)).toBe(true)
+  })
+
+  it('is actually reached by the assembly, not merely exported', async () => {
+    // The failure this guards: a constant declared, documented, and never passed to
+    // `createLibp2p` — which is exactly the state this file found the package in.
+    const source = readFileSync(
+      new URL('./hosted-libp2p.ts', import.meta.url),
+      'utf8',
+    )
+    expect(source).toContain('connectionManager: hostedConnectionManagerInit()')
   })
 })
