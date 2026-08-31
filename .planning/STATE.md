@@ -145,6 +145,41 @@ stopped_at: >-
   `gated-admission`, `gated-seed`, `owner-domain-tabs`, `peer-ledger`, `seed-binary-join`,
   `seed-discovery`, `static-rendezvous`, `visitor-enrolment`. NOT DIAGNOSED, NOT SCOPED, AND
   OWED TO THE OWNER AS A DECISION rather than absorbed quietly into the next phase.
+  DIAGNOSED AND FIXED, 2026-08-31, ON THE OWNER'S INSTRUCTION. TWO defects, both in
+  `cb09195` (2026-08-28, the commit that published the browser client), and the lane went
+  **43 files / 250 tests, 0 failures** on a quiet host — from 24 failures.
+  DEFECT 1 — THE BOOTSTRAP DOCUMENT HAS TWO MOUNT POINTS AND THE PAGE ASKED ONE. `cb09195`
+  changed `demo/main.ts`'s two fetches from root-absolute to document-relative, which fixed
+  the published client — it had never been able to join, because Pages serves this site at
+  the subpath `/o2.services/` and a leading slash reaches the domain apex. The same change
+  broke every LAN seed, because `SeedServer` mounts the document at the ORIGIN ROOT
+  (`seed-server.ts:499`) while serving the page from `/packages/browser/demo/index.html`.
+  Measured against a live seed rather than reasoned about: `/bootstrap.json` → **200** with
+  the seed's own relay address, `/packages/browser/demo/bootstrap.json` → **404**.
+  `discoverRelays` then answered `source: 'none'`, which `tab-api.ts` documents as the
+  NORMAL state of a static host — so a LAN join that could no longer work looked exactly
+  like one that had simply been given no relay, and nothing errored. Fifteen cases, six
+  files. NEITHER MOUNT POINT IS WRONG: a seed derives its address from the request's `Host`
+  header and cannot put that in a file beside the page, and Pages has no server and can only
+  put it beside the page. So the page asks both, through one helper, **beside the page first
+  and the origin root second** — and the ORDER is the safety property, because on Pages the
+  root request reaches the domain apex, an origin this page does not control.
+  DEFECT 2 — A DEPLOY ARTIFACT WAS COMMITTED. `cb09195` also committed
+  `packages/browser/demo/public/bootstrap.json`, which `scripts/deploy-pages.sh:141-153`
+  writes unconditionally on every run from live sources. No deploy has ever updated it,
+  because deploys commit only into a throwaway `gh-pages` worktree, so the tree carried a
+  frozen snapshot of one afternoon. Vite's `publicDir` is `demo/public`, so it was copied
+  into EVERY local build — and four e2e files serve `packages/browser/dist` as a static
+  host, two of them existing to assert that a static host has **no** `/bootstrap.json`.
+  Deleted from the working tree, not merely untracked (vite copies from the filesystem), and
+  gitignored because a local deploy run rewrites it and six specs snapshot
+  `git status --porcelain`. Seven cases, three files.
+  ONE FAILURE WAS LOAD AFTER ALL — `gated-admission`, which passed on the quiet re-run
+  before either fix. That is the only one the banner's warning covered, and 22 of 23 were
+  real. THE GUARD THAT SHOULD HAVE CAUGHT DEFECT 1 PASSED THROUGHOUT:
+  `browser-client-publish.node.test.ts` checks *"never root-absolute"*, which is not the
+  property — the property is the ORDER of the two candidates, and it now checks that, with
+  the swap watched red.
   PHASE 41 CLOSED NO CRITERION AND FOUND ITS BLOCKER FALSE, 2026-08-30.
   `tools/aot/cross-machine.node.test.ts` said `AOT-03` needs a second `aarch64` Linux machine,
   *"which is a thing this repository does not have and cannot synthesise"*. `gh repo view
