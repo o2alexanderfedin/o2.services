@@ -54,6 +54,7 @@
  */
 
 import { Circuit, WebRTC, WebRTCDirect } from '@multiformats/multiaddr-matcher'
+import type { RelayServiceLog } from './relay-service-log.ts'
 import type { Multiaddr } from '@multiformats/multiaddr'
 import type {
   Counter,
@@ -245,17 +246,25 @@ const inertHistogramGroup: HistogramGroup & SummaryGroup = {
  * component makes libp2p and every service on it start registering — identify, kad-dht,
  * the connection manager — and each expects an object back. Answering inert ones keeps this
  * seam about the two counters NET-14 asks for rather than turning it into a metrics backend
- * this project has no use for and would have to keep working. `trackProtocolStream` is inert
- * for the same reason and for a second one: the handshake bytes a relayed connection pays
- * for are not on any protocol stream, so counting streams would undercount exactly the
- * traffic this requirement is about.
+ * this project has no use for and would have to keep working.
+ *
+ * **`trackProtocolStream` was inert too, and stopped being so on 2026-08-30.** The reason it
+ * was inert still stands and is not the reason it changed: *the handshake bytes a relayed
+ * connection pays for are not on any protocol stream, so counting streams would undercount
+ * exactly the traffic this requirement is about.* That is why the stream reading is NOT folded
+ * into the split's two columns. It is a **third, separate** reading answering a different
+ * question — what this node has done as a relay — and it is optional, so a caller that does
+ * not pass a `relay` log gets exactly the previous behaviour. See `relay-service-log.ts` for
+ * why the two numbers overlap and must not be reconciled by subtraction.
  */
-export function trafficSplitMetrics(counter: TrafficSplitCounter): Metrics {
+export function trafficSplitMetrics(counter: TrafficSplitCounter, relay?: RelayServiceLog): Metrics {
   return {
     trackMultiaddrConnection: (connection: MultiaddrConnection): void => {
       counter.track(connection)
     },
-    trackProtocolStream: (_stream: Stream): void => {},
+    trackProtocolStream: (stream: Stream): void => {
+      relay?.observe(stream)
+    },
     registerMetric: () => inertMetric,
     registerMetricGroup: () => inertGroup,
     registerCounter: () => inertMetric,

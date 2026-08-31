@@ -120,6 +120,13 @@ export {
 } from './dht-record-sweep.ts'
 export { TrafficSplitCounter, classifyConnection, trafficSplitMetrics } from './traffic-split.ts'
 export type { ConnectionClass, TrafficLeg, TrafficSplit } from './traffic-split.ts'
+export {
+  NO_RELAY_SERVICE,
+  RELAY_HOP_PROTOCOL,
+  RELAY_STOP_PROTOCOL,
+  RelayServiceLog,
+} from './relay-service-log.ts'
+export type { RelayServiceTotals } from './relay-service-log.ts'
 export type {
   DhtSweepCounts,
   ProviderSweepOptions,

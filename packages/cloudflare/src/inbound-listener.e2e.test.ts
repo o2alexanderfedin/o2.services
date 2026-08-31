@@ -46,6 +46,7 @@ import { webSockets } from '@libp2p/websockets'
 import { multiaddr } from '@multiformats/multiaddr'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from 'libp2p'
+import type { RelayServiceTotals } from '@o2/libp2p'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url))
@@ -72,6 +73,7 @@ interface SelfReport {
   instance: string
   version: string
   traffic: { direct: TrafficLegReport; relayed: TrafficLegReport }
+  relayService: RelayServiceTotals
 }
 let selfReport: SelfReport
 
@@ -104,7 +106,9 @@ async function dialer(): Promise<Libp2p> {
  *
  * A cast here would make a route that stopped reporting `traffic` present as a field of
  * `undefined` in an assertion rather than as a failure at the boundary, which is the whole
- * defect class NET-14's counters exist inside.
+ * defect class NET-14's counters exist inside. `relayService` is required on the same terms
+ * and was added here at the same time it was added to the route — the third of three readers,
+ * extended deliberately rather than left to be caught later.
  */
 function readSelfReport(body: unknown): SelfReport {
   const leg = (value: unknown): TrafficLegReport => {
@@ -135,7 +139,8 @@ function readSelfReport(body: unknown): SelfReport {
     typeof body.traffic !== 'object' ||
     body.traffic === null ||
     !('direct' in body.traffic) ||
-    !('relayed' in body.traffic)
+    !('relayed' in body.traffic) ||
+    !('relayService' in body)
   ) {
     throw new Error(`/self answered a body this test cannot read: ${JSON.stringify(body)}`)
   }
@@ -145,6 +150,32 @@ function readSelfReport(body: unknown): SelfReport {
     instance: body.instance,
     version: body.version,
     traffic: { direct: leg(body.traffic.direct), relayed: leg(body.traffic.relayed) },
+    relayService: relayService(body.relayService),
+  }
+}
+
+/** The relay-service record, narrowed field by field for the reason {@link readSelfReport} gives. */
+function relayService(value: unknown): RelayServiceTotals {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(`/self reported a relayService that is not an object: ${JSON.stringify(value)}`)
+  }
+  const source: Record<string, unknown> = { ...value }
+  const counter = (name: string): number => {
+    const read = source[name]
+    if (typeof read !== 'number') throw new Error(`/self reported relayService.${name} as ${JSON.stringify(read)}`)
+    return read
+  }
+  const marker = source['firstInboundHopStreamAt']
+  if (marker !== undefined && typeof marker !== 'number') {
+    throw new Error(`/self reported a non-numeric marker: ${JSON.stringify(marker)}`)
+  }
+  return {
+    inboundHopStreams: counter('inboundHopStreams'),
+    outboundHopStreams: counter('outboundHopStreams'),
+    outboundStopStreams: counter('outboundStopStreams'),
+    inboundStopStreams: counter('inboundStopStreams'),
+    bytes: counter('bytes'),
+    firstInboundHopStreamAt: marker,
   }
 }
 
@@ -304,5 +335,37 @@ describe('NET-14 — the two counters report before the relay carries anything',
     expect(after.traffic.direct.connectionSeconds).toBeGreaterThan(0)
     expect(after.traffic.relayed.bytes).toBe(0)
     expect(after.traffic.relayed.connectionSeconds).toBe(0)
+  }, 30_000)
+
+  it('reports a relay-service record of all zeros — because nobody has relayed through it', async () => {
+    // The reading this file can honestly take, and it is worth taking. Eight peers dialled
+    // this workerd directly; none of them reserved. So every counter must still be zero and
+    // the marker must still be absent — which is what says the field is a MEASUREMENT and not
+    // a number that moves whenever anything happens. A log that counted any protocol stream,
+    // or that ignored `direction`, would be non-zero here: identify and the muxer's own
+    // streams ran on all eight connections.
+    //
+    // **Why nothing moved it, stated correctly.** An earlier draft of this comment said
+    // `wrangler dev` *"is not running a relay these clients could reserve on"*. That is FALSE
+    // and was caught before it shipped: `hosted-libp2p.ts:348` puts `circuitRelayServer` in
+    // the hosted assembly, so this workerd IS a relay. What none of these eight clients has
+    // is `circuitRelayTransport` — `dialer()` above lists `webSockets()` and nothing else —
+    // so no reservation is ever attempted. The zero is a fact about the CLIENTS.
+    //
+    // A client that does carry it, dialling this same worker, is
+    // `relay-service-journal.e2e.test.ts`, which also kills and restarts wrangler to read the
+    // record back across a process death.
+    const after = readSelfReport(
+      await (await fetch(`http://${HOST}:${PORT}/self`, { signal: AbortSignal.timeout(5000) })).json(),
+    )
+
+    expect(after.relayService).toEqual({
+      inboundHopStreams: 0,
+      outboundHopStreams: 0,
+      outboundStopStreams: 0,
+      inboundStopStreams: 0,
+      bytes: 0,
+      firstInboundHopStreamAt: undefined,
+    })
   }, 30_000)
 })

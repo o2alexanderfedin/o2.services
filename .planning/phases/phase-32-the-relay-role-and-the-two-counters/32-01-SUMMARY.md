@@ -171,6 +171,41 @@ per-instance counter sums.
 `NET-14`'s ledger row carries all three, and its verdict is *Done against the amended
 criterion, with its granularity stated* rather than a bare `Done`.
 
+### Two of the three were retired the same day — 2026-08-30
+
+The limits above were written in the morning and two of them did not survive the afternoon.
+What retired them was a question the owner could not get an answer to: *did a browser reserve
+on this relay before the counters existed?* The node could not say, and the reason was limit 3.
+
+**Limit 2 was wrong about the arrangement, not about the counting.** It said hop-stream
+counting *"lands with criteria 1 and 2 … the first arrangement in which relay-carried bytes are
+observable at all"*. A real `circuitRelayServer` in an e2e observes hop and stop streams in both
+directions with no deployed relay and no browsers, which
+`packages/libp2p/src/relay-service-log.e2e.test.ts` now does. `trackProtocolStream` is no longer
+inert: it feeds `RelayServiceLog`, which keeps four **direction-separated** counters, because a
+relay someone used and a relay this node used are the same protocol string and the direction is
+the whole meaning. Planted by inverting `stream.direction` — both e2e cases red — and restored
+`cmp`-clean.
+
+**Limit 3 is now true of `traffic` and false of the tier.**
+`packages/cloudflare/src/relay-service-journal.ts` banks the relay record into Durable Object
+storage and refuses any write that would shorten it. `/self` carries it as `relayService`, and
+`relay-service-journal.e2e.test.ts` reserves against a real workerd, **kills and restarts
+wrangler**, and reads the record back from a different process while `traffic` reads zero in the
+same answer. Measured there and worth keeping: `BootstrapObject` banks on a socket close AND on
+a frame while the marker is not yet durable; each path alone is sufficient in that arrangement,
+and only removing both turns the case red. The frame path exists for the case the arrangement
+cannot produce — an instance evicted while its socket stays open, which never reaches a close
+handler.
+
+**Limit 1 is untouched** and is still how the split must be read. `relayService.bytes`
+deliberately OVERLAPS `traffic.direct.bytes` — the same forwarded payload counted at a different
+question — and the two must never be reconciled by subtraction.
+
+**Criterion 3's verdict does not move.** Nothing here reconstructs history it did not observe,
+so the `rc.4`→`rc.5` window stays dark and the ordering remains unverified and possibly
+permanently false. What changed is that the next such question has an answer.
+
 ## Verification
 
 ```
