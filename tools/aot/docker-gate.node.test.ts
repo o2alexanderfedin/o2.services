@@ -124,6 +124,15 @@ function stubDocker(body: string): string {
  * The subject of these cases is the gate's **classification**, never the wait. Making the wait
  * load-adaptive therefore weakens no claim: the shipped defaults are asserted separately, by
  * the last case in this file, so a change to `DAEMON_PROBE_TIMEOUT_MS` still cannot hide here.
+ *
+ * **What the fix's own green run does NOT show, said plainly.** The `aot` lane re-run that
+ * followed this change passed 13 files / 246 tests, and its calibration read **230 ms** —
+ * comfortably *below* the old 3 000 ms literal. So that green is not evidence of surviving
+ * the conditions that broke it: this file runs early in the lane, before the heavy container
+ * specs load the machine. What carries the claim instead is the comparative case near the
+ * end of this file, which takes a second spawn reading *inside the run* and requires the
+ * budget to exceed it — an assertion that reddens under exactly the load the literal died
+ * under, and one a quiet host cannot fake.
  */
 const STUB_SPAWN_MS: number = (() => {
   const probe = stubDocker('exit 0')
@@ -492,6 +501,28 @@ describe('the disposition of every outcome is recorded, so moving one is a visib
       describeGate({ kind: 'undetermined', code: 'EAGAIN', detail: 'no room' }),
     ]
     expect(new Set(sentences.map((s) => s.slice(0, 12))).size).toBe(sentences.length)
+  })
+
+  it('gives the probe MORE time than a stub spawn actually costs, in this run', () => {
+    // **The comparative reading that replaced the absolute one, asserted rather than
+    // assumed.** `PROBE_BUDGET_MS` is derived from a calibration taken at module load; this
+    // case takes a second, independent reading now — inside the run, on whatever the host is
+    // doing at this moment — and requires the budget to be comfortably above it.
+    //
+    // It can fail, which is the point: pin `PROBE_BUDGET_MS` back to a literal `3_000` and
+    // run this file under a loaded `aot` lane, and a stub spawn above 600 ms reddens here
+    // instead of surfacing four cases later as *"THE DOCKER DAEMON IS NOT ANSWERING"* about
+    // a daemon that is answering fine.
+    const probe = stubDocker('exit 0')
+    const started = Date.now()
+    spawnSync(probe, ['version'], { timeout: CASE_BUDGET_MS, encoding: 'utf8' })
+    const cost = Date.now() - started
+
+    // Five, not twenty: the budget is sited at 20x the calibration, and requiring a quarter
+    // of that margin against a *fresh* reading leaves room for ordinary variance between two
+    // spawns while still failing if the two populations have diverged by an order of
+    // magnitude — which is exactly what happened on 2026-08-30.
+    expect(PROBE_BUDGET_MS).toBeGreaterThan(cost * 5)
   })
 
   it('ships the budgets the siblings were already using', () => {
