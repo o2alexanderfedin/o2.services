@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import type { Server } from 'node:net'
@@ -67,27 +68,7 @@ import type { DockerReach, ProbeOutcome } from './docker-gate.ts'
  * the skip column has to move this line too.
  */
 
-/**
- * Seconds, not the module's twenty.
- *
- * Two cases here point the real client at a socket that never answers, and the thing being
- * measured is the classification, not the wait. `DAEMON_PROBE_TIMEOUT_MS` is asserted
- * separately below so shortening it here cannot hide a change to the shipped default.
- */
-const PROBE_BUDGET_MS = 3_000
 
-/**
- * Wide enough for four spawns of the real `docker` client plus two deliberate waits of
- * {@link PROBE_BUDGET_MS}, on a host where a live client answers in ~180 ms.
- *
- * Measured on this host 2026-08-12: `docker version --format '{{.Server.Os}}'` cost
- * `real 0.18`, and a `spawnSync` of a `#!/bin/sh` stub has been measured elsewhere in this
- * repository at p90 328 ms under load average 54. 30 000 is two orders of magnitude above
- * the stub cases and 10× the deliberate waits.
- */
-const CASE_BUDGET_MS = 30_000
-
-vi.setConfig({ testTimeout: CASE_BUDGET_MS })
 
 const dirs: string[] = []
 const servers: Server[] = []
@@ -114,6 +95,76 @@ function stubDocker(body: string): string {
   chmodSync(path, 0o755)
   return path
 }
+
+/**
+ * How long a trivial `#!/bin/sh` stub takes to spawn **on this host, in this run**.
+ *
+ * ## Why this is measured rather than written down — and it cost a whole lane to find out
+ *
+ * `PROBE_BUDGET_MS` below was the literal `3_000`, sited on 2026-08-12 against a quiet host
+ * where the real `docker` client answered in 180 ms. **On 2026-08-30 a full `aot` lane turned
+ * four cases in this file red**, all four of them stub cases — cases that never touch the
+ * daemon at all — each failing at ~3 004 ms with *"THE DOCKER DAEMON IS NOT ANSWERING"*. The
+ * daemon was up: `docker version` measured `real 0.04` three times on the same host minutes
+ * later. What exceeded 3 000 ms was **spawning a two-line shell script**, because the lane's
+ * own elfconv containers had the machine saturated.
+ *
+ * That is the failure mode `CLAUDE.md` § Measurement names outright: *"An absolute threshold
+ * silently encodes the machine, the load and the I/O weather of the day it was written, and
+ * then fails somewhere else for reasons that have nothing to do with the code."* The old
+ * docblock even carried the evidence against itself — it recorded a stub spawn at *p90 328 ms
+ * under load average 54* and then sited the budget ten times that, which is not a margin on a
+ * machine that can be an order of magnitude slower again.
+ *
+ * So the budget is now a **ratio taken inside the same run**: the calibration below spawns the
+ * cheapest possible stub three times and keeps the slowest, and every probe budget is sited
+ * against that. On a quiet host it reads a few milliseconds and the floor holds the old
+ * behaviour; under a loaded lane it scales with the thing that actually slowed down.
+ *
+ * The subject of these cases is the gate's **classification**, never the wait. Making the wait
+ * load-adaptive therefore weakens no claim: the shipped defaults are asserted separately, by
+ * the last case in this file, so a change to `DAEMON_PROBE_TIMEOUT_MS` still cannot hide here.
+ */
+const STUB_SPAWN_MS: number = (() => {
+  const probe = stubDocker('exit 0')
+  let slowest = 0
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const started = Date.now()
+    // A generous ceiling: this call is the calibration, so it must not itself be the thing
+    // that times out. If even this cannot complete the host is not in a state to be measured.
+    spawnSync(probe, ['version'], { timeout: 60_000, encoding: 'utf8' })
+    slowest = Math.max(slowest, Date.now() - started)
+  }
+  return slowest
+})()
+
+/**
+ * The wait handed to the probe — **20× the calibration, floored at the historical 3 s.**
+ *
+ * Twenty rather than three, because the reading it has to survive is a spawn under a machine
+ * running container work, and the 2026-08-30 lane showed that population sitting at least an
+ * order of magnitude above the quiet one. Floored so a quiet host keeps exactly the behaviour
+ * the two wedged-socket cases were sited against: they deliberately wait this long, and
+ * shortening it below 3 s would change what they measure.
+ */
+const PROBE_BUDGET_MS: number = Math.max(3_000, STUB_SPAWN_MS * 20)
+
+/**
+ * Wide enough for four spawns of the real `docker` client plus two deliberate waits of
+ * {@link PROBE_BUDGET_MS}, and it scales with them for the reason {@link STUB_SPAWN_MS}
+ * gives — a case budget pinned while the wait inside it moves is a case that times out
+ * instead of failing on its subject.
+ */
+const CASE_BUDGET_MS: number = Math.max(30_000, PROBE_BUDGET_MS * 10)
+
+// Printed rather than assumed: a reader diagnosing a red in this file needs to know which
+// population the run was taken in, and the number is worthless after the run.
+console.log(
+  `[docker-gate calibration] stub spawn ${String(STUB_SPAWN_MS)} ms -> probe budget ` +
+    `${String(PROBE_BUDGET_MS)} ms, case budget ${String(CASE_BUDGET_MS)} ms`,
+)
+
+vi.setConfig({ testTimeout: CASE_BUDGET_MS })
 
 /**
  * A unix socket that accepts a connection and never writes a byte — the wedged daemon,

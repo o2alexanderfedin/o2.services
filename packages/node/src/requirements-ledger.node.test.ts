@@ -1611,6 +1611,7 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     because: 'experiment-not-run',
     reread: '2026-08-30',
     witnesses: [
+      'tools/aot/cross-host-lift.node.test.ts',
       'tools/aot/cross-host-workflow.node.test.ts',
       'tools/aot/cross-machine.node.test.ts',
     ],
