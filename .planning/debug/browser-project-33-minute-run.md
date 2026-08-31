@@ -2,10 +2,15 @@
 status: open
 trigger: "`npx vitest run --project browser` once took ~33 minutes to get past collection and produced no test output. It did not reproduce on a re-run. Every hypothesis named at the time has now been tested; none reproduces the magnitude."
 created: 2026-08-19T00:00:00Z
-updated: 2026-08-21T05:20:00Z
+updated: 2026-08-31T21:00:00Z
 ---
 
-## STATE: unreproduced, two hypotheses dead by measurement, no agent-executable arm left
+## STATE: unreproduced. Three hypotheses dead by measurement; the third took the second's pillar with it
+
+**Amended 2026-08-31.** The line below said *"no agent-executable arm left"*. That was wrong: an
+arm existed and is now taken — see Arm 3. It refutes this file's own "difference in kind"
+conclusion and the instrument that produced it. The status is unchanged because the registered
+decision rule is unchanged, not because nothing was learned.
 
 The original event was never instrumented — no `/usr/bin/time`, no exit code read directly, no
 `docker stats`. **Its magnitude is therefore unrecoverable**, and everything below is an attempt to
@@ -87,6 +92,64 @@ factors remain between the strongest reproduction and the thing being explained.
 
 No further arm was taken. Every measurement an agent can run on this host has been run; what is
 left needs the original event to recur *while instrumented*, which cannot be scheduled.
+
+## Arm 3 — 2026-08-31. THE "DIFFERENCE IN KIND" IS REFUTED, AND SO IS THE INSTRUMENT.
+
+The arm nobody had taken: **CPU accounted per process**, splitting the browser engines from the
+lane's own vitest workers. Sampled every 2 s from `ps -eo pid,pgid,time,command`, with the
+browser lane placed in **its own process group** (`perl -e 'setpgrp(0,0); exec @ARGV'`) so the
+load generator's workers cannot be counted as the lane's. Load generator: `--project node`,
+started 5 s earlier, running for the whole window.
+
+| reading | alone | under a concurrent `node` lane | ratio |
+|---|---:|---:|---:|
+| wall | 118.09 | 273.81 | **2.32x** |
+| the lane's OWN vitest workers | 18.4 | 20.8 | 1.13x |
+| the three browser engines | 288.1 | 313.5 | 1.09x |
+| **total CPU** | **306.5** | **334.3** | **1.09x** |
+
+**The +8 % reproduces — and it is not the tests doing more work.** 25.4 of the 27.8 extra
+CPU-seconds are in the browser ENGINES, over 155.7 extra wall seconds: **0.163 of a core, drawn
+continuously for as long as the run is alive**, across three headless engines. That is idle
+overhead charged for longer, not a second mechanism.
+
+Every reading in the tables above is consistent with that one number:
+
+| reading | extra wall | extra CPU | implied constant draw |
+|---|---:|---:|---:|
+| arm 2 (2026-08-21) | +81.29 | +18.65 | 0.229 core |
+| arm 3 (2026-08-31) | +155.72 | +27.8 | 0.179 core |
+| accidental g3 | +535.11 | +75.07 | 0.140 core |
+
+**And the container arm no longer contradicts it.** At +19 s of wall, this model predicts about
++3.4 CPU-s — **+1.5 %** on that base. The arm read −0.3 %. That is agreement inside the
+instrument's error, not the "no extra work" the row was taken to show. So *"pure core loss does
+not change total CPU, browser automation does"* — the sentence this file's conclusion rested on
+— is an artefact of reading a ±1.5 % prediction against a ±50 % instrument.
+
+## The instrument, measured rather than assumed
+
+`/usr/bin/time -p` reported `user+sys` of **185.08** and **277.43** for **two runs of the same
+arm**, minutes apart, both green, both 357 files and 6024 tests. A **50 % spread on identical
+work**: Playwright launches the engines such that whether their CPU lands in the accounted
+subtree depends on reaping order. **Every CPU figure in the tables above came from that
+instrument**, which is why the per-process sampler was needed to say anything at all.
+
+`CLAUDE.md` § Measurement already says *"never trust an exit code you did not read directly"*;
+this is the same rule one column over. A CPU total for a run that spawns browsers is not read
+by timing the shell.
+
+## What this leaves, and why the status does NOT move
+
+One mechanism, not two: contention stretches the wall clock by a factor that varies, and the
+CPU column follows the wall clock because three engines idle at ~0.16 core. Nothing here
+explains the original ~19x **magnitude**, and the registered decision rule is unchanged: today's
+reproductions are **2.32x and 2.39x**, inside the "stay open" band.
+
+**Load was not stacked further to cross 3x.** Adding a second concurrent lane until the ratio
+clears the threshold would be choosing the load until the rule is satisfied, which is the
+`CLAUDE.md` failure *"never close a gap by widening what counts as passing"* run backwards. The
+band is where the measurement landed and that is what is recorded.
 
 ## READER HAZARD — the most useful line in this file, and it is unchanged
 
