@@ -118,6 +118,8 @@ export {
   sweepProviderRecords,
   sweepValueRecords,
 } from './dht-record-sweep.ts'
+export { TrafficSplitCounter, classifyConnection, trafficSplitMetrics } from './traffic-split.ts'
+export type { ConnectionClass, TrafficLeg, TrafficSplit } from './traffic-split.ts'
 export type {
   DhtSweepCounts,
   ProviderSweepOptions,

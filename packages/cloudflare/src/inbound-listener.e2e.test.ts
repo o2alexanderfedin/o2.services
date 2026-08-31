@@ -62,7 +62,18 @@ const HOST = '127.0.0.1'
 const CONCURRENT_CLIENTS = 8
 
 let worker: ChildProcess | undefined
-let selfReport: { peerId: string; nodeKey: string; instance: string; version: string }
+interface TrafficLegReport {
+  connectionSeconds: number
+  bytes: number
+}
+interface SelfReport {
+  peerId: string
+  nodeKey: string
+  instance: string
+  version: string
+  traffic: { direct: TrafficLegReport; relayed: TrafficLegReport }
+}
+let selfReport: SelfReport
 
 /** The worker's own dialable address, built from the PeerId it reports. */
 function workerAddress(): string {
@@ -88,6 +99,55 @@ async function dialer(): Promise<Libp2p> {
   return node
 }
 
+/**
+ * Read `/self`'s body without asserting it into shape.
+ *
+ * A cast here would make a route that stopped reporting `traffic` present as a field of
+ * `undefined` in an assertion rather than as a failure at the boundary, which is the whole
+ * defect class NET-14's counters exist inside.
+ */
+function readSelfReport(body: unknown): SelfReport {
+  const leg = (value: unknown): TrafficLegReport => {
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      !('connectionSeconds' in value) ||
+      !('bytes' in value) ||
+      typeof value.connectionSeconds !== 'number' ||
+      typeof value.bytes !== 'number'
+    ) {
+      throw new Error(`/self reported a traffic leg that is not two numbers: ${JSON.stringify(value)}`)
+    }
+    return { connectionSeconds: value.connectionSeconds, bytes: value.bytes }
+  }
+  if (
+    typeof body !== 'object' ||
+    body === null ||
+    !('peerId' in body) ||
+    !('nodeKey' in body) ||
+    !('instance' in body) ||
+    !('version' in body) ||
+    !('traffic' in body) ||
+    typeof body.peerId !== 'string' ||
+    typeof body.nodeKey !== 'string' ||
+    typeof body.instance !== 'string' ||
+    typeof body.version !== 'string' ||
+    typeof body.traffic !== 'object' ||
+    body.traffic === null ||
+    !('direct' in body.traffic) ||
+    !('relayed' in body.traffic)
+  ) {
+    throw new Error(`/self answered a body this test cannot read: ${JSON.stringify(body)}`)
+  }
+  return {
+    peerId: body.peerId,
+    nodeKey: body.nodeKey,
+    instance: body.instance,
+    version: body.version,
+    traffic: { direct: leg(body.traffic.direct), relayed: leg(body.traffic.relayed) },
+  }
+}
+
 async function waitForReady(timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs
   let lastError: unknown
@@ -97,7 +157,7 @@ async function waitForReady(timeoutMs: number): Promise<void> {
         signal: AbortSignal.timeout(3000),
       })
       if (response.ok) {
-        selfReport = (await response.json()) as typeof selfReport
+        selfReport = readSelfReport(await response.json())
         return
       }
       lastError = new Error(`/self answered ${response.status}`)
@@ -213,4 +273,36 @@ describe('criterion 3 — each connection carries the client’s address, not on
       await Promise.all(nodes.map((node) => node.stop()))
     }
   }, 180_000)
+})
+
+describe('NET-14 — the two counters report before the relay carries anything', () => {
+  /**
+   * **Criterion 3 is an ordering, not a dashboard**, and this is the ordering as a reading.
+   *
+   * `selfReport` was taken in `beforeAll`, before any peer dialled — `GET /self` is HTTP and
+   * opens no libp2p connection, so nothing has been counted yet. Two zeroed columns is what a
+   * counter that exists and has seen nothing looks like; a missing field is what a counter
+   * added later looks like, and those must not be confusable.
+   */
+  it('answers two zeroed columns on a node that has carried nothing', () => {
+    expect(selfReport.traffic).toEqual({
+      direct: { connectionSeconds: 0, bytes: 0 },
+      relayed: { connectionSeconds: 0, bytes: 0 },
+    })
+  })
+
+  it('has moved the DIRECT column once real peers have connected, and left RELAYED at zero', async () => {
+    // Deliberately last in the file: the eight-peer cases above have run, so the object has
+    // held real connections. Every one of them is a plain WebSocket dial, which is what makes
+    // `relayed` staying at zero a reading rather than a coincidence — a classifier that put
+    // everything in one column would fail here in one direction or the other.
+    const after = readSelfReport(
+      await (await fetch(`http://${HOST}:${PORT}/self`, { signal: AbortSignal.timeout(5000) })).json(),
+    )
+
+    expect(after.traffic.direct.bytes).toBeGreaterThan(0)
+    expect(after.traffic.direct.connectionSeconds).toBeGreaterThan(0)
+    expect(after.traffic.relayed.bytes).toBe(0)
+    expect(after.traffic.relayed.connectionSeconds).toBe(0)
+  }, 30_000)
 })
