@@ -81,3 +81,10 @@ export {
   inboundUpgradeService,
 } from './hosted-libp2p.ts'
 export type { InboundUpgradeService } from './hosted-libp2p.ts'
+export {
+  MalformedRelayJournalError,
+  RELAY_SERVICE_JOURNAL_KEY,
+  RelayJournalRollbackError,
+  readRelayServiceJournal,
+  writeRelayServiceJournal,
+} from './relay-service-journal.ts'

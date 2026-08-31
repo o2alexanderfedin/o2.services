@@ -42,6 +42,9 @@
 import { describe, expect, it } from 'vitest'
 import { FakeDurableObjectAlarms, FakeDurableObjectStorage } from './do-storage.fixture.ts'
 import { BootstrapObject } from './worker.ts'
+import { DoDatastore } from './do-datastore.ts'
+import { writeRelayServiceJournal } from './relay-service-journal.ts'
+import type { RelayServiceTotals } from '@o2/libp2p'
 import type { CloudflareWebSocket } from './websocket-connection.ts'
 import type { HostedEnv, HostedObjectStateWithSockets } from './worker.ts'
 
@@ -82,6 +85,8 @@ interface SelfReading {
   readonly version: string
   /** NET-14's split. Required here, so a route that stopped reporting it fails at the read. */
   readonly traffic: { readonly direct: TrafficLegReading; readonly relayed: TrafficLegReading }
+  /** The relay-service record. Required for the same reason, and it is the DURABLE one. */
+  readonly relayService: RelayServiceTotals
 }
 
 function readLeg(value: unknown, name: string): TrafficLegReading {
@@ -109,14 +114,17 @@ async function readSelf(object: BootstrapObject): Promise<SelfReading> {
     !('nodeKey' in body) ||
     !('instance' in body) ||
     !('version' in body) ||
-    // **Five fields as of 2026-08-30, not four** — NET-14's split joined them. Read here
-    // rather than in one case, so a route that dropped it fails everywhere it is read
-    // instead of in the one place somebody remembered to look.
-    !('traffic' in body)
+    // **Six fields as of 2026-08-30, not four** — NET-14's split joined them, and then the
+    // relay-service record did. Read here rather than in one case, so a route that dropped
+    // one fails everywhere it is read instead of in the one place somebody remembered to
+    // look. That is not a hypothetical: the split was added as a fifth field on a reader
+    // that required four, and it took a deliberate edit here to make its absence detectable.
+    !('traffic' in body) ||
+    !('relayService' in body)
   ) {
-    throw new Error(`GET /self did not answer with the five declared fields: ${JSON.stringify(body)}`)
+    throw new Error(`GET /self did not answer with the six declared fields: ${JSON.stringify(body)}`)
   }
-  const { peerId, nodeKey, instance, version, traffic } = body
+  const { peerId, nodeKey, instance, version, traffic, relayService } = body
   if (
     typeof peerId !== 'string' ||
     typeof nodeKey !== 'string' ||
@@ -134,6 +142,40 @@ async function readSelf(object: BootstrapObject): Promise<SelfReading> {
     instance,
     version,
     traffic: { direct: readLeg(traffic.direct, 'direct'), relayed: readLeg(traffic.relayed, 'relayed') },
+    relayService: readRelayService(relayService),
+  }
+}
+
+/**
+ * Narrow the relay-service reading, refusing anything that is not six declared values.
+ *
+ * Each counter is checked by name rather than the object being cast: a route that stopped
+ * reporting one of the four directions would otherwise present as a node that had never done
+ * that thing, which is exactly the false reading the log exists to prevent.
+ */
+function readRelayService(value: unknown): RelayServiceTotals {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(`GET /self reported a relayService that is not an object: ${JSON.stringify(value)}`)
+  }
+  const source: Record<string, unknown> = { ...value }
+  const counter = (name: string): number => {
+    const read = source[name]
+    if (typeof read !== 'number') {
+      throw new Error(`GET /self reported relayService.${name} as ${JSON.stringify(read)}`)
+    }
+    return read
+  }
+  const marker = source['firstInboundHopStreamAt']
+  if (marker !== undefined && typeof marker !== 'number') {
+    throw new Error(`GET /self reported a non-numeric marker: ${JSON.stringify(marker)}`)
+  }
+  return {
+    inboundHopStreams: counter('inboundHopStreams'),
+    outboundHopStreams: counter('outboundHopStreams'),
+    outboundStopStreams: counter('outboundStopStreams'),
+    inboundStopStreams: counter('inboundStopStreams'),
+    bytes: counter('bytes'),
+    firstInboundHopStreamAt: marker,
   }
 }
 
@@ -288,5 +330,76 @@ describe('NET-14 — `GET /self` carries the split, and carries it before there 
     expect(second.peerId).toBe(first.peerId)
     expect(second.instance).not.toBe(first.instance)
     expect(second.traffic).toEqual(first.traffic)
+  })
+})
+
+/**
+ * `relayService` — the field that answers a question the split could not.
+ *
+ * The block above records the split's own granularity honestly: *the counter is a LIVE
+ * reading and not a lifetime total*, so two objects over one storage share a PeerId and share
+ * no count. On 2026-08-30 that turned out to have a cost nobody had priced. Asked *did a
+ * browser reserve on this relay before the counters existed?*, the deployed node could not
+ * answer — not because the answer was no, but because an evicted instance holds no history
+ * and the question was about an ordering.
+ *
+ * So this field is deliberately **not** like `traffic`, and the pair of cases below is written
+ * to make the difference visible in one reading rather than described in a docblock.
+ */
+describe('`GET /self` carries a relay-service record that OUTLIVES the instance', () => {
+  it('answers zeroed counters and no marker on a node that has never relayed', async () => {
+    const object = new BootstrapObject(
+      newState(new FakeDurableObjectStorage(), new FakeDurableObjectAlarms()),
+      ENV,
+    )
+
+    // `undefined` and not `0` for the marker, which is the one field where the difference
+    // matters: `0` is a real instant (the epoch), and a node that had genuinely relayed at
+    // some point would be indistinguishable from one that never had.
+    expect((await readSelf(object)).relayService).toEqual({
+      inboundHopStreams: 0,
+      outboundHopStreams: 0,
+      outboundStopStreams: 0,
+      inboundStopStreams: 0,
+      bytes: 0,
+      firstInboundHopStreamAt: undefined,
+    })
+  })
+
+  it('reports a stored history to a FRESH object — while `traffic` reads zero in the same answer', async () => {
+    const storage = new FakeDurableObjectStorage()
+    const alarms = new FakeDurableObjectAlarms()
+
+    // Written through the same store the object reads, and by the same function the object
+    // banks with — not injected into the object, which would be asserting a setter.
+    await writeRelayServiceJournal(new DoDatastore(storage), {
+      inboundHopStreams: 7,
+      outboundHopStreams: 0,
+      outboundStopStreams: 5,
+      inboundStopStreams: 0,
+      bytes: 1_024,
+      firstInboundHopStreamAt: 1_756_000_000_000,
+    })
+
+    // A brand-new object. It has observed nothing, holds no memo from the write above, and
+    // has not built a libp2p node — the state a Durable Object spends most of its life in.
+    const reading = await readSelf(new BootstrapObject(newState(storage, alarms), ENV))
+
+    // Literals, not the object written above: an assertion that reused the value it tests
+    // would stay green if the restore silently dropped a field and the fixture followed.
+    expect(reading.relayService.inboundHopStreams).toBe(7)
+    expect(reading.relayService.outboundStopStreams).toBe(5)
+    expect(reading.relayService.bytes).toBe(1_024)
+    // **The marker is the whole point.** This instance was constructed long after that
+    // moment and has no way to know it other than the store.
+    expect(reading.relayService.firstInboundHopStreamAt).toBe(1_756_000_000_000)
+
+    // **And the contrast, in the same answer.** The split reads zero for this object because
+    // it is per-instance; the relay record does not because it is not. One reading carrying
+    // both is what says the difference is designed rather than accidental.
+    expect(reading.traffic).toEqual({
+      direct: { connectionSeconds: 0, bytes: 0 },
+      relayed: { connectionSeconds: 0, bytes: 0 },
+    })
   })
 })

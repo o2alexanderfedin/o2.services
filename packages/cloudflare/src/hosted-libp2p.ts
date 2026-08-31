@@ -71,7 +71,7 @@ import {
   o2RecordValidator,
   providerRecordPolicy,
 } from '@o2/libp2p'
-import { TrafficSplitCounter, trafficSplitMetrics } from '@o2/libp2p'
+import { RelayServiceLog, TrafficSplitCounter, trafficSplitMetrics } from '@o2/libp2p'
 import type { ProviderRecordPolicy } from '@o2/libp2p'
 import type { NodeIdentity } from '@o2/libp2p'
 import type { PeerInfoMapper, Selectors, Validators } from '@libp2p/kad-dht'
@@ -165,6 +165,15 @@ export interface HostedLibp2pInit {
    * and counts nothing, which is exactly the arrangement the ordering exists to forbid.
    */
   readonly traffic: TrafficSplitCounter
+  /**
+   * What this node records about being a relay — see `relay-service-log.ts`.
+   *
+   * **Required for the same ordering reason `traffic` is, and for a sharper one.** The
+   * question this log exists to answer is *when did this relay first carry someone*, and a
+   * log wired in after the fact can only ever answer *when did I start looking*. A default
+   * would allow exactly that assembly.
+   */
+  readonly relayLog: RelayServiceLog
 }
 
 /**
@@ -313,7 +322,7 @@ export async function createHostedLibp2p(init: HostedLibp2pInit): Promise<Libp2p
     datastore: init.datastore,
     // NET-14. `libp2p/dist/src/upgrader.js:140` calls `trackMultiaddrConnection` on every
     // upgrade in both directions, which is the one seam every transport passes through.
-    metrics: () => trafficSplitMetrics(init.traffic),
+    metrics: () => trafficSplitMetrics(init.traffic, init.relayLog),
     addresses: { listen: [...addresses.listen], announce: [...addresses.announce] },
     connectionManager: hostedConnectionManagerInit(),
     transports: [
@@ -373,6 +382,14 @@ export interface HostedFabricInit {
   readonly maxReservations?: number
   /** NET-14's counters. Defaults to a fresh one, because an assembly always has exactly one. */
   readonly traffic?: TrafficSplitCounter
+  /**
+   * The relay-service log. Defaults to a fresh one, for the reason `traffic` does.
+   *
+   * A fresh one holds no history and knows it — `RelayServiceLog.restored` is false — so the
+   * journal refuses to bank it over a stored total. Defaulting here therefore cannot lose
+   * history; it can only produce a node whose totals start from this instance.
+   */
+  readonly relayLog?: RelayServiceLog
 }
 
 /**
@@ -404,6 +421,8 @@ export interface HostedFabric {
   readonly identity: NodeIdentity
   /** NET-14's two counters, reading the connections this node actually holds. */
   readonly traffic: TrafficSplitCounter
+  /** What this node has recorded about relaying — the very log libp2p reports into. */
+  readonly relayLog: RelayServiceLog
   /**
    * **The very store handed to libp2p** — not one equal to it.
    *
@@ -432,10 +451,12 @@ export async function createHostedFabric(init: HostedFabricInit): Promise<Hosted
   // object; two constructions would let the report be true of a store nothing writes through.
   const datastore = new DoDatastore(init.storage, sweep)
   const traffic = init.traffic ?? new TrafficSplitCounter()
+  const relayLog = init.relayLog ?? new RelayServiceLog()
   const libp2p = await createHostedLibp2p({
     identity,
     datastore,
     traffic,
+    relayLog,
     announce: init.announce ?? [],
     ...(init.now === undefined ? {} : { now: init.now }),
     ...(init.providerRecordValidityMs === undefined
@@ -443,7 +464,7 @@ export async function createHostedFabric(init: HostedFabricInit): Promise<Hosted
       : { providerRecordValidityMs: init.providerRecordValidityMs }),
     ...(init.maxReservations === undefined ? {} : { maxReservations: init.maxReservations }),
   })
-  return { libp2p, sweep, identity, datastore, traffic }
+  return { libp2p, sweep, identity, datastore, traffic, relayLog }
 }
 
 /**

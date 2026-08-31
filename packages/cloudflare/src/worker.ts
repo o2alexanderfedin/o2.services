@@ -67,8 +67,9 @@ import {
   acceptInboundSocket,
   isInboundUpgradeTarget,
 } from './hibernatable-socket.ts'
-import { TrafficSplitCounter } from '@o2/libp2p'
+import { RelayServiceLog, TrafficSplitCounter } from '@o2/libp2p'
 import { announcedAddresses, createHostedFabric, hostedExpirySweep } from './hosted-libp2p.ts'
+import { readRelayServiceJournal, writeRelayServiceJournal } from './relay-service-journal.ts'
 import type { HibernationCapableState } from './hibernatable-socket.ts'
 import type { HostedFabric } from './hosted-libp2p.ts'
 import type { CloudflareWebSocket } from './websocket-connection.ts'
@@ -235,6 +236,22 @@ export class BootstrapObject {
    * missing field.
    */
   readonly #traffic = new TrafficSplitCounter()
+  /**
+   * What this node has done as a relay — held beside the split, and for one reason more.
+   *
+   * The split's counters are **per-instance and hold no history**, which on 2026-08-30 made a
+   * question about this very object unanswerable: *did a browser reserve on this relay, and
+   * when?* An evicted instance answers as if nothing had. So this log is restored from the
+   * object's own storage before it is read and banked back to it when a connection closes,
+   * and `relay-service-journal.ts` refuses any write that would shorten the history.
+   *
+   * Held by the OBJECT rather than by the fabric for the reason `#traffic` is: `GET /self`
+   * deliberately builds no libp2p node, and a log reachable only through the fabric could not
+   * be reported before the first connection — which is precisely the window the question was
+   * about.
+   */
+  readonly #relayLog = new RelayServiceLog()
+  #relayRestored: Promise<RelayServiceLog> | undefined
   #fabric: Promise<HostedFabric> | undefined
 
   constructor(state: HostedObjectStateWithSockets, env: HostedEnv) {
@@ -252,13 +269,50 @@ export class BootstrapObject {
    * upgrades cannot each start one.
    */
   #fabricOnce(): Promise<HostedFabric> {
-    this.#fabric ??= createHostedFabric({
-      storage: this.#state.storage,
-      alarms: this.#state.storage,
-      announce: announcedAddresses(this.#env.ANNOUNCE_MULTIADDRS),
-      traffic: this.#traffic,
-    })
+    this.#fabric ??= this.#relayLogOnce().then(async (relayLog) =>
+      createHostedFabric({
+        storage: this.#state.storage,
+        alarms: this.#state.storage,
+        announce: announcedAddresses(this.#env.ANNOUNCE_MULTIADDRS),
+        traffic: this.#traffic,
+        relayLog,
+      }),
+    )
     return this.#fabric
+  }
+
+  /**
+   * The relay log with this object's stored history already in it.
+   *
+   * **The restore is awaited before the fabric is built, not alongside it.** A log that starts
+   * observing before it has been restored is not wrong — `RelayServiceLog.restore` is additive
+   * precisely so a late restore cannot lose an early observation — but it would be un-bankable
+   * in the window between: `restored` is false, so a close arriving in that window would skip
+   * the write. Ordering it first removes the window instead of tolerating it.
+   *
+   * Held as the PROMISE, like `#fabric`, so two concurrent requests cannot each restore and
+   * double every stored total.
+   */
+  #relayLogOnce(): Promise<RelayServiceLog> {
+    this.#relayRestored ??= readRelayServiceJournal(this.#node.store).then((banked) => {
+      this.#relayLog.restore(banked)
+      return this.#relayLog
+    })
+    return this.#relayRestored
+  }
+
+  /**
+   * Write the relay log back to storage, so it outlives this instance.
+   *
+   * **Skipped on an unrestored log, and the skip is a courtesy rather than the safeguard.**
+   * What makes the dangerous case impossible is `writeRelayServiceJournal` refusing a total
+   * lower than the stored one; this check just means the ordinary path — an alarm on a fresh
+   * instance, which `alarm()` documents as the only kind an alarm ever fires on — does not
+   * have to raise and catch to do nothing.
+   */
+  async #bankRelayLog(): Promise<void> {
+    if (!this.#relayLog.restored) return
+    await writeRelayServiceJournal(this.#node.store, this.#relayLog.report())
   }
 
   /**
@@ -272,8 +326,18 @@ export class BootstrapObject {
     this.#sockets.message(socket, message)
   }
 
+  /**
+   * A socket closing — and the moment the relay log is durable again.
+   *
+   * Banked here rather than from inside the log's own close handling: this is an **async
+   * handler the platform awaits**, so a storage write started here completes, whereas one
+   * started from a synchronous listener inside `RelayServiceLog` would race the isolate being
+   * torn down. It is also the last point at which anything is guaranteed to run — an evicted
+   * object gets no notice at all.
+   */
   async webSocketClose(socket: CloudflareWebSocket): Promise<void> {
     this.#sockets.close(socket)
+    await this.#bankRelayLog()
   }
 
   async webSocketError(socket: CloudflareWebSocket, error: unknown): Promise<void> {
@@ -337,6 +401,9 @@ export class BootstrapObject {
       return new Response('not found', { status: 404 })
     }
     const identity = await this.#node.identity()
+    // Restored before it is reported, so the answer is this NODE's history and not this
+    // instance's. That difference is the whole of why the log exists.
+    const relayLog = await this.#relayLogOnce()
     return Response.json({
       peerId: identity.peerId,
       nodeKey: identity.nodeKey,
@@ -350,6 +417,17 @@ export class BootstrapObject {
       // criterion 3 is about rather than a dashboard added later. Two zeroed columns is a
       // reading; a missing field is not.
       traffic: this.#traffic.report(),
+      // What this node has done as a relay — a THIRD reading beside the split's two columns,
+      // never folded into them. `traffic.direct.bytes` already contains the payload this
+      // relay forwards, because the connection to a reserving peer is itself direct; the
+      // figure here counts that same payload at a different question. Reporting them side by
+      // side is honest, and subtracting one from the other is not arithmetic that means
+      // anything — see `relay-service-log.ts`.
+      //
+      // Unlike `traffic`, this one **survives eviction**, which is what lets a reader ask
+      // when this relay first carried someone rather than only whether it is carrying anyone
+      // now.
+      relayService: relayLog.report(),
     })
   }
 
