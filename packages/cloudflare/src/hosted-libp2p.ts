@@ -71,7 +71,8 @@ import {
   o2RecordValidator,
   providerRecordPolicy,
 } from '@o2/libp2p'
-import { RelayServiceLog, TrafficSplitCounter, trafficSplitMetrics } from '@o2/libp2p'
+import { Libp2pTransport, RelayServiceLog, TrafficSplitCounter, reservedPeerIds, trafficSplitMetrics } from '@o2/libp2p'
+import { RpcEndpoint, serveReservations } from '@o2/net'
 import type { ProviderRecordPolicy } from '@o2/libp2p'
 import type { NodeIdentity } from '@o2/libp2p'
 import type { PeerInfoMapper, Selectors, Validators } from '@libp2p/kad-dht'
@@ -419,6 +420,14 @@ export interface HostedFabric {
   readonly libp2p: Libp2p
   readonly sweep: ExpirySweep
   readonly identity: NodeIdentity
+  /**
+   * NET-03 — the endpoint answering `{kind:'reservations'}`, and nothing else.
+   *
+   * Exposed so a spec can ask this object the question a peer asks, rather than asserting
+   * that a handler was installed. `holdsReservations` is a shape check and would pass on a
+   * node whose RPC was never registered, which is precisely the defect of 2026-08-31.
+   */
+  readonly rpc: RpcEndpoint
   /** NET-14's two counters, reading the connections this node actually holds. */
   readonly traffic: TrafficSplitCounter
   /** What this node has recorded about relaying — the very log libp2p reports into. */
@@ -464,7 +473,24 @@ export async function createHostedFabric(init: HostedFabricInit): Promise<Hosted
       : { providerRecordValidityMs: init.providerRecordValidityMs }),
     ...(init.maxReservations === undefined ? {} : { maxReservations: init.maxReservations }),
   })
-  return { libp2p, sweep, identity, datastore, traffic, relayLog }
+  // NET-03 — the rendezvous, and the smallest surface that delivers it.
+  //
+  // **Why not `serveAgent`.** Its options require an `executor` and a `blockstore` with no
+  // named opt-out (`agent.ts:395-399`), so wiring it here would construct a WASM executor on
+  // a node whose whole job is to relay — the "capability shipped while we are in the file"
+  // that `worker.ts`'s header refuses. `serveReservations` is that one branch alone.
+  //
+  // **Why `Libp2pTransport` rather than a `libp2p.handle` of our own.** The framing, the
+  // per-peer backlog budgets and `runOnLimitedConnection: true` on both ends are the wire's,
+  // and a second spelling of them on this tier is how two tiers come to disagree about the
+  // protocol they share — the same argument `relay-reservations.ts` makes for the read side.
+  //
+  // The thunk reads `libp2p.services['relay']` on every request rather than capturing the
+  // store, because libp2p declares a `relay:reservation` event and never dispatches it, so a
+  // value taken once goes stale in exactly the long-lived process this is.
+  const rpc = new RpcEndpoint(await Libp2pTransport.start(libp2p))
+  rpc.serve(serveReservations(() => reservedPeerIds(libp2p.services['relay'])))
+  return { libp2p, sweep, identity, datastore, traffic, relayLog, rpc }
 }
 
 /**

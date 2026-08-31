@@ -64,10 +64,21 @@ stopped_at: >-
   peers consult no routing table, and `selectors` because `bestRecord` is called only from
   the QUERYING node's own `getValue` — and both criteria are amended against the
   measurement rather than descoped. NET-11, HOST-15, HOST-03, HOST-04, HOST-09 and HOST-14
-  are `Done`; HOST-13 is `Partial` and in the re-read register. NEITHER PHASE'S CHECKBOX IS
+  are `Done`; HOST-13 was `Partial` and in the re-read register, and is `Done` as of
+  2026-08-31 on the deployed reading recorded further down. NEITHER PHASE'S CHECKBOX IS
   TICKED and the reason is one word in each: Phase 30 criterion 1 says the *deployed* node
   and Phase 31 criterion 2 says *observed on the deployed object*, while every reading in
-  both was taken on a locally-run `workerd`. That local runtime is itself the session's
+  both was taken on a locally-run `workerd`.
+  **SUPERSEDED 2026-08-31 — BOTH HALVES OF THAT SENTENCE ARE NOW FALSE, and the sentence is
+  kept rather than rewritten because it is the reading of the day it was written.** Phase 30
+  criterion 1 got its deployed reading the same morning — 24 peers dialling the deployed
+  object together, 24 admitted in 987 ms, where libp2p's default of 5/second/host cannot
+  produce that result. (The first attempt at it, 8 peers over 1705 ms, was DISCARDED as
+  vacuous: the default would have passed 8 over that span.) Phase 31 criterion 2 got its
+  deployed reading at `17:17:07Z` and is recorded further down with the control arm that made
+  it a reading rather than a bare absence. **Phase 31 now closes; Phase 30 does not**, and the
+  reason has changed rather than gone: what holds it is criterion 3, whose deployed half asks
+  for an address the tier serves no route to answer. That local runtime is itself the session's
   most reusable finding — `wrangler dev` runs real workerd with no account, which
   reclassified Phase 30 from an owner act to executable work and retired two docblocks
   claiming the platform half was untestable.
@@ -3088,8 +3099,22 @@ PHASE 31 CRITERION 2 — **HALF TAKEN, HALF PENDING ON A CLOCK.** A provider rec
 on the deployed object at `2026-08-31T16:01:02.294Z`, CID
 `bafkreidss5xiinknhpb5p3kwdr2ft6jmka3pzon4f5x7ai3k2q5a2547oi`, and PRESENT AT T read back by
 a different freshly-minted peer. Both numbers come from `providerRecordPolicy()`: gone by
-`17:01:02Z`, swept by `17:16:02Z`. The second read is scheduled and until it lands the
-criterion and `HOST-13` stay open.
+`17:01:02Z`, swept by `17:16:02Z`. **THE SECOND READ LANDED AT `17:17:07Z` AND CLOSES BOTH —
+BUT NOT ON ITS OWN.** The fresh peer got `[]`, and the bare absence was not accepted: a control
+in the same run had a record published SECONDS EARLIER also read empty, which put the fault in
+the probe rather than in the fabric — `dht.provide()` is an async generator and `await`ing it
+runs nothing, so the control had published nothing. (Production iterates it correctly at
+`dht-provider-announcer.ts:254`; nothing to fix there.) With the publish actually performed, a
+DIFFERENT freshly-minted reader — not the publisher, because `findProviders` consults the local
+provider store first — found the seconds-old record through the deployed relay and did not find
+the one from T. So the absence is a property of the record's age. That it was DELETED rather
+than filtered out rests on a measurement already in the record: kad-dht applies no date filter
+on the provider read path, so a stored record would have come back. Deletion here is the
+alarm-driven sweep, which is `HOST-13`'s platform half — Cloudflare fired the alarm on an
+instance that did not arm it. Criterion 2 MET, `HOST-13` `Done`.
+**The methodology is the transferable part, not the verdict.** The first form of this reading
+would have passed and been wrong, for the second time in two days, and both times the thing
+that caught it was a control arm inside the same run rather than a re-reading of the code.
 AND I RECORDED A DEFECT THAT WAS NOT THERE, then withdrew it within the hour. The first
 attempt at the record above used DIAL-ONLY probe peers; `@libp2p/kad-dht`'s
 `add-provider.js` ignores a provider whose message carries no addresses and answers the RPC
@@ -3103,5 +3128,15 @@ and the conclusion was attribution by plausibility.**
 ONE MORE FINDING, BELONGING TO A LATER PHASE: the deployed relay answers no fabric
 rendezvous. `findReservedPeers` speaks the fabric's own RPC and `hosted-libp2p.ts` registers
 no handler, so two tabs on the deployed relay CANNOT DISCOVER EACH OTHER without being told.
+**FIXED, DEPLOYED AND READ BACK THE SAME DAY.** The cause was structural rather than an
+oversight: the answer existed once, as a branch of `serveAgent`, and `AgentOptions` requires an
+`executor` and a `blockstore` with no named opt-out — so a relay could not answer without also
+shipping a WASM executor. `serveReservations` is that branch alone, refusing every other kind
+BY NAME rather than by silence. Reproduced before it was fixed, on a real workerd:
+*"the relay did not answer /o2/rpc/1.0.0 at all: expected +0 to be 1"*. On the deployed node
+after `v2.0.0-rc.7`: a seeker told only the relay's address got `answered: 1` and the
+reserver's circuit address, and an `offer` came back refused by name. The redeploy also read
+the relay-service journal back — `inboundHopStreams: 12`, marker `1788191433180` — so that
+record survives a REDEPLOY and not only an eviction, which no reading had taken.
 Criterion 1's run supplied the address from the harness, exactly as `two-tabs.e2e.test.ts`
 does for `NET-02`, and criterion 1 says nothing about discovery — but a public run would.
