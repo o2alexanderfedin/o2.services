@@ -403,6 +403,81 @@ function noteOutcome(cause: StartFailure | null): void {
   }
 }
 
+/**
+ * This origin's bootstrap document, wherever it is mounted — and it is mounted in two places.
+ *
+ * ## Why two, and why asking both is the fix rather than picking one
+ *
+ * Two production servers publish this document at two different paths, and neither is wrong:
+ *
+ * - **Beside the page.** GitHub Pages serves this repository at a SUBPATH
+ *   (`/o2.services/`), and `scripts/deploy-pages.sh` writes `bootstrap.json` into the
+ *   published directory. A root-absolute request there reaches the domain apex, not the site.
+ * - **At the origin root.** `SeedServer` mounts a middleware on `/bootstrap.json`
+ *   (`packages/node/src/seed-server.ts:499`) while serving the page from
+ *   `/packages/browser/demo/index.html`, because the address it publishes is derived from the
+ *   request's own `Host` header and cannot be a file sitting next to the page.
+ *   `tab-api.ts` documents the root path.
+ *
+ * **A page cannot know which one served it, and that is the whole point.** It is a bundle
+ * loaded from an origin it was not configured for — the same property that makes
+ * `?relay=` a link rather than a build flag.
+ *
+ * ## What this cost, and why one request was never enough
+ *
+ * `cb09195` (2026-08-28) changed both call sites from root-absolute to document-relative. It
+ * fixed the published client, which had never been able to join at all, and it silently broke
+ * every LAN seed: measured 2026-08-31 against a live `SeedServer`, `/bootstrap.json` answered
+ * 200 with the seed's own relay address while `/packages/browser/demo/bootstrap.json` — what
+ * a relative fetch from that page resolves to — answered **404**. `discoverRelays` then
+ * reported `source: 'none'`, which `tab-api.ts` documents as the ORDINARY state of a static
+ * host, so a page that could no longer join looked exactly like one that was simply given no
+ * relay. Nothing errored. Fifteen e2e cases across six files went red and stayed red through
+ * two releases.
+ *
+ * The root-absolute form had the mirror-image defect, which is why reverting is not the fix.
+ *
+ * ## Relative FIRST, and the order is load-bearing
+ *
+ * On Pages the root request reaches the domain apex — an origin this page does not control
+ * and whose answer it must never dial. Asking beside the page first means that request is
+ * only ever made when the page's own directory has no bootstrap document, and it is answered
+ * by the same origin in either case.
+ *
+ * The first request that returns a parseable JSON body wins, whatever fields are in it: a
+ * document that exists IS this origin's answer, and falling through on a missing field would
+ * let one caller read one location and another caller read the other.
+ *
+ * Answers `undefined` when neither location has one — a static host with no seed, which is a
+ * state and not a failure.
+ */
+async function fetchBootstrapDocument(): Promise<Record<string, unknown> | undefined> {
+  // Deduplicated, because a page served FROM the root resolves both to the same URL and a
+  // second identical request would be a wasted round trip on the commonest arrangement.
+  const seen = new Set<string>()
+  for (const candidate of [
+    new URL('bootstrap.json', document.baseURI),
+    new URL('/bootstrap.json', location.origin),
+  ]) {
+    if (seen.has(candidate.href)) continue
+    seen.add(candidate.href)
+    try {
+      // `no-store` because a stale relay address is worse than a slow one.
+      const response = await fetch(candidate, { cache: 'no-store' })
+      if (!response.ok) continue
+      const body: unknown = await response.json()
+      // Narrowed rather than cast: a static host may answer 200 with HTML or with an array,
+      // and neither must be read as a bootstrap document by a caller reaching for a field.
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        return { ...body }
+      }
+    } catch {
+      // A 404, HTML where JSON was expected, or no host at all. Try the other location.
+    }
+  }
+  return undefined
+}
+
 /** The round in flight, so a second caller joins it instead of starting another. */
 let discoveryRound: Promise<TabDiscoveryRound> | null = null
 
@@ -422,24 +497,12 @@ async function runDiscoveryRound(): Promise<TabDiscoveryRound> {
   // 1. The origin, when a seed node served this page. It is the better answer on a
   //    LAN because it also carries the seed's own direct address, which needs no
   //    relay circuit at all — so a lone visitor has a peer immediately.
-  try {
-    // **Resolved against the DOCUMENT, never root-absolute.** GitHub Pages serves this
-    // repository at a subpath (`/o2.services/`), so a leading slash reaches the domain
-    // apex instead of the site. The 404 is not an error anybody sees: `discoverRelays`
-    // answers `source: 'none'`, which `tab-api.ts` documents as the NORMAL state of a
-    // static host, so a page that can never join looks exactly like one that was simply
-    // given no relay. Same discipline as `vite.config.ts`'s `base: './'`, which already
-    // keeps every other asset reference relative; the bootstrap document was left out.
-    const response = await fetch(new URL('bootstrap.json', document.baseURI), { cache: 'no-store' })
-    if (response.ok) {
-      const info = (await response.json()) as { peerAddrs?: unknown }
-      if (Array.isArray(info.peerAddrs)) {
-        candidates.push(...info.peerAddrs.filter((a): a is string => typeof a === 'string'))
-        asked = true
-      }
-    }
-  } catch {
-    // A static host has no origin to ask. Not a failure — see below.
+  // Both mount points, relative first — see {@link fetchBootstrapDocument} for why a page
+  // cannot know which of the two served it, and for what asking only one of them cost.
+  const info = await fetchBootstrapDocument()
+  if (info !== undefined && Array.isArray(info['peerAddrs'])) {
+    candidates.push(...info['peerAddrs'].filter((a): a is string => typeof a === 'string'))
+    asked = true
   }
 
   // 2. The fabric itself. **This is the only route on a static host**, where there
@@ -1231,17 +1294,17 @@ const api: TabApi = {
 
     // 2. Otherwise ask this page's own origin. Works when a seed node is serving the
     //    page — over `.local`, a raw IP, or localhost — without knowing which.
-    //    Absolute: the seed mounts it at the root, and on a static host it simply 404s.
-    //    `no-store` because a stale relay address is worse than a slow one.
-    try {
-      const response = await fetch(new URL('bootstrap.json', document.baseURI), { cache: 'no-store' })
-      if (response.ok) {
-        const info = (await response.json()) as {
-          relayAddrs?: unknown
-          enrollmentProvider?: unknown
-        }
-        const addrs = Array.isArray(info.relayAddrs)
-          ? info.relayAddrs.filter((a): a is string => typeof a === 'string')
+    //
+    //    **Two locations, relative first.** The sentence here used to read *"Absolute: the
+    //    seed mounts it at the root"* beside code that had already been changed to resolve
+    //    against the document, and the two disagreed for three days. See
+    //    {@link fetchBootstrapDocument}: a seed mounts it at the root, a static host and
+    //    GitHub Pages carry it beside the page, and a bundle cannot know which served it.
+    {
+      const info = await fetchBootstrapDocument()
+      if (info !== undefined) {
+        const addrs = Array.isArray(info['relayAddrs'])
+          ? info['relayAddrs'].filter((a): a is string => typeof a === 'string')
           : []
         if (addrs.length > 0) {
           // AUTH-01/04 — where to enrol, learned from the origin that served this page.
@@ -1257,17 +1320,15 @@ const api: TabApi = {
           return {
             source: 'origin' as const,
             relayAddrs: addrs,
-            ...(typeof info.enrollmentProvider === 'string' && info.enrollmentProvider !== ''
-              ? { enrollmentProvider: info.enrollmentProvider }
+            ...(typeof info['enrollmentProvider'] === 'string' && info['enrollmentProvider'] !== ''
+              ? { enrollmentProvider: info['enrollmentProvider'] }
               : {}),
           }
         }
       }
-    } catch {
-      // A static host answers 404, or HTML, or nothing. Not an error — just means
-      // there is no seed node here.
     }
 
+    // Neither location had one. A static host with no seed — a state, not a failure.
     return { source: 'none' as const, relayAddrs: [] }
   },
 
