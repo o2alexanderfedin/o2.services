@@ -18,6 +18,22 @@
  * `vite.config.ts` already applies to assets with `base: './'` — *"keeps every asset reference
  * relative, which is what a project page"* needs. The bootstrap document is an asset of the
  * same page and had been left out of that rule.
+ *
+ * ## AMENDED 2026-08-31 — the fix above broke the mirror image, and these cases did not see it
+ *
+ * `cb09195` made both call sites relative and every LAN seed stopped working the same day.
+ * `SeedServer` mounts the document at the origin ROOT (`seed-server.ts:499`) while serving the
+ * page from `/packages/browser/demo/index.html`, so the relative form resolves to
+ * `/packages/browser/demo/bootstrap.json` — measured 404 against a live seed, while
+ * `/bootstrap.json` answered 200. `discoverRelays` reported `source: 'none'`, the documented
+ * NORMAL state, and again **nothing errored**. Fifteen e2e cases across six files went red and
+ * stayed red through two releases.
+ *
+ * The cases in this file all passed throughout, because *"never root-absolute"* is not the
+ * property. The property is **beside the page FIRST, root second** — the page asks both,
+ * because a bundle cannot know which of the two servers loaded it, and the order is what keeps
+ * the apex request from ever being the one that answers on Pages. The ordering case below is
+ * new and is what this file was missing.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -72,6 +88,32 @@ describe('a page served from a subpath still finds its bootstrap document', () =
           'already resolves every other asset',
       ).toContain("new URL('bootstrap.json', document.baseURI)")
     }
+  })
+
+  it('asks BESIDE THE PAGE FIRST and the origin root second, in that order', () => {
+    // **The order is the whole safety property, not a preference.** On Pages the root request
+    // reaches `o2alexanderfedin.github.io/bootstrap.json` — the domain apex, an origin this
+    // page does not control and whose answer it must never dial. Relative first means that
+    // request is only ever made when the page's own directory has no bootstrap document.
+    //
+    // Read as source ORDER rather than as presence, because presence is what the case above
+    // already checks and presence is what passed while the seed was broken.
+    const source = readFileSync(`${ROOT}/packages/browser/demo/main.ts`, 'utf8')
+    const relative = source.indexOf("new URL('bootstrap.json', document.baseURI)")
+    const root = source.indexOf("new URL('/bootstrap.json', location.origin)")
+
+    expect(relative, 'the document-relative candidate is gone').toBeGreaterThan(-1)
+    expect(
+      root,
+      'the origin-root candidate is gone — every LAN seed mounts the document there, and a ' +
+        'page that stops asking for it joins nothing while reporting the documented NORMAL ' +
+        'state of a static host',
+    ).toBeGreaterThan(-1)
+    expect(
+      relative,
+      'the root candidate must come SECOND: on Pages it reaches the domain apex, which this ' +
+        'page does not control',
+    ).toBeLessThan(root)
   })
 
   it('keeps vite emitting relative asset references, which the subpath also depends on', () => {
