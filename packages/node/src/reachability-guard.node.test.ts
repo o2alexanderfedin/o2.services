@@ -664,6 +664,16 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // `createHostedLibp2p`'s `metrics` and onto `BootstrapObject`'s `/self` — and their
       // callers are `fetch` and `#upgrade`, which the Workers runtime invokes and no line in
       // this tree does. Raised by exactly the three that arrived.
+      //
+      // 2026-08-30 (the relay-service log): 107 -> 112. Five rows — `libp2p/RelayServiceLog`
+      // and the four `packages/cloudflare/src/relay-service-journal.ts` exports. Same standing
+      // condition as the raise above and for a sharper reason: the log's caller is
+      // `trafficSplitMetrics`'s `trackProtocolStream`, which libp2p invokes, and the journal's
+      // callers are `BootstrapObject.fetch` and `.webSocketClose`, which the Workers runtime
+      // invokes. Neither is a call expression anywhere in this tree and neither can become
+      // one. Read behaviourally by `relay-service-log.e2e.test.ts` against a real
+      // `circuitRelayServer` and by `worker.test.ts` against the storage fixture. Raised by
+      // exactly the five that arrived.
     ).toBeLessThanOrEqual(UNREACHABLE_CEILING)
   }, GRAPH_TIMEOUT_MS)
 
@@ -1431,7 +1441,7 @@ interface OpenFinding {
  * symbols; this number exists so a seventh arrival cannot slip in under a bound that was
  * sized for six.
  */
-const UNREACHABLE_CEILING = 107
+const UNREACHABLE_CEILING = 112
 
 const OPEN_FINDINGS: readonly OpenFinding[] = [
   {
@@ -1514,6 +1524,66 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       + 'part with a trap in it and a spec should be able to read it without a network '
       + 'stack: `traffic-split.test.ts` feeds it the `<relay>/p2p-circuit/webrtc/p2p/<self>` '
       + 'form directly.',
+  },
+  {
+    key: 'libp2p/RelayServiceLog',
+    declaredIn: 'packages/libp2p/src/relay-service-log.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The relay-service record — what this node has done as a circuit relay, and when it '
+      + 'first did it. It exists because `TrafficSplitCounter` is per-instance and holds no '
+      + 'history, which on 2026-08-30 made "did a browser reserve on this relay, and when?" '
+      + 'unanswerable from the node itself. '
+      + 'Wired: `trafficSplitMetrics` hands every protocol stream to `RelayServiceLog.observe`, and `BootstrapObject` restores the log from its own storage, reports it as `relayService` on `GET /self`, and banks it back on `webSocketClose`. Unreachable for this tier’s standing reason: every one of those callers is the platform — libp2p’s upgrader and the Workers runtime — and no call expression in this repository reaches them.'
+      + ' Read behaviourally by `packages/libp2p/src/relay-service-log.e2e.test.ts` against a '
+      + 'real `circuitRelayServer`, which is where the direction claim every counter depends '
+      + 'on is checked; planted by inverting `stream.direction`, watched red on both cases, '
+      + 'restored `cmp`-clean.',
+  },
+  {
+    key: 'cloudflare/readRelayServiceJournal',
+    declaredIn: 'packages/cloudflare/src/relay-service-journal.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The durable half of the relay-service record — read by `BootstrapObject` before '
+      + '`GET /self` reports it, so the answer is the NODE’s history and not the instance’s. '
+      + 'Wired: `trafficSplitMetrics` hands every protocol stream to `RelayServiceLog.observe`, and `BootstrapObject` restores the log from its own storage, reports it as `relayService` on `GET /self`, and banks it back on `webSocketClose`. Unreachable for this tier’s standing reason: every one of those callers is the platform — libp2p’s upgrader and the Workers runtime — and no call expression in this repository reaches them.'
+      + ' Read by `relay-service-journal.test.ts` against the real `DoDatastore` over the '
+      + 'storage fixture, and by `worker.test.ts`, whose case plants an unrestored read and '
+      + 'watches it go red.',
+  },
+  {
+    key: 'cloudflare/writeRelayServiceJournal',
+    declaredIn: 'packages/cloudflare/src/relay-service-journal.ts',
+    callers: 'unreachable-only',
+    reason:
+      'The write half, called from `BootstrapObject.webSocketClose` — an async handler the '
+      + 'platform awaits, which is the last point at which anything is guaranteed to run. '
+      + 'Wired: `trafficSplitMetrics` hands every protocol stream to `RelayServiceLog.observe`, and `BootstrapObject` restores the log from its own storage, reports it as `relayService` on `GET /self`, and banks it back on `webSocketClose`. Unreachable for this tier’s standing reason: every one of those callers is the platform — libp2p’s upgrader and the Workers runtime — and no call expression in this repository reaches them.'
+      + ' Its refusal of a backwards write is read by `relay-service-journal.test.ts`, whose '
+      + 'headline case was measured staying GREEN under a planted-away counter guard and '
+      + 'carries an isolating assertion because of it.',
+  },
+  {
+    key: 'cloudflare/MalformedRelayJournalError',
+    declaredIn: 'packages/cloudflare/src/relay-service-journal.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Thrown by `readRelayServiceJournal` when the stored bytes are not a record this code '
+      + 'wrote, so it inherits that row\'s reason. Exported because a caller that wanted to '
+      + 'distinguish "this store holds something else" from a storage fault needs the type, '
+      + 'and because `relay-service-journal.test.ts` asserts on it by class rather than by '
+      + 'message — four cases, one per malformed shape.',
+  },
+  {
+    key: 'cloudflare/RelayJournalRollbackError',
+    declaredIn: 'packages/cloudflare/src/relay-service-journal.ts',
+    callers: 'unreachable-only',
+    reason:
+      'Thrown by `writeRelayServiceJournal` when a write would shorten the node’s history — '
+      + 'the fresh-instance-writes-zeros bug made impossible rather than documented, since '
+      + '`BootstrapObject.alarm()` runs on an instance holding an empty log by construction. '
+      + 'Inherits that row\'s reason; exported so the five refusal cases can assert the class.',
   },
   {
     key: 'cloudflare/hostedCapabilities',
