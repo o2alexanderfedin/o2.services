@@ -238,7 +238,14 @@ const NODE_MEASUREMENT = {
    * and nothing else. Neither new file is on that list, so both sides move whichever lane
    * the file runs in — the correction recorded in the 213 -> 214 note above.
    */
-  files: 217,
+  /**
+   * **217 -> 219 on 2026-08-30 (Phase 32, NET-14)**, two files:
+   * `packages/libp2p/src/traffic-split.test.ts` (node lane — a classifier and its arithmetic,
+   * no sockets) and `packages/libp2p/src/traffic-split.e2e.test.ts` (e2e lane — three libp2p
+   * nodes on ephemeral ports, including a circuit relay). `unitFiles` moves by the same two,
+   * for the identity recorded above.
+   */
+  files: 219,
   tests: 2948,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
@@ -422,7 +429,7 @@ const NODE_MEASUREMENT = {
    * hour once spread 25.69 / 33.68 / 22.39 s — 1.5x end to end. Any comparison against this
    * number that turns on less than half of it is reading the host's weather.
    */
-  unitFiles: 139,
+  unitFiles: 141,
   unitTests: 2317,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
