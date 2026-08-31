@@ -149,13 +149,35 @@ async function until(
   what: string,
   observed?: () => unknown,
 ): Promise<void> {
+  // Two measured reds on 2026-08-31, both false. (1) A predicate here is a round trip over a
+  // live connection or another process, and a drop between two polls is the *"not yet"* the
+  // budget exists to absorb — so a throw is `false`, carried to the report rather than
+  // swallowed. (2) The predicate is re-checked ONCE after the deadline, or the message is
+  // built from a later observation than the last evaluation and can read `waiting for X;
+  // observed X`. Full working: `closed-fabric-agents.node.test.ts`'s `until`.
   const deadline = Date.now() + timeoutMs
+  let lastError: unknown
+  const attempt = async (): Promise<boolean> => {
+    try {
+      if (await predicate()) return true
+      lastError = undefined
+      return false
+    } catch (cause) {
+      lastError = cause
+      return false
+    }
+  }
   while (Date.now() < deadline) {
-    if (await predicate()) return
+    if (await attempt()) return
     await new Promise((r) => setTimeout(r, 50))
   }
+  if (await attempt()) return
+  const threw =
+    lastError === undefined
+      ? ''
+      : `; last attempt threw ${lastError instanceof Error ? lastError.message : String(lastError)}`
   const tail = observed === undefined ? '' : `; observed ${JSON.stringify(observed())}`
-  throw new Error(`timed out waiting for ${what}${tail}`)
+  throw new Error(`timed out waiting for ${what}${threw}${tail}`)
 }
 
 /** Hold `predicate` false for the whole window, or fail naming when it first became true. */

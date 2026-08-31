@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { DEFAULT_MAX_PER_WINDOW, requestEnrollment, toHex, verifyCertificate } from '@o2/core'
 import type { NodeCertificate } from '@o2/core'
-import { SEED_BYTES, peerIdForNodeKey } from '@o2/libp2p'
+import { MAX_CONCURRENT_STREAMS_PER_PEER, SEED_BYTES, peerIdForNodeKey } from '@o2/libp2p'
 import { RpcRecordIndex, enrolOverRpc } from '@o2/net'
 import type { EnrolOutcome } from '@o2/net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -544,6 +544,19 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
     // 2026-08-23, after a race hypothesis was drafted and then killed by reading the check
     // order. The second explanation drafted here — the arithmetic one above — was killed the
     // same way, by planting a 900 ms budget and watching it pass.
+    //
+    // **EXPLAINED 2026-08-31, and the explanation is below the budget rather than in it.**
+    // The case failed again on a whole-lane run, one request undecided at the full 60 000 ms.
+    // The cause is head-of-line queueing: `Promise.all` over all 67 starts every budget clock
+    // at once while the transport admits 8 streams to a peer, so the tail spends its budget
+    // WAITING and the number measures the machine — which is what `CLAUDE.md` § Measurement
+    // says a wall clock over a waiting process always does. Comparative reading, one variable,
+    // same quiet host: **300 ms budget, simultaneous → 35 of 67 undecided; 300 ms budget,
+    // batched at 8 → 0.** At 400 ms both are clean, so the cliff is sharp and it is the queue.
+    //
+    // The dispatch below is batched accordingly. This 60 000 ms therefore no longer covers a
+    // queue of 126 requests ahead of the last one; it covers one exchange, which is why it
+    // stops being marginal under contention rather than being raised again.
     const client = await startClient('burst-client', 60_000)
     await client.dial(provider.multiaddrs[0] as string)
 
@@ -552,19 +565,35 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
     // until 2026-08-17, when the default moved from 5 to 32 and twenty stopped being a
     // burst at all. A fixed literal beside a moving default does not fail loudly; it goes
     // green and stops measuring, which is worse.
-    const outcomes = await Promise.all(
-      Array.from({ length: DEFAULT_MAX_PER_WINDOW + 3 }, async (_, i) =>
-        enrolOverRpc(
-          client.rpc,
-          provider.peerId,
-          await requestEnrollment(new Uint8Array(SEED_BYTES).fill(i + 1), BURST_USER_SEED, {
-            operatorId: 'burst-ops',
-            discoverability: 'seed',
-            relayIds: [],
-          }),
-        ),
-      ),
-    )
+    // **Dispatched `MAX_CONCURRENT_STREAMS_PER_PEER` at a time, and this is a repair, not a
+    // relaxation.** A `Promise.all` over all 67 starts every request's budget clock at once
+    // while `Libp2pTransport` admits only 8 streams to a peer — so the tail spent its budget
+    // QUEUEING rather than exchanging, and the budget became a reading of the machine.
+    //
+    // Measured on a quiet host, one variable, same run: at a 300 ms budget the simultaneous
+    // form leaves **35 of 67** undecided and the batched form leaves **0**; at 400 ms both
+    // are clean. The provider sees the same thing either way — the transport already caps
+    // what reaches it at 8 — so nothing about the rate-limit claim is weakened, and the
+    // 60 000 ms budget below now covers one exchange instead of the queue in front of it.
+    const outcomes: EnrolOutcome[] = []
+    for (let start = 0; start < DEFAULT_MAX_PER_WINDOW + 3; start += MAX_CONCURRENT_STREAMS_PER_PEER) {
+      const size = Math.min(MAX_CONCURRENT_STREAMS_PER_PEER, DEFAULT_MAX_PER_WINDOW + 3 - start)
+      outcomes.push(
+        ...(await Promise.all(
+          Array.from({ length: size }, async (_, k) =>
+            enrolOverRpc(
+              client.rpc,
+              provider.peerId,
+              await requestEnrollment(new Uint8Array(SEED_BYTES).fill(start + k + 1), BURST_USER_SEED, {
+                operatorId: 'burst-ops',
+                discoverability: 'seed',
+                relayIds: [],
+              }),
+            ),
+          ),
+        )),
+      )
+    }
 
     const accepted = outcomes.filter((o) => o.ok)
     const refused = outcomes.filter(
