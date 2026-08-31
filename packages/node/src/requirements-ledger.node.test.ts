@@ -1600,11 +1600,20 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     reread: '2026-08-30',
     witnesses: ['packages/cloudflare/src/expiry-alarm.test.ts'],
   },
+  // Re-read 2026-08-30 (Phase 41). The row's verdict did not move and its BLOCKER did: the
+  // second `aarch64` Linux host is obtainable (this repository is public and GitHub offers
+  // hosted Linux arm64 runners), so the retired clause described effort rather than a
+  // physical wall. The bucket is unchanged — `experiment-not-run` is exactly right, and now
+  // for a checkable reason: the arrangement exists, the dispatch has not happened, and the
+  // dispatch is an owner act because it is a push to a public repository.
   {
     id: 'AOT-03',
     because: 'experiment-not-run',
-    reread: '2026-08-17',
-    witnesses: ['tools/aot/cross-machine.node.test.ts'],
+    reread: '2026-08-30',
+    witnesses: [
+      'tools/aot/cross-host-workflow.node.test.ts',
+      'tools/aot/cross-machine.node.test.ts',
+    ],
   },
   // `AOT-04` was here until 2026-08-18 and is **REMOVED**, by the second of the two exits
   // the rule allows: its row is `Done`, so it leaves the population and the set equality
