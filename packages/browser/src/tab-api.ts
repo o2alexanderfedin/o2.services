@@ -881,18 +881,27 @@ export interface TabApi {
   /**
    * Join using whatever the page's own origin says to dial.
    *
-   * The whole of "automatic discovery" from the browser's side. The page fetches
-   * `/bootstrap.json` from the host it was itself loaded from, so a phone that opened
+   * The whole of "automatic discovery" from the browser's side. The page fetches the
+   * bootstrap document from the host it was itself loaded from, so a phone that opened
    * `http://laptop.local:5173` is told to dial `/dns4/laptop.local/...` — nothing
    * hardcoded, nothing guessed, and no address that can go stale in a build.
+   *
+   * **CORRECTED 2026-08-31 — it is fetched from TWO paths, not one, and this docblock saying
+   * `/bootstrap.json` was part of why that took three days to find.** A seed mounts the
+   * document at the origin ROOT while serving the page from a subpath; GitHub Pages and every
+   * static host carry it BESIDE the page. Neither is wrong and a bundle cannot know which
+   * origin served it, so the page asks beside-the-page first and the root second — see
+   * `demo/main.ts`'s `fetchBootstrapDocument`. Asking only one of them was measured breaking
+   * the other completely, in both directions, at different times.
    */
   autoStart(options?: { blockstoreName?: string }): Promise<{ peerId: string; relayAddrs: string[] }>
   /**
    * Where this page would look for a relay, without joining.
    *
    * `source` is `'query'` when relays came from `?relay=<multiaddr>`, `'origin'` when
-   * they came from a same-origin `/bootstrap.json`, and `'none'` when neither is
-   * available — which is the normal state on a static host with no relay configured.
+   * they came from a same-origin bootstrap document — beside the page or at the origin
+   * root, see {@link autoStart} — and `'none'` when neither is available, which is the
+   * normal state on a static host with no relay configured.
    *
    * `enrollmentProvider` is present only when the origin named one — AUTH-01/04. A seed that
    * pins admission issuers is meant to publish where a joiner can enrol, because the peers
