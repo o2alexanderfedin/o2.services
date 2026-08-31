@@ -909,8 +909,18 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * instance after an eviction.** Every entry point on this tier is invoked by the Workers
  * runtime and by nothing in this repository, so a call-site search cannot express the open leg
  * — which is exactly `entry-point-not-driven`. Raised by the one entry that arrived.
+ *
+ * **Lowered 4 → 3 on 2026-08-31, in the same commit that moved `HOST-13` to `Done`** — the
+ * ordinary exit again, one day after the raise. The raise said the open leg was *"the platform
+ * firing the alarm on a fresh instance after an eviction"*, and that is what the deployed
+ * reading took: a provider record published at T was gone at T + 76 min while a record
+ * published seconds before the read was found by a different fresh peer through the same
+ * relay, and kad-dht applies no date filter on the provider read path — so the record was
+ * DELETED, and deletion on this tier is the alarm. **The raise's own wording is what made the
+ * reading checkable**, and that is the argument for this register rather than for a count:
+ * a ceiling could have absorbed the entry and no sentence would have said what would close it.
  */
-const REREAD_REGISTER_CEILING = 4
+const REREAD_REGISTER_CEILING = 3
 
 /**
  * ## The rule this list encodes
@@ -1588,18 +1598,10 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // measures why the local route is not a second machine, which is a different sentence from
   // measuring the row. What AOT-03 needs is a second *aarch64 Linux* host running the same
   // elfconv build.
-  // ── Added 2026-08-30 (Phase 31) ────────────────────────────────────────────────────
-  //
-  // `HOST-13` went *Not started* → **Partial**: the Durable Object alarm driver is built and
-  // read, and the leg that stays open is a platform invocation nothing here can force. It
-  // leaves this list when that reading is taken on a deployed object — request, fire, evict,
-  // re-read from a new instance, the methodology `expiry-alarm.ts`'s own header names.
-  {
-    id: 'HOST-13',
-    because: 'entry-point-not-driven',
-    reread: '2026-08-30',
-    witnesses: ['packages/cloudflare/src/expiry-alarm.test.ts'],
-  },
+  // `HOST-13` was here from 2026-08-30 to 2026-08-31 and is **REMOVED** by the ordinary exit:
+  // its row is `Done`, so it leaves the population and the set equality below makes the
+  // removal compulsory. Its entry named the closing condition exactly — *"that reading taken
+  // on a deployed object"* — and that is the reading that was taken, one day later.
   // Re-read 2026-08-30 (Phase 41). The row's verdict did not move and its BLOCKER did: the
   // second `aarch64` Linux host is obtainable (this repository is public and GitHub offers
   // hosted Linux arm64 runners), so the retired clause described effort rather than a
