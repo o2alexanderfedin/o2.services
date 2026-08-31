@@ -63,6 +63,30 @@ import type { DurableObjectAlarms } from './durable-object-storage.d.ts'
  */
 export const EXPIRY_SWEEP_INTERVAL_MS: number = providerRecordPolicy().interval
 
+/**
+ * The tightest a sweep may reschedule itself — HOST-09's second half.
+ *
+ * `arm()`'s `getAlarm()` check answers *"is one already pending"*. It says nothing about
+ * how far ahead the next one is set, and the path that would run hot is not `arm()` at all:
+ * `run()`'s `finally` sets unconditionally, because the alarm that just fired is gone. A
+ * sweep handed a tiny interval therefore re-arms at that interval on every firing, on an
+ * object nobody is watching, and **there is no hard spending ceiling behind it** — see the
+ * `HOST-10` row for what Cloudflare's budget alerts do and do not do.
+ *
+ * **Sixty seconds, and the number is a bound on a runaway rather than a second schedule.**
+ * An alarm firing every `f` ms costs `3_600_000 / f` invocations an hour; at this floor a
+ * self-rescheduling alarm costs 60 an hour instead of unbounded, while the schedule the
+ * policy actually asks for is {@link EXPIRY_SWEEP_INTERVAL_MS} — 15 minutes, 4 an hour.
+ * The floor is fifteen times tighter than that, so it is inert on every path this tier
+ * takes and binds only a caller asking for something `providerRecordPolicy` would never
+ * produce.
+ *
+ * It is enforced on {@link ExpirySweep.intervalMs}, the one reading both paths take, and
+ * deliberately not at the two `setAlarm` call sites: a clamp at a call site is a clamp the
+ * third call site forgets.
+ */
+export const MIN_RESCHEDULE_INTERVAL_MS = 60_000
+
 /** Thrown when an {@link ExpirySweep} is constructed by anything but {@link armExpirySweep}. */
 export class UnarmedSweepError extends Error {
   override readonly name: string = 'UnarmedSweepError'
@@ -120,9 +144,16 @@ export class ExpirySweep {
     this.#init = init
   }
 
-  /** Milliseconds between passes, as this sweep was configured. */
+  /**
+   * Milliseconds between passes, as configured — never tighter than
+   * {@link MIN_RESCHEDULE_INTERVAL_MS}.
+   *
+   * The clamp lives here rather than at either `setAlarm`, because both the initial arm and
+   * the re-arm in `run()`'s `finally` read this one value and a floor applied per call site
+   * is a floor the next call site can be written without.
+   */
   get intervalMs(): number {
-    return this.#init.intervalMs ?? EXPIRY_SWEEP_INTERVAL_MS
+    return Math.max(this.#init.intervalMs ?? EXPIRY_SWEEP_INTERVAL_MS, MIN_RESCHEDULE_INTERVAL_MS)
   }
 
   /**
@@ -163,6 +194,16 @@ export class ExpirySweep {
       // distinction `arm()` draws has no subject here. Setting it directly also means a
       // handler that somehow ran with an alarm still pending re-schedules from *now*
       // rather than leaving a stale earlier time in place.
+      //
+      // **HOST-09 reads "`getAlarm()` is checked before every `setAlarm()`", and this one
+      // call does not check — stated here rather than left for a later verifier to read as
+      // a violation.** The requirement's two clauses guard two different failures: the
+      // check exists so a pending alarm is not pushed forward, and the floor exists so a
+      // reschedule cannot be tighter than `MIN_RESCHEDULE_INTERVAL_MS`. On this path the
+      // first failure is unreachable — the platform clears the alarm before calling the
+      // handler, so there is no pending alarm to push — while the second is reachable and
+      // is what `intervalMs` enforces. Adding the check here would read as compliance and
+      // measure nothing.
       await this.#init.alarms.setAlarm(now() + this.intervalMs)
     }
   }
