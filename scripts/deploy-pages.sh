@@ -203,6 +203,27 @@ say "Publishing to $PAGES_BRANCH (it is $BEHIND commits behind this one)"
 
 WORK="$(mktemp -d)"
 cp -R "$DIST/." "$WORK/"
+
+# **Everything the build did not emit is dropped here, and `.git` is why.**
+#
+# Vite's `emptyOutDir` clears the output directory between builds but DELIBERATELY PRESERVES
+# DOTFILES — that is upstream's guard against nuking a git-based deploy setup. So anything
+# dot-prefixed that ever landed in `dist` stays there through every later build, and the copy
+# above carries it into the publish.
+#
+# That is not hypothetical and it is not cosmetic. Measured 2026-09-01: this repository's own
+# `packages/browser/dist/` held a FULL CLONE checked out on `gh-pages` at `v2.0.0-rc.4`, left
+# behind when this script moved from `git checkout gh-pages` to the temp worktree below. Copied
+# into `$PAGES_TREE` it lands on top of that worktree's own `.git`, and `git add -A` then reads
+# a foreign index: the staging came out with FIVE `src-*` assets from an August build and
+# WITHOUT `bootstrap.json`, without the stylesheet and without the task-executor worker. A
+# `--live` run from that laptop would have published a site whose discovery endpoint was
+# missing outright.
+#
+# CI never saw it — a fresh checkout has no stray — which is exactly the shape of defect that
+# breaks the "one script, and it runs identically on a laptop" claim `deploy.yml` makes about
+# this file. So the fix belongs here rather than in a cleanup somebody has to remember.
+find "$WORK" -mindepth 1 -maxdepth 1 -name '.*' -exec rm -rf {} +
 touch "$WORK/.nojekyll"
 
 # A worktree rather than a branch switch: this repository runs concurrent agents in one tree,
@@ -221,9 +242,28 @@ cp -R "$WORK/." "$PAGES_TREE/"
     echo "   nothing changed — the published site already matches this build."
     exit 0
   fi
-  git commit -q -m "Publish the browser client — node $NODE_VERSION, relay $PEER_ID
+  # **The subject names the SOURCE first and the node second, and one misreading is why.**
+  # It read `Publish the browser client — node $NODE_VERSION, …`, which parses as *"the client
+  # is at that version"* — and on 2026-09-01 it was read exactly that way, producing a reported
+  # gap that did not exist: `gh-pages` said `rc.7` while the deployed node said `rc.8`, so the
+  # client was called a release behind. It was not. `$NODE_VERSION` is read from the deployed
+  # node's `/self` and says nothing about the client, and the site is republished only when its
+  # CONTENT changes — the `git diff --cached --quiet` above — so a commit dated at `rc.7` is the
+  # last time the built site differed, not the last time it was checked.
+  #
+  # The published site carries no version of its own at all: no build identity in `index.html`,
+  # none in `bootstrap.json`, none in any asset. This commit is therefore the ONLY record of
+  # what is published, which is why it names the commit it was built from in its own subject.
+  git commit -q -m "Publish the browser client built from $(git -C "$REPO_ROOT" rev-parse --short HEAD) — verified against node $NODE_VERSION, relay $PEER_ID
 
-Built from $(git -C "$REPO_ROOT" rev-parse --short HEAD) by scripts/deploy-pages.sh.
+Published by scripts/deploy-pages.sh, and only because the built site DIFFERS from what
+gh-pages already held — an unchanged build commits nothing, so the gap between this commit's
+date and the newest release is not a staleness reading.
+
+'$NODE_VERSION' is the DEPLOYED NODE's version, read live from /self. It is not the client's:
+the client publishes no version of its own, and the commit hash in the subject is the only
+identity this site has.
+
 bootstrap.json points at $RELAY_ADDR, read from the deployed node rather than written down."
   git push -q origin "HEAD:${PAGES_BRANCH}"
 )
