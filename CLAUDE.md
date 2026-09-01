@@ -105,6 +105,44 @@ manifest and coverage report, not by a quorum.
 | `typescript` | `7.0.2` | Type checking, `.d.ts` emit | Go-native compiler, ~10x faster type-checks. `strict` is now the default, which matches the project's needs. **Caveat: no stable programmatic API until 7.1.** Mitigate by using `isolatedDeclarations` (below) so nothing in the build depends on the TS API. |
 | Node.js | `24.x` LTS ("Krypton", currently `24.18.0`) | Server/backbone runtime | Active LTS. Node 26.5.0 is Current but not yet LTS (promotes Oct 2026). Node 24 has stable `WebAssembly`, `node:test`, and full Web Crypto — enough that no polyfills are needed for parity with the browser. |
 ### libp2p modules — the exact browser + Node set
+
+> **BUMPED AND REVERTED ON 2026-08-31, THE SAME DAY. The versions in this table are the ones
+> in force; the list below is the set that was tried.** The family bump is held by a measured
+> regression, not by a doubt: `transport-bounds.node.test.ts`'s NET-08 case reddened on the
+> bumped tree and an 8 MiB + 1 message arrived **truncated to 851 968 bytes and was delivered
+> as a complete message with `refusedInbound: 0`** — an integrity failure, not a bound that
+> merely failed to fire. Same source, same quiet host, only `node_modules` differing: 15 of 15
+> on the old family, 1 failed on the new. Working, and what must hold before the family moves
+> again: `.planning/debug/2026-08-31-libp2p-bump-truncates-an-oversized-message.md`.
+>
+> **The set below is kept rather than deleted because it is the hard-won half**: it typechecks
+> with zero duplicated members, which no smaller change achieves.
+>
+> **The versions tried, and the reason the attempt was worth making.** The js-libp2p family was moved as ONE bump on that date — `libp2p`
+> `3.3.6`→`3.3.10`, `websockets` `10.1.17`→`10.1.21`, `webrtc` `6.0.27`→`6.0.31`,
+> `circuit-relay-v2` `4.2.9`→`4.2.13`, `identify` `4.1.10`→`4.1.14`, `ping` `3.1.9`→`3.1.13`,
+> `kad-dht` `16.4.0`→`16.4.5`, `tcp` `11.0.24`→`11.0.28`, `keychain` →`6.1.7`, `crypto`
+> `5.1.21`→`5.1.23`, `utils` `7.3.0`→`7.4.1`, `peer-id` `6.0.12`→`6.0.15`, `logger`
+> `6.2.10`→`6.2.13`, `interface` `3.2.5`→`3.3.0`. The rows below are left at their old numbers
+> rather than rewritten, because what they say about each package's *role* is unchanged and
+> this repository retires a claim by dating it. **The workspace manifests are the pins;
+> this table is the reasoning.**
+>
+> **Why one bump and not fourteen — measured, not preferred.** A single-package bump of a
+> monorepo member cannot pass this repository's typecheck. `@libp2p/identify@4.1.13` requires
+> `@libp2p/interface@^3.3.0`; two workspace manifests pinned `@libp2p/interface` at exactly
+> `3.2.5`, so npm kept 3.2.5 at the hoist root and nested 3.3.0 beside every package that
+> asked for it — five nested copies — and TypeScript compared two structurally different
+> `Stream` types and emitted 24 errors. **The errors name `identify`, and `identify`'s API did
+> not change**: the defect is a duplicated type vocabulary, which is the same failure class
+> the `multiformats@14` and `@multiformats/multiaddr@13` warnings elsewhere in this file are
+> about. Raising the pin alone does NOT fix it (npm's lock preservation keeps the old copy
+> alive: measured, 38 errors — worse), and neither does an `overrides` entry. What fixes it is
+> moving the family together: zero duplicated members afterwards, down from the **three
+> `develop` was already carrying silently** (`@libp2p/crypto`, `@libp2p/interface`,
+> `@libp2p/keychain`), and a `package-lock.json` that got smaller. `.github/dependabot.yml`
+> now groups the family so the class cannot recur.
+
 | Package | Version | Browser | Node | Purpose / Notes |
 |---------|---------|:-------:|:----:|-----------------|
 | `@libp2p/websockets` | `10.1.17` | **dial only** | **dial + listen** | Browser→server only. Browsers cannot open listening sockets. Multiaddr form is now `/dns4/host/tcp/443/tls/ws` (the old `/wss` shorthand still parses). Browser can only dial **secure** WS from an HTTPS page. |
