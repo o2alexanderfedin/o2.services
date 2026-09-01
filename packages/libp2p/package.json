@@ -7,16 +7,16 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@libp2p/crypto": "5.1.23",
-    "@libp2p/interface": "3.3.0",
-    "@libp2p/kad-dht": "16.4.5",
-    "@libp2p/peer-id": "6.0.15",
+    "@libp2p/crypto": "5.1.21",
+    "@libp2p/interface": "3.2.5",
+    "@libp2p/kad-dht": "16.4.0",
+    "@libp2p/peer-id": "6.0.12",
     "@libp2p/record": "4.0.15",
     "@noble/curves": "2.2.0",
     "@o2/core": "*",
     "@o2/net": "*",
     "interface-datastore": "10.0.1",
-    "libp2p": "3.3.10",
+    "libp2p": "3.3.6",
     "uint8-varint": "3.0.0"
   }
 }

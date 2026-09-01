@@ -9,13 +9,13 @@
   "dependencies": {
     "@chainsafe/libp2p-noise": "17.0.0",
     "@chainsafe/libp2p-yamux": "8.0.1",
-    "@libp2p/circuit-relay-v2": "4.2.13",
-    "@libp2p/identify": "4.1.14",
-    "@libp2p/kad-dht": "16.4.5",
-    "@libp2p/peer-id": "6.0.15",
-    "@libp2p/ping": "3.1.13",
-    "@libp2p/webrtc": "6.0.31",
-    "@libp2p/websockets": "10.1.21",
+    "@libp2p/circuit-relay-v2": "4.2.9",
+    "@libp2p/identify": "4.1.10",
+    "@libp2p/kad-dht": "16.4.0",
+    "@libp2p/peer-id": "6.0.12",
+    "@libp2p/ping": "3.1.9",
+    "@libp2p/webrtc": "6.0.27",
+    "@libp2p/websockets": "10.1.17",
     "@multiformats/multiaddr": "13.0.3",
     "@o2/aot": "*",
     "@o2/core": "*",
@@ -23,6 +23,6 @@
     "@o2/libp2p": "*",
     "@o2/net": "*",
     "idb": "8.0.3",
-    "libp2p": "3.3.10"
+    "libp2p": "3.3.6"
   }
 }

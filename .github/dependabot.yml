@@ -45,9 +45,26 @@ updates:
     # the same split — typecheck simply did not reach it on their surface — so a passing
     # check is not evidence that a lone family bump is safe.
     #
-    # Moved together the tree resolves to one copy of each: the family bump landed with
-    # ZERO duplicated members, down from the three `develop` already carried, and a
+    # Moved together the tree resolves to one copy of each: the family bump reached ZERO
+    # duplicated members, down from the three `develop` already carried, and a
     # package-lock that got smaller rather than larger.
+    #
+    # ── AND IT WAS REVERTED THE SAME DAY. READ THIS BEFORE MERGING A GROUPED PR. ────────
+    #
+    # The grouped bump typechecks, and it breaks NET-08. An 8 MiB + 1 message arrived
+    # TRUNCATED to 851 968 bytes and was delivered as a COMPLETE message with
+    # `refusedInbound: 0` — a peer can make this node act on a fragment and believe it
+    # received the whole. Measured on a quiet host, 15 of 15 on the old family against
+    # 1 failed on the new, same source. See
+    # `.planning/debug/2026-08-31-libp2p-bump-truncates-an-oversized-message.md`.
+    #
+    # **So the grouped pull request this block produces WILL ARRIVE GREEN, and green is
+    # not enough to merge it.** `transport-bounds.node.test.ts` is one of the ~800 cases
+    # `ci.yml` assigns to the developer machine — `O2_UNIT_ONLY=1` excludes it — so no CI
+    # check on this repository can see the defect above. Before merging a js-libp2p
+    # group, run `npm run test:node` in full on a quiet host and read
+    # `transport-bounds.node.test.ts` specifically. That instruction is the whole reason
+    # this paragraph outlives the revert.
     #
     # `@o2/libp2p` is this repository's own workspace package and is deliberately not
     # matched — the patterns name the published family, not the substring.
