@@ -77,6 +77,28 @@ async function until(what: string, holds: () => boolean): Promise<void> {
   }
 }
 
+/**
+ * Wait for a state that is reached through MICROTASKS ONLY — and never yield to a timer.
+ *
+ * `until` above spends wall clock by construction: its poll is `setTimeout(…, 1)`, so every
+ * turn of it gives the event loop a chance to run a timer. That is right for a state a timer
+ * produces and **wrong for a state a timer can destroy**, which is what reddened the queued-
+ * task case on webkit CI 2026-08-31 — `deadlineMs` is 50, an absolute budget, and the head
+ * died inside the poll, so the tail found a free thread and was never queued.
+ *
+ * Spinning the microtask queue instead closes that by construction rather than by margin: a
+ * task deadline is a `setTimeout`, and no `setTimeout` callback can run while this loop keeps
+ * handing control back to the microtask queue. The budget is a tick count and not a duration,
+ * so it encodes no machine — a slow host takes longer in seconds and the same number of ticks.
+ */
+async function settled(what: string, holds: () => boolean, ticks = 1_000): Promise<void> {
+  for (let tick = 0; tick < ticks; tick++) {
+    if (holds()) return
+    await Promise.resolve()
+  }
+  throw new Error(`did not settle within ${ticks} microtask ticks: ${what}`)
+}
+
 const TASK: Omit<Task, 'moduleCid' | 'inputCid'> = { partitionIndex: 0, partitionCount: 1 }
 
 async function seeded(): Promise<{
@@ -430,10 +452,28 @@ describe('the pool runs as many tasks at once as the host has cores, and no more
       deadlineMs: 50,
     })
 
+    // **Both submitted in the same tick, and the two `until` calls that used to sit between
+    // them are gone rather than widened.** They raced the fixture: `deadlineMs` is 50, an
+    // absolute wall-clock budget, and on a loaded runner the head's 50 ms expired *inside*
+    // the polling loop — so the thread was already free when the tail arrived, the tail was
+    // never queued, and the case failed on the observation rather than on the property:
+    //
+    // > `Error: timed out waiting for: the tail to be queued behind it`
+    //
+    // Webkit on CI, 2026-08-31, one run in two, and it had been read as engine flakiness.
+    // Reproduced deterministically by inserting an 80 ms sleep at exactly this point, which
+    // reddened all three engines with that same sentence — so the cause is the gap, not the
+    // engine. Restored by the surgical inverse, `cmp` clean.
+    //
+    // Order does not need the poll. `maxThreads` is 1 and `execute` reaches `#dispatch`
+    // through two blockstore reads that resolve as microtasks in call order, so the head
+    // takes the only thread and the tail can do nothing but queue.
     const running = executor.execute(task)
-    await until('the head to take the only thread', () => executor.threadCount === 1)
     const waiting = executor.execute(task)
-    await until('the tail to be queued behind it', () => executor.queued === 1)
+    await settled(
+      'the head on the only thread and the tail queued behind it',
+      () => executor.threadCount === 1 && executor.queued === 1,
+    )
     expect(executor.queued).toBe(1)
     expect(built.threads.length).toBe(1)
 
@@ -446,6 +486,16 @@ describe('the pool runs as many tasks at once as the host has cores, and no more
 
     // The queued task was dispatched by the head's death rather than failed by it — a
     // replacement thread, and the queue empty.
+    //
+    // **These three lines are what carries the "it was queued" claim now, and they carry it
+    // more strongly than the transient reading above them did.** `maxThreads` is 1, and
+    // `#takeThread` returns null while `#live` holds one — so a SECOND thread can exist at
+    // all only after the first left `#live` by being killed, and `threads[1].posted.length`
+    // being 1 says the tail is what was posted to it. A tail that had found room immediately
+    // would have run on `threads[0]` and this count would read 1. So the terminal state is
+    // reachable through the queue and through nothing else, which is why dropping the
+    // transient `expect(executor.queued).toBe(1)` costs the case no coverage: that assertion
+    // stated a step on the only path to an end state already asserted here.
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(executor.queued).toBe(0)
     expect(built.threads.length).toBe(2)
