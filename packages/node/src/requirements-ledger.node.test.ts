@@ -1352,10 +1352,40 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // every interface on this host is RFC 1918 or a ULA. So the row keeps its
   // `tier-or-configuration` cause — but for the deployment decision it always was, not for a
   // measurement nobody could take.
+  //
+  // **Flagged at 15 days outstanding and RE-READ 2026-08-31. The row STANDS and is
+  // re-recorded, not ticked — and the reason it is not ticked is the one thing about this
+  // requirement that has not moved in a fortnight.** All three witnesses were run against the
+  // tree rather than read: `auto-tls.node.test.ts` and `relaying.node.test.ts` 22 of 22 in the
+  // `node` project, `seed-binary-join.e2e.test.ts` 2 of 2 in `e2e`. Every claim the row makes
+  // about them still holds.
+  //
+  // **What moved since 2026-08-17, stated first because it is the half that tempts a tick.**
+  // The Cloudflare route stopped being source and became a deployment: the hosted node has
+  // answered at `o2-bootstrap.af-4a0.workers.dev` since 2026-08-27 across eight tagged
+  // releases through `v2.0.0-rc.8`, holding one PeerId across every eviction and redeploy; its
+  // relay carries real reservations (`relayService.inboundHopStreams` 13 read live today); and
+  // as of today it answers the fabric's rendezvous, so it can introduce the peers it holds
+  // rather than merely hold them. Phase 30's criteria 1 and 3 closed against it in the same
+  // pass. On that route TLS is a commercial certificate terminated at Cloudflare's edge with
+  // nobody managing one, which reads like both of NET-03's clauses at once.
+  //
+  // **It is not, and the row already says why in its own words**: on the Cloudflare route the
+  // certificate requirement *does not arise* rather than being met, and a requirement that
+  // does not arise has not been satisfied. Nothing in this re-read disturbs that reading; the
+  // deployment made the sentence more tempting, not less true.
+  //
+  // **What did NOT move, which is the whole of what holds the row open.** The AutoTLS leg is
+  // untouched: the authority `auto-tls.node.test.ts` orders from is still `local-acme.ts`, a
+  // loopback RFC 8555 authority this repository runs, and not a public one; and this host
+  // still has no interface that is not RFC 1918 or a ULA, so the dialable address is still
+  // *declared* through `appendAnnounce` rather than bound. Both are hosting decisions, which
+  // is exactly what `tier-or-configuration` names. No spec acquired or lost a title-naming of
+  // this row — `witness-drift` was green in the same run — so the witness list is unchanged.
   {
     id: 'NET-03',
     because: 'tier-or-configuration',
-    reread: '2026-08-17',
+    reread: '2026-08-31',
     witnesses: [
       'packages/node/src/auto-tls.node.test.ts',
       'packages/node/src/relaying.node.test.ts',
