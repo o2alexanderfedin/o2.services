@@ -105,6 +105,33 @@ manifest and coverage report, not by a quorum.
 | `typescript` | `7.0.2` | Type checking, `.d.ts` emit | Go-native compiler, ~10x faster type-checks. `strict` is now the default, which matches the project's needs. **Caveat: no stable programmatic API until 7.1.** Mitigate by using `isolatedDeclarations` (below) so nothing in the build depends on the TS API. |
 | Node.js | `24.x` LTS ("Krypton", currently `24.18.0`) | Server/backbone runtime | Active LTS. Node 26.5.0 is Current but not yet LTS (promotes Oct 2026). Node 24 has stable `WebAssembly`, `node:test`, and full Web Crypto — enough that no polyfills are needed for parity with the browser. |
 ### libp2p modules — the exact browser + Node set
+
+> **EVERY VERSION IN THIS TABLE IS SUPERSEDED AS OF 2026-08-31, and the reason is worth more
+> than the numbers.** The js-libp2p family was moved as ONE bump on that date — `libp2p`
+> `3.3.6`→`3.3.10`, `websockets` `10.1.17`→`10.1.21`, `webrtc` `6.0.27`→`6.0.31`,
+> `circuit-relay-v2` `4.2.9`→`4.2.13`, `identify` `4.1.10`→`4.1.14`, `ping` `3.1.9`→`3.1.13`,
+> `kad-dht` `16.4.0`→`16.4.5`, `tcp` `11.0.24`→`11.0.28`, `keychain` →`6.1.7`, `crypto`
+> `5.1.21`→`5.1.23`, `utils` `7.3.0`→`7.4.1`, `peer-id` `6.0.12`→`6.0.15`, `logger`
+> `6.2.10`→`6.2.13`, `interface` `3.2.5`→`3.3.0`. The rows below are left at their old numbers
+> rather than rewritten, because what they say about each package's *role* is unchanged and
+> this repository retires a claim by dating it. **The workspace manifests are the pins;
+> this table is the reasoning.**
+>
+> **Why one bump and not fourteen — measured, not preferred.** A single-package bump of a
+> monorepo member cannot pass this repository's typecheck. `@libp2p/identify@4.1.13` requires
+> `@libp2p/interface@^3.3.0`; two workspace manifests pinned `@libp2p/interface` at exactly
+> `3.2.5`, so npm kept 3.2.5 at the hoist root and nested 3.3.0 beside every package that
+> asked for it — five nested copies — and TypeScript compared two structurally different
+> `Stream` types and emitted 24 errors. **The errors name `identify`, and `identify`'s API did
+> not change**: the defect is a duplicated type vocabulary, which is the same failure class
+> the `multiformats@14` and `@multiformats/multiaddr@13` warnings elsewhere in this file are
+> about. Raising the pin alone does NOT fix it (npm's lock preservation keeps the old copy
+> alive: measured, 38 errors — worse), and neither does an `overrides` entry. What fixes it is
+> moving the family together: zero duplicated members afterwards, down from the **three
+> `develop` was already carrying silently** (`@libp2p/crypto`, `@libp2p/interface`,
+> `@libp2p/keychain`), and a `package-lock.json` that got smaller. `.github/dependabot.yml`
+> now groups the family so the class cannot recur.
+
 | Package | Version | Browser | Node | Purpose / Notes |
 |---------|---------|:-------:|:----:|-----------------|
 | `@libp2p/websockets` | `10.1.17` | **dial only** | **dial + listen** | Browser→server only. Browsers cannot open listening sockets. Multiaddr form is now `/dns4/host/tcp/443/tls/ws` (the old `/wss` shorthand still parses). Browser can only dial **secure** WS from an HTTPS page. |
