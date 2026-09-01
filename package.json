@@ -36,7 +36,7 @@
     "vite": "8.1.5",
     "vitest": "4.1.10",
     "wabt": "^1.0.39",
-    "wrangler": "4.125.0"
+    "wrangler": "4.127.1"
   },
   "overrides": {
     "multiformats": "14.0.5",
