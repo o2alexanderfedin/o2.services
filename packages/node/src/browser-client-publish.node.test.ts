@@ -37,7 +37,9 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -155,6 +157,58 @@ describe('the publish is a script, runnable from a terminal and from a workflow'
     expect(SCRIPT).toContain('/self')
     expect(SCRIPT).toContain('ANNOUNCE_MULTIADDRS')
     expect(SCRIPT).not.toMatch(/12D3KooW[A-Za-z0-9]{10}/)
+  })
+
+  it('carries nothing into the publish that the build did not emit', () => {
+    // **Behavioural, and it drives the SCRIPT'S OWN LINE rather than a copy of one.** The
+    // staging command is lifted out of `deploy-pages.sh` by pattern and executed here, so a
+    // future edit that drops it cannot leave this case green: the lookup fails first.
+    //
+    // The defect, measured 2026-09-01 rather than imagined. Vite's `emptyOutDir` clears the
+    // output directory between builds but PRESERVES DOTFILES — upstream's guard against
+    // nuking a git-based deploy setup — and this repository's own `packages/browser/dist/`
+    // held a full clone checked out on `gh-pages` at `v2.0.0-rc.4`, left behind when the
+    // script moved from `git checkout gh-pages` to a temp worktree. `cp -R "$DIST/."` carried
+    // it into the publish tree, where it landed on that worktree's own `.git` and made
+    // `git add -A` read a foreign index: the staging came out with five `src-*` assets from an
+    // August build and **without `bootstrap.json`**, without the stylesheet and without the
+    // task-executor worker. A `--live` run from that laptop publishes a site whose discovery
+    // endpoint is absent, and `discoverRelays` then reports `source: 'none'` — the documented
+    // NORMAL state this whole file exists because of.
+    //
+    // CI never saw it, because a fresh checkout has no stray. That is precisely the shape that
+    // breaks `deploy.yml`'s claim that this one script "runs identically on a laptop".
+    const staging = SCRIPT.split('\n').find(
+      (line) => /^find "\$WORK" .*-name '\.\*'.*rm -rf/.test(line.trim()),
+    )
+    expect(
+      staging,
+      'deploy-pages.sh no longer strips dot-entries from the staging copy — a stray dotfile ' +
+        'under dist/ reaches gh-pages again',
+    ).toBeDefined()
+    if (staging === undefined) return
+
+    const work = mkdtempSync(join(tmpdir(), 'o2-publish-staging-'))
+    try {
+      // A stand-in `dist`: what a build emits, plus the two shapes a dotfile takes.
+      writeFileSync(join(work, 'index.html'), '<!doctype html>')
+      writeFileSync(join(work, 'bootstrap.json'), '{}')
+      mkdirSync(join(work, 'assets'))
+      writeFileSync(join(work, 'assets', 'index-abc.js'), '// asset')
+      mkdirSync(join(work, '.git'))
+      writeFileSync(join(work, '.git', 'HEAD'), 'ref: refs/heads/gh-pages\n')
+      writeFileSync(join(work, '.DS_Store'), 'junk')
+
+      execFileSync('bash', ['-c', staging], { env: { ...process.env, WORK: work } })
+
+      const left = readdirSync(work).sort()
+      // The emitted files survive untouched — this must not become a check that deletes
+      // everything and passes.
+      expect(left).toEqual(['assets', 'bootstrap.json', 'index.html'])
+      expect(readdirSync(join(work, 'assets'))).toEqual(['index-abc.js'])
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
   })
 
   it('uses a worktree rather than switching the shared checkout to gh-pages', () => {
