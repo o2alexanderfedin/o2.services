@@ -106,8 +106,19 @@ manifest and coverage report, not by a quorum.
 | Node.js | `24.x` LTS ("Krypton", currently `24.18.0`) | Server/backbone runtime | Active LTS. Node 26.5.0 is Current but not yet LTS (promotes Oct 2026). Node 24 has stable `WebAssembly`, `node:test`, and full Web Crypto — enough that no polyfills are needed for parity with the browser. |
 ### libp2p modules — the exact browser + Node set
 
-> **EVERY VERSION IN THIS TABLE IS SUPERSEDED AS OF 2026-08-31, and the reason is worth more
-> than the numbers.** The js-libp2p family was moved as ONE bump on that date — `libp2p`
+> **BUMPED AND REVERTED ON 2026-08-31, THE SAME DAY. The versions in this table are the ones
+> in force; the list below is the set that was tried.** The family bump is held by a measured
+> regression, not by a doubt: `transport-bounds.node.test.ts`'s NET-08 case reddened on the
+> bumped tree and an 8 MiB + 1 message arrived **truncated to 851 968 bytes and was delivered
+> as a complete message with `refusedInbound: 0`** — an integrity failure, not a bound that
+> merely failed to fire. Same source, same quiet host, only `node_modules` differing: 15 of 15
+> on the old family, 1 failed on the new. Working, and what must hold before the family moves
+> again: `.planning/debug/2026-08-31-libp2p-bump-truncates-an-oversized-message.md`.
+>
+> **The set below is kept rather than deleted because it is the hard-won half**: it typechecks
+> with zero duplicated members, which no smaller change achieves.
+>
+> **The versions tried, and the reason the attempt was worth making.** The js-libp2p family was moved as ONE bump on that date — `libp2p`
 > `3.3.6`→`3.3.10`, `websockets` `10.1.17`→`10.1.21`, `webrtc` `6.0.27`→`6.0.31`,
 > `circuit-relay-v2` `4.2.9`→`4.2.13`, `identify` `4.1.10`→`4.1.14`, `ping` `3.1.9`→`3.1.13`,
 > `kad-dht` `16.4.0`→`16.4.5`, `tcp` `11.0.24`→`11.0.28`, `keychain` →`6.1.7`, `crypto`
