@@ -109,6 +109,7 @@ describe('NET-09 — classifying a refusal this node made, against every other f
       new SendRefused('local-node refused a send to n0: 8 of 8 streams in use', {
         to: 'n0',
         by: 'local-node',
+        reason: 'per-peer-stream-budget',
       }),
     )
 

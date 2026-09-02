@@ -43,6 +43,14 @@ export {
 // The constant's docblock carries the reading that makes it necessary: `kad-dht` splits
 // provider lifetime across two modules, and the one that looks authoritative is inert.
 export { PROVIDER_RECORD_VALIDITY_MS, providerRecordPolicy } from './constants.ts'
+
+// NET-13's `relayedBudgetPerDirection` is deliberately NOT re-exported here. It is
+// derived from `RELAY_DATA_LIMIT_BYTES` — which is — and its only consumer is
+// `Libp2pTransport.send` inside this package, which imports it module-relatively. A
+// barrel export would publish a surface nothing outside consumes, which is the
+// "+12 callable exports for an owner non-decision" the crypto-backend factories are
+// kept off the barrel for. The phase that needs the figure in another package adds
+// the export beside the consumer that wants it.
 export type { ProviderRecordPolicy } from './constants.ts'
 
 // AUTH-02 / AUTH-04 — who a relay admits, stated by the operator and read by nothing yet.

@@ -4,9 +4,12 @@
  * These are not our choices. They are defaults inside libp2p that constrain the
  * architecture, and several design decisions are downstream of them:
  *
- *   - **A relay is a signalling channel, not a data path.** 2 minutes and 128 KiB
- *     per relayed connection means bulk data over `/p2p-circuit` is not merely
- *     slow, it is impossible. Artifacts must come from somewhere else.
+ *   - **A relay is a signalling channel, not a data path.** The data limit is one
+ *     counter for the whole relayed connection, decremented by **both** directions,
+ *     so a symmetric request/response protocol gets 64 KiB each way and not 128 —
+ *     see {@link RELAY_DATA_LIMIT_BYTES} and {@link relayedBudgetPerDirection}.
+ *     Bulk data over `/p2p-circuit` is not merely slow, it is impossible. Artifacts
+ *     must come from somewhere else.
  *   - **The browser mesh cannot carry bulk data.** A 16 KiB WebRTC message cap
  *     means partials have to stay small, by design rather than by luck.
  *   - **Concurrent browser peers per relay are bounded.** 15 reservations is a
@@ -18,11 +21,102 @@
  * most expensive.
  */
 
-/** Seconds a relayed connection lives before the relay closes it. */
+/**
+ * How long a relayed connection lives before the relay closes it. **2 minutes.**
+ *
+ * A default **of the relay server**, so it is whoever runs the relay who sets it —
+ * this project's relays pass it explicitly (`fabric-node.ts` as
+ * `defaultDurationLimit`, and `hosted-libp2p.ts` likewise), and an operator running
+ * their own may pass something else. Read as a fact about the fabric it would be
+ * wrong: nothing here binds a relay somebody else operates.
+ *
+ * **And on one arrangement it was not observed at all.** Measured 2026-08-24 against
+ * a hosted relay configured with a `reservations` object carrying no explicit limits,
+ * a relayed connection held **206 s** through ten pings with no cut, against this
+ * 120 000 ms — reproduced on a second independent run at 204 s, with `conn.limits`
+ * reporting no limits while {@link RELAY_DATA_LIMIT_BYTES} *was* being enforced on the
+ * same connection. That asymmetry is recorded as measured and **not explained**; no
+ * mechanism is offered for it here, because none was measured.
+ * `.planning/consults/2026-08-24-cloudflare-as-a-fabric-node-measured.md` §15.
+ *
+ * A relay that passes the figure explicitly — every relay this project starts — is a
+ * different arrangement from that one, and the two readings are not blended.
+ */
 export const RELAY_DURATION_LIMIT_MS = 120_000
 
-/** Bytes a relayed connection may carry in total, in each direction. */
+/**
+ * Bytes a relayed connection may carry — **counted across both directions at once.**
+ *
+ * ## The correction, and why it is the kind of number a design gets wrong once
+ *
+ * This docblock read *"in total, in each direction"* until 2026-09-02, which is two
+ * readings at once and the wrong one is the one a design takes: 131 072 bytes reads as
+ * a per-direction allowance, and a protocol sized against it budgets **twice the room
+ * it has**. There is one counter, not two:
+ *
+ * ```js
+ * // @libp2p/circuit-relay-v2/dist/src/utils.js — createLimitedRelay
+ * let dataLimit = { remaining: reservation.limit.data }
+ * countStreamBytes(dst, dataLimit, options)
+ * countStreamBytes(src, dataLimit, options)
+ * ```
+ *
+ * One object, both directions, `limit.remaining -= len` on every message either way
+ * and `abort` once it goes negative. `relayed-budget.node.test.ts` pins that source so
+ * a dependency bump that splits the counter fails there rather than in the field.
+ *
+ * **So a symmetric request/response protocol gets {@link relayedBudgetPerDirection}
+ * each way — 64 KiB, not 128.**
+ *
+ * ## Measured twice, on two unrelated relays, to the same byte
+ *
+ * 2026-08-24, against a hosted relay: sweeping the chunk size moved nothing — the cut
+ * landed on byte 65 536 sent whether written as sixteen 4 KiB chunks, four 16 KiB
+ * chunks or one 64 KiB chunk, and bytes-out plus bytes-back plus the reply in flight
+ * was `131072` in every row, this figure exactly (consult §15).
+ *
+ * 2026-09-02, against a **local** `circuitRelayServer()` started by `FabricNode` on
+ * this project's own defaults, two peers reachable only through it, exchanging over
+ * the o2 RPC protocol: 62 KiB each way completed byte-identical; **63 KiB each way was
+ * cut**; and at 64 KiB each way the echo came back 49 152 bytes — the same figure the
+ * hosted relay returned for the same 16 KiB framing. Different relay, different
+ * process, different transport underneath, same accounting.
+ *
+ * ## What that leaves for a payload, which is less than half
+ *
+ * The counter is on **wire** bytes, so the noise handshake, the identify exchange and
+ * every noise and yamux frame header are paid out of the same 131 072. 63 KiB each way
+ * being cut while 62 KiB survives puts this connection's non-payload cost between 2 049
+ * and 4 097 bytes. {@link relayedBudgetPerDirection} is therefore a **ceiling that is
+ * not reachable**, not an allowance to size a protocol against.
+ *
+ * ## It is a default of the relay server
+ *
+ * Like {@link RELAY_DURATION_LIMIT_MS}: whoever runs the relay sets it, and this
+ * project's relays pass it explicitly. A peer on the far end cannot read it back —
+ * measured 2026-09-02 on the local arrangement, `connection.limits` on a relayed
+ * connection is `{}`, an object present and empty, so it identifies the connection as
+ * limited and states no budget. A node that needs a figure has only this default.
+ */
 export const RELAY_DATA_LIMIT_BYTES = 131_072n
+
+/**
+ * NET-13 — what one direction of a symmetric exchange may use. **Half the limit.**
+ *
+ * Derived rather than written down, so the fabric has exactly one authoritative
+ * relayed-budget figure and this one cannot drift from it. A relay tuned to a
+ * different `defaultDataLimit` gets a per-direction budget that moves with it, which
+ * is the whole reason this is a function of the limit rather than a second constant.
+ *
+ * **A ceiling, and an unreachable one.** Wire framing comes out of the same counter —
+ * see {@link RELAY_DATA_LIMIT_BYTES} — so a protocol that sizes its largest
+ * request/response pair *at* this figure is measured to be cut. Size below it.
+ */
+export function relayedBudgetPerDirection(
+  dataLimitBytes: bigint = RELAY_DATA_LIMIT_BYTES,
+): bigint {
+  return dataLimitBytes / 2n
+}
 
 /** Concurrent reservations one relay server accepts by default. */
 export const RELAY_MAX_RESERVATIONS = 15
