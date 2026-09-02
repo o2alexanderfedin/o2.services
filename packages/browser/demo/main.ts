@@ -358,6 +358,24 @@ function armFunnel(): void {
 
 /** Set once stage six has been reported, so the poll loop stops asking. */
 let funnelSawFirstTask = false
+/**
+ * The peer ids this tab was told to use as relays — stage three's peers, not stage five's.
+ *
+ * Filled from the `relayAddrs` this tab actually started with, so it names what this visit
+ * bootstrapped through rather than whatever a page happened to be configured with. A peer id
+ * is the `/p2p/<id>` tail of a multiaddr, and an address without one contributes nothing.
+ */
+const funnelRelayPeers = new Set<string>()
+
+/** Remember which peers are relays, for {@link funnelTick}. */
+function noteFunnelRelays(addrs: readonly string[]): void {
+  for (const addr of addrs) {
+    const at = addr.lastIndexOf('/p2p/')
+    if (at === -1) continue
+    const id = addr.slice(at + '/p2p/'.length).split('/')[0]
+    if (id !== undefined && id !== '') funnelRelayPeers.add(id)
+  }
+}
 
 /**
  * Stages five and six, read off the same 250 ms poll BROW-07 already runs.
@@ -393,6 +411,17 @@ function funnelTick(): void {
   if (running === null) return
 
   for (const peer of running.transport.peers) {
+    // **The relay is not a classified connection, and leaving it in put the stages out of
+    // order.** MEASURED 2026-09-02: with every peer counted, stage five fired within a poll of
+    // stage three — the tab's connection to its bootstrap node — so a single tab reported
+    // `connection-classified` while `ice-gathering` stayed at zero, which is the roadmap's
+    // fifth and fourth stages arriving in the wrong order. The relay IS stage three, and
+    // counting it again as stage five would report the same fact twice under two names and
+    // make the drop between them structurally zero.
+    //
+    // Stage five is about a peer this visitor can compute WITH, which is what makes
+    // `control-only` worth distinguishing from `direct` at all.
+    if (funnelRelayPeers.has(peer)) continue
     const path = running.transport.pathTo(peer)
     if (path === 'unconnected') continue
     funnel.enter('connection-classified', path === 'control-only' ? 'control-only' : 'direct')
@@ -1514,6 +1543,9 @@ const api: TabApi = {
     // A peer dispatching work here changes what the surface must say, and the page
     // cannot poll for it — see `onActivity`.
     node.onActivity(notify)
+    // RUN-04 — which peers are relays, so `funnelTick` does not count stage three's connection
+    // a second time as stage five. Recorded from what this tab actually started with.
+    noteFunnelRelays(options.relayAddrs ?? [])
     // RUN-04 stage three — the dial to the bootstrap peer completed.
     //
     // **Chosen by measurement rather than by plausibility, and the reason it is HERE.**
