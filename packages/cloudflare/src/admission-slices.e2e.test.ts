@@ -44,6 +44,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { clientVersionFrom, isHaltedFor } from '@o2/libp2p'
+import { buildIdentity } from '../../browser/vite.config.ts'
 import { ADMISSION_KEY_HEADER } from './admission-flag.ts'
 import { HOSTED_OBJECT_NAMES } from './hosted-object.ts'
 import type { AdmissionDirective } from '@o2/libp2p'
@@ -340,5 +342,107 @@ describe('RUN-02 criterion 1 — one region halted, the other two still admittin
     )
     expect(wrongKey.status).toBe(401)
     expect((await readSelf(PORTS['bootstrap-sam'])).admission.halted).toBe(false)
+  }, 60_000)
+})
+
+/**
+ * The version slice, as a within-run pair against this tree's own build stamp.
+ *
+ * ## What this proves and what it does not, said here rather than left to be noticed
+ *
+ * It proves the slice is carried **end to end**: written to the object, banked to Durable
+ * Object storage, read back over `/self`, and applied by `isHaltedFor` — **the same exported
+ * function the client calls**, not a second copy written for the test.
+ *
+ * It does **not** prove two different *builds* behaved differently, because this repository
+ * builds one client. There is no second version to run. What a second build would add is the
+ * one thing the wire cannot: evidence that a real page carrying a different stamp read the
+ * same directive and stayed admitting. That is named as the limit rather than implied.
+ *
+ * ## Why the version is read off the tree instead of written into the spec
+ *
+ * `buildIdentity()` is the producer — the same function `stampBuildIdentity` puts in the
+ * page's head — and `clientVersionFrom` is the split, the same one the client applies. A
+ * literal `'0.0.0'` here would pass on a tree whose version had moved, and would be a second
+ * source of truth for a value that already has exactly one. `browser-id.test.ts` records what
+ * a version boundary written against a hardcoded string costs: *"the composer bounded the
+ * major not at all, the predicate admitted four digits. A visitor on [a newer version] started
+ * and reported nothing whatever."*
+ */
+describe('RUN-02 criterion 1 — the version slice, both arms in one run', () => {
+  it('leaves this build admitting under a halt naming a version that is not its own', async () => {
+    const thisVersion = clientVersionFrom(buildIdentity())
+    expect(
+      thisVersion,
+      'this tree produced no readable build version, so neither arm below is about a version',
+    ).not.toBe(null)
+
+    // A suffix that cannot be a release: semver has no such string, so no real build can ever
+    // land in this slice by accident.
+    const notThisBuild = `${String(thisVersion)}-a-version-no-build-carries`
+    const written = await postAdmission(
+      PORTS['bootstrap-us'],
+      {
+        region: 'bootstrap-us',
+        halted: true,
+        versions: [notThisBuild],
+        since: Date.now(),
+        note: 'phase 36 — a slice naming a version that is not this one',
+      },
+      TEST_KEY,
+    )
+    expect(written.status, `arm A's write was refused: ${written.body}`).toBe(200)
+
+    const directive = (await readSelf(PORTS['bootstrap-us'])).admission
+    // The object IS halted. What decides this arm is the slice, not the boolean — asserted
+    // separately so a green cannot come from a write that failed to land.
+    expect(directive.halted).toBe(true)
+    expect(isHaltedFor(directive, thisVersion)).toBe(false)
+    // And the same directive DOES halt the version it names, which is the control saying the
+    // matcher is reading the slice rather than refusing everything.
+    expect(isHaltedFor(directive, notThisBuild)).toBe(true)
+  }, 60_000)
+
+  it('stops this build under a halt naming the version read off this tree', async () => {
+    const thisVersion = clientVersionFrom(buildIdentity())
+    const written = await postAdmission(
+      PORTS['bootstrap-us'],
+      {
+        region: 'bootstrap-us',
+        halted: true,
+        versions: thisVersion === null ? 'all' : [thisVersion],
+        since: Date.now(),
+        note: 'phase 36 — a slice naming this build',
+      },
+      TEST_KEY,
+    )
+    expect(written.status, `arm B's write was refused: ${written.body}`).toBe(200)
+
+    const directive = (await readSelf(PORTS['bootstrap-us'])).admission
+    expect(isHaltedFor(directive, thisVersion)).toBe(true)
+    console.log(
+      `[RUN-02 version] this build = ${String(thisVersion)}; ` +
+        `arm A slice = ${String(thisVersion)}-a-version-no-build-carries -> admitting; ` +
+        `arm B slice = ${String(thisVersion)} -> halted`,
+    )
+  }, 60_000)
+
+  it('halts a client whose stamp could not be read under `all`, through the wire', async () => {
+    // Task 1's rule exercised end to end rather than only in the pure spec: `'all'` names
+    // every client including the ones that cannot name themselves.
+    const written = await postAdmission(
+      PORTS['bootstrap-us'],
+      {
+        region: 'bootstrap-us',
+        halted: true,
+        versions: 'all',
+        since: Date.now(),
+        note: 'phase 36 — every client',
+      },
+      TEST_KEY,
+    )
+    expect(written.status).toBe(200)
+    const directive = (await readSelf(PORTS['bootstrap-us'])).admission
+    expect(isHaltedFor(directive, null)).toBe(true)
   }, 60_000)
 })
