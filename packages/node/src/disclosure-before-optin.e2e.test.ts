@@ -4,7 +4,7 @@ import type { Browser } from 'playwright'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { DISCLOSURE, DISCLOSURE_VERSION } from '@o2/browser'
+import { DISCLOSED_DATA_COST_BYTES, DISCLOSURE, DISCLOSURE_VERSION } from '@o2/browser'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 
 /**
@@ -88,6 +88,14 @@ describe('BROW-09 — the disclosure is on screen before the opt-in control can 
           'visitor reads the heading of a disclosure rather than the disclosure',
       ).toContain(line.answer)
     }
+
+    // BROW-10 — the byte figure, asserted BY NAME rather than only as a member of the loop
+    // above. A line that is deleted disappears from `DISCLOSURE.lines` and from the loop with
+    // it, so the loop cannot notice its absence; this is the assertion that can.
+    expect(
+      gateText,
+      'BROW-10: the gate shows no data cost in bytes before the opt-in control can be clicked',
+    ).toContain(`${String(Math.round(DISCLOSED_DATA_COST_BYTES / 1000))} kilobytes`)
 
     // The optional extra and the version, which is what tells a returning visitor the terms
     // moved. Both are part of what is on screen before the decision.

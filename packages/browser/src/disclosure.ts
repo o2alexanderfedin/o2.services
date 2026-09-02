@@ -81,8 +81,24 @@
  * compliance ruling as a code change. When the owner rules, the sentence lands here and the
  * version bumps again — which costs nothing, because no cohort exists before Phase 39.
  *
+ * ## Version 4, 2026-09-02 — the data cost, beside the processor cost
+ *
+ * BROW-10. Criterion 5 asks for *"a rough data cost… beside the CPU disclosure and before
+ * opt-in, stated in bytes for a representative task and taken from a real run of that task
+ * rather than estimated"*, and its reason is a cohort rather than a completeness rule: *"An
+ * international cohort has a mobile-data subset, and a figure nobody measured is the one that
+ * gets quoted back."* The line sits immediately after *How much of my processor?* because
+ * "beside" is where the criterion puts it, and its number comes from `data-cost.ts`, which
+ * records the three runs it was read off and what it does and does not count.
+ *
+ * A second version bump in one phase, and it costs nothing: no cohort exists before Phase 39,
+ * so the only visitors this re-asks are the ones who consented during this phase's own
+ * development.
+ *
  * Pure module — no DOM, no storage, no side effects at import.
  */
+
+import { DISCLOSED_DATA_COST_BYTES } from './data-cost.ts'
 
 /**
  * Bump this whenever any string in `DISCLOSURE` changes.
@@ -90,13 +106,14 @@
  * A test asserts that this constant appears in the rendered gate, so a silent
  * edit to the terms fails rather than quietly re-using an old agreement.
  */
-export const DISCLOSURE_VERSION = '3'
+export const DISCLOSURE_VERSION = '4'
 
 /** Why the current version differs from the one before it. */
 export const CONSENT_VERSION_NOTE: string =
-  'this page now says what it reports about your visit when the optional report is switched ' +
+  'this page now says how many bytes leave your device for one run, measured rather than ' +
+  'estimated; it says what it reports about your visit when the optional report is switched ' +
   'off — nothing — and it says plainly that your own data never leaves this device rather ' +
-  'than listing what does not; version 2 said neither'
+  'than listing what does not. Version 2 said none of the three'
 
 export interface DisclosureLine {
   /** Short label — the question a visitor is actually asking. */
@@ -147,6 +164,16 @@ export const DISCLOSURE: Disclosure = {
       answer:
         'One background thread. It drops to a tenth of that when this tab is not ' +
         'in front, and the live figure is shown in the bar at all times.',
+    },
+    {
+      question: 'How much of my data allowance?',
+      answer:
+        `About ${Math.round(DISCLOSED_DATA_COST_BYTES / 1000)} kilobytes leave this device ` +
+        'for one run of the search described above. That is a measured figure rather than an ' +
+        'estimate — it is what a real run of that search actually sent, and a test compares it ' +
+        'against a fresh run so that it cannot quietly go out of date. It counts what leaves; ' +
+        'what other participants send back to you is not in it, because nothing on this page ' +
+        'measures that.',
     },
     {
       question: 'What leaves my device?',

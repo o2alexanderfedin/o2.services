@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CONSENT_VERSION_NOTE, DISCLOSURE, DISCLOSURE_VERSION } from '@o2/browser'
+import { CONSENT_VERSION_NOTE, DISCLOSED_DATA_COST_BYTES, DISCLOSURE, DISCLOSURE_VERSION } from '@o2/browser'
 import type { DisclosureLine } from '@o2/browser'
 
 /**
@@ -175,6 +175,38 @@ describe('BROW-09 — the four things a visitor is told before they decide', () 
       'BROW-09 element 4: the answer covers only what this page sends and not what this ' +
         "visitor's node holds for a peer to ask for — the two diverged once already",
     ).toContain('does not hold it for a peer to ask for')
+  })
+
+  it('BROW-10: a byte figure sits BESIDE the processor cost, and nothing else states one', () => {
+    // Criterion 5's word is *beside*, so position is part of the requirement rather than a
+    // layout preference: a visitor weighing "one background thread" wants the other cost in
+    // the same breath, not four questions later.
+    const cost = theLineWhere(
+      (l) => l.answer.includes('kilobytes leave this device'),
+      'what one run costs a data allowance',
+    )
+    const cpu = theLineWhere(
+      (l) => l.answer.includes('One background thread'),
+      'how much processor a run uses',
+    )
+    const costAt = DISCLOSURE.lines.indexOf(cost)
+    const cpuAt = DISCLOSURE.lines.indexOf(cpu)
+    expect(
+      costAt,
+      `BROW-10: the data cost is line ${String(costAt + 1)} and the processor cost is line ` +
+        `${String(cpuAt + 1)}. Criterion 5 asks for the data cost BESIDE the CPU disclosure.`,
+    ).toBe(cpuAt + 1)
+
+    // The number the sentence shows is the disclosed literal and not a second one. A figure
+    // written twice is a figure that can disagree with itself.
+    expect(cost.answer).toContain(`${String(Math.round(DISCLOSED_DATA_COST_BYTES / 1000))} kilobytes`)
+    // And it says what it is: measured, outbound only, with the inbound leg named as absent.
+    expect(cost.answer).toContain('measured figure rather than an estimate')
+    expect(
+      cost.answer,
+      'BROW-10: the sentence gives a number without saying which direction it counts, so a ' +
+        'visitor on mobile data reads an outbound figure as a total',
+    ).toContain('what other participants send back to you is not in it')
   })
 
   it('states no legal basis for the telemetry, because that is not an engineering judgement', () => {

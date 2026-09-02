@@ -72,6 +72,17 @@ export {
 export type { ConsentGap, ConsentRecord, ConsentStore, GrantOptions } from './consent.ts'
 export { CONSENT_VERSION_NOTE, DISCLOSURE, DISCLOSURE_VERSION } from './disclosure.ts'
 export type { Disclosure, DisclosureLine } from './disclosure.ts'
+// BROW-10 — the disclosed byte figure, what it covers, and where it was read. Exported for
+// one consumer and it is not a page: `colouring-demo.e2e.test.ts` has to hold the disclosed
+// literal beside a real run of the task, and both sides of that comparison have to be
+// obtainable independently or the guard proves nothing. `disclosure.ts` reaches the figure by
+// relative import, so no surface depends on these being here.
+export {
+  DATA_COST_BAND,
+  DATA_COST_COVERS,
+  DATA_COST_MEASURED_ON,
+  DISCLOSED_DATA_COST_BYTES,
+} from './data-cost.ts'
 
 // The visitor's enrolment decision — AUTH-01, AUTH-02, AUTH-04. The second explicit,
 // revocable, persisted visitor decision in this package, and deliberately the same shape as

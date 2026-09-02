@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
+import { DATA_COST_BAND, DATA_COST_COVERS, DATA_COST_MEASURED_ON, DISCLOSED_DATA_COST_BYTES } from '@o2/browser'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
 import { createServer } from 'vite'
@@ -53,6 +54,15 @@ let browser: Browser
 let baseUrl: string
 let workdir: string
 const tabs: Tab[] = []
+
+/**
+ * What the DEMO-01 run's egress manifest reported — BROW-10's measured side.
+ *
+ * Captured from the run that is already happening rather than paid for a second time: the case
+ * below is a guard over a disclosed figure, and the honest thing to compare it against is the
+ * representative task this file already runs end to end.
+ */
+let measuredEgressBytes: number | null = null
 
 async function openTab(name: string): Promise<Tab> {
   const context = await browser.newContext()
@@ -181,7 +191,58 @@ describe('DEMO-01 — a real job, distributed across tabs, with placement visibl
     // be allowed to look alike.
     expect(run.egress.entries.length).toBeGreaterThan(0)
     expect(run.egress.violations).toEqual([])
+    // BROW-10's measured side, taken here and asserted in the case below.
+    measuredEgressBytes = run.egress.totalBytes
+    process.stderr.write(
+      `[BROW-10] egress.totalBytes=${String(run.egress.totalBytes)} across ` +
+        `${String(run.egress.entries.length)} entries\n`,
+    )
   }, 240_000)
+
+  /**
+   * BROW-10 — the disclosed data cost, held against what the task actually costs.
+   *
+   * ## What this stops, and it is a silence rather than a failure
+   *
+   * A figure written into a disclosure once is a figure that goes stale without anybody doing
+   * anything wrong: the workload gains a shard, a frame grows, and the number a visitor reads
+   * stops describing what their connection carries. Nothing fails. Criterion 5's own reason is
+   * about who pays for that — *"An international cohort has a mobile-data subset, and a figure
+   * nobody measured is the one that gets quoted back."*
+   *
+   * So the drift reddens, on the same run that would otherwise have passed.
+   *
+   * ## Neither side is derived from the other
+   *
+   * `DISCLOSED_DATA_COST_BYTES` is typed in by hand in `packages/browser/src/data-cost.ts`,
+   * which records the three runs it was read off. `measuredEgressBytes` is what the run above
+   * reported. There is no expression anywhere that computes one from the other — this
+   * repository has twice had a plant stay green because both sides of an assertion moved
+   * together, and this is the shape of assertion that invites it.
+   */
+  it('discloses a byte figure that this run still agrees with', () => {
+    expect(
+      measuredEgressBytes,
+      'BROW-10: the run above did not report an egress figure, so there is nothing to hold the ' +
+        'disclosed one against',
+    ).not.toBeNull()
+    const measured = measuredEgressBytes ?? 0
+
+    const low = DISCLOSED_DATA_COST_BYTES / DATA_COST_BAND
+    const high = DISCLOSED_DATA_COST_BYTES * DATA_COST_BAND
+    const drift = measured / DISCLOSED_DATA_COST_BYTES
+
+    const complaint =
+      `BROW-10: this run sent ${String(measured)} bytes and the page discloses ` +
+      `${String(DISCLOSED_DATA_COST_BYTES)} — a factor of ${drift.toFixed(2)}, outside the ` +
+      `band of ${String(DATA_COST_BAND)}. The disclosed figure and what the task actually ` +
+      `costs have diverged: fix the FIGURE if the workload changed on purpose, and fix the ` +
+      `WORKLOAD if it did not. What the figure covers: ${DATA_COST_COVERS} It was measured on ` +
+      `${DATA_COST_MEASURED_ON}`
+
+    expect(measured, complaint).toBeGreaterThanOrEqual(low)
+    expect(measured, complaint).toBeLessThanOrEqual(high)
+  })
 
   it('shows the work in the always-visible bar', async () => {
     // BROW-04. The bar is fixed, has no control that hides it, and by now has
