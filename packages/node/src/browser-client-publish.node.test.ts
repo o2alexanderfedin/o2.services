@@ -227,11 +227,36 @@ describe('the publish is a script, runnable from a terminal and from a workflow'
     const mentions = commands.filter((line) => line.includes('o2-build'))
     expect(
       mentions.length,
-      'the publish script no longer reads the build stamp in all three places — dry-run ' +
-        'check, refusal before push, and read-back of the live site',
-    ).toBeGreaterThanOrEqual(3)
-    expect(SCRIPT).toContain('Refusing to publish a')
+      'the publish script no longer reads the build stamp in both places — the pre-publish ' +
+        'check, and the read-back of the live site',
+    ).toBeGreaterThanOrEqual(2)
+    expect(SCRIPT).toContain('<meta name=\\"o2-build\\"> is missing')
     expect(SCRIPT).toContain('does not name the build this run published')
+
+    // **`BUILD_ID` is assigned before it is used, and this assertion exists because the
+    // ordering was wrong in a shipped release.** It was computed beside the read-back, which
+    // runs AFTER the commit whose message names it, and `set -u` turned that into a failed
+    // deploy — `scripts/deploy-pages.sh: line 306: BUILD_ID: unbound variable`, v2.0.0-rc.9,
+    // the Cloudflare worker deployed and the client not published. Only the LIVE path reaches
+    // that line: the dry run exits before publishing, so no local run could have caught it.
+    //
+    // Counted over COMMANDS and not over the file. The first version of this check read the
+    // whole text and reported the ordering wrong, because a comment above the assignment
+    // names the variable — the same trap the worktree case one describe up already records,
+    // and it caught this one within the minute.
+    const assigned = commands.findIndex((line) => line.startsWith('BUILD_ID='))
+    const used = commands.findIndex(
+      (line) => line.includes('BUILD_ID') && !line.startsWith('BUILD_ID='),
+    )
+    expect(assigned, 'BUILD_ID is never assigned').toBeGreaterThan(-1)
+    expect(used, 'BUILD_ID is never used — the stamp is computed and thrown away').toBeGreaterThan(-1)
+    expect(
+      assigned,
+      'BUILD_ID is used before it is assigned. Under `set -u` that is not a warning, it is a ' +
+        'failed deploy on the live path — and the dry run cannot reach it',
+    ).toBeLessThan(used)
+    // One assignment, so no later copy can drift below a use again.
+    expect(commands.filter((line) => line.startsWith('BUILD_ID=')).length).toBe(1)
   })
 
   it('leaves the tree as it found it, because the generated bootstrap breaks four e2e specs', () => {
