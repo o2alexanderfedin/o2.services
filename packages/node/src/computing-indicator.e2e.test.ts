@@ -4,6 +4,7 @@ import type { Browser, BrowserType, Page } from 'playwright'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
@@ -90,14 +91,18 @@ let baseUrl: string
 const browsers: Browser[] = []
 
 beforeAll(async () => {
-  // DET-03: this node relays and executes nothing, so its anchor set covers nothing. The
-  // opt-out is stated rather than defaulted, on `background-tab.e2e.test.ts`'s precedent.
+  // DET-03: this node relays and executes nothing, so its anchor set covers nothing here.
+  // The demo's own committed key rather than the provenance opt-out, and the reason is a
+  // guard rather than taste: `trust-anchors.node.test.ts` bounds how far that literal may
+  // spread through the test suite, and this file has no decision to record with it — it is
+  // `colouring-demo.e2e.test.ts`'s choice, made for realism, since this is the value a
+  // visitor's tab and `bin/seed.ts` both pin with no flags.
   relay = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
     startReporting: 'reports-its-own-start',
     maxReservations: 16,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
-    trustAnchors: 'runs-unsigned-artifacts',
+    trustAnchors: [KERNEL_TRUST_ANCHOR],
   })
   const address = relay.browserDialableAddrs[0]
   if (address === undefined) throw new Error('relay produced no browser-dialable address')

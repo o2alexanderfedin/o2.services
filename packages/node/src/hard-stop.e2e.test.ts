@@ -4,6 +4,7 @@ import type { Browser, BrowserContext, Page } from 'playwright'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
@@ -118,12 +119,16 @@ let browser: Browser
 let context: BrowserContext
 
 beforeAll(async () => {
+  // DET-03: this node relays and executes nothing, so its anchor set covers nothing here.
+  // The demo's own committed key rather than the provenance opt-out — `trust-anchors.node.test.ts`
+  // bounds how far that literal may spread through the test suite, and this file has no
+  // decision to record with it. This is the value a visitor's tab pins with no flags.
   relay = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
     startReporting: 'reports-its-own-start',
     maxReservations: 16,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
-    trustAnchors: 'runs-unsigned-artifacts',
+    trustAnchors: [KERNEL_TRUST_ANCHOR],
   })
   const address = relay.browserDialableAddrs[0]
   if (address === undefined) throw new Error('relay produced no browser-dialable address')
