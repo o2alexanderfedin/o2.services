@@ -577,11 +577,14 @@ Flipping the five rows reddened two guards, and neither was a formatting complai
 | `npx tsc --noEmit` | exit **0** | — |
 | `npx vitest run --project browser` | exit **0** | 360 files, 6045 tests (chromium, firefox, webkit) |
 | `npx vitest run --project e2e` | exit **0** | 49 files, 262 tests |
-| `npx vitest run --project node` | see below | 221 files, 3207 tests |
+| `npx vitest run --project node` | exit **0** on the third run | 221 files, 3205 passed, 2 skipped |
 
 `aot` is a separate lane, not part of this phase's gate, and was not run.
 
-**The node lane took three runs and both reds are recorded rather than smoothed over.**
+**The node lane took three runs and both reds are recorded rather than smoothed over.** The
+third run is the clean one — `Test Files 221 passed (221)`, `Tests 3205 passed | 2 skipped`,
+exit code read directly, host quiet at the start (load/core 1.04) and at 12.65 by the end,
+which is this lane driving eight workers rather than a neighbour.
 
 - **Run 1 — `trust-anchors.node.test.ts`, `expected 49 to be less than 48`.** Mine. Fixed in my
   own files, never by raising the ceiling — see the section above.
