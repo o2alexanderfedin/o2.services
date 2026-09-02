@@ -50,6 +50,37 @@
  * of those is a separate decision with its own disclosure consequence — and its own
  * version bump.
  *
+ * ## Version 3, 2026-09-02 — BROW-09, and what was MISSING rather than wrong
+ *
+ * Version 2's six lines were true. Criterion 4 of Phase 35 asks for four specific things and
+ * this module carried three of them: *what code runs*, *whose task it is*, and *what leaves
+ * the device*. The fourth — **what telemetry is sent** — had no line at all. The `reporting`
+ * extra below describes the **opt-in** report, and a visitor reading it learns what happens if
+ * they tick the box and nothing whatever about what happens if they do not. That is the half
+ * that matters most to somebody deciding, and its absence was not visible because nothing
+ * asserted the disclosure's *completeness*. `packages/node/src/disclosure-four-elements.node.test.ts`
+ * now does, with one plant per element.
+ *
+ * The second change is to *What leaves my device?*, and it is a change of **standing** rather
+ * than of fact. Version 2 answered it as a list of exclusions — *"The answers your machine
+ * computes, and nothing else. No files, no browsing history…"* — which is accurate and reads
+ * as a caveat: a reassurance offered by someone who knows you are worried. Criterion 4 asks
+ * for the sovereignty guarantee *"stated as a selling point rather than a caveat"*, and the
+ * reason is not tone. **Data staying on its owner's device is the whole claim this project
+ * makes**, so a visitor meeting it as a mitigation is being told the wrong thing about what
+ * they are being asked to join. The guarantee now leads the answer and the exclusions follow
+ * it.
+ *
+ * ## What version 3 deliberately does NOT say
+ *
+ * The telemetry line states **what is sent**, which is an engineering fact and is settled. It
+ * states no **legal basis** — whether the minimal record rests on consent or on legitimate
+ * interest under GDPR is `.planning/REQUIREMENTS.md` § Open questions item 3, which records
+ * that the sources consulted disagreed with each other and that it is *"settled by legal
+ * review, not engineering judgement"*. An agent choosing between them would be recording a
+ * compliance ruling as a code change. When the owner rules, the sentence lands here and the
+ * version bumps again — which costs nothing, because no cohort exists before Phase 39.
+ *
  * Pure module — no DOM, no storage, no side effects at import.
  */
 
@@ -59,12 +90,13 @@
  * A test asserts that this constant appears in the rendered gate, so a silent
  * edit to the terms fails rather than quietly re-using an old agreement.
  */
-export const DISCLOSURE_VERSION = '2'
+export const DISCLOSURE_VERSION = '3'
 
 /** Why the current version differs from the one before it. */
 export const CONSENT_VERSION_NOTE: string =
-  'this page now says that the key naming your node is stored on your device and reused ' +
-  'when you come back; version 1 said it was generated in the tab'
+  'this page now says what it reports about your visit when the optional report is switched ' +
+  'off — nothing — and it says plainly that your own data never leaves this device rather ' +
+  'than listing what does not; version 2 said neither'
 
 export interface DisclosureLine {
   /** Short label — the question a visitor is actually asking. */
@@ -119,8 +151,22 @@ export const DISCLOSURE: Disclosure = {
     {
       question: 'What leaves my device?',
       answer:
-        'The answers your machine computes, and nothing else. No files, no browsing ' +
-        'history, no identifiers beyond the key named below.',
+        'Your own data never leaves this device. That is what the whole system is for, and ' +
+        'it is a property of how the work is arranged rather than a promise: the code that ' +
+        'runs here is handed a public question and computes an answer, so there is nothing ' +
+        'of yours for it to send. What leaves is that answer — small integers and bit ' +
+        'arrays. No files, no browsing history, no identifiers beyond the key named below.',
+    },
+    {
+      question: 'What does this page report about my visit?',
+      answer:
+        'Nothing, unless you turn on the optional report below. This page carries no ' +
+        'analytics code and sets no cookie; it does not count your visit and it sends ' +
+        'nothing about you anywhere. With the report turned on, the one line described ' +
+        'below is offered to the peers your node is already connected to, and to nobody ' +
+        'else. Turning it off is not a preference this page records and then ignores: your ' +
+        'line is not sent when peers are asked, and your node does not hold it for a peer ' +
+        'to ask for either.',
     },
     {
       question: 'Does this page remember me?',
