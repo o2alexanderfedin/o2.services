@@ -274,7 +274,20 @@ const NODE_MEASUREMENT = {
    * `unitFiles` moves by the same nine, for the identity recorded above:
    * `files - excludedInNode`, where the subtrahend is 78 and none of the nine is on that list.
    */
-  files: 228,
+  /**
+   * **228 -> 229 on 2026-09-02 (Phase 36, RUN-02)**, one file:
+   * `packages/libp2p/src/admission-directive.test.ts` (node lane). A matcher and a string
+   * split — no thread, no process, no socket — and it ran at `Duration 127ms` in its own
+   * invocation, well under the 1000 ms cut, so the span table is untouched.
+   *
+   * `unitFiles` moves by the same one, for the identity recorded above: it is
+   * `files - excludedInNode`, and this file is not on the explicitly-named slow list.
+   *
+   * Moved rather than left to `FILE_COUNT_TOLERANCE`, which is 5 and would have absorbed it
+   * silently — a tolerance that hides a known arrival is worse than no tolerance, because the
+   * next arrival is then measured against a number nobody has checked.
+   */
+  files: 229,
   tests: 2948,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
@@ -458,7 +471,7 @@ const NODE_MEASUREMENT = {
    * hour once spread 25.69 / 33.68 / 22.39 s — 1.5x end to end. Any comparison against this
    * number that turns on less than half of it is reading the host's weather.
    */
-  unitFiles: 150,
+  unitFiles: 151,
   unitTests: 2317,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
