@@ -138,6 +138,8 @@ import { DialPlanner } from '../src/dial-plan.ts'
 import { IdbCheckpoints } from '../src/idb-checkpoints.ts'
 // AOT-05's last mile. Relative, not through the barrel — see the module's own header.
 import { fetchModuleForDispatch } from '../src/gateway-module.ts'
+// BROW-07's carrier. Relative for the same reason, stated in that module's own header.
+import { ComputingIndicator, documentTitlePort } from '../src/computing-indicator.ts'
 import * as pid from '@libp2p/peer-id'
 // **`import type`, and the distinction matters here rather than being pedantry.** This file's
 // convention is that `CID` is reached through `await import('multiformats/cid')` — see
@@ -208,6 +210,101 @@ function notify(): void {
 function required(): BrowserNode {
   if (node === null) throw new Error('node not started')
   return node
+}
+
+/**
+ * The tab-strip indicator — BROW-07's page half.
+ *
+ * ## Why this polls, which the phase plan requires be justified rather than assumed
+ *
+ * `BrowserNode` publishes **no execution event**. `onActivity` fires when a peer dispatches
+ * work here (`browser-node.ts`'s `onDispatch` seam) and has no counterpart for a task
+ * *finishing*, and it says nothing at all about this tab's own self-dispatched shards. The
+ * two sources of in-flight work therefore have no common event, and building the indicator
+ * out of one event plus an inference about the other would give the page two mechanisms that
+ * can disagree about whether this machine is busy.
+ *
+ * What does exist is one authoritative count: `CountingExecutor` sits **inside**
+ * `GovernedExecutor` (`browser-node.ts:1826` explains the ordering) so it counts tasks
+ * actually running rather than tasks parked on the governor's serialization chain, and every
+ * path that reaches `.execute` — a peer's dispatch and this page's own alike — goes through
+ * it. `node.executorInFlight` is that count. Reading it on a tick cannot disagree with
+ * itself.
+ *
+ * ## The interval, and why 250 ms rather than something smaller
+ *
+ * A backgrounded tab is exactly the case this indicator exists for, and Chromium throttles a
+ * hidden tab's timers to roughly **1 Hz** (and harder still after several minutes of
+ * hiding). Anything faster than that is not delivered where it matters, so the choice is
+ * between a figure that is honest about the floor and one that merely looks attentive.
+ * 250 ms is fast enough to be indistinguishable from instant in a foreground tab and slow
+ * enough that the throttled case degrades to about a second — which is the actual guarantee,
+ * and is well inside the life of any task worth indicating.
+ *
+ * The tick runs only while a node is up. An idle page installs no timer.
+ *
+ * ## The dwell, which is what makes the indicator *persistent* rather than a strobe
+ *
+ * `CountingExecutor` counts calls inside the **inner** executor, so a task waiting for its
+ * slice on `GovernedExecutor`'s serialization chain is not counted — that is the right
+ * definition for SCHED-06's concurrency reading and the wrong one here. A throttled tab
+ * spends most of its wall clock idling between tasks: `VisibilityGovernor` sleeps
+ * `sliceMs * (1/duty - 1)` per slice (`visibility-governor.ts:153`) with `sliceMs` defaulting
+ * to 50 (`:75`), so at this page's own `backgroundDutyCycle` of `0.05` the gap between tasks
+ * is **950 ms** and an instantaneous reading finds the executor idle almost every time.
+ *
+ * A tab **backgrounded and throttled** is exactly the state BROW-07 is about. An indicator
+ * sampling `executorInFlight` alone would therefore blink off for most of the interval in
+ * which a visitor is most likely to look at it, and "the tab strip said I was not computing
+ * while it was computing" is the failure this requirement exists to prevent. So a reading of
+ * zero only clears the title once it has been zero for {@link COMPUTING_DWELL_MS} — long
+ * enough to cover that 950 ms gap several times over, short enough that a tab which has
+ * genuinely finished stops claiming otherwise within a few seconds.
+ *
+ * **What this does not cover, stated rather than left to be discovered:** a visitor who sets
+ * a cap far below the background one by hand — `setDutyCycle(0.005)` gives a 9.95 s gap —
+ * makes the gap longer than the dwell, and the indicator will blink for them. The dwell is
+ * sited against the duty cycles this page itself chooses, not against every value the API
+ * admits. Stop clears the title immediately and does not wait out the dwell, because a
+ * stopped tab is not computing and that is not a sampling question.
+ */
+const COMPUTING_POLL_MS = 250
+const COMPUTING_DWELL_MS = 4_000
+let computingIndicator: ComputingIndicator | null = null
+let computingTicker: ReturnType<typeof setInterval> | null = null
+let computingLastBusyAt = 0
+
+function computingTick(): void {
+  const indicator = computingIndicator
+  if (indicator === null) return
+  const inFlight = node?.executorInFlight ?? 0
+  if (inFlight > 0) computingLastBusyAt = Date.now()
+  const withinDwell = computingLastBusyAt !== 0 && Date.now() - computingLastBusyAt < COMPUTING_DWELL_MS
+  indicator.report(inFlight > 0 || withinDwell ? 1 : 0)
+}
+
+function beginComputingIndicator(): void {
+  // Constructed lazily rather than at module scope for `localConsentStore`'s reason: a
+  // module that reads a browser global when it is loaded cannot be loaded anywhere else.
+  computingIndicator ??= new ComputingIndicator(documentTitlePort())
+  // A fresh node has done no work; a stale mark from a previous node would decorate the
+  // title for a tab that has just started and is idle.
+  computingLastBusyAt = 0
+  computingTick()
+  computingTicker ??= setInterval(computingTick, COMPUTING_POLL_MS)
+}
+
+function endComputingIndicator(): void {
+  if (computingTicker !== null) {
+    clearInterval(computingTicker)
+    computingTicker = null
+  }
+  // Reported rather than left decorated: a stopped tab is not computing, and the title is
+  // the only place a visitor looking at another tab would find that out. The dwell is
+  // deliberately skipped — it exists to smooth a *sampled* reading of a running executor,
+  // and there is nothing to sample once the thread has been terminated.
+  computingLastBusyAt = 0
+  computingIndicator?.report(0)
 }
 
 /**
@@ -1278,6 +1375,9 @@ const api: TabApi = {
     // A peer dispatching work here changes what the surface must say, and the page
     // cannot poll for it — see `onActivity`.
     node.onActivity(notify)
+    // BROW-07 — the tab strip starts saying whether this machine is working, and keeps
+    // saying it while the visitor is looking at something else.
+    beginComputingIndicator()
     notify()
     return node.peerId
   },
@@ -2566,6 +2666,10 @@ const api: TabApi = {
   },
 
   async stop() {
+    // BROW-07, first and before the await: a tick that fired part-way through `node.stop()`
+    // would read a node that is being dismantled, and the tab strip would go on claiming to
+    // be computing for as long as the teardown took.
+    endComputingIndicator()
     if (node !== null) await node.stop()
     node = null
     // Back to "the question does not arise". A stopped tab cannot be out of step with a
