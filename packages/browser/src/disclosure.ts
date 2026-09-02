@@ -106,14 +106,28 @@ import { DISCLOSED_DATA_COST_BYTES } from './data-cost.ts'
  * A test asserts that this constant appears in the rendered gate, so a silent
  * edit to the terms fails rather than quietly re-using an old agreement.
  */
-export const DISCLOSURE_VERSION = '4'
+export const DISCLOSURE_VERSION = '5'
 
-/** Why the current version differs from the one before it. */
+/**
+ * Why the current version differs from the one before it.
+ *
+ * **Version 4 had become FALSE, and the bump is the repair rather than the paperwork.** It
+ * said *"it does not count your visit and it sends nothing about you anywhere"*, which was
+ * true of every build that carried it and stopped being true the moment RUN-04's connectivity
+ * funnel was armed. A page that counts a visit while its own terms say it does not is the
+ * exact defect this constant was created for: `disclosure.ts`'s version-2 note records the
+ * same shape, when persistent identity landed and the sentence *"no identifiers beyond a peer
+ * key generated in this tab"* went false in both halves with no test noticing for twelve days.
+ *
+ * So version 5 states the counting plainly, in a line of its own that enumerates the whole
+ * record, and re-states the three states a visitor can be in: declined and counted nowhere;
+ * consented and counted coarsely; and the separate start report, which is unchanged.
+ */
 export const CONSENT_VERSION_NOTE: string =
-  'this page now says how many bytes leave your device for one run, measured rather than ' +
-  'estimated; it says what it reports about your visit when the optional report is switched ' +
-  'off — nothing — and it says plainly that your own data never leaves this device rather ' +
-  'than listing what does not. Version 2 said none of the three'
+  'this page now counts how far a visit gets — six named steps between opening the page and ' +
+  'running a first task — once you have said yes, and a line of its own lists everything ' +
+  'those counts hold. Version 4 said the page did not count your visit at all, and that had ' +
+  'stopped being true'
 
 export interface DisclosureLine {
   /** Short label — the question a visitor is actually asking. */
@@ -187,13 +201,28 @@ export const DISCLOSURE: Disclosure = {
     {
       question: 'What does this page report about my visit?',
       answer:
-        'Nothing, unless you turn on the optional report below. This page carries no ' +
-        'analytics code and sets no cookie; it does not count your visit and it sends ' +
-        'nothing about you anywhere. With the report turned on, the one line described ' +
-        'below is offered to the peers your node is already connected to, and to nobody ' +
-        'else. Turning it off is not a preference this page records and then ignores: your ' +
-        'line is not sent when peers are asked, and your node does not hold it for a peer ' +
-        'to ask for either.',
+        'Nothing at all unless you say yes above. This page carries no analytics code, sets ' +
+        'no cookie and contacts no outside company; a visitor who declines is not counted ' +
+        'anywhere, by anything. Once you allow the work to run, this page adds one to a small ' +
+        'set of counters that say how far a visit got — the next answer lists everything ' +
+        'those counters hold, and it is a short list. The optional report below is a separate ' +
+        'thing again: with it turned on, the one line described there is offered to the peers ' +
+        'your node is already connected to and to nobody else, and turning it off is not a ' +
+        'preference this page records and then ignores — your line is not sent when peers are ' +
+        'asked, and your node does not hold it for a peer to ask for either.',
+    },
+    {
+      question: 'What does this page count about my visit?',
+      answer:
+        'Six named steps between opening this page and running a first task, so that the ' +
+        'people building this can see where visitors get stuck. For the two steps where your ' +
+        'browser tries to reach another browser, three coarse values travel beside the count: ' +
+        'a two-letter country code, a rough label for the kind of connection you are on, and ' +
+        'the hour of the day in UTC. That is the entire list. There is no identifier of any ' +
+        'kind in it — nothing that joins two of your visits together and nothing that joins a ' +
+        'step to you — and your network address is used to work out the two-letter country ' +
+        'and is then gone. An hour is not a time, and two letters is a country rather than a ' +
+        'place.',
     },
     {
       question: 'Does this page remember me?',

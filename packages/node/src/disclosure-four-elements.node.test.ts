@@ -154,27 +154,86 @@ describe('BROW-09 — the four things a visitor is told before they decide', () 
     expect(line.answer).toContain('browsing history')
   })
 
-  it('element 4: what is sent about the visit, including when the optional report is off', () => {
+  /**
+   * **THREE states, and it used to be two — the third arrived with RUN-04 and made the old
+   * text false.** Version 4 said *"it does not count your visit and it sends nothing about you
+   * anywhere"*, which was true of every build that carried it and stopped being true the moment
+   * the connectivity funnel was armed at consent. This case moved with that repair, and it
+   * moved by getting **stronger**: it asserted two states before and asserts three now, because
+   * a visitor who has agreed is in a state the old wording did not describe at all.
+   *
+   * The pinned phrases are deliberately short and the properties are what carry the case: that
+   * a declining visitor is counted nowhere, that a consenting one is told what is counted, and
+   * that the separate start report's opt-out still reaches both of the two places it has to.
+   */
+  it('element 4: what is sent about the visit, in each of the three states a visitor can be in', () => {
     const line = theLineWhere(
       (l) => l.answer.includes('analytics'),
       'what is reported about the visit',
     )
 
-    // The half that was missing: what happens with the box UNTICKED. `DISCLOSURE.reporting`
-    // below describes the opt-in report and says nothing about the default state.
+    // STATE ONE — declined. The state every visitor is in while they are reading it.
     expect(
       line.answer,
-      'BROW-09 element 4: the answer does not say what is sent when the optional report is ' +
-        'left off, which is the state every visitor is in when they read it',
-    ).toContain('Nothing, unless you turn on')
+      'BROW-09 element 4: the answer does not say what happens to a visitor who declines, ' +
+        'which is the state every visitor is in when they read it',
+    ).toMatch(/nothing at all unless you say yes/i)
     expect(line.answer).toContain('no cookie')
-    // Both code paths, because the defect `BrowserNodeOptions.startReporting` records is
-    // exactly a page that withheld the line while the node served it.
+
+    // STATE TWO — agreed, and therefore counted. RUN-04 arms the funnel at consent, so a page
+    // that did not say so would be counting a visit its own terms denied counting. The
+    // disclosure must point at the enumeration rather than merely admitting a count exists.
+    expect(
+      line.answer,
+      'BROW-09 element 4: the funnel is armed at consent, so a visitor who agrees IS counted. ' +
+        'The answer does not say so, which is the defect version 4 was bumped to repair.',
+    ).toMatch(/counters/i)
+
+    // STATE THREE — the separate start report, and both of its code paths, because the defect
+    // `BrowserNodeOptions.startReporting` records is exactly a page that withheld the line
+    // while the node served it.
     expect(
       line.answer,
       'BROW-09 element 4: the answer covers only what this page sends and not what this ' +
         "visitor's node holds for a peer to ask for — the two diverged once already",
     ).toContain('does not hold it for a peer to ask for')
+  })
+
+  /**
+   * RUN-04's own line, and the property is **exhaustiveness** rather than presence.
+   *
+   * A disclosure that said "we count some things" would satisfy element 4 above and tell a
+   * visitor nothing they could check. The record is five kinds of value and the line has to
+   * name all five, say the list is complete, and say what is NOT in it — because "no
+   * identifier" is the claim `funnel-collector.e2e.test.ts` proves against the store, and a
+   * page that made the weaker claim would be under-stating a property this project can
+   * actually demonstrate.
+   */
+  it('RUN-04: the counted record is enumerated, closed, and says what it does not hold', () => {
+    const line = theLineWhere(
+      (l) => l.answer.includes('two-letter country code'),
+      'what the page counts about a visit',
+    )
+
+    expect(line.question.toLowerCase()).toContain('count')
+    // The five kinds of value, each named.
+    expect(line.answer).toMatch(/six named steps/i)
+    expect(line.answer).toContain('two-letter country code')
+    expect(line.answer).toMatch(/kind of connection/i)
+    expect(line.answer).toMatch(/hour of the day/i)
+    // The list is closed. Without this the line reads as examples.
+    expect(
+      line.answer,
+      'RUN-04: the answer lists values without saying the list is complete, so a visitor ' +
+        'cannot tell an enumeration from a sample',
+    ).toMatch(/that is the entire list/i)
+    // And the absence, which is the part the store is checked against.
+    expect(line.answer).toMatch(/no identifier of any kind/i)
+    expect(
+      line.answer,
+      'RUN-04: the answer does not say what becomes of the network address, which is ' +
+        'criterion 4 of this phase and the one thing a reviewer will look for',
+    ).toMatch(/network address/i)
   })
 
   it('BROW-10: a byte figure sits BESIDE the processor cost, and nothing else states one', () => {

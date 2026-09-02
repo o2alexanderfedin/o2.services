@@ -139,18 +139,37 @@
         wallet.
       </li>
       <li>
-        It sets no cookies and uses no third-party analytics. It does keep one value in
+        It sets no cookies and uses no third-party analytics service — the counts described
+        below are taken by this project's own collector and go nowhere else. It does keep one value in
         this browser's storage for this site — the peer key described above — which is
         what lets a returning visitor be the same node rather than a new one.
       </li>
       <li>
-        <strong>With the optional report left off, it reports nothing about the visit at
-        all.</strong> The visit is not counted and no record of it is sent anywhere. The
-        opt-out reaches both places it has to: the line is not contributed when peers are
-        asked, and the visitor's own node does not hold it for a peer to ask for either.
-        Those two were once out of step — the page withheld the line and the node served
-        it — and the disclosure now states both because stating only the first would be
-        the same defect written down.
+        <strong>A visitor who does not agree is not counted anywhere, by anything.</strong>
+        Nothing is sent before the consent gate is answered, and answering it "No" ends the
+        matter.
+      </li>
+      <li>
+        <strong>A visitor who does agree is counted, coarsely, and here is the whole of
+        it.</strong> Six named steps between opening the page and running a first task — page
+        load, consent, the connection to a relay, the search for a network route, the
+        classification of the connection that resulted, and the first task run — so that the
+        people building this can see where visitors get stuck. For the two steps where one
+        browser tries to reach another, three more values travel beside the count: a two-letter
+        country code, a rough label for the kind of connection, and the hour of the day in UTC.
+        That is the entire record. It holds no identifier of any kind: nothing joins two visits
+        together, and nothing joins a step to a person. The network address the request arrives
+        on is used to work out the two-letter country and is not stored — which is checked
+        against the store itself rather than against this paragraph, by dumping every value the
+        collector holds and searching it.
+      </li>
+      <li>
+        <strong>With the optional start report left off, that line is not sent and not
+        held.</strong> The opt-out reaches both places it has to: the line is not contributed
+        when peers are asked, and the visitor's own node does not hold it for a peer to ask for
+        either. Those two were once out of step — the page withheld the line and the node served
+        it — and the disclosure states both because stating only the first would be the same
+        defect written down.
       </li>
       <li>
         It runs no server-side process. It is a static file. The only infrastructure

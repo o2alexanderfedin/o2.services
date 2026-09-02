@@ -140,6 +140,18 @@ import { IdbCheckpoints } from '../src/idb-checkpoints.ts'
 import { fetchModuleForDispatch } from '../src/gateway-module.ts'
 // BROW-07's carrier. Relative for the same reason, stated in that module's own header.
 import { ComputingIndicator, documentTitlePort } from '../src/computing-indicator.ts'
+// RUN-04's two halves. Relative and **deliberately not through the barrel**, on
+// `computing-indicator.ts`'s stated rule and for its stated reason: a barrel export whose only
+// caller is this file would be an exported-but-statically-unreachable symbol in front of
+// `reachability-guard.node.test.ts` for the benefit of no consumer.
+import {
+  FunnelReporter,
+  beaconSendPort,
+  funnelEndpointFrom,
+  readNetworkClass,
+  utcHourPort,
+} from '../src/funnel-reporter.ts'
+import { installIceObserver } from '../src/ice-observer.ts'
 import * as pid from '@libp2p/peer-id'
 // **`import type`, and the distinction matters here rather than being pedantry.** This file's
 // convention is that `CID` is reached through `await import('multiformats/cid')` — see
@@ -275,12 +287,110 @@ let computingTicker: ReturnType<typeof setInterval> | null = null
 let computingLastBusyAt = 0
 
 function computingTick(): void {
+  // RUN-04's stages five and six ride this poll rather than starting a second timer: they are
+  // read off the same two counters BROW-07 already samples here, at the same rate.
+  funnelTick()
   const indicator = computingIndicator
   if (indicator === null) return
   const inFlight = node?.executorInFlight ?? 0
   if (inFlight > 0) computingLastBusyAt = Date.now()
   const withinDwell = computingLastBusyAt !== 0 && Date.now() - computingLastBusyAt < COMPUTING_DWELL_MS
   indicator.report(inFlight > 0 || withinDwell ? 1 : 0)
+}
+
+/**
+ * RUN-04 — the six-stage funnel, on this visitor's side.
+ *
+ * ## Constructed once, inert unless the page was configured
+ *
+ * `funnelEndpointFrom` reads `?funnel=` and answers `null` for a page that names none, which
+ * is every published page today. An inert reporter's methods are no-ops, so the six call sites
+ * below cost nothing and say nothing when nobody asked for a funnel. **There is no default
+ * endpoint and there must not be one** — see `funnel-reporter.ts`'s header for what a default
+ * would cost, and `funnel-reporter.node.test.ts` for the guard that keeps it out.
+ *
+ * ## Armed at consent, which is the intersection of both readings of open question 3
+ *
+ * Stage one is *composed* at module evaluation and *held*; it leaves only when
+ * {@link armFunnel} runs, carrying the hour it happened rather than the hour it was flushed.
+ * That hold is the whole mechanism by which the pending default stays lawful under either
+ * ruling: **nothing at all is sent by a visitor who does not consent.**
+ */
+const funnel = ((): FunnelReporter => {
+  const endpoint = funnelEndpointFrom(location.search)
+  if (endpoint === null) return new FunnelReporter()
+  return new FunnelReporter({
+    send: beaconSendPort(endpoint),
+    clock: utcHourPort(),
+    networkClass: readNetworkClass(),
+  })
+})()
+
+// Stage one. Composed here — the earliest point in this page's life — and held until consent.
+funnel.enter('page-load')
+
+/**
+ * The arming point, and the one value the legal ruling moves.
+ *
+ * Called from **both** places a visitor can arrive at a granted consent: the gate control, and
+ * a returning visit whose consent was already stored. Missing the second would make every
+ * returning visitor invisible to the funnel while looking like a page-load drop-off, which is a
+ * defect that reads as a finding.
+ */
+function armFunnel(): void {
+  funnel.arm()
+  funnel.enter('consent')
+}
+
+/** Removes the ICE observer, or does nothing. Held so `stop()` leaves the tab as it found it. */
+let removeIceObserver: (() => void) | null = null
+/** Set once stage six has been reported, so the poll loop stops asking. */
+let funnelSawFirstTask = false
+
+/**
+ * Stages five and six, read off the same 250 ms poll BROW-07 already runs.
+ *
+ * ## Stage five's class, and why `relayed` is a value this tier does not produce
+ *
+ * `pathTo` answers `carries-work`, `control-only` or `unconnected`. **A control-only pair is
+ * not a peer this visitor can compute with**, so folding it into the connected count would
+ * inflate stage five against stage six and hide the funnel's largest leak inside its own
+ * vocabulary — which is why the schema carries `control-only` as a value of its own.
+ *
+ * The other two map to `direct`, and that is a statement about this tier rather than a
+ * shortcut: in a browser every relayed circuit is a *limited* connection, so `pathTo` has
+ * already separated it as `control-only`, and anything left that carries work is either a
+ * direct WSS connection to a bootstrap node or a WebRTC one. `classifyConnection` calls the
+ * second `direct` too, deliberately — a direct browser-to-browser address still names the relay
+ * that signalled it. So `relayed` is produced by the hosted tier and not by this one, and the
+ * schema carries it because the schema is shared.
+ *
+ * ## Stage six counts a task that FINISHED, and the predicate is why
+ *
+ * Phase 35 measured `activity().tasksExecuted` — `GovernedExecutor`'s `#executed` — going
+ * `0 → 128` inside 800 ms, because at a duty cycle of 1 it increments **before**
+ * `inner.execute(task)`. It counts tasks *admitted*. Stage six's words are *first task
+ * EXECUTED*, so the predicate here is `executed >= 1 && executorInFlight === 0`, which is only
+ * true once an admitted task has left the executor: `CountingExecutor.execute` raises
+ * `#inFlight` as its first statement and lowers it in a `finally`, and `GovernedExecutor`
+ * raises `#executed` in the statement immediately before calling it — so the intermediate state
+ * is never observable between two polls, and no sampling rate can miss it.
+ */
+function funnelTick(): void {
+  const running = node
+  if (running === null) return
+
+  for (const peer of running.transport.peers) {
+    const path = running.transport.pathTo(peer)
+    if (path === 'unconnected') continue
+    funnel.enter('connection-classified', path === 'control-only' ? 'control-only' : 'direct')
+    break
+  }
+
+  if (!funnelSawFirstTask && running.executor.executed >= 1 && running.executorInFlight === 0) {
+    funnelSawFirstTask = true
+    funnel.enter('first-task')
+  }
 }
 
 function beginComputingIndicator(): void {
@@ -1129,6 +1239,11 @@ const api: TabApi = {
     const reporting = options.reporting === true
     consent = grantConsent(store, { anchoredTo: DEMO_ANCHORS, reportingAllowed: reporting })
     if (!reporting) declinedLocally += 1
+    // RUN-04's arming point — stage two, and the moment the held stage one is allowed to
+    // leave. AFTER `grantConsent` returns, never before: the whole reason the pending default
+    // is lawful under either reading of open question 3 is that a visitor who does not consent
+    // is not counted, and a send one line earlier would be exactly that visitor being counted.
+    armFunnel()
     notify()
     return stateOf()
   },
@@ -1150,6 +1265,18 @@ const api: TabApi = {
     // have moved. `consent` above is assigned from the same read and is what the
     // *request* path consults; this is the one the node is constructed with.
     const granted = requireConsent()
+    // RUN-04 — the OTHER way a visitor arrives at a granted consent. A returning visit reads a
+    // stored consent and never calls `api.grantConsent`, so arming only there would make every
+    // returning visitor invisible to the funnel while looking like a page-load drop-off — a
+    // defect that reads as a finding. `arm()` and `enter()` are both once-only, so calling this
+    // on the path that already armed sends nothing.
+    armFunnel()
+    // RUN-04 stage four — installed BEFORE `BrowserNode.start`, because libp2p constructs its
+    // own `RTCPeerConnection` instances inside it and an observer installed afterwards sees
+    // none of them. Install order is the whole of whether this stage is measured.
+    removeIceObserver ??= installIceObserver(() => {
+      funnel.enter('ice-gathering')
+    })
     // Probe before attempting, so a missing capability is a fact about this browser
     // rather than an inference from an error message.
     const environment = probeEnvironment()
@@ -1375,6 +1502,16 @@ const api: TabApi = {
     // A peer dispatching work here changes what the surface must say, and the page
     // cannot poll for it — see `onActivity`.
     node.onActivity(notify)
+    // RUN-04 stage three — the dial to the bootstrap peer completed.
+    //
+    // **Chosen by measurement rather than by plausibility, and the reason it is HERE.**
+    // `BrowserNode.start` resolving is itself the evidence: a browser has no listening socket,
+    // so it can only be on the fabric by way of a relay reservation, and a start that could not
+    // reach one rejects with `no-relay-reachable` before this line. Reading a libp2p event
+    // instead — `peer:connect` or `peer:identify` — would fire for peers reached later over
+    // WebRTC as well, so it would report stage three for a visit that never dialled a bootstrap
+    // node at all. The peer count is asserted rather than assumed for the same reason.
+    if (node.transport.peers.length > 0) funnel.enter('wss-bootstrap')
     // BROW-07 — the tab strip starts saying whether this machine is working, and keeps
     // saying it while the visitor is looking at something else.
     beginComputingIndicator()
@@ -2670,6 +2807,11 @@ const api: TabApi = {
     // would read a node that is being dismantled, and the tab strip would go on claiming to
     // be computing for as long as the teardown took.
     endComputingIndicator()
+    // RUN-04 — the wrapper comes off with the node. A stopped tab should be left as it was
+    // found, and `installIceObserver` only ever puts back a global it still owns.
+    removeIceObserver?.()
+    removeIceObserver = null
+    funnelSawFirstTask = false
     if (node !== null) await node.stop()
     node = null
     // Back to "the question does not arise". A stopped tab cannot be out of step with a
@@ -2690,3 +2832,19 @@ const api: TabApi = {
 }
 
 window.o2 = api
+
+/**
+ * RUN-04's terminal report — where this visit stopped.
+ *
+ * `pagehide` rather than `beforeunload` or `unload`: it is the one event that fires on a
+ * bfcache eviction and on mobile Safari, where `unload` frequently does not, and a funnel that
+ * missed those would under-report exactly the population it exists to measure. The send is a
+ * beacon for the same reason — see `funnel-reporter.ts`.
+ *
+ * `FunnelReporter.stalled` is once-only and sends nothing for a visit that reached the last
+ * stage, so a `pagehide` that fires twice, or one that fires after a completed visit, costs
+ * nothing.
+ */
+window.addEventListener('pagehide', () => {
+  funnel.stalled()
+})

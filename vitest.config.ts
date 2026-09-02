@@ -245,7 +245,35 @@ const NODE_MEASUREMENT = {
    * nodes on ephemeral ports, including a circuit relay). `unitFiles` moves by the same two,
    * for the identity recorded above.
    */
-  files: 219,
+  /**
+   * **219 -> 227 on 2026-09-02 (Phase 37, the connectivity funnel)**, eight files. Six are this
+   * phase's own — `packages/net/src/funnel-schema.test.ts`,
+   * `packages/cloudflare/src/funnel-journal.test.ts`,
+   * `packages/cloudflare/src/funnel-collector.test.ts`,
+   * `packages/browser/src/funnel-reporter.test.ts`,
+   * `packages/browser/src/funnel-reporter.node.test.ts` and
+   * `packages/browser/src/ice-observer.test.ts` — and two arrived from other work between the
+   * 2026-08-30 reading and this one.
+   *
+   * **COUNTED, not adjusted, and the difference is this table's own rule.** The figure comes
+   * from re-running the guard's walk (`227`) rather than from adding six to 219, which is the
+   * arithmetic the `d4573a0`/`a96096b` note above records going wrong: subtracting a known
+   * departure from a stale total is wrong by everything that arrived and looks more careful
+   * than counting. Cross-checked against `git ls-files` filtered by the same globs, which reads
+   * **224** with **3** of this phase's specs still untracked at the moment of the reading —
+   * 224 + 3 = 227, and the two routes agree.
+   *
+   * **The span table is untouched and that is measured rather than assumed.** None of the six
+   * belongs in it: all are pure — ports, constants and a fake `RTCPeerConnection`, with no
+   * thread, no process and no socket — and each ran in the same invocation as
+   * `slow-specs.node.test.ts` at well under the 1000 ms cut. This phase's three e2e specs do
+   * NOT move this field: `relative()` filters the `.e2e.` suffix out of `NODE_PROJECT_FILES`,
+   * which is what the drift assertion reads.
+   *
+   * `unitFiles` moves by the same eight, for the identity recorded above:
+   * `files - excludedInNode`, where the subtrahend is 78 and none of the eight is on that list.
+   */
+  files: 227,
   tests: 2948,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
@@ -429,7 +457,7 @@ const NODE_MEASUREMENT = {
    * hour once spread 25.69 / 33.68 / 22.39 s — 1.5x end to end. Any comparison against this
    * number that turns on less than half of it is reading the host's weather.
    */
-  unitFiles: 141,
+  unitFiles: 149,
   unitTests: 2317,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
