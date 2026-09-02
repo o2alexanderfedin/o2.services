@@ -292,8 +292,18 @@ const NODE_MEASUREMENT = {
    * fake, a key comparison and a region check — no thread, no process, no socket — and it ran
    * at `Duration 621ms` in its own invocation, under the 1000 ms cut. `unitFiles` moves by the
    * same one.
+   *
+   * **230 -> 231 on 2026-09-02 (Phase 36, RUN-02)**, one more:
+   * `packages/cloudflare/src/admission-slices.e2e.test.ts` (**e2e** lane — it spawns three
+   * `wrangler dev` children on ports 8801–8803 and opens real sockets, so it belongs where
+   * `fileParallelism: false` holds). `unitFiles` moves by the same one, for the identity
+   * recorded above and for the reason the `inbound-listener.e2e.test.ts` note gives: the
+   * subtrahend is the explicitly-named slow node specs only, and an e2e file is on neither
+   * side of that list. Measured `Duration 5.75s` in its own invocation, host quiet at
+   * load/core 0.71 — the span table is untouched because `relative()` filters the `.e2e.`
+   * suffix out of `NODE_PROJECT_FILES`, which is what the drift assertion reads.
    */
-  files: 230,
+  files: 231,
   tests: 2948,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
@@ -477,7 +487,7 @@ const NODE_MEASUREMENT = {
    * hour once spread 25.69 / 33.68 / 22.39 s — 1.5x end to end. Any comparison against this
    * number that turns on less than half of it is reading the host's weather.
    */
-  unitFiles: 152,
+  unitFiles: 153,
   unitTests: 2317,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
