@@ -104,3 +104,50 @@ structure through `rtcConfiguration`'s function form rather than beside it.
 Reproduce with `node tools/turn-provider-probe.mjs` after editing its `HOSTS` list; the
 `ENOTFOUND` arrives as a socket error rather than a timeout, which is itself the distinction
 between *no such name* and *no answer*.
+
+---
+
+## The free tier is real and does not reach this topology — and the exposure is small anyway
+
+**Raised by the owner 2026-09-02:** Cloudflare's TURN service is free of charge when used
+natively alongside their Realtime **SFU**. That is accurate and it is worth stating why it
+does not apply here, rather than quietly not using it.
+
+An SFU forwards **media tracks** — audio and video — between participants. This fabric's
+peer-to-peer path is a WebRTC **data channel** carrying control messages and partial results;
+there is no media, and therefore no SFU for the traffic to be native to. Our TURN use is the
+standalone kind, which is billed on relayed traffic.
+
+**This is a billing fact, not a protocol fact, and it was not measured.** The probe above can
+tell you a server implements TURN; nothing this repository can run tells you what it costs.
+The honest check is the project's own discipline pointed at money: configure the spending
+alert **first**, switch TURN on, drive a known volume, and **read the bill**. Not a document.
+
+### What can be measured is the volume, and it was — today
+
+`packages/browser/src/data-cost.ts` holds `DISCLOSED_DATA_COST_BYTES`, standing on three runs
+of the representative task on 2026-09-02 reporting `run.egress.totalBytes`: **11 387**,
+**10 971**, **11 387** bytes. That figure is **egress only** — the inbound leg is unmeasured
+and is named as excluded in that file rather than guessed at.
+
+Doubling it to bound the unmeasured inbound leg, one task run relayed through TURN costs
+about **22.2 KiB in total**, which gives:
+
+| | |
+|---|---|
+| task runs per GB of TURN traffic | ≈ **47 000** |
+| total task runs before 1 GB, at a **15 %** relay rate | ≈ **310 000** |
+
+**The 10–20 % relay-required figure is a proxy and must be labelled as one wherever it is
+quoted** — it comes from a different protocol, and `RUN-05` criterion 5 forbids presenting it
+as a measurement. The real rate is one of the numbers the public run exists to take.
+
+### The design already caps what TURN can carry
+
+This is structural rather than hopeful. `PROJECT.md`'s WebRTC constraint states that the
+browser mesh **cannot carry bulk data**: partials stay small and artifacts are fetched over an
+IPFS gateway. So an artifact's weight never crosses a TURN relay — only control traffic and
+small partials can, and those are bounded by a design rule that predates this decision.
+
+A heavier task than the colouring demo would move more, and that is the figure to re-take
+before the cohort arrives rather than to extrapolate from here.
