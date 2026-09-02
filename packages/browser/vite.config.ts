@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
@@ -87,6 +88,90 @@ export function perfReport(): Plugin {
   }
 }
 
+/** The repository root, for the two files this build reads its identity out of. */
+const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url))
+
+/**
+ * What this build IS, as one string: the released version and the commit it came from.
+ *
+ * **The gap this closes was found by falling into it.** Nothing in the published site said
+ * what it was — not `index.html`, not `bootstrap.json`, not one asset — so the only record of
+ * what is live was the `gh-pages` commit message. That message names the version read from
+ * the deployed NODE's `/self`, and on 2026-09-01 it was read as the client's: `gh-pages` sat
+ * at `rc.7` while the node answered `rc.8`, the client was reported a release behind, and it
+ * was not — a fresh build was byte-identical to what was published. A site that can name
+ * itself makes that misreading impossible rather than merely unlikely.
+ *
+ * `--dirty` is not decoration. A build from an edited tree describes no commit, and a string
+ * that silently claims one is worse than no string: it is a wrong answer to the only question
+ * this exists to answer.
+ *
+ * A tree with no git available still builds. The identity degrades to the version alone and
+ * says so — `no-commit` rather than a blank, because absence has to be readable as absence.
+ */
+export function buildIdentity(): string {
+  const version: unknown = JSON.parse(readFileSync(`${REPO_ROOT}/package.json`, 'utf8')).version
+  const released = typeof version === 'string' ? version : 'no-version'
+  let commit = 'no-commit'
+  try {
+    const git = (...args: readonly string[]): string =>
+      execFileSync('git', [...args], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim()
+    // **`rev-parse`, deliberately, and `describe` was tried first.** `git describe --always`
+    // answered `v1.1-466-gd051f28` here: it reaches for the nearest reachable tag, and the
+    // nearest one is an old release whose name contradicts the version beside it. The commit
+    // is the only thing wanted, so it is the only thing asked for.
+    const head = git('rev-parse', `--short=7`, 'HEAD')
+    // Dirtiness is asked SEPARATELY rather than taken from `--dirty`, because the flag is a
+    // property of `describe` and this no longer uses it.
+    commit = git('status', '--porcelain') === '' ? head : `${head}-dirty`
+  } catch {
+    // Left as `no-commit`. A build outside a checkout is a real case — an npm tarball, a
+    // container with the history stripped — and it must not fail here.
+  }
+  return `${released} ${commit === '' ? 'no-commit' : commit}`
+}
+
+/**
+ * Stamp {@link buildIdentity} into the page's head, so the published site can name itself.
+ *
+ * ## Why a `<meta>` in the head and not something a visitor sees
+ *
+ * Not squeamishness — this page is under an exhaustive UI guard. `demo-regions.e2e.test.ts`
+ * counts every figure against `UI_SPEC_TALLY.total` and checks the per-surface and per-kind
+ * splits, so a visible element is a catalogue change and a spec change before it is an
+ * identity. The head carries no region, renders nothing, and is reachable by `curl` and by
+ * view-source, which is who actually asks this question.
+ *
+ * It also makes no request, so `built-bundle.e2e.test.ts`'s P10 — every request the page makes
+ * before consent is same-origin — is untouched by construction rather than by permission.
+ *
+ * ## Why this is not decoration
+ *
+ * `scripts/deploy-pages.sh` reads this tag back off the live site after publishing and refuses
+ * to call the publish good unless the site names the build it just pushed. A field nobody
+ * reads is a claim nobody checks, and this repository has retired several of those.
+ */
+export function stampBuildIdentity(): Plugin {
+  return {
+    name: 'o2-build-identity',
+    // `enforce: 'post'` so the tag is appended after any plugin that rewrites the head; the
+    // read-back in deploy-pages.sh greps for it, and a transform that dropped it would turn
+    // a green publish into a false one.
+    enforce: 'post',
+    transformIndexHtml(html: string): string {
+      const identity = buildIdentity()
+      return html.replace(
+        '<meta name="viewport"',
+        `<meta name="o2-build" content="${identity}" />\n    <meta name="viewport"`,
+      )
+    },
+  }
+}
+
 /**
  * Production bundle for the browser node.
  *
@@ -103,7 +188,7 @@ export function perfReport(): Plugin {
 const config: UserConfig = defineConfig({
   root: new URL('./demo', import.meta.url).pathname,
   base: './',
-  plugins: [perfReport()],
+  plugins: [perfReport(), stampBuildIdentity()],
   build: {
     outDir: new URL('./dist', import.meta.url).pathname,
     emptyOutDir: true,
