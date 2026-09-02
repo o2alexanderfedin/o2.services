@@ -237,7 +237,49 @@ stopped_at: >-
   REQUIREMENTS.md rows stale in the pessimistic direction (HOST-05, HOST-08,
   HOST-11, HOST-12) plus two false clauses in NET-03's; and no concurrency limit
   by core count anywhere in the tree, which is the next thing the owner named.
-last_updated: "2026-08-31T05:20:00.000Z"
+  2026-09-02 — FOUR PHASES MOVED AND THE MILESTONE'S SHAPE CHANGED. Requirements went
+  113/25 to 116/22. PHASE 35 IS EXECUTED, 7 of 8 tasks: consent blocks the artifact
+  FETCH proved by a network log rather than a flag, an indicator in browser chrome read
+  from outside the page in all three engines, Stop as a hard interrupt with the billed
+  socket closing beside it, a four-element disclosure in the required order, and a data
+  cost of 11 000 bytes standing against three real runs. BROW-09 is Partial on ONE
+  SENTENCE that is the owner's — the telemetry's legal basis, drafted both ways. PHASE 34
+  IS HALF CLOSED: NET-13 measured on a real relay, 62 KiB each way completing and 63 KiB
+  cut, with a direct-path positive control, and two unrelated relays returning the same
+  49 152-byte echo. PHASES 36 AND 37 ARE PLANNED and 37 is executing; PHASE 34's remaining
+  half is planned and coturn 4.17.2 is installed so its criterion 1 is a measurement here
+  rather than an owner act.
+  WHAT THE DAY FOUND THAT NOBODY WAS LOOKING FOR. (1) PAUSE WORKS BACKWARDS — `paused` is
+  consulted inside `serveAgent`, which answers PEERS, and the tab's own work takes a path
+  where nothing consults it, so a paused tab refuses everyone and keeps computing. The
+  tree states the opposite rule twice in its own comments. Phase 36 Task 5 closes it.
+  (2) THE POLICY PAGE 404s IN PRODUCTION — confirmed against the live site, 200 on the
+  root as the control, and `policy.html` present in the live bundle. `vite.config.ts`
+  declares no `rollupOptions.input`. Phase 36 Task 7 repairs it, and the guard that lands
+  with it must read the BUILT OUTPUT, because a proof that reads the source tree cannot
+  see a build that omits a file. (3) ONE OF THE FOUR STUN SERVERS THE CLIENT RUNS ON DOES
+  NOT RESOLVE — NXDOMAIN on three independent public resolvers, with a control. Nothing
+  in `packages/*/src/` sets `iceServers` at all. (4) HALF THE LIBP2P BUMP FINDING IS NOT
+  ABOUT THE BUMP: truncated-and-delivered-as-complete reproduced on the UNBUMPED family
+  over a relayed path, so that half is our own framing weakness and belongs with NET-08.
+  The hold stands on the narrower reason — a bound stopped firing.
+  DECISIONS TAKEN AND WRITTEN DOWN. TURN provider is Cloudflare, ruled by the owner after
+  a probe refuted "use Google": Google answers STUN and returns nothing at all to a TURN
+  Allocate. Cloudflare's free tier is native to the Realtime SFU and does not reach a
+  data-channel fabric; the SFU itself is admissible as an ACCELERANT AND NOT A FOUNDATION,
+  and the line is measurable — it is admissible exactly as far as its traffic lands in
+  Phase 32's `relayed` column. `.planning/OWNER-ACTIONS.md` now holds all seven acts only
+  the owner can perform, with the spending alert first because HOST-10 is the ledger's
+  first Refuted row for losing exactly that ordering once already.
+  PHASES 29 AND 32 HAVE CLOSING DECISIONS IN THE ROADMAP. 29 closes uncounted on the
+  20/21/22 precedent. 32's criterion 3 is now measured to be unanswerable rather than
+  merely unclear — the journal's first observation falls after the window closed — and
+  HOST-02 STAYS UNCHECKED ON PURPOSE: its evidence is real but neither run exists in the
+  tree as a spec, and ticking on an unrepeatable reading is the widening this milestone
+  refuses.
+  READ `completed_phases: 0` WITH ALL OF THIS. It counts ticked checkboxes and it is
+  correct; it is not a measure of progress.
+last_updated: "2026-09-02T21:55:00.000Z"
 last_activity: 2026-08-28 — the hosted tier deployed and released four times, the browser client published and fixed, criterion 2 met in full, Phase 29 closed uncounted on criterion 1 alone
 progress:
   total_phases: 13
