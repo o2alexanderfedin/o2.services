@@ -924,8 +924,18 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * DELETED, and deletion on this tier is the alarm. **The raise's own wording is what made the
  * reading checkable**, and that is the argument for this register rather than for a count:
  * a ceiling could have absorbed the entry and no sentence would have said what would close it.
+ *
+ * **Raised 3 → 4 on 2026-09-02, in the same commit that moved `BROW-09` to `Partial`**, and it
+ * is the `HOST-13` shape once more with one difference worth naming. `HOST-13`'s open leg had no
+ * shape this file could read because the driver is the Workers runtime; `BROW-09`'s has no shape
+ * this file could read because **the act that closes it is a ruling rather than a run**. The
+ * disclosure states its four things and each is asserted with a plant; what is absent is the
+ * legal basis of the telemetry sentence, which § Open questions item 3 records as contested
+ * across sources and settled by legal review. No symbol has no caller, no entry point is
+ * undriven, and no tier is unconfigured — so a call-site search cannot express it, which is
+ * exactly what this register is for. Raised by the one entry that arrived.
  */
-const REREAD_REGISTER_CEILING = 3
+const REREAD_REGISTER_CEILING = 4
 
 /**
  * ## The rule this list encodes
@@ -1643,6 +1653,41 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // physical wall. The bucket is unchanged — `experiment-not-run` is exactly right, and now
   // for a checkable reason: the arrangement exists, the dispatch has not happened, and the
   // dispatch is an owner act because it is a push to a public repository.
+  {
+    // ── Added 2026-09-02 by Plan 35-01 ────────────────────────────────────────────────
+    //
+    // **The open leg is not a symbol and cannot become one: it is a sentence somebody with
+    // legal standing has to choose.** `BROW-09` asks the disclosure to state four things, and
+    // four things it states — each asserted individually in the two witnesses below, each with
+    // a plant watched red, plus the ordering. What is missing is the **legal basis** of the
+    // telemetry element: consent versus legitimate interest under GDPR, recorded at
+    // `.planning/REQUIREMENTS.md` § Open questions item 3 as *contested across sources* and
+    // *"settled by legal review, not engineering judgement"*.
+    //
+    // So there is no exported symbol with no caller to name, and no configuration or tier to
+    // drive. `experiment-not-run` is the nearest of the three buckets and is not a comfortable
+    // fit: the act that would close this row is a **ruling**, not a measurement. It is chosen
+    // over the other two because it is the only one that says *the thing that would close this
+    // has not been done yet*, which is true, rather than pointing at a code path that is not
+    // the obstacle. If a fourth bucket is ever wanted, this is the entry that wants it.
+    //
+    // **What would close it**, so the promise this id carries is specific rather than a
+    // reminder: the owner picks reading A (consent) or reading B (legitimate interest) — both
+    // drafted verbatim in
+    // `.planning/phases/phase-35-conditions-of-entry-in-the-browser/35-01-SUMMARY.md` — the
+    // chosen sentence lands in `DISCLOSURE`, `DISCLOSURE_VERSION` bumps again, `policy.html`
+    // mirrors it, and `disclosure-four-elements.node.test.ts` gains a case asserting the
+    // sentence is present with its removal planted. That file today asserts the **absence** of
+    // any basis sentence, so the guard has to be inverted in the same commit as the ruling and
+    // cannot be left half-turned.
+    id: 'BROW-09',
+    because: 'experiment-not-run',
+    reread: '2026-09-02',
+    witnesses: [
+      'packages/node/src/disclosure-before-optin.e2e.test.ts',
+      'packages/node/src/disclosure-four-elements.node.test.ts',
+    ],
+  },
   {
     id: 'AOT-03',
     because: 'experiment-not-run',
