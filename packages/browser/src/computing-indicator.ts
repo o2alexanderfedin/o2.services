@@ -72,9 +72,38 @@ export interface TitlePort {
  */
 export const COMPUTING_TITLE_PREFIX = '● Computing — '
 
+/**
+ * What is prepended when this tab has been told to stop taking new work — RUN-02.
+ *
+ * ## Why a third state exists at all
+ *
+ * With two states a halted tab shows the same undecorated title an idle tab shows, so a
+ * volunteer cannot tell a halt from a lull — and criterion 2 is precisely that *"a volunteer
+ * verifies the stop from their own tab"*. A state that is indistinguishable from doing nothing
+ * is not evidence of anything.
+ *
+ * ## What it claims, which is narrower than "stopped"
+ *
+ * `inFlight > 0` wins over this. A halted tab that is still draining work **is** computing, and
+ * a title saying otherwise would be a lie a visitor could catch by watching their own fan. So
+ * this marker is a statement about **new** work — which is what RUN-02's own words are about:
+ * *"stop admitting new tasks"*, not *stop*. Phase 35's Stop button is the other thing and it
+ * still exists.
+ *
+ * Same construction as the computing prefix, for the same stated reasons: glyph first because
+ * a tab strip truncates from the right, words after for a hover and for the accessibility tree,
+ * and the separator inside the constant so {@link undecorated} can strip it by one `slice`.
+ */
+export const STOPPED_TITLE_PREFIX = '■ Not taking new work — '
+
 /** The prefix with nothing after it, for a caller that needs to look for it. */
 export function isComputingTitle(title: string): boolean {
   return title.startsWith(COMPUTING_TITLE_PREFIX)
+}
+
+/** Whether this title carries the halted marker. {@link isComputingTitle}'s twin. */
+export function isStoppedTitle(title: string): boolean {
+  return title.startsWith(STOPPED_TITLE_PREFIX)
 }
 
 /**
@@ -116,12 +145,19 @@ export class ComputingIndicator {
    * A negative count is treated as zero rather than refused: this is a display, and a caller
    * that has miscounted should get an undecorated title, not an exception thrown from a
    * repaint.
+   *
+   * **`halted` is REQUIRED, not optional, and that is the same argument as the idempotence
+   * one above.** An optional parameter means a call site that forgets it silently never shows
+   * the stopped state — a defect that looks exactly like the switch not working and that no
+   * type-checker would catch. Every caller states both facts, or it does not compile.
    */
-  report(inFlight: number): void {
+  report(inFlight: number, halted: boolean): void {
     const current = this.#title.get()
-    // Anything that is not our own decoration is the page's own title, whenever it arrived.
-    if (!isComputingTitle(current)) this.#base = current
-    const wanted = inFlight > 0 ? `${COMPUTING_TITLE_PREFIX}${this.#base}` : this.#base
+    // Anything that is not one of our own decorations is the page's own title, whenever it
+    // arrived. Both prefixes are stripped by one function, or the first transition between
+    // them writes a decorated title back as the base and the tab strip grows a glyph.
+    if (!isComputingTitle(current) && !isStoppedTitle(current)) this.#base = current
+    const wanted = decorate(this.#base, inFlight, halted)
     // Compared before writing: assigning `document.title` fires a mutation the browser acts
     // on, and rewriting the identical string on every poll is work a backgrounded tab should
     // not be doing.
@@ -137,7 +173,21 @@ export class ComputingIndicator {
  * way to guarantee that is to define the base as *whatever is left after the prefix*.
  */
 function undecorated(title: string): string {
-  return isComputingTitle(title) ? title.slice(COMPUTING_TITLE_PREFIX.length) : title
+  if (isComputingTitle(title)) return title.slice(COMPUTING_TITLE_PREFIX.length)
+  if (isStoppedTitle(title)) return title.slice(STOPPED_TITLE_PREFIX.length)
+  return title
+}
+
+/**
+ * Which title a base should be wearing, given the two facts.
+ *
+ * **Work in flight wins.** See {@link STOPPED_TITLE_PREFIX}: a halted tab that is still
+ * draining is computing, and the halted marker is a claim about *new* work.
+ */
+function decorate(base: string, inFlight: number, halted: boolean): string {
+  if (inFlight > 0) return `${COMPUTING_TITLE_PREFIX}${base}`
+  if (halted) return `${STOPPED_TITLE_PREFIX}${base}`
+  return base
 }
 
 /**

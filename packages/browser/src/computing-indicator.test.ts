@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { COMPUTING_TITLE_PREFIX, ComputingIndicator, isComputingTitle } from './computing-indicator.ts'
+import {
+  COMPUTING_TITLE_PREFIX,
+  ComputingIndicator,
+  STOPPED_TITLE_PREFIX,
+  isComputingTitle,
+  isStoppedTitle,
+} from './computing-indicator.ts'
 import type { TitlePort } from './computing-indicator.ts'
 
 /**
@@ -40,7 +46,7 @@ describe('ComputingIndicator — the tab strip says whether this machine is work
     const title = fakeTitle(BASE)
     const indicator = new ComputingIndicator(title.port)
 
-    indicator.report(0)
+    indicator.report(0, false)
 
     expect(title.port.get()).toBe(BASE)
     // Not merely "the value is right": nothing was written at all. A poll that rewrote the
@@ -53,7 +59,7 @@ describe('ComputingIndicator — the tab strip says whether this machine is work
     const title = fakeTitle(BASE)
     const indicator = new ComputingIndicator(title.port)
 
-    indicator.report(1)
+    indicator.report(1, false)
 
     expect(title.port.get()).toBe(`${COMPUTING_TITLE_PREFIX}${BASE}`)
     expect(isComputingTitle(title.port.get())).toBe(true)
@@ -66,10 +72,10 @@ describe('ComputingIndicator — the tab strip says whether this machine is work
     const title = fakeTitle(BASE)
     const indicator = new ComputingIndicator(title.port)
 
-    indicator.report(1)
-    indicator.report(2)
-    indicator.report(7)
-    indicator.report(2)
+    indicator.report(1, false)
+    indicator.report(2, false)
+    indicator.report(7, false)
+    indicator.report(2, false)
 
     expect(title.port.get()).toBe(`${COMPUTING_TITLE_PREFIX}${BASE}`)
     // The arithmetic that catches the append-per-report defect this class of code always has.
@@ -83,8 +89,8 @@ describe('ComputingIndicator — the tab strip says whether this machine is work
     const title = fakeTitle(BASE)
     const indicator = new ComputingIndicator(title.port)
 
-    indicator.report(3)
-    indicator.report(0)
+    indicator.report(3, false)
+    indicator.report(0, false)
 
     // `toBe`, not `toContain`: "restored exactly" is the claim, and a title left with a
     // stray separator or a trimmed space would pass a looser assertion.
@@ -101,10 +107,10 @@ describe('ComputingIndicator — the tab strip says whether this machine is work
 
     expect(indicator.base).toBe(BASE)
 
-    indicator.report(1)
+    indicator.report(1, false)
     expect(title.port.get()).toBe(`${COMPUTING_TITLE_PREFIX}${BASE}`)
 
-    indicator.report(0)
+    indicator.report(0, false)
     expect(title.port.get()).toBe(BASE)
   })
 
@@ -112,17 +118,17 @@ describe('ComputingIndicator — the tab strip says whether this machine is work
     const title = fakeTitle(BASE)
     const indicator = new ComputingIndicator(title.port)
 
-    indicator.report(1)
+    indicator.report(1, false)
     expect(title.port.get()).toBe(`${COMPUTING_TITLE_PREFIX}${BASE}`)
 
     // The page renames itself while idle — the ordinary case, not a pathological one.
-    indicator.report(0)
+    indicator.report(0, false)
     title.port.set('o2.services — colouring 1..204')
-    indicator.report(1)
+    indicator.report(1, false)
 
     expect(title.port.get()).toBe(`${COMPUTING_TITLE_PREFIX}o2.services — colouring 1..204`)
 
-    indicator.report(0)
+    indicator.report(0, false)
     // The title the page chose, not the one this module first saw. A base captured once at
     // construction would put `o2.services — node` back here and lose the page's own change.
     expect(title.port.get()).toBe('o2.services — colouring 1..204')
@@ -132,9 +138,85 @@ describe('ComputingIndicator — the tab strip says whether this machine is work
     const title = fakeTitle(BASE)
     const indicator = new ComputingIndicator(title.port)
 
-    indicator.report(1)
-    indicator.report(-4)
+    indicator.report(1, false)
+    indicator.report(-4, false)
 
     expect(title.port.get()).toBe(BASE)
+  })
+})
+
+describe('RUN-02 — the third state, so a halt is not indistinguishable from a lull', () => {
+  const BASE_TITLE = 'o2.services — node'
+
+  it('says COMPUTING, not stopped, while a halted tab is still draining work', () => {
+    // The precedence rule, and it is the one thing here that could be a lie. A halted tab
+    // with work in flight IS computing, and a title claiming otherwise is something a
+    // visitor could catch by watching their own fan. The halted marker is a statement about
+    // NEW work — which is what RUN-02's own words are about.
+    const title = fakeTitle(BASE_TITLE)
+    const indicator = new ComputingIndicator(title.port)
+
+    indicator.report(2, true)
+
+    expect(title.port.get()).toBe(`${COMPUTING_TITLE_PREFIX}${BASE_TITLE}`)
+    expect(isStoppedTitle(title.port.get())).toBe(false)
+  })
+
+  it('says NOT TAKING NEW WORK once a halted tab has drained', () => {
+    const title = fakeTitle(BASE_TITLE)
+    const indicator = new ComputingIndicator(title.port)
+
+    indicator.report(2, true)
+    indicator.report(0, true)
+
+    expect(title.port.get()).toBe(`${STOPPED_TITLE_PREFIX}${BASE_TITLE}`)
+    expect(isComputingTitle(title.port.get())).toBe(false)
+  })
+
+  it('restores the base EXACTLY when the halt is lifted', () => {
+    const title = fakeTitle(BASE_TITLE)
+    const indicator = new ComputingIndicator(title.port)
+
+    indicator.report(0, true)
+    indicator.report(0, false)
+
+    // Exactly, not `toContain`: a stopped title read back as the base would leave the marker
+    // in place forever and every later report would prepend to it.
+    expect(title.port.get()).toBe(BASE_TITLE)
+  })
+
+  it('does not double-decorate when the two markers swap', () => {
+    // The transition the second prefix made possible and the defect it would have shipped
+    // with: `undecorated` strips EITHER prefix, so a stopped title becoming a computing one
+    // does not treat the marker as part of the page's own title.
+    const title = fakeTitle(BASE_TITLE)
+    const indicator = new ComputingIndicator(title.port)
+
+    indicator.report(0, true)
+    indicator.report(1, true)
+    indicator.report(0, true)
+
+    expect(title.port.get()).toBe(`${STOPPED_TITLE_PREFIX}${BASE_TITLE}`)
+  })
+
+  it('does not double-decorate a base that already carries EITHER marker', () => {
+    for (const prefix of [COMPUTING_TITLE_PREFIX, STOPPED_TITLE_PREFIX]) {
+      const title = fakeTitle(`${prefix}${BASE_TITLE}`)
+      const indicator = new ComputingIndicator(title.port)
+      expect(indicator.base).toBe(BASE_TITLE)
+      indicator.report(0, true)
+      expect(title.port.get()).toBe(`${STOPPED_TITLE_PREFIX}${BASE_TITLE}`)
+    }
+  })
+
+  it('writes nothing when the same state is reported twice', () => {
+    const title = fakeTitle(BASE_TITLE)
+    const indicator = new ComputingIndicator(title.port)
+
+    indicator.report(0, true)
+    const afterFirst = title.writes.length
+    indicator.report(0, true)
+
+    expect(title.writes.length).toBe(afterFirst)
   })
 })

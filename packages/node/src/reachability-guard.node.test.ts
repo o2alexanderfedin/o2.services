@@ -1463,7 +1463,22 @@ interface OpenFinding {
  * symbols; this number exists so a seventh arrival cannot slip in under a bound that was
  * sized for six.
  */
-const UNREACHABLE_CEILING = 116
+/**
+ * **116 -> 118 on 2026-09-02 (Phase 36, RUN-02), matched to exactly two register rows.**
+ *
+ * `libp2p/clientVersionFrom` and `libp2p/isHaltedFor`, both added to `GLOBAL_OBJECT_HOP` in
+ * the same commit and both named by the derived case rather than read off the source. The
+ * raise is by exactly two and the register grew by exactly two — this number tracks the
+ * register, and a raise that outran it would be the ceiling absorbing an arrival nobody
+ * classified.
+ *
+ * The sequence is worth keeping because it is the guard working rather than being worked
+ * around: the two symbols were put in `packages/libp2p/src/index.ts` one commit earlier, the
+ * guard refused at `118 against a bound of 116` with **no** register entry available — nothing
+ * called them yet — and the barrel line was narrowed instead. They entered the barrel, the
+ * register and this number together, in the commit that gave them a caller.
+ */
+const UNREACHABLE_CEILING = 118
 
 const OPEN_FINDINGS: readonly OpenFinding[] = [
   {

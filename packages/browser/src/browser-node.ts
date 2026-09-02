@@ -56,12 +56,14 @@ import {
   verifyCertificate,
 } from '@o2/core'
 import type {
+  Admission,
   Blockstore,
   Executor,
   IssuanceBudget,
   NodeCertificate,
   NodeRecords,
   NodeSovereignty,
+  Offer,
   PublicKeyHex,
   RecordIndex,
   ResultAttestor,
@@ -105,10 +107,13 @@ import {
   UNREACHABLE_PROVIDER,
   authorizeCapability,
   enrolOverRpc,
+  // SCHED-03's refusal string, imported rather than composed a second time here: one
+  // sentence a requestor reads, in one place, on `pausedRefusal`'s own discipline.
+  pausedRefusal,
   serveAgent,
   withholdingFrom,
 } from '@o2/net'
-import type { Authorizer, EnrolOutcome, SovereignCids } from '@o2/net'
+import type { Authorizer, EnrolOutcome, LocalAdmission, SovereignCids } from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { currentBrowserLabel } from './browser-id.ts'
@@ -1123,6 +1128,44 @@ export class BrowserNode {
    */
   readonly admission: LocalCapacity
   /**
+   * How this tab answers an offer addressed to **itself** — SCHED-03 and RUN-02.
+   *
+   * ## What was wrong before this member existed, measured rather than supposed
+   *
+   * `AgentOptions.paused` is consulted at `net/src/agent.ts`, inside `serveAgent`, and
+   * `serveAgent` answers **peers**. A tab running its own work does not go through it:
+   * `rpcAdmission`'s first branch short-circuits the wire for an offer addressed to the
+   * submitter — *"a node does not learn its own capacity over a wire"* — and the port it
+   * consults there was {@link BrowserNode.admission}, a bare `LocalCapacity` that has never
+   * heard of `paused`. Two more sites did the same on the `prefers-local-combining`
+   * placement.
+   *
+   * **So a paused tab refused every peer and went on computing its own work.** That is the
+   * exact inverse of the rule this file already states twice in its own words — see the
+   * `authorize` hoist below, *"a tab that admitted its own work by a rule other than the one
+   * it admits a peer's by would be more permissive to itself than to everybody else. One
+   * value, two readers, no way for them to disagree"* — and `demo/main.ts` says the same
+   * about the two ports it passes. The sentences were right and the wiring did not match
+   * them.
+   *
+   * ## What this is
+   *
+   * The **one reading every local path takes**, with `paused` folded in. The bound goes on
+   * the one reading rather than at the three call sites, which is Phase 31's recorded
+   * pattern: *"a bound is enforced on the one reading every path takes, never at the call
+   * sites."* It closes over the **same** `paused` value that goes to `serveAgent`, not a
+   * second copy of it, so the two readers cannot disagree.
+   *
+   * Its refusal is `pausedAnswer`'s `offer` arm in `LocalAdmission` clothing: capacity
+   * published **unchanged**, `standing: 'declining-all-work'`, and `pausedRefusal`'s string
+   * rather than a second one composed here. The figures say *my capabilities have not
+   * shrunk*; the standing says *and I am not taking work anyway*.
+   *
+   * {@link BrowserNode.admission} stays exposed unchanged, because `demo/main.ts` reads
+   * `admission.slots` and that reading is about **capacity**, which this does not move.
+   */
+  readonly localAdmission: LocalAdmission
+  /**
    * The one authorizer this tab serves with — AUTH-03.
    *
    * **Exposed so there is exactly one of it.** `serveAgent` consults this when a *peer*
@@ -1203,6 +1246,7 @@ export class BrowserNode {
     capGovernor: DutyCycleGovernor
     worker: WorkerExecutor
     admission: LocalCapacity
+    localAdmission: LocalAdmission
     authorize: Authorizer
     counter: CountingExecutor
     startLedger: StartOutcomeLedger
@@ -1227,6 +1271,7 @@ export class BrowserNode {
     this.#capGovernor = parts.capGovernor
     this.worker = parts.worker
     this.admission = parts.admission
+    this.localAdmission = parts.localAdmission
     this.authorize = parts.authorize
     this.#counter = parts.counter
     this.#startLedger = parts.startLedger
@@ -2075,6 +2120,40 @@ export class BrowserNode {
       now: Date.now,
     })
 
+    // SCHED-03 / RUN-02 — built once, here, and read by every LOCAL path, exactly as
+    // `authorize` one line up is built once and read by both consumers. Same site, same
+    // stated reason. See {@link BrowserNode.localAdmission} for what was wrong before it.
+    //
+    // **`paused` is read from ONE binding, and that is the whole of the design.** The value
+    // below is what the `serveAgent` call at the bottom of this function also passes, so a
+    // peer's offer and this tab's own offer consult the same predicate at the same instant.
+    // Resolving the option twice would be two readers with nothing able to catch them
+    // disagreeing — the objection this file already records against a second authorizer.
+    //
+    // The named opt-out is written here, once, which is where the factory now states the
+    // posture a caller who said nothing gets. `serve-agent-hooks.node.test.ts` counts it and
+    // its note is the reason it must stay exactly one: driving it to zero would be a factory
+    // that had either hard-wired a pause nobody asked for or dropped the hook.
+    const paused = options.paused ?? 'never-pauses'
+    const localAdmission: LocalAdmission = {
+      would: (offer: Offer): Admission => {
+        if (typeof paused === 'function' && paused()) {
+          // `pausedAnswer`'s `offer` arm, verbatim in its two claims. Capacity is published
+          // UNCHANGED — the figures say "my capabilities have not shrunk" — and `standing`
+          // is what says "and I am not taking work anyway". A refusal that reported zero
+          // slots would be a node claiming to have shrunk, which is a different and false
+          // statement, and it would be read as such by a requestor's headroom map.
+          return {
+            accepted: false,
+            reason: pausedRefusal(nodeId),
+            capacity: { slots: admission.slots, inFlight: admission.inFlight },
+            standing: 'declining-all-work',
+          }
+        }
+        return admission.would(offer)
+      },
+    }
+
     // ── SCHED-01 / NET-06 — registration and provider announcement, and a tab does both ──
     //
     // Constructed here, before the node, so both are readable off it; started below, once
@@ -2133,6 +2212,7 @@ export class BrowserNode {
       capGovernor,
       worker,
       admission,
+      localAdmission,
       authorize,
       counter,
       startLedger,
@@ -2276,7 +2356,7 @@ export class BrowserNode {
       //
       // A per-node setting, not a node kind: `fabric-node.ts` threads the identical
       // ternary over its own option, and `serve-agent-hooks.node.test.ts` counts both.
-      paused: options.paused ?? 'never-pauses',
+      paused,
       // BROW-02. **The named opt-out is gone from this file**, because there is no longer
       // a tab this factory can build that has been told nothing: every node holds a ledger
       // and every node's own start is the first row in it. See the construction above for

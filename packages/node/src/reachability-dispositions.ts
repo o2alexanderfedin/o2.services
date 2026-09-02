@@ -304,6 +304,28 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   'demo/projectPiPartial',
   'demo/readPiPartial',
   'demo/verifyColouring',
+  // RUN-02, 2026-09-02 — the kill switch's two matchers, arriving by the established route.
+  //
+  // `demo/main.ts` imports `src/kill-switch.ts` at module scope, so the *module* is reached;
+  // what is not reached is the call. `switchEndpointFor` and `new KillSwitch` are called from
+  // `main.ts#start`, a member of the same `api` literal as `grantConsent` and `enrolledIssuer`
+  // above, and `isHaltedFor` is called from `KillSwitch.halted()` — which is what the `paused`
+  // closure handed to `BrowserNode.start` calls. `clientVersionFrom` is called from
+  // `main.ts#thisPageVersion`, on the same chain. Every one of them is hidden by the same
+  // `window.o2` assignment and by nothing else.
+  //
+  // **They were tried in the barrel one commit earlier and refused**, at `the guard found 118
+  // unreachable callable barrel exports against a bound of 116` — correctly, because at that
+  // moment nothing on the tree called either one. They were held out of `packages/libp2p/src/
+  // index.ts` until this wiring landed rather than registered ahead of it, which is the
+  // difference between a register entry and a ceiling absorbing work nobody did.
+  //
+  // Not read off the source. The derived case named both verbatim: *"these become reachable
+  // the moment the window.o2 assignment is traced, so they have a real production caller and
+  // are being counted as unwired — add them to GLOBAL_OBJECT_HOP … expected
+  // [ 'libp2p/clientVersionFrom', 'libp2p/isHaltedFor' ] to deeply equal []"*.
+  'libp2p/clientVersionFrom',
+  'libp2p/isHaltedFor',
   'net/findReservedPeers',
   'net/publishStartOutcome',
 ]
@@ -802,8 +824,16 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * `owner-domain-tabs.e2e.test.ts` — a sovereign shard placed on the owner's own tabs, which
  * is not possible without it. Not read off the source: the derived case went red first and
  * named it verbatim.
+ *
+ * **Raised 68 -> 70 on 2026-09-02 (Phase 36, RUN-02)**, same rule and exactly two entries:
+ * `libp2p/clientVersionFrom` and `libp2p/isHaltedFor`, the kill switch's two matchers. Both
+ * reach production through `main.ts#start` and the `paused` closure it hands
+ * `BrowserNode.start`, and both are hidden by the same `window.o2` assignment as every other
+ * entry in that list. The hop-tracing arm reports both flipping, so they are dispositions
+ * rather than `OPEN_FINDINGS` rows. Not read off the source: the derived case went red first
+ * and named both verbatim.
  */
-export const DISPOSITION_CEILING = 68
+export const DISPOSITION_CEILING = 70
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {

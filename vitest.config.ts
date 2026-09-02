@@ -302,8 +302,15 @@ const NODE_MEASUREMENT = {
    * side of that list. Measured `Duration 5.75s` in its own invocation, host quiet at
    * load/core 0.71 — the span table is untouched because `relative()` filters the `.e2e.`
    * suffix out of `NODE_PROJECT_FILES`, which is what the drift assertion reads.
+   *
+   * **231 -> 232 on 2026-09-02 (Phase 36, RUN-02)**, one more:
+   * `packages/browser/src/kill-switch.test.ts`. A bare `*.test.ts`, so it runs in the `node`
+   * lane **and** the `browser` lane — the portability claim is the module's own and a spec
+   * that only ran where `fetch` exists could not tell a port from a global. It counts once
+   * here, as `computing-indicator.test.ts` does. Two ports and a scripted fetch: no thread,
+   * no process, no socket. `unitFiles` moves by the same one.
    */
-  files: 231,
+  files: 232,
   tests: 2948,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
@@ -487,7 +494,7 @@ const NODE_MEASUREMENT = {
    * hour once spread 25.69 / 33.68 / 22.39 s — 1.5x end to end. Any comparison against this
    * number that turns on less than half of it is reading the host's weather.
    */
-  unitFiles: 153,
+  unitFiles: 154,
   unitTests: 2317,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.

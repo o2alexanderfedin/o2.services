@@ -877,6 +877,26 @@ export interface TabApi {
       operatorId: string
       providerAddr: string
     }
+    /**
+     * How often this tab asks its bootstrap object whether its region has been halted —
+     * RUN-02.
+     *
+     * Absent is the production default, `ADMISSION_POLL_INTERVAL_MS` in
+     * `packages/browser/src/kill-switch.ts`, whose cost arithmetic is written beside the
+     * constant.
+     *
+     * **This is configuration, not a test bypass, and the distinction is checkable.** A
+     * visitor could set it; the production default is what applies when it is absent; and
+     * **nothing is skipped at any value** — a shorter interval polls more often, it does not
+     * poll differently, and it changes no decision the switch makes. `built-bundle.e2e.test.ts`
+     * records the rule this is measured against: *"There is no test-only bypass: the API
+     * refuses for the same reason the button is not there yet."*
+     *
+     * It exists because Phase 36's propagation window has to be read at **two** intervals to
+     * say whether the window's dominant term is the poll — a single reading at one interval
+     * is a number with no way to tell what it is a number about.
+     */
+    admissionPollIntervalMs?: number
   }): Promise<string>
   /**
    * Join using whatever the page's own origin says to dial.

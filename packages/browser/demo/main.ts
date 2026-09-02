@@ -72,7 +72,7 @@ import type {
   StartFailure,
   StartOutcome,
 } from '@o2/core'
-import { nodeKeyForPeerId, peerIdForNodeKey } from '@o2/libp2p'
+import { clientVersionFrom, nodeKeyForPeerId, peerIdForNodeKey } from '@o2/libp2p'
 import {
   RemoteExecutor,
   RpcRecordIndex,
@@ -154,6 +154,7 @@ import { IdbCheckpoints } from '../src/idb-checkpoints.ts'
 import { fetchModuleForDispatch } from '../src/gateway-module.ts'
 // BROW-07's carrier. Relative for the same reason, stated in that module's own header.
 import { ComputingIndicator, documentTitlePort } from '../src/computing-indicator.ts'
+import { KillSwitch, switchEndpointFor } from '../src/kill-switch.ts'
 // RUN-04's two halves. Relative and **deliberately not through the barrel**, on
 // `computing-indicator.ts`'s stated rule and for its stated reason: a barrel export whose only
 // caller is this file would be an exported-but-statically-unreachable symbol in front of
@@ -299,6 +300,40 @@ const COMPUTING_DWELL_MS = 4_000
 let computingIndicator: ComputingIndicator | null = null
 let computingTicker: ReturnType<typeof setInterval> | null = null
 let computingLastBusyAt = 0
+/**
+ * RUN-02 — this tab's reading of whether its region has been told to stop.
+ *
+ * `null` until consent has been granted and a node has been started, which is the whole of the
+ * P10 argument: `built-bundle.e2e.test.ts` asserts that every request this page makes before
+ * consent carries the page's own origin, and a poll running at page load would break it. It is
+ * constructed and started inside `start`, which is reached only through `#allow`.
+ *
+ * The endpoint is derived from the relay address this tab was already given, so there is no
+ * second knob to drift. A page that was given no readable relay address gets no switch and
+ * `halted()` is never consulted — see the `paused:` wiring below for why that is the right
+ * failure direction.
+ */
+let killSwitch: KillSwitch | null = null
+
+/**
+ * This page's own client version, from the stamp `stampBuildIdentity` put in its head.
+ *
+ * **The page's own, never the node's.** `vite.config.ts` records the misreading that closed
+ * on 2026-09-01: the deployed node's `/self` version was read as the client's, `gh-pages` sat
+ * a release behind what the node answered, and the client was reported stale when it was not.
+ * A version slice addressed at *clients* has to be read off the client.
+ *
+ * `clientVersionFrom` rather than a split written here, so the `-dirty` rule lives in one
+ * place — a developer build compares on its released version like every other build.
+ *
+ * `null` on a page with no stamp, which is a real case: `vite dev` serves `index.html`
+ * untransformed by the production plugin. A `null` version is halted by `versions: 'all'` and
+ * is **not** halted by a version slice, which is `admission-directive.ts`'s stated rule.
+ */
+function thisPageVersion(): string | null {
+  const meta = document.querySelector('meta[name="o2-build"]')
+  return clientVersionFrom(meta?.getAttribute('content') ?? null)
+}
 
 function computingTick(): void {
   // RUN-04's stages five and six ride this poll rather than starting a second timer: they are
@@ -309,7 +344,10 @@ function computingTick(): void {
   const inFlight = node?.executorInFlight ?? 0
   if (inFlight > 0) computingLastBusyAt = Date.now()
   const withinDwell = computingLastBusyAt !== 0 && Date.now() - computingLastBusyAt < COMPUTING_DWELL_MS
-  indicator.report(inFlight > 0 || withinDwell ? 1 : 0)
+  // RUN-02 — the halted marker rides the same poll. `killSwitch` is null until consent, so a
+  // page that has not opted in reports `false` and shows nothing, which is correct: it has
+  // asked nobody whether it should stop.
+  indicator.report(inFlight > 0 || withinDwell ? 1 : 0, killSwitch?.halted() ?? false)
 }
 
 /**
@@ -455,7 +493,10 @@ function endComputingIndicator(): void {
   // deliberately skipped — it exists to smooth a *sampled* reading of a running executor,
   // and there is nothing to sample once the thread has been terminated.
   computingLastBusyAt = 0
-  computingIndicator?.report(0)
+  // `false`, not the switch's reading: Stop is a stronger statement than a halt and the tab
+  // has just terminated its worker, so a marker saying "not taking new work" would be the
+  // weaker of two true sentences shown in place of the stronger one.
+  computingIndicator?.report(0, false)
 }
 
 /**
@@ -1394,10 +1435,42 @@ const api: TabApi = {
       ? await visitorEnrolmentOption(chosen.enrolment.providerAddr)
       : null
 
+    // RUN-02 — the switch is built here, AFTER consent, and started here for the same
+    // reason. `built-bundle.e2e.test.ts`'s P10 asserts that every request this page makes
+    // before consent is same-origin, over the whole request set; a poll at page load would
+    // break it, and P10 is right — a visitor who has not opted in has not agreed to talk to
+    // anybody. This line is reached only through `#allow`.
+    //
+    // The endpoint comes from the relay address this tab was given rather than from a second
+    // configuration knob, so the object it polls is the object it dials.
+    const switchEndpoint = options.relayAddrs
+      .map((addr) => switchEndpointFor(addr))
+      .find((origin): origin is string => origin !== null)
+    killSwitch =
+      switchEndpoint === undefined
+        ? null
+        : new KillSwitch({
+            endpoint: switchEndpoint,
+            clientVersion: thisPageVersion(),
+            fetch: (input, init) => globalThis.fetch(input, init),
+            ...(options.admissionPollIntervalMs === undefined
+              ? {}
+              : { intervalMs: options.admissionPollIntervalMs }),
+          })
+    killSwitch?.start()
+
     try {
       node = await BrowserNode.start({
         relayAddrs: options.relayAddrs,
         blockstoreName: options.blockstoreName,
+        // SCHED-03's predicate, sourced from RUN-02's remote sliced flag.
+        //
+        // **A tab with no readable relay origin gets `false` forever, and that is the correct
+        // failure direction rather than an oversight.** The alternative — halting a tab that
+        // cannot ask — would mean a page given an address this build cannot parse stops
+        // computing and says nothing about why. An operator's silence is not a stop order,
+        // and neither is a page's inability to hear one.
+        paused: () => killSwitch?.halted() ?? false,
         // Conditional spread, so a tab that has never enrolled passes no key at all rather
         // than an empty array. The two are the same to `PeerVerifier` — both are a set of
         // size zero — and different to a reader, who can see here that "pins nobody" is a
@@ -1880,11 +1953,19 @@ const api: TabApi = {
       // *"Always prefer local execution, unless it must be executed remotely … or the
       // current node is fully loaded."* This tab is the node, so it offers itself every
       // combine first and reaches for a peer only when one of the named conditions
-      // refuses it. Both ports are **this tab's own**, not second copies: `node.admission`
-      // is the `LocalCapacity` its `serveAgent` refuses a peer's combine on, and
+      // refuses it. Both ports are **this tab's own**, not second copies:
+      // `node.localAdmission` is the one reading every local path takes, and
       // `node.authorize` is the one authorizer it serves with. A tab admitting its own
       // work by a different rule would be more permissive to itself than to everybody
       // else.
+      //
+      // **CORRECTED 2026-09-02 (Phase 36). This line said `node.admission` and the sentence
+      // above it was already true — the wiring was what did not match.** `node.admission`
+      // is a bare `LocalCapacity` and has never heard of `paused`, which `serveAgent`
+      // consults; so while this tab was paused it refused every peer's combine and went on
+      // combining for itself, which is the exact inverse of the rule the paragraph states.
+      // `node.localAdmission` folds `paused` into the same reading, from the same binding
+      // `serveAgent` is handed. See `browser-node.ts`'s member docblock.
       //
       // **What this costs is stated on screen and in the outcome, not hidden.** A combine
       // this tab performed is signed by nobody — `localDispatch` signs nothing on purpose,
@@ -1895,7 +1976,7 @@ const api: TabApi = {
       // so a local result that disagrees with a peer's still surfaces as a disagreement.
       placement: {
         kind: 'prefers-local-combining',
-        capacity: node.admission,
+        capacity: node.localAdmission,
         authorize: node.authorize,
       },
     })
@@ -2040,7 +2121,7 @@ const api: TabApi = {
       // — its own capacity, its own authorizer — refuses it.
       placement: {
         kind: 'prefers-local-combining',
-        capacity: node.admission,
+        capacity: node.localAdmission,
         authorize: node.authorize,
       },
     })
@@ -2268,7 +2349,7 @@ const api: TabApi = {
         // the pool it places over, so without it every shard carried
         // `unreachable: … Can not dial self` against this tab's own id and a two-tab run
         // at `redundancy: 2` reached one replica. See `rpcAdmission`'s `LocalAdmission`.
-        admit: rpcAdmission(node.rpc, { local: node.admission }),
+        admit: rpcAdmission(node.rpc, { local: node.localAdmission }),
       },
       node.store,
       [node.egress],

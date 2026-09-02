@@ -132,18 +132,17 @@ export type { ConnectionClass, TrafficLeg, TrafficSplit } from './traffic-split.
 // RUN-02's halt, beside `traffic-split.ts` and for the same reason: a wire shape the hosted
 // tier produces and clients read, in the one package both of them already depend on.
 //
-// **`isHaltedFor` and `clientVersionFrom` are deliberately NOT here yet, and the omission is
-// dated 2026-09-02.** Both were exported in this module's first commit and
-// `reachability-guard.node.test.ts` refused it: `the guard found 118 unreachable callable
-// barrel exports against a bound of 116`. Nothing on this tree calls either one — the Worker
-// stores and serves the directive, and the matcher belongs to the client, which does not exist
-// yet. The two legitimate answers are to wire the symbol or to register it with a checkable
-// reason; raising the ceiling is neither. They are wired, and they enter this barrel in the
-// same commit as their first caller — `demo/main.ts` is one of the guard's six entry points,
-// so a `kill-switch.ts` reached from there is what gives them a path. `ADMITTING` is a value
-// rather than a callable and is outside the guard's jurisdiction, which is why it is here now:
-// the hosted tier needs it before the client exists.
-export { ADMITTING } from './admission-directive.ts'
+// **`isHaltedFor` and `clientVersionFrom` waited for a caller, and this line records why.**
+// Both were exported in this module's first commit and `reachability-guard.node.test.ts`
+// refused it: `the guard found 118 unreachable callable barrel exports against a bound of
+// 116`. Nothing called either one at that moment — the Worker stores and serves the directive
+// and never matches on it, and the matcher belongs to the client, which did not exist yet.
+// The two legitimate answers were to wire the symbol or to register it with a checkable
+// reason; raising the ceiling was neither. They are here now because `demo/main.ts` — one of
+// the guard's six entry points — reaches `kill-switch.ts`, which calls both. Kept as a note
+// rather than deleted, because the next person to add a shared shape before its reader will
+// meet the same refusal and this says what to do about it.
+export { ADMITTING, clientVersionFrom, isHaltedFor } from './admission-directive.ts'
 export type { AdmissionDirective } from './admission-directive.ts'
 export {
   NO_RELAY_SERVICE,

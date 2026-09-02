@@ -103,7 +103,11 @@ export type {
 
 // Discovery and admission over RPC — SCHED-01, SCHED-03, NET-06.
 export { DEFAULT_PROBE_TIMEOUT_MS, RpcRecordIndex, rpcAdmission } from './discovery.ts'
-export type { AdmissionOptions } from './discovery.ts'
+// `LocalAdmission` joins `AdmissionOptions` here because Phase 36 gave it a second
+// implementer: `BrowserNode.localAdmission` answers a tab's own offers by the same rule
+// `serveAgent` applies to a peer's. A type, so it is outside `reachability-guard`'s
+// jurisdiction by construction.
+export type { AdmissionOptions, LocalAdmission } from './discovery.ts'
 
 // SCHED-01's requestor half — a data CID and a peer list become dispatchable
 // candidates. The bridge `discoverExecutors` never had: it answers in node keys and

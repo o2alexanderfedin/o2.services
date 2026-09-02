@@ -332,7 +332,27 @@ describe('production serveAgent call sites state every hook explicitly', () => {
     // from the Node factory's without a stated reason, something has started keying on
     // node kind, and the only difference between nodes in this fabric is discovery.
     expect(occurrences(BROWSER_NODE, "'never-pauses'")).toBe(1)
-    expect(occurrences(BROWSER_NODE, 'paused: options.paused')).toBe(1)
+    // **MOVED 2026-09-02 (Phase 36, RUN-02) from `'paused: options.paused'` to the hoisted
+    // form, and this is a divergence from the `FABRIC_NODE` row above WITH a stated reason —
+    // which is what the paragraph above asks for.**
+    //
+    // The browser factory now resolves the option into a named binding and hands that one
+    // binding to two readers: `serveAgent`, which answers peers, and `BrowserNode.localAdmission`,
+    // which answers this tab's own offers. Before Phase 36 there was no second reader, because
+    // the local path consulted a bare `LocalCapacity` that had never heard of `paused` — so a
+    // paused tab refused every peer and went on computing its own work, the exact inverse of
+    // the rule `browser-node.ts` states twice in its own comments.
+    //
+    // The property this pair has always asserted is unchanged: the factory resolves the option
+    // exactly once and names the absent arm. What moved is where it does it. `fabric-node.ts`
+    // has no second local reader, so it still resolves at the call site and its row above is
+    // untouched — the divergence is the browser tier having a local admission path, not
+    // anything keying on node kind.
+    expect(occurrences(BROWSER_NODE, 'const paused = options.paused')).toBe(1)
+    // And the hoisted binding actually reaches `serveAgent`, so the two readers are the same
+    // value rather than one value and one omission. `0` here would be a factory that resolved
+    // the option for its local path and left the peer path unwired.
+    expect(occurrences(BROWSER_NODE, '\n      paused,\n')).toBe(1)
     // VER-08 / VER-09 / VER-10, and **the same count as `fabric-node.ts` deliberately**.
     // Signing is not a capability a tier confers: an enrolled tab signs on identical
     // terms to any other node. If this row ever diverges from the `FABRIC_NODE` row
