@@ -42,6 +42,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import viteConfig, { buildIdentity, stampBuildIdentity } from '../../browser/vite.config.ts'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
@@ -157,6 +158,80 @@ describe('the publish is a script, runnable from a terminal and from a workflow'
     expect(SCRIPT).toContain('/self')
     expect(SCRIPT).toContain('ANNOUNCE_MULTIADDRS')
     expect(SCRIPT).not.toMatch(/12D3KooW[A-Za-z0-9]{10}/)
+  })
+
+  it('stamps the page with the build it came from, so the site can name itself', () => {
+    // **Drives the real plugin**, imported from the config the production build uses — the
+    // same discipline `demo-bench.e2e.test.ts` applies to `perfReport`. A fixture written to
+    // agree with the config would prove only that two files agree.
+    //
+    // The gap this closes was found by falling into it on 2026-09-01: nothing in the published
+    // site said what it was, so the only record was the `gh-pages` commit message — which
+    // names the DEPLOYED NODE's version, read from `/self`. It was read as the client's, and a
+    // site byte-identical to a fresh build was reported a release behind.
+    const version: unknown = JSON.parse(readFileSync(`${ROOT}/package.json`, 'utf8')).version
+    expect(typeof version, 'the root package.json has no version to stamp').toBe('string')
+
+    const identity = buildIdentity()
+    expect(identity, 'the stamp does not name the released version').toContain(String(version))
+    // A commit, or a named absence. Never a blank: this exists to answer a question, and an
+    // empty answer is indistinguishable from a page that predates the stamp entirely.
+    expect(identity, 'the stamp names no commit and does not say so either').toMatch(
+      /^\S+ (?:[0-9a-f]{7}(?:-dirty)?|no-commit)$/,
+    )
+
+    // **Wired, not merely written — and this assertion exists because the case without it
+    // had the hole it is named for.** Every check below drives the plugin directly, so
+    // deleting `stampBuildIdentity()` from the config's `plugins` array would have left the
+    // whole case green while the real build emitted no stamp at all. The production build is
+    // the subject; a plugin nothing runs is not one.
+    const named = (entry: unknown): entry is { readonly name: string } =>
+      typeof entry === 'object' && entry !== null && 'name' in entry
+    // A FIXED depth, not `Infinity`: vite's `PluginOption` is recursive, and `flat(Infinity)`
+    // makes tsc give up with TS2589 rather than type the result.
+    const wired = (Array.isArray(viteConfig.plugins) ? viteConfig.plugins : [])
+      .flat(4)
+      .filter(named)
+      .map((entry) => entry.name)
+    expect(wired, 'the production build no longer runs the stamp').toContain('o2-build-identity')
+
+    const plugin = stampBuildIdentity()
+    const transform = plugin.transformIndexHtml
+    expect(typeof transform, 'the plugin no longer transforms the page').toBe('function')
+    if (typeof transform !== 'function') return
+
+    const page = '<!doctype html>\n<html>\n  <head>\n    <meta name="viewport" content="x" />\n  </head>\n</html>'
+    const stamped = transform.call({} as never, page, {} as never)
+    expect(typeof stamped, 'the transform returned something other than html').toBe('string')
+    if (typeof stamped !== 'string') return
+
+    expect(stamped).toContain(`<meta name="o2-build" content="${identity}" />`)
+    // In the HEAD, and before the tag it anchors on — a stamp appended after `</html>` is a
+    // stamp `curl | sed` still finds and a parser does not.
+    expect(stamped.indexOf('o2-build'), 'the stamp is not inside <head>').toBeLessThan(
+      stamped.indexOf('</head>'),
+    )
+    // The page it was given is otherwise untouched: this must not become a transform that
+    // rewrites the document and happens to include the tag.
+    expect(stamped.replace(/\s*<meta name="o2-build"[^>]*\/>/, '')).toBe(page)
+  })
+
+  it('will not publish, and will not call a publish good, unless the page carries the stamp', () => {
+    // The stamp is checked in THREE places and each one covers a different failure:
+    //   * the dry run, so a missing stamp is found before anything is pushed;
+    //   * the refusal before `git push`, so a build that lost it cannot be published at all;
+    //   * the read-back, so a push that served an older page is not called a success.
+    // A field nobody reads is a claim nobody checks, and that is the shape this repository
+    // keeps having to retire.
+    const commands = SCRIPT.split('\n').filter((line) => !line.trim().startsWith('#'))
+    const mentions = commands.filter((line) => line.includes('o2-build'))
+    expect(
+      mentions.length,
+      'the publish script no longer reads the build stamp in all three places — dry-run ' +
+        'check, refusal before push, and read-back of the live site',
+    ).toBeGreaterThanOrEqual(3)
+    expect(SCRIPT).toContain('Refusing to publish a')
+    expect(SCRIPT).toContain('does not name the build this run published')
   })
 
   it('carries nothing into the publish that the build did not emit', () => {

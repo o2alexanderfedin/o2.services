@@ -75,6 +75,14 @@ say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
 if [ "$VERIFY_ONLY" = 1 ]; then
   say "Reading the published client at $PAGES_URL"
+  # The build first, because it is the question this mode is usually asked in order to answer:
+  # *what is actually live?* Before the stamp existed the only answer available was a `gh-pages`
+  # commit message naming the deployed NODE's version, and that was misread as the client's.
+  LIVE_ID="$(
+    curl -sS --fail --max-time 30 "$PAGES_URL/index.html" 2>/dev/null |
+      sed -n 's/.*<meta name="o2-build" content="\([^"]*\)".*/\1/p' | head -1
+  )"
+  echo "   build: ${LIVE_ID:-<the published page carries no o2-build stamp — it predates it>}"
   curl -sS --fail --max-time 30 "$PAGES_URL/bootstrap.json"
   echo
   exit 0
@@ -182,6 +190,17 @@ grep -q "$PEER_ID" "$DIST/bootstrap.json" 2>/dev/null \
   && check "the published address names the live node" 1 \
   || check "the published address names the live node" 0
 
+# Checked in the DRY run and not only at publish time, because a stamp that vanished would
+# otherwise be found by the read-back — after the push, with the wrong site already live.
+DRY_ID="$(
+  sed -n 's/.*<meta name="o2-build" content="\([^"]*\)".*/\1/p' "$DIST/index.html" | head -1
+)"
+if [ -n "$DRY_ID" ]; then
+  check "the page names the build it came from: $DRY_ID" 1
+else
+  check "the page names the build it came from — <meta name=\"o2-build\"> is missing" 0
+fi
+
 if [ "$FAILED" = 1 ]; then
   echo "" >&2
   echo "❌ the build would not work when served from $PAGES_URL — publishing nothing." >&2
@@ -260,28 +279,62 @@ Published by scripts/deploy-pages.sh, and only because the built site DIFFERS fr
 gh-pages already held — an unchanged build commits nothing, so the gap between this commit's
 date and the newest release is not a staleness reading.
 
-'$NODE_VERSION' is the DEPLOYED NODE's version, read live from /self. It is not the client's:
-the client publishes no version of its own, and the commit hash in the subject is the only
-identity this site has.
+'$NODE_VERSION' is the DEPLOYED NODE's version, read live from /self. It is not the client's.
+The client's own identity is $BUILD_ID, stamped into index.html as <meta name=\"o2-build\">
+and read back off the live site below.
 
 bootstrap.json points at $RELAY_ADDR, read from the deployed node rather than written down."
   git push -q origin "HEAD:${PAGES_BRANCH}"
 )
 
 say "Published. Reading it back"
+
+# **Both halves are read back, and the second one is why the stamp exists.**
+#
+# `bootstrap.json` naming the live PeerId says the site can find the fabric. It says nothing
+# about WHICH BUILD is serving that address — and until 2026-09-01 nothing did, which is how a
+# site that was byte-identical to a fresh build came to be reported a release behind. So the
+# published page is also asked to name itself, and the expected answer is not derived a second
+# time here: it is lifted out of the page this run just built, so the two cannot disagree by
+# being computed differently.
+BUILD_ID="$(
+  sed -n 's/.*<meta name="o2-build" content="\([^"]*\)".*/\1/p' "$DIST/index.html" | head -1
+)"
+if [ -z "$BUILD_ID" ]; then
+  echo "❌ the built index.html carries no <meta name=\"o2-build\"> — stampBuildIdentity() is" >&2
+  echo "   not in the vite config, or a later transform dropped the tag. Refusing to publish a" >&2
+  echo "   site that cannot say what it is." >&2
+  exit 1
+fi
+say "This build is $BUILD_ID"
 # Pages needs a moment to build; the equality is given a window rather than one shot.
 ATTEMPT=0
 while [ "$ATTEMPT" -lt 10 ]; do
   ATTEMPT=$((ATTEMPT + 1))
   LIVE_JSON="$(curl -sS --fail --max-time 30 "$PAGES_URL/bootstrap.json" 2>/dev/null || true)"
-  case "$LIVE_JSON" in *"$PEER_ID"*) break ;; esac
+  LIVE_HTML="$(curl -sS --fail --max-time 30 "$PAGES_URL/index.html" 2>/dev/null || true)"
+  case "$LIVE_JSON" in *"$PEER_ID"*)
+    case "$LIVE_HTML" in *"$BUILD_ID"*) break ;; esac
+  ;; esac
   [ "$ATTEMPT" -lt 10 ] && sleep 15
 done
 
 case "$LIVE_JSON" in
   *"$PEER_ID"*)
-    say "✅ published, and the site names the live node: $PEER_ID"
-    echo "   $PAGES_URL"
+    case "$LIVE_HTML" in
+      *"$BUILD_ID"*)
+        say "✅ published. The site names the live node $PEER_ID, and names itself $BUILD_ID"
+        echo "   $PAGES_URL"
+        ;;
+      *)
+        echo "" >&2
+        echo "❌ the site answers, but does not name the build this run published." >&2
+        echo "   expected <meta name=\"o2-build\"> to carry: $BUILD_ID" >&2
+        echo "   An older page is still being served, or the stamp did not survive the build." >&2
+        echo "   GitHub Pages may still be building; re-check with --verify-only." >&2
+        exit 1
+        ;;
+    esac
     ;;
   *)
     echo "" >&2
