@@ -136,3 +136,42 @@ export type { PublishOptions, PublishResult } from './start-report.ts'
 // Finding browsers that cannot announce themselves — NET-03.
 export { findReservedPeers, MAX_RESERVED_PEERS_PER_ANSWER, serveReservations } from './rendezvous.ts'
 export type { Rendezvous, RendezvousOptions } from './rendezvous.ts'
+
+
+// RUN-04 / RUN-05 — the connectivity funnel's wire contract, read by the browser tier that
+// composes a report and by the hosted tier that banks it. It lives in `@o2/net` rather than in
+// `@o2/core` because `packages/cloudflare/package.json` declares `@o2/net` and does not declare
+// `@o2/core`, which is the same reason `protocol.ts` and `start-report.ts` are here.
+//
+// **The predicates are deliberately NOT here yet.** `reachability-guard.node.test.ts` requires
+// set equality between the callable barrel exports nothing reaches and two named registers, so
+// exporting `isFunnelCountry` before anything validates with it would be the "wired is not used"
+// shape rather than a convenience. They join this list in the commit that gives them a caller.
+export {
+  FUNNEL_CELL_BOUNDS,
+  FUNNEL_CONNECTION_CLASSES,
+  FUNNEL_FIELDS,
+  FUNNEL_HOUR_BUCKETS,
+  FUNNEL_MAX_CELLS,
+  FUNNEL_NETWORK_CLASSES,
+  FUNNEL_POPULATION,
+  FUNNEL_QUESTIONS,
+  FUNNEL_RECORD_CEILING_BYTES,
+  FUNNEL_SCHEMA_DIGEST,
+  FUNNEL_SCHEMA_FROZEN_AT,
+  FUNNEL_STAGES,
+  FUNNEL_UNKNOWN_COUNTRY,
+  FUNNEL_WEBRTC_STAGES,
+  MEASURED_STORAGE_WALL_BYTES,
+} from './funnel-schema.ts'
+export type {
+  FunnelConnectionClass,
+  FunnelField,
+  FunnelFieldDomain,
+  FunnelNetworkClass,
+  FunnelPopulation,
+  FunnelQuestion,
+  FunnelReport,
+  FunnelStage,
+  FunnelTotals,
+} from './funnel-schema.ts'
