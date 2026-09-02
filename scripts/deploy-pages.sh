@@ -223,11 +223,16 @@ grep -q "$PEER_ID" "$DIST/bootstrap.json" 2>/dev/null \
 
 # Checked in the DRY run and not only at publish time, because a stamp that vanished would
 # otherwise be found by the read-back — after the push, with the wrong site already live.
-DRY_ID="$(
+# **Computed ONCE, here, and used everywhere below — including in the commit message.**
+# It was computed a second time next to the read-back, which is AFTER the commit that names
+# it, and `set -u` turned that ordering mistake into a failed deploy: `BUILD_ID: unbound
+# variable`, on the live path only. The dry run exits before the publish, so no local run
+# reached it. One assignment, before every use, is the shape that cannot get that wrong.
+BUILD_ID="$(
   sed -n 's/.*<meta name="o2-build" content="\([^"]*\)".*/\1/p' "$DIST/index.html" | head -1
 )"
-if [ -n "$DRY_ID" ]; then
-  check "the page names the build it came from: $DRY_ID" 1
+if [ -n "$BUILD_ID" ]; then
+  check "the page names the build it came from: $BUILD_ID" 1
 else
   check "the page names the build it came from — <meta name=\"o2-build\"> is missing" 0
 fi
@@ -327,15 +332,6 @@ say "Published. Reading it back"
 # published page is also asked to name itself, and the expected answer is not derived a second
 # time here: it is lifted out of the page this run just built, so the two cannot disagree by
 # being computed differently.
-BUILD_ID="$(
-  sed -n 's/.*<meta name="o2-build" content="\([^"]*\)".*/\1/p' "$DIST/index.html" | head -1
-)"
-if [ -z "$BUILD_ID" ]; then
-  echo "❌ the built index.html carries no <meta name=\"o2-build\"> — stampBuildIdentity() is" >&2
-  echo "   not in the vite config, or a later transform dropped the tag. Refusing to publish a" >&2
-  echo "   site that cannot say what it is." >&2
-  exit 1
-fi
 say "This build is $BUILD_ID"
 # Pages needs a moment to build; the equality is given a window rather than one shot.
 ATTEMPT=0
