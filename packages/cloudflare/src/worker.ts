@@ -74,7 +74,7 @@
 // and reopen the gap with this file looking unchanged. FIRST, because ES modules evaluate in
 // import order and `hosted-libp2p.ts` constructs the stack that needs these globals.
 import './workerd-shims.ts'
-import { HostedNode, stubFor } from './hosted-object.ts'
+import { HOSTED_OBJECT_NAMES, HostedNode, stubFor } from './hosted-object.ts'
 import type { HostedObjectName, HostedObjectNamespace } from './hosted-object.ts'
 import {
   HibernatableSockets,
@@ -85,6 +85,15 @@ import {
 import { RelayServiceLog, TrafficSplitCounter } from '@o2/libp2p'
 import { announcedAddresses, createHostedFabric, hostedExpirySweep } from './hosted-libp2p.ts'
 import { readRelayServiceJournal, writeRelayServiceJournal } from './relay-service-journal.ts'
+import {
+  ADMISSION_KEY_HEADER,
+  authoriseWrite,
+  narrowRegion,
+  parseDirective,
+  readDirective,
+  refuseMisaddressed,
+  writeDirective,
+} from './admission-flag.ts'
 import {
   accrueFunnelReport,
   emptyFunnelJournal,
@@ -156,6 +165,32 @@ export interface HostedEnv {
    * injected is the version that answers.
    */
   readonly O2_VERSION?: string
+  /**
+   * Which of the three objects this deployment is, from `--var O2_REGION:<name>`.
+   *
+   * **From the deployment and never from the request**, on `ANNOUNCE_MULTIADDRS`'s stated
+   * model and for a sharper reason: the region is what a halt is addressed to, so a region
+   * a caller could choose would be a slice a caller could escape. `SERVED_BY` already refuses
+   * to take an object name from a query string for the same class of reason.
+   *
+   * Optional because a local `wrangler dev` injects nothing and because an object may be
+   * deployed before Phase 33 sites it. An object with no label reports `region: null` and
+   * refuses every region-addressed write — see `refuseMisaddressed`. A value outside the
+   * closed set is treated as absent, with a log line, rather than silently accepted.
+   */
+  readonly O2_REGION?: string
+  /**
+   * The operator's key for `POST /admission`, from `wrangler secret put O2_ADMISSION_KEY`.
+   *
+   * **From the deployment and never from the request**, and never from `wrangler.jsonc` —
+   * that file is tracked, and a key in it is a key in the history. A secret is the only
+   * binding here that is not a `var` for exactly that reason.
+   *
+   * Optional, and absence **refuses every write** rather than admitting them. See
+   * `authoriseWrite`: an object with no operator key has no operator, and the failure points
+   * toward the fabric continuing to work rather than toward anyone being able to stop it.
+   */
+  readonly O2_ADMISSION_KEY?: string
 }
 
 /**
@@ -276,6 +311,8 @@ export class BootstrapObject {
    */
   readonly #relayLog = new RelayServiceLog()
   #relayRestored: Promise<RelayServiceLog> | undefined
+  /** Memo for {@link BootstrapObject.regionOnce}. `undefined` is *not yet read*; `null` is *no region*. */
+  #region: HostedObjectName | null | undefined
   /**
    * Whether storage already holds a `firstInboundHopStreamAt`.
    *
@@ -359,6 +396,33 @@ export class BootstrapObject {
       return this.#relayLog
     })
     return this.#relayRestored
+  }
+
+  /**
+   * Which region this object serves, narrowed against the closed set **exactly once**.
+   *
+   * A value outside `HOSTED_OBJECT_NAMES` becomes `null` and says so in the log. A deployment
+   * that mistyped the label then has an object that reports `region: null` and refuses every
+   * region-addressed write — loud, and recoverable by fixing the `--var`. Accepting the string
+   * as written would give it a label that exists nowhere else: every read would look correct
+   * and no write addressed to any real region would ever land, silently.
+   *
+   * Read lazily rather than at construction because a Durable Object is constructed for every
+   * request that reaches it, and a log line per request for a deployment that is fine is noise.
+   */
+  #regionOnce(): HostedObjectName | null {
+    if (this.#region === undefined) {
+      const label = this.#env.O2_REGION
+      this.#region = narrowRegion(label)
+      if (label !== undefined && this.#region === null) {
+        console.warn(
+          `O2_REGION is ${JSON.stringify(label)}, which is not one of ` +
+            `${HOSTED_OBJECT_NAMES.join(', ')} — this object reports no region and refuses ` +
+            'every region-addressed write',
+        )
+      }
+    }
+    return this.#region
   }
 
   /**
@@ -578,6 +642,75 @@ export class BootstrapObject {
    * `/self` alone still does not satisfy criterion 2, which says *dials, completes identify,
    * and gets the same PeerId* — three things, and only an outside dial carries the middle one.
    */
+  /**
+   * `POST /admission` — the operator writes this object's directive.
+   *
+   * ## Why this tier grew a second route, enumerated
+   *
+   * `GET /self`'s docblock states this file's default in its own words: *"It is a field on the
+   * one route this object serves and **not a second route**: every route is a surface, and this
+   * tier's surfaces are not."* That default is right and this route owes it an argument. Three
+   * reasons, none of them taste:
+   *
+   * 1. **`wrangler` has no surface that writes Durable Object storage remotely.** There is no
+   *    command that reaches into a deployed object and sets a value. The write has to arrive as
+   *    a request, because a request is the only thing that reaches a Durable Object at all.
+   * 2. **A write cannot be a field on a `GET`.** The directive is read on `/self` as a field,
+   *    which is the pattern; setting it is not a reading and cannot be one.
+   * 3. **Carrying it over libp2p would cost far more surface than it saved.** It would make the
+   *    operator a peer, and need a new protocol, a key-distribution story and a signed record —
+   *    for one boolean. One authenticated route is the smaller surface, not the larger one.
+   *
+   * ## No CORS header on this route, anywhere, including the refusals
+   *
+   * `GET /self` answers `Access-Control-Allow-Origin: *` because its body is already public and
+   * the tab that reads it is on another origin by construction. This route answers **no** CORS
+   * header at all — so a cross-origin page sending a bespoke header and a JSON body triggers a
+   * preflight, the preflight is unanswered, and the browser blocks the request **before the key
+   * check runs**. No page on any origin can reach this surface.
+   *
+   * **That is a second line and not the boundary.** The boundary is the key, which is what a
+   * `curl`, a script or a harness meets — none of them is a browser and none of them is
+   * preflighted. Adding `Access-Control-Allow-Origin` here would remove the outer line while
+   * leaving the real one standing; it would also be the change somebody makes to "fix" a
+   * blocked fetch in a console. Both readings are taken separately in
+   * `kill-switch-volunteer.e2e.test.ts`, labelled with what each proves, because they are not
+   * substitutes for one another.
+   *
+   * ## The order of the two checks, and why the region one is first
+   *
+   * The key is checked first, then the region. A request that presents no key learns nothing
+   * about which region this object serves — the refusal it gets names no label. Reversing them
+   * would turn this route into an unauthenticated way to enumerate the fabric's siting.
+   */
+  async #writeAdmission(request: Request): Promise<Response> {
+    const authorisation = authoriseWrite({
+      configuredKey: this.#env.O2_ADMISSION_KEY,
+      presentedKey: request.headers.get(ADMISSION_KEY_HEADER),
+    })
+    if (!authorisation.allowed) {
+      return new Response(authorisation.reason, { status: 401 })
+    }
+
+    let body: unknown
+    try {
+      body = await request.json()
+    } catch {
+      return new Response('not a directive', { status: 400 })
+    }
+    const directive = parseDirective(body)
+    if (directive === null) {
+      return new Response('not a directive', { status: 400 })
+    }
+
+    const refusal = refuseMisaddressed(directive, this.#regionOnce())
+    if (refusal !== null) {
+      return new Response(refusal.reason, { status: 409 })
+    }
+
+    return Response.json(await writeDirective(this.#node.store, directive))
+  }
+
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade') === 'websocket') return this.#upgrade(request)
     const path = new URL(request.url).pathname
@@ -590,6 +723,14 @@ export class BootstrapObject {
       if (request.method === 'POST') return this.#bankFunnel(request)
       if (request.method === 'GET') return this.#readFunnel()
       return new Response('method not allowed', { status: 405, headers: FUNNEL_CORS_HEADERS })
+    }
+    // RUN-02's ONE write surface. See `#writeAdmission` for why this tier grew a route at
+    // all, enumerated rather than asserted, and why nothing under it carries a CORS header.
+    if (path === '/admission') {
+      if (request.method !== 'POST') {
+        return new Response('method not allowed', { status: 405 })
+      }
+      return this.#writeAdmission(request)
     }
     if (path !== '/self') {
       return new Response('not found', { status: 404 })
@@ -622,7 +763,17 @@ export class BootstrapObject {
       // when this relay first carried someone rather than only whether it is carrying anyone
       // now.
       relayService: relayLog.report(),
-    })
+      // RUN-02 — whether this object is telling its region's tabs to stop, and which slice
+      // of them. A FIELD on the one route this object serves, for the reason `instance`,
+      // `version`, `traffic` and `relayService` are fields: every route is a surface. The
+      // *write* could not be a field on a `GET`, which is why this phase adds a route and
+      // owes that an argument — it is written at `#writeAdmission`, enumerated.
+      //
+      // Reported from before anything is stored, as `ADMITTING` with this object's own
+      // region label. A missing field would make "nobody has been told to stop" and "this
+      // object does not know about halts" the same reading.
+      admission: await readDirective(this.#node.store, this.#regionOnce()),
+    }, { headers: SELF_CORS_HEADERS })
   }
 
   /**
@@ -717,6 +868,25 @@ const FUNNEL_POPULATION_PENDING_RULING: FunnelPopulation = 'opted-in-only'
  * human with `curl`, an operator reading the counts from a dashboard on another origin — is
  * preflighted, and refusing them would make the route unreadable from anywhere but this Worker.
  */
+/**
+ * What `GET /self` answers so a page on another origin can read it.
+ *
+ * **Origin `*`, and the body is why that costs nothing.** `/self` carries `peerId`, `nodeKey`,
+ * `instance`, `version`, `traffic`, `relayService` and `admission` — every one of which a node
+ * that announces itself already publishes, and none of which is a secret this header would be
+ * protecting. The tab that needs it is on another origin *by construction*: the client is a
+ * static page and the object is a Worker, and they cannot share one.
+ *
+ * Only `GET` and `OPTIONS`, and no `Access-Control-Allow-Headers` for the admission key —
+ * `POST /admission` is deliberately not reachable from any page, and listing its header here
+ * would be the first half of making it so.
+ */
+const SELF_CORS_HEADERS: Readonly<Record<string, string>> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Max-Age': '86400',
+}
+
 const FUNNEL_CORS_HEADERS: Readonly<Record<string, string>> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
