@@ -70,6 +70,35 @@ done
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
 # ---------------------------------------------------------------------------
+# Leave the tree exactly as it was found — the DRY RUN especially
+# ---------------------------------------------------------------------------
+#
+# **A "dry run" that "publishes nothing" was still mutating the source tree, and it cost four
+# e2e specs.** This script generates `packages/browser/demo/public/bootstrap.json`, which is
+# untracked and which vite copies verbatim into the bundle. Left behind, it turns the static
+# host every one of those specs models — where `/bootstrap.json` 404s — into a host that
+# serves the address of the LIVE PRODUCTION RELAY.
+#
+# Measured 2026-09-01 on a quiet host: `attestation-ui`, `built-bundle`, `peer-ledger` and
+# `static-rendezvous` went red, 7 cases, and the same four files pass 29 of 29 with the file
+# removed. `built-bundle`'s own case is named *"reports that no relay is reachable, instead of
+# looking broken"* — with a real relay named there is nothing to report, so it did not report
+# it. Those four specs are this rule's real guard: leave the file behind again and they redden.
+#
+# So the file is restored to whatever it was: removed if this run created it, left untouched if
+# it was already there. `PAGES_TREE` joins the same handler rather than replacing it, because a
+# second `trap ... EXIT` silently discards the first.
+CREATED_PUBLIC=0
+CREATED_BOOTSTRAP=0
+PAGES_TREE=""
+cleanup() {
+  if [ "$CREATED_BOOTSTRAP" = 1 ]; then rm -f "$PUBLIC/bootstrap.json"; fi
+  if [ "$CREATED_PUBLIC" = 1 ]; then rmdir "$PUBLIC" 2>/dev/null || true; fi
+  if [ -n "$PAGES_TREE" ]; then git worktree remove --force "$PAGES_TREE" 2>/dev/null || true; fi
+}
+trap cleanup EXIT
+
+# ---------------------------------------------------------------------------
 # --verify-only: read what is actually published and stop
 # ---------------------------------------------------------------------------
 
@@ -147,6 +176,8 @@ fi
 # ---------------------------------------------------------------------------
 
 say "Writing $PUBLIC/bootstrap.json"
+[ -d "$PUBLIC" ] || CREATED_PUBLIC=1
+[ -f "$PUBLIC/bootstrap.json" ] || CREATED_BOOTSTRAP=1
 mkdir -p "$PUBLIC"
 # `peerAddrs` carries the relay itself and nothing else. Live reservation holders cannot be
 # known when a static file is written, and guessing them would publish addresses that are wrong
@@ -250,7 +281,6 @@ touch "$WORK/.nojekyll"
 PAGES_TREE="$(mktemp -d)"
 git fetch -q origin "$PAGES_BRANCH"
 git worktree add -q --detach "$PAGES_TREE" "origin/${PAGES_BRANCH}"
-trap 'git worktree remove --force "$PAGES_TREE" 2>/dev/null || true' EXIT
 
 ( cd "$PAGES_TREE" && git rm -rq --ignore-unmatch . )
 cp -R "$WORK/." "$PAGES_TREE/"

@@ -234,6 +234,36 @@ describe('the publish is a script, runnable from a terminal and from a workflow'
     expect(SCRIPT).toContain('does not name the build this run published')
   })
 
+  it('leaves the tree as it found it, because the generated bootstrap breaks four e2e specs', () => {
+    // **A source read, and the behavioural guard is elsewhere on purpose** — it is the four
+    // e2e files themselves. `attestation-ui`, `built-bundle`, `peer-ledger` and
+    // `static-rendezvous` all serve `packages/browser/dist`, and all four model a STATIC HOST
+    // where `/bootstrap.json` 404s. This script generates that file into
+    // `packages/browser/demo/public/`, which is untracked and which vite copies verbatim into
+    // the bundle, so leaving it behind serves those specs the address of the LIVE PRODUCTION
+    // RELAY instead. Measured 2026-09-01 on a quiet host: 7 cases red, and 29 of 29 green with
+    // the file removed. Nothing here can restate that better than they do; what this case
+    // holds is the two ways the restoration silently stops happening.
+    const commands = SCRIPT.split('\n').filter((line) => !line.trim().startsWith('#'))
+
+    // One. A `trap ... EXIT` REPLACES any previous one rather than adding to it, so a second
+    // handler for a second resource silently drops the first — which is exactly how the
+    // worktree cleanup and this one would have collided.
+    const traps = commands.filter((line) => /^\s*trap\s/.test(line))
+    expect(
+      traps.length,
+      'more than one EXIT trap: a second `trap ... EXIT` discards the first, so one of the ' +
+        'two cleanups no longer runs',
+    ).toBe(1)
+
+    // Two. The removal must be conditional on this run having created the file. An
+    // unconditional `rm` deletes a file the operator put there, and a missing flag means the
+    // dry run goes back to leaving one behind.
+    expect(commands.some((line) => /CREATED_BOOTSTRAP=1/.test(line))).toBe(true)
+    expect(commands.some((line) => /CREATED_PUBLIC=1/.test(line))).toBe(true)
+    expect(SCRIPT).toContain('rm -f "$PUBLIC/bootstrap.json"')
+  })
+
   it('carries nothing into the publish that the build did not emit', () => {
     // **Behavioural, and it drives the SCRIPT'S OWN LINE rather than a copy of one.** The
     // staging command is lifted out of `deploy-pages.sh` by pattern and executed here, so a
