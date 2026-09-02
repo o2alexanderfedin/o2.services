@@ -482,7 +482,30 @@ export function emptyFunnelTotals(population: FunnelPopulation): FunnelTotals {
   }
 }
 
-/** One report from one visit, as it crosses the wire. */
+/**
+ * One report from one visit, as it crosses the wire.
+ *
+ * ## Why `networkClass` travels in the BODY and `country` does not
+ *
+ * The two dimensions have different sources and the split is a trust boundary rather than a
+ * convenience. **Country is the edge's**: the platform stamps it, the collector reads it off
+ * the request, and a visitor cannot choose which country their visit is filed under — that is
+ * the difference between a measurement and a poll. **Network class is the visitor's device's**:
+ * it is the browser's own `navigator.connection.effectiveType` and there is no other source for
+ * it, so pretending it arrives from anywhere but the client would be dressing up a
+ * self-reported value as an observed one.
+ *
+ * There is also a mechanical reason it cannot be a header, and it decided the shape.
+ * **`navigator.sendBeacon` cannot set request headers.** The terminal `stalledAt` report leaves
+ * on `pagehide` and a beacon is the only send that survives a page unloading, so a dimension
+ * carried in a header would be systematically absent from exactly the reports that say where
+ * visitors were lost. It is in the body, where one send path can carry it.
+ *
+ * The cost is stated rather than mitigated: a visitor can send any class on the closed list.
+ * `start-report.ts` records the same acceptance for the same reason — *"Counts are
+ * unauthenticated: a peer can inflate its own"* — and authenticating a visitor is precisely
+ * what criterion 4 forbids.
+ */
 export interface FunnelReport {
   /** The stage this report is about. */
   readonly stage: FunnelStage
@@ -492,6 +515,8 @@ export interface FunnelReport {
   readonly hourBucket: number
   /** Which visitors this sender is part of. */
   readonly population: FunnelPopulation
+  /** The device's own coarse reading of its connection. See the header for why it is here. */
+  readonly networkClass: FunnelNetworkClass
   /** Present only at `connection-classified`, and only when a connection was classified. */
   readonly connectionClass?: FunnelConnectionClass
 }
@@ -529,6 +554,11 @@ export function parseFunnelReport(body: unknown): FunnelReport | null {
   const population = source['population']
   if (!isFunnelPopulation(population)) return null
 
+  // Refused rather than defaulted to `unknown`, for the reason every other field is: a
+  // collector that filled in a plausible value would be fabricating a row.
+  const networkClass = source['networkClass']
+  if (!isFunnelNetworkClass(networkClass)) return null
+
   const connectionClass = source['connectionClass']
   if (connectionClass !== undefined && !isFunnelConnectionClass(connectionClass)) return null
 
@@ -537,6 +567,7 @@ export function parseFunnelReport(body: unknown): FunnelReport | null {
     kind,
     hourBucket,
     population,
+    networkClass,
     ...(connectionClass === undefined ? {} : { connectionClass }),
   }
 }

@@ -36,18 +36,20 @@ import {
   writeFunnelJournal,
 } from './funnel-journal.ts'
 
-const DIMS = { country: 'DE', networkClass: 'cellular' } as const
+const DIMS = { country: 'DE' } as const
+/** The class the reporter would have sent. On the report now, not on the dimensions. */
+const NET = 'cellular' as const
 
 function moved(): FunnelTotals {
   let totals = emptyFunnelJournal('opted-in-only')
   totals = accrueFunnelReport(
     totals,
-    { stage: 'page-load', kind: 'entered', hourBucket: 9, population: 'opted-in-only' },
+    { stage: 'page-load', kind: 'entered', hourBucket: 9, population: 'opted-in-only', networkClass: NET },
     DIMS,
   )
   totals = accrueFunnelReport(
     totals,
-    { stage: 'ice-gathering', kind: 'entered', hourBucket: 9, population: 'opted-in-only' },
+    { stage: 'ice-gathering', kind: 'entered', hourBucket: 9, population: 'opted-in-only', networkClass: NET },
     DIMS,
   )
   totals = accrueFunnelReport(
@@ -57,13 +59,14 @@ function moved(): FunnelTotals {
       kind: 'entered',
       hourBucket: 9,
       population: 'opted-in-only',
+      networkClass: NET,
       connectionClass: 'relayed',
     },
     DIMS,
   )
   return accrueFunnelReport(
     totals,
-    { stage: 'first-task', kind: 'stalled', hourBucket: 9, population: 'opted-in-only' },
+    { stage: 'first-task', kind: 'stalled', hourBucket: 9, population: 'opted-in-only', networkClass: NET },
     DIMS,
   )
 }
@@ -277,7 +280,7 @@ describe('one report moves one drop counter and no other', () => {
     const before = emptyFunnelJournal('opted-in-only')
     const after = accrueFunnelReport(
       before,
-      { stage: 'wss-bootstrap', kind: 'stalled', hourBucket: 3, population: 'opted-in-only' },
+      { stage: 'wss-bootstrap', kind: 'stalled', hourBucket: 3, population: 'opted-in-only', networkClass: NET },
       DIMS,
     )
     expect(after.stalledAt['wss-bootstrap']).toBe(1)
@@ -293,7 +296,7 @@ describe('one report moves one drop counter and no other', () => {
     const before = emptyFunnelJournal('opted-in-only')
     accrueFunnelReport(
       before,
-      { stage: 'consent', kind: 'entered', hourBucket: 0, population: 'opted-in-only' },
+      { stage: 'consent', kind: 'entered', hourBucket: 0, population: 'opted-in-only', networkClass: NET },
       DIMS,
     )
     // A half-applied record that was then banked would be a rollback waiting to happen.
@@ -308,6 +311,7 @@ describe('one report moves one drop counter and no other', () => {
         kind: 'entered',
         hourBucket: 12,
         population: 'opted-in-only',
+        networkClass: NET,
         connectionClass: 'control-only',
       },
       DIMS,

@@ -14,18 +14,14 @@
 
 import { describe, expect, it } from 'vitest'
 import { FUNNEL_UNKNOWN_COUNTRY } from '@o2/net'
-import {
-  CLIENT_COUNTRY_HEADER,
-  CLIENT_NETWORK_CLASS_HEADER,
-  funnelDimensionsFrom,
-} from './funnel-collector.ts'
+import { CLIENT_COUNTRY_HEADER, funnelDimensionsFrom } from './funnel-collector.ts'
 import { CLIENT_ADDRESS_HEADER } from './websocket-connection.ts'
 
 /** A request, as narrowly as this module reads one. `cf` absent unless a case supplies it. */
 const req = (headers: Headers, cf?: unknown): { headers: Headers; cf?: unknown } =>
   cf === undefined ? { headers } : { headers, cf }
 
-describe('the dimensions come off the request, coarsely, and never from the address', () => {
+describe('the country comes off the request, coarsely, and never from the address', () => {
   it('reads the country the edge stamped', () => {
     const headers = new Headers({ [CLIENT_COUNTRY_HEADER]: 'DE' })
     expect(funnelDimensionsFrom(req(headers)).country).toBe('DE')
@@ -135,15 +131,4 @@ describe('the dimensions come off the request, coarsely, and never from the addr
     expect(funnelDimensionsFrom(req(new Headers(), 'not an object')).country).toBe('ZZ')
   })
 
-  it('holds the network class to the closed list', () => {
-    expect(
-      funnelDimensionsFrom(req(new Headers({ [CLIENT_NETWORK_CLASS_HEADER]: 'cellular' }))).networkClass,
-    ).toBe('cellular')
-    // A value the browser might plausibly hand over — `effectiveType` really does answer
-    // `slow-2g` — refused because the list is closed and the reporter maps before it sends.
-    expect(
-      funnelDimensionsFrom(req(new Headers({ [CLIENT_NETWORK_CLASS_HEADER]: 'slow-2g' }))).networkClass,
-    ).toBe('unknown')
-    expect(funnelDimensionsFrom(req(new Headers())).networkClass).toBe('unknown')
-  })
 })

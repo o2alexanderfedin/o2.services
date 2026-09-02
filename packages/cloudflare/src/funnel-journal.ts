@@ -55,13 +55,7 @@ import {
   FUNNEL_SCHEMA_DIGEST,
   FUNNEL_STAGES,
 } from '@o2/net'
-import type {
-  FunnelNetworkClass,
-  FunnelPopulation,
-  FunnelReport,
-  FunnelStage,
-  FunnelTotals,
-} from '@o2/net'
+import type { FunnelPopulation, FunnelReport, FunnelStage, FunnelTotals } from '@o2/net'
 
 /**
  * Where the record lives. Outside both namespaces `DoDatastore.put` refuses — see the header;
@@ -269,16 +263,22 @@ export async function writeFunnelJournal(
 }
 
 /**
- * The two dimensions the EDGE supplies, never the visitor.
+ * What the EDGE supplies about a visit, never the visitor.
  *
- * They are separate from {@link FunnelReport} on purpose: a report is what a browser sends and
- * a browser must not be able to choose which country its visit is filed under. `worker.ts`
- * derives these from headers the platform stamps, validates them against the schema's closed
- * ranges, and hands them here.
+ * Separate from {@link FunnelReport} on purpose: a report is what a browser sends, and a
+ * browser must not be able to choose which country its visit is filed under. `worker.ts`
+ * derives this from what the platform stamps, validates it against the schema's closed range,
+ * and hands it here.
+ *
+ * **One field, and it used to be two.** `networkClass` was here until it was measured against
+ * the send path: `navigator.sendBeacon` cannot set a request header, and the terminal
+ * `stalledAt` report has to be a beacon because it leaves on `pagehide`. So a header-carried
+ * class would have been systematically absent from exactly the reports that say where visitors
+ * were lost. It is a field on {@link FunnelReport} now — which is also the honest place for it,
+ * because the browser's `effectiveType` is the only source there has ever been for it.
  */
 export interface FunnelDimensions {
   readonly country: string
-  readonly networkClass: FunnelNetworkClass
 }
 
 /**
@@ -322,7 +322,7 @@ export function accrueFunnelReport(
 
   // Question 2's denominator: who reached the point where WebRTC is attempted at all.
   if (report.stage === 'ice-gathering' && report.kind === 'entered') {
-    const key = `${dimensions.country}|${dimensions.networkClass}`
+    const key = `${dimensions.country}|${report.networkClass}`
     webrtcAttempts[key] = (webrtcAttempts[key] ?? 0) + 1
   }
   // And its numerator: what they got. `control-only` is its own value, so a relayed pair that
@@ -332,7 +332,7 @@ export function accrueFunnelReport(
     report.kind === 'entered' &&
     report.connectionClass !== undefined
   ) {
-    const key = `${dimensions.country}|${dimensions.networkClass}|${report.connectionClass}`
+    const key = `${dimensions.country}|${report.networkClass}|${report.connectionClass}`
     webrtcOutcomes[key] = (webrtcOutcomes[key] ?? 0) + 1
   }
 

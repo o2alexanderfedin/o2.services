@@ -31,7 +31,7 @@
  * Pure module — headers in, values out, no I/O and no storage.
  */
 
-import { FUNNEL_UNKNOWN_COUNTRY, isFunnelCountry, isFunnelNetworkClass } from '@o2/net'
+import { FUNNEL_UNKNOWN_COUNTRY, isFunnelCountry } from '@o2/net'
 import type { FunnelDimensions } from './funnel-journal.ts'
 
 /**
@@ -63,17 +63,6 @@ import type { FunnelDimensions } from './funnel-journal.ts'
  * {@link CF_COUNTRY_PROPERTY} is why it is testable anyway.
  */
 export const CLIENT_COUNTRY_HEADER = 'CF-IPCountry'
-
-/**
- * A header naming the visitor's coarse network class, when the arrangement supplies one.
- *
- * **Cloudflare does not stamp this and this project does not pretend otherwise.** The value is
- * the browser's own reading of `navigator.connection.effectiveType`, sent by the reporter,
- * which makes it the one dimension a visitor could lie about. That is accepted for the reason
- * `start-report.ts` accepts an inflatable count — authenticating a visitor is exactly what
- * criterion 4 forbids — and it is recorded beside the figures rather than mitigated.
- */
-export const CLIENT_NETWORK_CLASS_HEADER = 'X-O2-Network-Class'
 
 /**
  * The one property of `request.cf` this code is allowed to touch, and the reason it is one.
@@ -113,10 +102,9 @@ export interface FunnelRequestFacts {
 }
 
 /**
- * The two dimensions, read off the request.
+ * The country, read off the request.
  *
- * Anything the schema does not admit becomes `ZZ` / `unknown` rather than being stored as
- * sent. That is not leniency: a value outside a closed list is a field whose width the sender
+ * Anything the schema does not admit becomes `ZZ` rather than being stored as sent. That is not leniency: a value outside a closed list is a field whose width the sender
  * chose, and the whole reason these lists are closed is that a wide enough field is a
  * fingerprint.
  *
@@ -141,11 +129,7 @@ export function funnelDimensionsFrom(request: FunnelRequestFacts): FunnelDimensi
       ? fromPlatform.toUpperCase()
       : FUNNEL_UNKNOWN_COUNTRY
 
-  const networkClass = request.headers.get(CLIENT_NETWORK_CLASS_HEADER)?.toLowerCase() ?? null
-  return {
-    country,
-    networkClass: isFunnelNetworkClass(networkClass) ? networkClass : 'unknown',
-  }
+  return { country }
 }
 
 /** The widest an accepted body may be. A beacon is one small object; anything else is not one. */

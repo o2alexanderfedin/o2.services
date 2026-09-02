@@ -436,12 +436,48 @@ export class BootstrapObject {
       return new Response('not a report', { status: 400, headers: FUNNEL_CORS_HEADERS })
     }
 
-    // The dimensions come off the REQUEST, never out of the body. A visitor cannot choose
-    // which country their visit is filed under; see `funnel-collector.ts`.
+    // The country comes off the REQUEST, never out of the body. A visitor cannot choose which
+    // country their visit is filed under; see `funnel-collector.ts`.
     const dimensions = funnelDimensionsFrom(request)
-    const banked = accrueFunnelReport(await this.#funnelOnce(), report, dimensions)
-    this.#funnelRestored = Promise.resolve(banked)
-    await writeFunnelJournal(this.#node.store, banked, FUNNEL_POPULATION_PENDING_RULING)
+
+    // **Accrue and bank are ONE link in the promise chain, and the ordering is the whole of
+    // this method's correctness.** Written first as "accrue, set the memo, then write", which
+    // is wrong twice. (1) A write that throws — a rollback refusal, a record past the ceiling —
+    // left the memo holding counts that storage had refused, so `GET /funnel` reported numbers
+    // the next eviction would erase, which is the exact failure the journal exists to prevent.
+    // (2) Two reports arriving together both accrued from the same base, so the second offered
+    // a total below what the first had banked, `writeFunnelJournal` refused it by name, and the
+    // memo was then permanently below storage — **every later report on that instance refused,
+    // until an eviction repaired it**. That is not a remote case: a terminal report leaves on
+    // `pagehide`, and unloads arrive in bursts.
+    //
+    // Chaining off the previous promise serialises the reports and means the memo only ever
+    // holds what storage confirmed. On a refusal it falls back to the state before the attempt.
+    const attempt = this.#funnelOnce().then(async (totals) => {
+      const banked = accrueFunnelReport(totals, report, dimensions)
+      await writeFunnelJournal(this.#node.store, banked, FUNNEL_POPULATION_PENDING_RULING)
+      return banked
+    })
+    // **On a refusal the memo becomes a fresh READ, not the base the attempt started from.** A
+    // refusal is storage saying this instance's idea of the record is wrong — it is what an
+    // alarm on a fresh instance, or any second writer, leaves behind. Falling back to the stale
+    // base would keep `GET /funnel` under-reporting and would refuse every later report for the
+    // same reason, so the instance would stay poisoned until an eviction repaired it. Re-reading
+    // makes the refusal self-healing. If the re-read itself throws the store is malformed, which
+    // is a genuine fault and stays one.
+    this.#funnelRestored = attempt.catch(async () =>
+      readFunnelJournal(this.#node.store, FUNNEL_POPULATION_PENDING_RULING),
+    )
+    try {
+      await attempt
+    } catch {
+      // A beacon reads no response, so this status is for a `fetch` caller and for a human
+      // with `curl`. What matters is that the report is dropped rather than half-applied.
+      return new Response('the funnel refused this report', {
+        status: 500,
+        headers: FUNNEL_CORS_HEADERS,
+      })
+    }
     return new Response(null, { status: 204, headers: FUNNEL_CORS_HEADERS })
   }
 

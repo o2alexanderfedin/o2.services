@@ -207,6 +207,7 @@ describe('a report is parsed strictly and nothing is defaulted', () => {
     kind: 'entered',
     hourBucket: 14,
     population: 'opted-in-only',
+    networkClass: 'cellular',
   }
 
   it('accepts a well-formed report', () => {
@@ -220,7 +221,7 @@ describe('a report is parsed strictly and nothing is defaulted', () => {
   it('refuses a missing field rather than filling in a plausible one', () => {
     // A collector that defaulted a missing hour to the current one would be fabricating a row,
     // and a fabricated row is indistinguishable from a measured one once it is in the store.
-    for (const field of ['stage', 'kind', 'hourBucket', 'population']) {
+    for (const field of ['stage', 'kind', 'hourBucket', 'population', 'networkClass']) {
       const partial: Record<string, unknown> = { ...valid }
       delete partial[field]
       expect(parseFunnelReport(partial), `a report with no ${field} was accepted`).toBeNull()
@@ -230,6 +231,13 @@ describe('a report is parsed strictly and nothing is defaulted', () => {
   it('refuses a clock where an hour belongs', () => {
     expect(parseFunnelReport({ ...valid, hourBucket: 1_756_800_000_000 })).toBeNull()
     expect(parseFunnelReport({ ...valid, hourBucket: 24 })).toBeNull()
+  })
+
+  it('refuses a network class the closed list does not have', () => {
+    // The browser's own `effectiveType` really does answer `slow-2g`; the reporter maps before
+    // it sends, and a value that arrives unmapped is refused rather than filed as `unknown`.
+    expect(parseFunnelReport({ ...valid, networkClass: 'slow-2g' })).toBeNull()
+    expect(parseFunnelReport({ ...valid, networkClass: 'WIFI' })).toBeNull()
   })
 
   it('refuses a connection class outside the closed list, and allows its absence', () => {

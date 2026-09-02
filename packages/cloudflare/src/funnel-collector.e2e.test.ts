@@ -63,7 +63,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { FUNNEL_SCHEMA_DIGEST } from '@o2/net'
 import { CLIENT_ADDRESS_HEADER } from './websocket-connection.ts'
-import { CLIENT_COUNTRY_HEADER, CLIENT_NETWORK_CLASS_HEADER } from './funnel-collector.ts'
+import { CLIENT_COUNTRY_HEADER } from './funnel-collector.ts'
 
 const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url))
 const HOST = '127.0.0.1'
@@ -242,7 +242,7 @@ describe('RUN-04 — the funnel counts on a real workerd', () => {
         stage: 'page-load',
         kind: 'entered',
         hourBucket: 9,
-        population: 'opted-in-only',
+        population: 'opted-in-only', networkClass: 'cellular',
       }),
     ).toBe(204)
     expect(
@@ -251,9 +251,9 @@ describe('RUN-04 — the funnel counts on a real workerd', () => {
           stage: 'ice-gathering',
           kind: 'entered',
           hourBucket: 9,
-          population: 'opted-in-only',
+          population: 'opted-in-only', networkClass: 'cellular',
         },
-        { [CLIENT_COUNTRY_HEADER]: 'DE', [CLIENT_NETWORK_CLASS_HEADER]: 'cellular' },
+        { [CLIENT_COUNTRY_HEADER]: 'DE' },
       ),
     ).toBe(204)
     expect(
@@ -261,7 +261,7 @@ describe('RUN-04 — the funnel counts on a real workerd', () => {
         stage: 'wss-bootstrap',
         kind: 'stalled',
         hourBucket: 9,
-        population: 'opted-in-only',
+        population: 'opted-in-only', networkClass: 'cellular',
       }),
     ).toBe(204)
 
@@ -274,8 +274,8 @@ describe('RUN-04 — the funnel counts on a real workerd', () => {
   })
 
   it('refuses a report the schema does not admit, and stores nothing for it', async () => {
-    expect(await report({ stage: 'ice-gathered', kind: 'entered', hourBucket: 9, population: 'opted-in-only' })).toBe(400)
-    expect(await report({ stage: 'page-load', kind: 'entered', hourBucket: 99, population: 'opted-in-only' })).toBe(400)
+    expect(await report({ stage: 'ice-gathered', kind: 'entered', hourBucket: 9, population: 'opted-in-only', networkClass: 'cellular' })).toBe(400)
+    expect(await report({ stage: 'page-load', kind: 'entered', hourBucket: 99, population: 'opted-in-only', networkClass: 'cellular' })).toBe(400)
     // Still one page-load, not two: a refused report is not a stored one.
     expect((await readFunnel()).entered['page-load']).toBe(1)
   })
@@ -292,12 +292,19 @@ describe('criterion 4 — the dump, checked against the store and not against th
    */
   it('POSITIVE CONTROL: something derived from the client address DID reach the store', async () => {
     const before = (await readFunnel()) as unknown as { webrtcAttempts: Record<string, number> }
-    // No country header. `wifi` is used here and nowhere else in this file, so the cell this
-    // produces cannot be confused with one an earlier report made.
+    // No country header, so the country can only come from `request.cf`.
     expect(
       await report(
-        { stage: 'ice-gathering', kind: 'entered', hourBucket: 9, population: 'opted-in-only' },
-        { [CLIENT_NETWORK_CLASS_HEADER]: 'wifi' },
+        {
+          stage: 'ice-gathering',
+          kind: 'entered',
+          hourBucket: 9,
+          population: 'opted-in-only',
+          // `wifi` is used here and nowhere else in this file, so the cell this produces
+          // cannot be confused with one an earlier report made.
+          networkClass: 'wifi',
+        },
+        {},
       ),
     ).toBe(204)
     const after = (await readFunnel()) as unknown as { webrtcAttempts: Record<string, number> }
@@ -386,7 +393,7 @@ describe('criterion 4 — the dump, checked against the store and not against th
     // implementation would want a handle to join up.
     await report(
       { stage: 'consent', kind: 'entered', hourBucket: 9, population: 'opted-in-only' },
-      { [CLIENT_COUNTRY_HEADER]: 'DE', [CLIENT_NETWORK_CLASS_HEADER]: 'cellular' },
+      { [CLIENT_COUNTRY_HEADER]: 'DE' },
     )
     await report(
       {
@@ -396,7 +403,7 @@ describe('criterion 4 — the dump, checked against the store and not against th
         population: 'opted-in-only',
         connectionClass: 'relayed',
       },
-      { [CLIENT_COUNTRY_HEADER]: 'DE', [CLIENT_NETWORK_CLASS_HEADER]: 'cellular' },
+      { [CLIENT_COUNTRY_HEADER]: 'DE' },
     )
     const after = dumpStore().map((row) => row.key).sort()
     expect(
