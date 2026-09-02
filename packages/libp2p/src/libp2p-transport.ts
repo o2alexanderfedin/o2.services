@@ -385,9 +385,16 @@ export class Libp2pTransport implements Transport {
     //
     // **Both conditions, never the path alone.** Rendezvous, offers and every other
     // small control exchange negotiate over limited connections on purpose — that is
-    // what `runOnLimitedConnection: true` below is for — so a gate keyed on the path
+    // what the `runOnLimitedConnection` flag below is for — so a gate keyed on the path
     // class alone would silence discovery across the whole fabric. Only a message that
     // cannot fit its own direction is refused.
+    //
+    // The flag is named here without its value on purpose: `relayed-job.node.test.ts`
+    // counts that flag's `true` literals in this file and requires exactly two, one
+    // inside `handle` and one inside `dialProtocol`. A third occurrence in prose makes
+    // the count read three, and the guard stops being able to tell a missing
+    // registration from a comment. Measured — this comment's first draft spelled the
+    // literal out while explaining not to, and reddened that case.
     //
     // The budget is the default this node would itself serve, because the connection
     // does not state its own: `limits` on a relayed connection is measured to be an

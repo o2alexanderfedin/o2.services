@@ -119,8 +119,13 @@ async function relayingNode(): Promise<FabricNode> {
     relayAdmission: 'admits-any-peer',
     startReporting: 'reports-its-own-start',
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
-    // DET-03: nothing here dispatches a task, so provenance is not what is read.
-    trustAnchors: 'runs-unsigned-artifacts',
+    // DET-03 — **`[]`, not the opt-out**, and the difference is the point. Nothing in
+    // this file dispatches a task, so `'runs-unsigned-artifacts'` here would not be a
+    // decision, and that word exists to cost somebody one. An empty anchor set is the
+    // accurate statement instead: this node trusts nobody and refuses every module,
+    // which is what a relay that never executes should say. If a later case adds a
+    // dispatch, it fails loudly rather than quietly running something unsigned.
+    trustAnchors: [],
   })
   started.push(node)
   return node
@@ -367,6 +372,27 @@ describe('NET-13 — the relayed budget is one counter, spent by both directions
   }, 120_000)
 })
 
+/**
+ * Phase 34 criterion 4, and **what these cases do not cover**, stated here rather than
+ * left for a reader to discover from a green.
+ *
+ * The gate refuses at whichever node would *send* the oversized frame. That closes the
+ * direction measured below — a bulk request dispatched to a control-only peer is refused
+ * by name, at the requestor, before any I/O. Two edges are open and neither is closed by
+ * anything here:
+ *
+ * - **Bulk arriving as a reply.** A small request is admitted over the pair, and the
+ *   answer is bulk — a block fetch is the obvious one. The **serving** side's gate
+ *   refuses that reply by name, and the requestor, whose job it is, sees its request
+ *   time out. So the reason exists on the wrong side of the pair from the job's point of
+ *   view, and criterion 4's *"rather than stalling"* holds for the request direction and
+ *   not for the reply direction.
+ * - **First contact.** `pathTo` of a peer with no open connection is `'unconnected'`,
+ *   not `'control-only'`, so a bulk send to a peer this node has never dialled is not
+ *   gated. Benign in the fabric as it stands — discovery precedes dispatch, so a peer
+ *   receiving work has been connected for some rounds — and it is benign by that
+ *   argument rather than by construction.
+ */
 describe('Phase 34 criterion 4 — a pair that fell all the way through is control-only', () => {
   it('reports the relayed pair as control-only and the direct pair as carrying work', async () => {
     const { a, b } = await relayedPair()
