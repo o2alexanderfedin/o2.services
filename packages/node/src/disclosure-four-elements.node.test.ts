@@ -268,7 +268,7 @@ describe('BROW-09 — the four things a visitor is told before they decide', () 
     ).toContain('what other participants send back to you is not in it')
   })
 
-  it('states no legal basis for the telemetry, because that is not an engineering judgement', () => {
+  it('RUN-05 / BROW-09: states no legal basis for the telemetry, because that is not an engineering judgement', () => {
     // Guarding an ABSENCE, deliberately. Open question 3 is contested across sources and is
     // settled by legal review; an agent adding either sentence would be recording a compliance
     // ruling as a code change, and this case is what makes that visible rather than quiet.

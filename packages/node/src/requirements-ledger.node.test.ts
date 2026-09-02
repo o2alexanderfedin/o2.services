@@ -934,8 +934,20 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * across sources and settled by legal review. No symbol has no caller, no entry point is
  * undriven, and no tier is unconfigured — so a call-site search cannot express it, which is
  * exactly what this register is for. Raised by the one entry that arrived.
+ *
+ * **Raised 4 → 5 on 2026-09-02, in the commit that moved `RUN-05` to `Partial`**, and it is
+ * `BROW-09`'s shape exactly — the same open question, one row over. `RUN-05`'s schema half is
+ * fully read by machine: `packages/net/src/funnel-schema.test.ts` compares a hand-written digest
+ * against the field set in both lanes and was watched red under three plants, and
+ * `packages/cloudflare/src/funnel-collector.e2e.test.ts` dumps the Durable Object's persisted
+ * store and finds no address and no cross-session identifier, with a positive control and two
+ * watched-red plants. What keeps the row `Partial` is **one sentence that no run can settle**:
+ * whether the telemetry's legal basis is consent or legitimate interest, which § Open questions
+ * item 3 records as contested across sources and settled by legal review. Its witnesses are the
+ * disclosure guard that today asserts the basis is stated NOWHERE and that would have to be
+ * inverted in the same commit as whichever sentence lands. Raised by the one entry that arrived.
  */
-const REREAD_REGISTER_CEILING = 4
+const REREAD_REGISTER_CEILING = 5
 
 /**
  * ## The rule this list encodes
@@ -1687,6 +1699,17 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/node/src/disclosure-before-optin.e2e.test.ts',
       'packages/node/src/disclosure-four-elements.node.test.ts',
     ],
+  },
+  {
+    // Phase 37. The row's schema half is machine-read and green; what is unread is the LEGAL
+    // BASIS sentence, and the act that closes it is a ruling rather than a run — `BROW-09`'s
+    // shape, on the same open question. The witness is the one spec the ruling moves: the
+    // disclosure guard that today asserts the basis appears nowhere and would have to be
+    // inverted in the same commit as whichever sentence lands.
+    id: 'RUN-05',
+    because: 'experiment-not-run',
+    reread: '2026-09-02',
+    witnesses: ['packages/node/src/disclosure-four-elements.node.test.ts'],
   },
   {
     id: 'AOT-03',
