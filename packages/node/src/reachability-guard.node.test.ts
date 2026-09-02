@@ -684,6 +684,18 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // caller is `BootstrapObject`. So the condition is not "declared on the hosted tier"
       // but "reached only through it", which is a wider set than the earlier raises implied.
       // Raised by exactly the one that arrived.
+      //
+      // 2026-09-02 (Phase 37, the connectivity funnel): 113 -> 116. Three rows, all in
+      // `@o2/net` and all on the same standing condition one hop out: `parseFunnelReport`,
+      // `isFunnelCountry` and `isFunnelNetworkClass` are reached from
+      // `BootstrapObject.fetch`'s `POST /funnel` handler and from nowhere else, and `fetch` is
+      // invoked by the Workers runtime. **Three and not the nine the phase could have
+      // published**: the four remaining schema predicates stay module-private because
+      // `parseFunnelReport` is their only caller, and the journal's own read/write pair is
+      // deliberately NOT added to `@o2/cloudflare`'s barrel — `worker.ts` imports it
+      // relatively, so publishing it would have cost two more rows for no reader. Read
+      // behaviourally by `funnel-collector.e2e.test.ts` against a real workerd and by
+      // `funnel-schema.test.ts` in both lanes. Raised by exactly the three that arrived.
     ).toBeLessThanOrEqual(UNREACHABLE_CEILING)
   }, GRAPH_TIMEOUT_MS)
 
@@ -1451,9 +1463,54 @@ interface OpenFinding {
  * symbols; this number exists so a seventh arrival cannot slip in under a bound that was
  * sized for six.
  */
-const UNREACHABLE_CEILING = 113
+const UNREACHABLE_CEILING = 116
 
 const OPEN_FINDINGS: readonly OpenFinding[] = [
+  {
+    key: 'net/parseFunnelReport',
+    declaredIn: 'packages/net/src/funnel-schema.ts',
+    callers: 'unreachable-only',
+    reason:
+      'RUN-05, Phase 37 — the connectivity funnel\'s wire parser, beside the contract it '
+      + 'parses for the reason `parseRequest`/`parseResponse` are in the same package: a '
+      + 'second, more lenient reading of one contract living in the tier that receives the '
+      + 'bytes is how a field the other end never sends comes to be accepted. Wired: '
+      + '`BootstrapObject.fetch` routes `POST /funnel` to `#bankFunnel`, which parses the body '
+      + 'with this before anything is stored. Unreachable for the hosted tier\'s standing '
+      + 'condition, one hop out: the only caller is `fetch`, which the Workers runtime invokes '
+      + 'and no call expression in this repository does. Read in BOTH lanes by '
+      + '`packages/net/src/funnel-schema.test.ts` — every field refused one at a time, a clock '
+      + 'refused where an hour belongs, and an unnamed field proved dropped rather than stored '
+      + '— and end to end against a real workerd by `funnel-collector.e2e.test.ts`.',
+  },
+  {
+    key: 'net/isFunnelCountry',
+    declaredIn: 'packages/net/src/funnel-schema.ts',
+    callers: 'unreachable-only',
+    reason:
+      'RUN-05, criterion 4 — the country validator, published because `@o2/cloudflare` reads '
+      + '`CF-IPCountry` off the request and must check it against the range declared here '
+      + 'rather than against a second copy. That is `isStartBrowserLabel`\'s stated discipline '
+      + 'and its stated reason: the disclosure promise rests on the coarseness, so the range is '
+      + 'checked where the range is declared. Wired: `funnelDimensionsFrom` in '
+      + '`packages/cloudflare/src/funnel-collector.ts`, reached from `BootstrapObject.fetch`. '
+      + 'Unreachable for that method\'s standing condition. Read in both lanes by '
+      + '`funnel-schema.test.ts` and at the header by `funnel-collector.test.ts`, which also '
+      + 'records the measured finding that Cloudflare\'s Tor pseudo-country `T1` carries a '
+      + 'digit and is therefore filed as `ZZ`.',
+  },
+  {
+    key: 'net/isFunnelNetworkClass',
+    declaredIn: 'packages/net/src/funnel-schema.ts',
+    callers: 'unreachable-only',
+    reason:
+      'RUN-05 — the network-class validator, published for the reason `isFunnelCountry` is and '
+      + 'reached through the same one caller. The list is closed because a value whose width '
+      + 'the sender chooses is the fingerprint criterion 4 forbids: the browser\'s own '
+      + '`effectiveType` really does answer `slow-2g`, and `funnel-collector.test.ts` reads '
+      + 'that value being refused into `unknown` rather than stored as sent. Unreachable for '
+      + '`BootstrapObject.fetch`\'s standing condition.',
+  },
   {
     key: 'cloudflare/DoDatastore',
     declaredIn: 'packages/cloudflare/src/do-datastore.ts',

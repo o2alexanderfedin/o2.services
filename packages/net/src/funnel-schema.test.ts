@@ -18,6 +18,7 @@ import {
   isFunnelHourBucket,
   isFunnelNetworkClass,
   MEASURED_STORAGE_WALL_BYTES,
+  parseFunnelReport,
 } from './funnel-schema.ts'
 
 /**
@@ -197,5 +198,60 @@ describe('the stored record is bounded by construction', () => {
     expect(Object.keys(empty.entered).length).toBe(6)
     expect(empty.population).toBe('opted-in-only')
     expect(empty.schemaDigest).toBe(FUNNEL_SCHEMA_DIGEST)
+  })
+})
+
+describe('a report is parsed strictly and nothing is defaulted', () => {
+  const valid = {
+    stage: 'ice-gathering',
+    kind: 'entered',
+    hourBucket: 14,
+    population: 'opted-in-only',
+  }
+
+  it('accepts a well-formed report', () => {
+    expect(parseFunnelReport(valid)).toEqual(valid)
+  })
+
+  it('refuses a stage the frozen list does not have', () => {
+    expect(parseFunnelReport({ ...valid, stage: 'ice-gathered' })).toBeNull()
+  })
+
+  it('refuses a missing field rather than filling in a plausible one', () => {
+    // A collector that defaulted a missing hour to the current one would be fabricating a row,
+    // and a fabricated row is indistinguishable from a measured one once it is in the store.
+    for (const field of ['stage', 'kind', 'hourBucket', 'population']) {
+      const partial: Record<string, unknown> = { ...valid }
+      delete partial[field]
+      expect(parseFunnelReport(partial), `a report with no ${field} was accepted`).toBeNull()
+    }
+  })
+
+  it('refuses a clock where an hour belongs', () => {
+    expect(parseFunnelReport({ ...valid, hourBucket: 1_756_800_000_000 })).toBeNull()
+    expect(parseFunnelReport({ ...valid, hourBucket: 24 })).toBeNull()
+  })
+
+  it('refuses a connection class outside the closed list, and allows its absence', () => {
+    expect(parseFunnelReport({ ...valid, connectionClass: 'webrtc' })).toBeNull()
+    expect(parseFunnelReport({ ...valid, connectionClass: 'control-only' })).toEqual({
+      ...valid,
+      connectionClass: 'control-only',
+    })
+  })
+
+  it('carries no field the schema does not name, however the sender spells it', () => {
+    // The failure this closes: a sender adding a field, and a permissive parse letting it into
+    // the store. Everything outside the schema is dropped at the door rather than at the write.
+    const parsed = parseFunnelReport({ ...valid, visitHandle: 'a1b2c3d4e5f6a7b8', ip: '1.2.3.4' })
+    expect(parsed).not.toBeNull()
+    expect(JSON.stringify(parsed)).not.toContain('a1b2c3d4')
+    expect(JSON.stringify(parsed)).not.toContain('1.2.3.4')
+  })
+
+  it('refuses a body that is not an object at all', () => {
+    for (const refused of [null, 'string', 42, [], undefined]) {
+      expect(parseFunnelReport(refused)).toBeNull()
+    }
   })
 })

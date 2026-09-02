@@ -495,3 +495,48 @@ export interface FunnelReport {
   /** Present only at `connection-classified`, and only when a connection was classified. */
   readonly connectionClass?: FunnelConnectionClass
 }
+
+/**
+ * A visitor's report, parsed strictly, or `null`.
+ *
+ * **It lives beside the contract it parses, which is what `protocol.ts` already does** with
+ * `parseRequest` and `parseResponse`. A parser in the tier that happens to receive the bytes is
+ * a second, more lenient reading of the same contract living somewhere the other end cannot see
+ * it — exactly the shape `AUTH-02`'s note in this package's barrel warns about.
+ *
+ * `null` rather than a throw: an unparseable body from an unauthenticated public endpoint is
+ * an ordinary event, not a fault, and a Worker that threw on one would turn a malformed beacon
+ * into an error page. The caller answers 400 and stores nothing.
+ *
+ * **Nothing is defaulted.** A missing stage is a refusal, not `page-load`; a missing hour is a
+ * refusal, not the current one. A collector that filled in a plausible value would be
+ * fabricating a row, and a fabricated row is indistinguishable from a measured one once it is
+ * in the store.
+ */
+export function parseFunnelReport(body: unknown): FunnelReport | null {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return null
+  const source = body as Record<string, unknown>
+
+  const stage = source['stage']
+  if (!isFunnelStage(stage)) return null
+
+  const kind = source['kind']
+  if (kind !== 'entered' && kind !== 'stalled') return null
+
+  const hourBucket = source['hourBucket']
+  if (!isFunnelHourBucket(hourBucket)) return null
+
+  const population = source['population']
+  if (!isFunnelPopulation(population)) return null
+
+  const connectionClass = source['connectionClass']
+  if (connectionClass !== undefined && !isFunnelConnectionClass(connectionClass)) return null
+
+  return {
+    stage,
+    kind,
+    hourBucket,
+    population,
+    ...(connectionClass === undefined ? {} : { connectionClass }),
+  }
+}

@@ -143,10 +143,16 @@ export type { Rendezvous, RendezvousOptions } from './rendezvous.ts'
 // `@o2/core` because `packages/cloudflare/package.json` declares `@o2/net` and does not declare
 // `@o2/core`, which is the same reason `protocol.ts` and `start-report.ts` are here.
 //
-// **The predicates are deliberately NOT here yet.** `reachability-guard.node.test.ts` requires
-// set equality between the callable barrel exports nothing reaches and two named registers, so
-// exporting `isFunnelCountry` before anything validates with it would be the "wired is not used"
-// shape rather than a convenience. They join this list in the commit that gives them a caller.
+// **Three callables and no more, and the count is deliberate.** `reachability-guard.node.test.ts`
+// holds every unreachable callable barrel export by NAME in a register, and everything below
+// `BootstrapObject.fetch` is unreachable for this tier's standing reason — the Workers runtime
+// invokes it and no call expression in this repository does. So each callable published here
+// costs a register row. `parseFunnelReport` is published because a wire contract's parser
+// belongs beside the contract (the `parseRequest`/`parseResponse` precedent, four blocks up);
+// `isFunnelCountry` and `isFunnelNetworkClass` because `@o2/cloudflare` reads two headers and
+// must check them against the ranges declared here rather than against a second copy. The four
+// remaining predicates stay module-private: `parseFunnelReport` uses them and nothing else
+// does.
 export {
   FUNNEL_CELL_BOUNDS,
   FUNNEL_CONNECTION_CLASSES,
@@ -162,7 +168,10 @@ export {
   FUNNEL_STAGES,
   FUNNEL_UNKNOWN_COUNTRY,
   FUNNEL_WEBRTC_STAGES,
+  isFunnelCountry,
+  isFunnelNetworkClass,
   MEASURED_STORAGE_WALL_BYTES,
+  parseFunnelReport,
 } from './funnel-schema.ts'
 export type {
   FunnelConnectionClass,

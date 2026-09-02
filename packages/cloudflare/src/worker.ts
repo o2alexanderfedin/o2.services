@@ -19,6 +19,21 @@
  * 32 the relay. A route added here "while we are in the file" would be a capability shipped
  * without the phase that measures it, which is the shape `descoped is not satisfied` names.
  *
+ * ## AMENDED 2026-09-02 BY PHASE 37 — the list is now `/self` and `/funnel`
+ *
+ * The sentence above was correct when it was written and it is kept rather than deleted,
+ * because this repository retires a premise by dating it. What it forbids is a route added by
+ * a phase that does not measure the capability; what it does not forbid is the phase that
+ * does. **Phase 37 owns the connectivity funnel** — `RUN-04` and `RUN-05`, the six named
+ * stages and the frozen telemetry schema — so `/funnel` is a surface shipped WITH the phase
+ * that measures it, which is the case the original sentence was drawing a line against rather
+ * than the case it was refusing.
+ *
+ * Two routes, `POST /funnel` and `GET /funnel`, and nothing else moves: `GET /self`'s response
+ * shape is unchanged, `SERVED_BY` is still a constant, and no route anywhere derives an object
+ * name from a request. The next phase that wants a route here is in the same position this one
+ * was, and this block is not a licence it can cite.
+ *
  * ## What it does NOT do — SUPERSEDED 2026-08-26 BY PHASE 30
  *
  * This block said the object *"does not upgrade a WebSocket"* and *"does not construct the
@@ -70,6 +85,15 @@ import {
 import { RelayServiceLog, TrafficSplitCounter } from '@o2/libp2p'
 import { announcedAddresses, createHostedFabric, hostedExpirySweep } from './hosted-libp2p.ts'
 import { readRelayServiceJournal, writeRelayServiceJournal } from './relay-service-journal.ts'
+import {
+  accrueFunnelReport,
+  emptyFunnelJournal,
+  readFunnelJournal,
+  writeFunnelJournal,
+} from './funnel-journal.ts'
+import { MAX_FUNNEL_BODY_BYTES, funnelDimensionsFrom } from './funnel-collector.ts'
+import { parseFunnelReport } from '@o2/net'
+import type { FunnelPopulation, FunnelTotals } from '@o2/net'
 import type { HibernationCapableState } from './hibernatable-socket.ts'
 import type { HostedFabric } from './hosted-libp2p.ts'
 import type { CloudflareWebSocket } from './websocket-connection.ts'
@@ -273,6 +297,19 @@ export class BootstrapObject {
    * the past and losing it loses the answer.
    */
   #markerBanked = false
+  /**
+   * RUN-04's counters, held by the OBJECT rather than by the fabric.
+   *
+   * The reason `#traffic` and `#relayLog` are here applies unchanged: the fabric is built
+   * lazily on the first inbound upgrade, and `GET /funnel` must answer before any libp2p node
+   * exists — a funnel whose whole subject is visitors who never connected cannot be reachable
+   * only through a connection.
+   *
+   * Held as the PROMISE, exactly as `#relayLogOnce` is, so two concurrent requests cannot each
+   * restore from storage and then each bank a record built on the same starting point. That is
+   * not a hypothetical here: a beacon arrives on page unload, and unloads arrive in bursts.
+   */
+  #funnelRestored: Promise<FunnelTotals> | undefined
   #fabric: Promise<HostedFabric> | undefined
 
   constructor(state: HostedObjectStateWithSockets, env: HostedEnv) {
@@ -337,6 +374,75 @@ export class BootstrapObject {
     if (!this.#relayLog.restored) return
     const written = await writeRelayServiceJournal(this.#node.store, this.#relayLog.report())
     if (written.firstInboundHopStreamAt !== undefined) this.#markerBanked = true
+  }
+
+  /**
+   * The banked funnel record, restored from this object's own storage.
+   *
+   * Held as the PROMISE for `#relayLogOnce`'s reason, one member up. The restored value is the
+   * starting point every accrual is applied to, so a request that skipped the restore would
+   * offer totals lower than the stored ones — which `writeFunnelJournal` refuses by name
+   * rather than accepting as a truncation.
+   */
+  #funnelOnce(): Promise<FunnelTotals> {
+    this.#funnelRestored ??= readFunnelJournal(this.#node.store, FUNNEL_POPULATION_PENDING_RULING)
+    return this.#funnelRestored
+  }
+
+  /**
+   * `GET /funnel` — the whole banked record, and criterion 1's *"readable while the fabric is
+   * running"*.
+   *
+   * A fresh object answers six honest zeros, the population and the schema digest. Never a
+   * missing field and never an estimate: `#traffic`'s own comment is the precedent — *"Two
+   * zeroed columns is a reading; a missing field is not."*
+   *
+   * The digest travels with the counts so a reader can see the schema did not move between two
+   * readings, which is `37-RUNBOOK.md` step 5's evidence and is the freeze's other half: the
+   * suite catches a schema change in the tree, and this catches one between two deployments.
+   */
+  async #readFunnel(): Promise<Response> {
+    const totals = await this.#funnelOnce()
+    return Response.json(totals, { headers: FUNNEL_CORS_HEADERS })
+  }
+
+  /**
+   * `POST /funnel` — one report from one visit, banked.
+   *
+   * **The body is read as text and parsed here, deliberately.** `navigator.sendBeacon` is the
+   * only send that survives a page unloading, which is exactly when a `stalledAt` report has to
+   * leave, and a beacon sent as `text/plain` is a CORS-safelisted request that needs no
+   * preflight at all. Requiring `application/json` would make every beacon a preflighted
+   * request, and a preflight cannot be sent from a page that is already unloading — the reports
+   * this route exists for are precisely the ones that would be lost.
+   *
+   * A beacon reads no response, so nothing here can report a refusal to the sender. That is the
+   * accepted cost and it is why the parse refuses rather than defaults: an unparseable body
+   * stores nothing and answers 400 for the benefit of a `fetch` caller and a human with `curl`.
+   */
+  async #bankFunnel(request: Request): Promise<Response> {
+    const body = await request.text()
+    if (body.length > MAX_FUNNEL_BODY_BYTES) {
+      return new Response('report too large', { status: 413, headers: FUNNEL_CORS_HEADERS })
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(body)
+    } catch {
+      return new Response('not a report', { status: 400, headers: FUNNEL_CORS_HEADERS })
+    }
+    const report = parseFunnelReport(parsed)
+    if (report === null) {
+      return new Response('not a report', { status: 400, headers: FUNNEL_CORS_HEADERS })
+    }
+
+    // The dimensions come off the REQUEST, never out of the body. A visitor cannot choose
+    // which country their visit is filed under; see `funnel-collector.ts`.
+    const dimensions = funnelDimensionsFrom(request.headers)
+    const banked = accrueFunnelReport(await this.#funnelOnce(), report, dimensions)
+    this.#funnelRestored = Promise.resolve(banked)
+    await writeFunnelJournal(this.#node.store, banked, FUNNEL_POPULATION_PENDING_RULING)
+    return new Response(null, { status: 204, headers: FUNNEL_CORS_HEADERS })
   }
 
   /**
@@ -438,7 +544,18 @@ export class BootstrapObject {
    */
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade') === 'websocket') return this.#upgrade(request)
-    if (new URL(request.url).pathname !== '/self') {
+    const path = new URL(request.url).pathname
+    // RUN-04's two routes. See the AMENDED block in this file's header for why the route list
+    // opened here and why that is not a licence the next phase can cite.
+    if (path === '/funnel') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { status: 204, headers: FUNNEL_CORS_HEADERS })
+      }
+      if (request.method === 'POST') return this.#bankFunnel(request)
+      if (request.method === 'GET') return this.#readFunnel()
+      return new Response('method not allowed', { status: 405, headers: FUNNEL_CORS_HEADERS })
+    }
+    if (path !== '/self') {
       return new Response('not found', { status: 404 })
     }
     const identity = await this.#node.identity()
@@ -520,6 +637,55 @@ export class BootstrapObject {
     const init: UpgradeResponseInit = { status: 101, webSocket: client }
     return new Response(null, init)
   }
+}
+
+/**
+ * The population the funnel's counts are over WHILE THE RULING IS PENDING.
+ *
+ * `.planning/REQUIREMENTS.md` § Open questions item 3 — consent versus legitimate interest —
+ * is **contested across sources and is settled by legal review, not by engineering judgement**.
+ * Until it is settled the reporter is armed at consent, so the counts reaching this object are
+ * over visitors who turned the report on and nobody else.
+ *
+ * `'opted-in-only'` is not a choice between the two readings — it is their **intersection**.
+ * The consent reading permits only consent-armed collection; the legitimate-interest reading
+ * permits consent-armed collection *and* page-load-armed collection. So this value is lawful
+ * under either ruling, and a ruling can only ever widen it. Collecting under the wrong basis is
+ * the irreversible error; not collecting yet is the reversible one.
+ *
+ * It is stored beside the counts and echoed in every read because **a count whose population is
+ * not on the same page as the count is a count that will be quoted wrong** — under this value
+ * the funnel measures a self-selected subset, so stage one equals stage two by construction and
+ * the first drop-off is not measurable at all.
+ */
+const FUNNEL_POPULATION_PENDING_RULING: FunnelPopulation = 'opted-in-only'
+
+/**
+ * What `/funnel` answers a cross-origin caller.
+ *
+ * **The demo page is served from a different origin from this Worker in every arrangement that
+ * will ever exist** — a Vite dev server locally, GitHub Pages in production — so this is not
+ * decoration, it is whether the route works at all.
+ *
+ * `*` rather than a named origin, and the reason is that a narrower value here would be
+ * security theatre rather than security. The endpoint is a public, unauthenticated counter that
+ * accepts anonymous integers: there is no credential to protect, `Access-Control-Allow-
+ * Credentials` is deliberately absent, and an origin allow-list would be trivially bypassed by
+ * anything that is not a browser while breaking the one arrangement this project actually needs
+ * — a static page on one origin reporting to a Worker on another. `start-report.ts` records the
+ * same acceptance for the same reason: *"Counts are unauthenticated: a peer can inflate its
+ * own."* What that costs is written beside the figures rather than mitigated here.
+ *
+ * The preflight headers are answered anyway, even though the reporter's own send is a
+ * CORS-safelisted `text/plain` beacon that needs no preflight. A `fetch` caller — a harness, a
+ * human with `curl`, an operator reading the counts from a dashboard on another origin — is
+ * preflighted, and refusing them would make the route unreadable from anywhere but this Worker.
+ */
+const FUNNEL_CORS_HEADERS: Readonly<Record<string, string>> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, X-O2-Network-Class',
+  'Access-Control-Max-Age': '86400',
 }
 
 /**
