@@ -105,6 +105,11 @@ const LEDGER = '.planning/REQUIREMENTS.md'
 
 const LEDGER_SOURCE = readFileSync(join(ROOT, LEDGER), 'utf8')
 
+/** The roadmap, which is where a requirement is given somewhere to be done. */
+const ROADMAP = '.planning/ROADMAP.md'
+
+const ROADMAP_SOURCE = readFileSync(join(ROOT, ROADMAP), 'utf8')
+
 /**
  * The commit these findings are judged against, or `NO_COMMIT_SCOPE` outside a commit.
  *
@@ -2498,6 +2503,106 @@ describe('the paths this guard attributes findings to are paths a commit can mat
 // ---------------------------------------------------------------------------
 // The header's arithmetic
 // ---------------------------------------------------------------------------
+
+/**
+ * ## Every requirement still open is claimed by a phase, or it is nobody's work
+ *
+ * A row that is unchecked and that no phase names is not "later" — it is a requirement with
+ * no place in the plan, and the way that goes wrong is silent: the ledger keeps saying the
+ * thing is required, the roadmap never schedules it, and a milestone audit counts phases
+ * rather than rows and reports done. Nothing in this repository read the two documents
+ * against each other until now.
+ *
+ * **It was true when this was written**, which is the point of writing it: 25 rows open,
+ * every one of them claimed, zero orphans — measured 2026-09-02, the day the question was
+ * first asked out loud. A check whose first run is green is worth having only if it can go
+ * red, so both directions are planted below.
+ *
+ * The two ways it goes red are different faults with different owners:
+ *
+ *   * **a row nobody scheduled** — minting a requirement without giving it a phase, which is
+ *     the one this exists for;
+ *   * **a phase naming a row that is not in the ledger** — a typo in an id, or a row renamed
+ *     on one side only, which reads as coverage and is not.
+ *
+ * `Refuted` rows are still required to be claimed, and `HOST-10` is why the rule is written
+ * that way rather than exempting them. Its verdict is permanent — the ordering it asserts
+ * cannot be made true by any later work — but Phase 29 still names it, and that is correct:
+ * a phase is where a row is ACCOUNTED FOR, not only where it is satisfied. Dropping it from
+ * the roadmap would erase the record of a decision rather than close it.
+ */
+describe('every open requirement is claimed by a phase', () => {
+  // **`[A-Z][A-Z0-9-]*-\\d+`, the same id shape {@link parseRows} uses, and the narrower
+  // `[A-Z]+-[0-9]+` was written here first and was wrong by seven rows.** It cannot match
+  // `X509-01`: the family name carries digits. Seven checked rows vanished from the universe
+  // silently — the count still looked plausible, and a phantom-claim check run against a
+  // universe with holes in it reports coverage that was never verified.
+  const ID = String.raw`[A-Z][A-Z0-9-]*-\d+`
+
+  /** `- [ ] **A-01**: …` → id, and whether the box is ticked. The ledger's own universe. */
+  function checkboxes(markdown: string): Map<string, boolean> {
+    const boxes = new Map<string, boolean>()
+    for (const line of markdown.split('\n')) {
+      const match = new RegExp(String.raw`^- \[([ x])\] \*\*(${ID})\*\*`).exec(line)
+      if (match?.[2] === undefined) continue
+      boxes.set(match[2], match[1] === 'x')
+    }
+    return boxes
+  }
+
+  /** `**Requirements**: A-01, B-02 (carried from Phase 3)` → the ids on that line. */
+  function claimedByPhase(markdown: string): Map<string, string[]> {
+    const claims = new Map<string, string[]>()
+    let phase: string | undefined
+    for (const line of markdown.split('\n')) {
+      const heading = /^### (Phase [0-9.]+)/.exec(line)
+      if (heading?.[1] !== undefined) phase = heading[1]
+      if (!line.startsWith('**Requirements**') || phase === undefined) continue
+      for (const id of line.match(new RegExp(String.raw`\b${ID}\b`, 'g')) ?? []) {
+        claims.set(id, [...(claims.get(id) ?? []), phase])
+      }
+    }
+    return claims
+  }
+
+  const BOXES = checkboxes(LEDGER_SOURCE)
+  const CLAIMS = claimedByPhase(ROADMAP_SOURCE)
+  const OPEN = [...BOXES].filter(([, ticked]) => !ticked).map(([id]) => id)
+
+  it('read both documents, so an empty finding means agreement and not an empty scan', () => {
+    // The anti-vacuity arm, and it is here because this whole case is an ABSENCE — the
+    // finding list being empty is the pass. An absence proves nothing until the same run
+    // shows the instrument returning something.
+    expect(BOXES.size, 'no requirement checkboxes were parsed at all').toBeGreaterThan(100)
+    expect(OPEN.length, 'no open rows were parsed out of the ledger at all').toBeGreaterThan(10)
+    expect(CLAIMS.size, 'no phase in the roadmap declares any requirement').toBeGreaterThan(20)
+    // The universe must hold the id shape that broke the first draft, or the two checks
+    // below are exact about a set that quietly excludes a family.
+    expect(BOXES.has('X509-01'), 'the id parse drops families whose name carries digits').toBe(true)
+  })
+
+  it('leaves no open row without a phase to be done in', () => {
+    const findings = OPEN.filter((id) => !CLAIMS.has(id)).map((id) => ({
+      paths: [LEDGER, ROADMAP],
+      line:
+        `${id} is open in the ledger and no phase in the roadmap names it — it is not ` +
+        `scheduled work, it is work nobody has anywhere to do`,
+    }))
+    expect(blocking('requirements-ledger/unscheduled-row', findings, SCOPE)).toEqual([])
+  })
+
+  it('leaves no phase claiming a requirement the ledger does not carry', () => {
+    const findings = [...CLAIMS.entries()]
+      .filter(([id]) => !BOXES.has(id))
+      .map(([id, phases]) => ({
+        paths: [LEDGER, ROADMAP],
+        line:
+          `${phases.join(', ')} claims ${id}, which is not a row in the ledger — a phase ` +
+          `cannot cover a requirement that does not exist, and this reads as coverage`,
+      }))
+    expect(blocking('requirements-ledger/phantom-claim', findings, SCOPE)).toEqual([])
+  })
+})
 
 describe('the header states counts that the ledger below it bears out', () => {
   it('still states them in the shapes this file parses', () => {
