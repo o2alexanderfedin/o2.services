@@ -55,6 +55,12 @@ import type { FunnelDimensions } from './funnel-journal.ts'
  * width the sender chooses is the fingerprint these lists exist to prevent. The loss is one
  * bucket's worth of signal on a population this project has no reading of yet, and it is
  * recorded here so a later phase can reopen it deliberately rather than discover it.
+ *
+ * **MEASURED 2026-09-02 against a local `wrangler dev`, and it is NOT stamped there.** The
+ * request carried five headers — `accept`, `accept-encoding`, `cf-connecting-ip`, `host`,
+ * `user-agent` — and no `CF-IPCountry` among them. So this path alone would answer `ZZ` for
+ * every local run, which would make the country dimension untestable outside a deploy.
+ * {@link CF_COUNTRY_PROPERTY} is why it is testable anyway.
  */
 export const CLIENT_COUNTRY_HEADER = 'CF-IPCountry'
 
@@ -70,18 +76,74 @@ export const CLIENT_COUNTRY_HEADER = 'CF-IPCountry'
 export const CLIENT_NETWORK_CLASS_HEADER = 'X-O2-Network-Class'
 
 /**
+ * The one property of `request.cf` this code is allowed to touch, and the reason it is one.
+ *
+ * **MEASURED 2026-09-02 on a local `wrangler dev`, and the reading is why this constant has a
+ * docblock rather than being inlined.** `request.cf` exists locally — it is not an edge-only
+ * object — and it arrived carrying **thirty-three** properties populated from this machine's
+ * real public address. Read verbatim off the probe:
+ *
+ * ```
+ * country = 'US'          city = 'San Jose'       region = 'California'
+ * postalCode = '95110'    latitude = '37.33939'   longitude = '-121.89496'
+ * asn = 62628             asOrganization = 'Zoox Labs, Inc.'
+ * timezone = 'America/Los_Angeles'                clientTcpRtt = 7
+ * ```
+ *
+ * **That is a street-level location, an ISP and a network fingerprint, one property access
+ * away from the collector, on every request, locally as well as on the edge.** Nothing in the
+ * platform prevents any of it from being stored; the only thing that does is this line reading
+ * one property and the arm in `funnel-collector.e2e.test.ts` proving the rest is absent from
+ * the store. It is also what makes criterion 4's positive control unusually strong: the thing
+ * that must not be in the store is demonstrably at the door, and demonstrably richer than the
+ * IP address the criterion names.
+ *
+ * `country` is read and the other thirty-two are not, because two letters is a country and
+ * `postalCode` is a person's neighbourhood. `latitude` and `longitude` are strings here rather
+ * than numbers, which is worth knowing only because it means a naive `typeof === 'number'`
+ * filter would not have excluded them.
+ */
+export const CF_COUNTRY_PROPERTY = 'country'
+
+/** The shape of a request this module reads. Narrow, so a node-lane spec can build one. */
+export interface FunnelRequestFacts {
+  readonly headers: Headers
+  /** The platform's per-request object. Present locally as well as on the edge — see above. */
+  readonly cf?: unknown
+}
+
+/**
  * The two dimensions, read off the request.
  *
  * Anything the schema does not admit becomes `ZZ` / `unknown` rather than being stored as
  * sent. That is not leniency: a value outside a closed list is a field whose width the sender
  * chose, and the whole reason these lists are closed is that a wide enough field is a
  * fingerprint.
+ *
+ * **The header is asked first and `request.cf` second, and the order is not a preference.**
+ * `CF-IPCountry` is the documented edge contract and is the value an operator can see in a log;
+ * `request.cf.country` is what a LOCAL workerd actually supplies, measured, so the fallback is
+ * what makes the country path exercisable without a deploy. Neither is derived from the address
+ * by this code: both are labels the platform attached, and computing a location from an IP
+ * inside this Worker would be geolocation performed by this project on data it promised to
+ * discard, which is a different act from reading a label somebody else stamped.
  */
-export function funnelDimensionsFrom(headers: Headers): FunnelDimensions {
-  const country = headers.get(CLIENT_COUNTRY_HEADER)?.toUpperCase() ?? null
-  const networkClass = headers.get(CLIENT_NETWORK_CLASS_HEADER)?.toLowerCase() ?? null
+export function funnelDimensionsFrom(request: FunnelRequestFacts): FunnelDimensions {
+  const fromHeader = request.headers.get(CLIENT_COUNTRY_HEADER)?.toUpperCase() ?? null
+  const cf = request.cf
+  const fromPlatform =
+    typeof cf === 'object' && cf !== null
+      ? ((cf as Record<string, unknown>)[CF_COUNTRY_PROPERTY] ?? null)
+      : null
+  const country = isFunnelCountry(fromHeader)
+    ? fromHeader
+    : typeof fromPlatform === 'string' && isFunnelCountry(fromPlatform.toUpperCase())
+      ? fromPlatform.toUpperCase()
+      : FUNNEL_UNKNOWN_COUNTRY
+
+  const networkClass = request.headers.get(CLIENT_NETWORK_CLASS_HEADER)?.toLowerCase() ?? null
   return {
-    country: isFunnelCountry(country) ? country : FUNNEL_UNKNOWN_COUNTRY,
+    country,
     networkClass: isFunnelNetworkClass(networkClass) ? networkClass : 'unknown',
   }
 }

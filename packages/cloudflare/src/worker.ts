@@ -438,7 +438,7 @@ export class BootstrapObject {
 
     // The dimensions come off the REQUEST, never out of the body. A visitor cannot choose
     // which country their visit is filed under; see `funnel-collector.ts`.
-    const dimensions = funnelDimensionsFrom(request.headers)
+    const dimensions = funnelDimensionsFrom(request)
     const banked = accrueFunnelReport(await this.#funnelOnce(), report, dimensions)
     this.#funnelRestored = Promise.resolve(banked)
     await writeFunnelJournal(this.#node.store, banked, FUNNEL_POPULATION_PENDING_RULING)
