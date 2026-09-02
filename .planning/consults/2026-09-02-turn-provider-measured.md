@@ -65,3 +65,42 @@ account, and the sharding to three regions, which waits on Phase 33. TURN is bil
 relayed traffic, so it belongs under the same alert as the Durable Objects and must not be
 switched on before that alert exists — the `HOST-10` ordering, which this milestone has
 already lost once.
+
+---
+
+## What the deployed client actually uses today — and one of the four is dead
+
+The probe was pointed at the STUN list the browser tier is running on **right now**, which is
+not a list this repository wrote. `packages/browser/src/browser-node.ts:1474` constructs
+`webRTC()` with **no options**, so the four defaults in
+`node_modules/@libp2p/webrtc/dist/src/constants.js:11-16` are the live configuration. Nothing
+in `packages/*/src/` sets `iceServers` or `rtcConfiguration` at all — grepped, zero hits.
+
+| default STUN server | probed 2026-09-02 |
+|---|---|
+| `stun.l.google.com:19302` | Binding success |
+| `global.stun.twilio.com:3478` | Binding success |
+| `stun.cloudflare.com:3478` | Binding success |
+| `stun.services.mozilla.com:3478` | **`ENOTFOUND` — the name does not resolve** |
+
+**Confirmed against three independent public resolvers**, so it is not this host's DNS:
+`8.8.8.8`, `1.1.1.1` and `9.9.9.9` all answer **`NXDOMAIN`**, while the same resolvers return
+`162.159.207.0` for `stun.cloudflare.com` in the same breath — the positive control that
+separates *this name is gone* from *DNS is not working here*.
+
+**So every tab in this fabric performs a failing DNS lookup on every ICE gathering.** Three
+servers answer, so nothing is broken; what is spent is latency on the exact path — candidate
+gathering — where `RUN-04`'s fourth funnel stage is measured. A stage-four number taken while
+a quarter of the configured servers cannot be resolved is measuring the library's stale list
+as much as the visitor's network.
+
+**This is an argument for making the ICE configuration explicit, and it is a stronger one than
+adding TURN.** A default list is a dependency on four third parties this project never chose,
+never measured, and cannot notice rotting — it rotted, and nothing here would have said so.
+Phase 34's first task should state `iceServers` in this repository, drop the dead entry, and
+carry the reason beside each survivor. The Cloudflare TURN rung then goes into the same
+structure through `rtcConfiguration`'s function form rather than beside it.
+
+Reproduce with `node tools/turn-provider-probe.mjs` after editing its `HOSTS` list; the
+`ENOTFOUND` arrives as a socket error rather than a timeout, which is itself the distinction
+between *no such name* and *no answer*.
