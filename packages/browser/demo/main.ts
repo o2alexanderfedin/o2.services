@@ -2296,10 +2296,29 @@ const api: TabApi = {
    * dispatch — which names the record's CID — would find nothing there. Comparing the two
    * turns that from a `module block missing` several seconds later into a sentence naming
    * what happened. It has no known way to fire, and it is three lines.
+   *
+   * ## The order of the three steps is BROW-06, and it was the wrong way round
+   *
+   * This function opened with `required()` until 2026-09-02, so a tab that had not started
+   * threw `node not started` and a tab that had started must already have consented — which
+   * looks like a gate and is not one. It made the criterion **untestable**: with the fetch
+   * unreachable in the un-consented state, no network log could distinguish a consent gate
+   * from a node-state gate, and removing the consent check would have changed nothing an
+   * instrument could see. That is the shape of a proof that cannot fail.
+   *
+   * So the order is now: **consent, then fetch, then `required()` for the put.** `required()`
+   * still gates the blockstore write, which genuinely needs a node; it no longer stands in
+   * front of the network, which needs only a visitor's agreement.
+   *
+   * **`readConsent` and not `requireConsent()`, deliberately.** `requireConsent()` throws,
+   * and a throw here would put the refusal back in front of the fetch at a *different* call
+   * site — the same defect one line up. The gap is passed down instead, and
+   * `fetchModuleForDispatch` is the single place that turns it into a refusal.
    */
   async fetchModule(options) {
-    const n = required()
+    const found = readConsent(store, DEMO_ANCHORS)
     const outcome = await fetchModuleForDispatch({
+      consent: found.ok ? found.consent : found.gap,
       gatewayBase: options.gatewayBase,
       moduleCid: options.moduleCid,
       recordCid: options.recordCid,
@@ -2307,6 +2326,7 @@ const api: TabApi = {
     })
     if (!outcome.ok) return outcome
 
+    const n = required()
     const stored = await n.store.put(outcome.content)
     if (stored.toString() !== outcome.cid) {
       return {
