@@ -238,7 +238,8 @@ stopped_at: >-
   HOST-11, HOST-12) plus two false clauses in NET-03's; and no concurrency limit
   by core count anywhere in the tree, which is the next thing the owner named.
   2026-09-02 — FOUR PHASES MOVED AND THE MILESTONE'S SHAPE CHANGED. Requirements went
-  113/25 to 116/22. PHASE 35 IS EXECUTED, 7 of 8 tasks: consent blocks the artifact
+  113/25 to 118/20 — counted, not estimated; an earlier draft of this line said
+  116/22 because it was reasoned from what had closed rather than read off the file. PHASE 35 IS EXECUTED, 7 of 8 tasks: consent blocks the artifact
   FETCH proved by a network log rather than a flag, an indicator in browser chrome read
   from outside the page in all three engines, Stop as a hard interrupt with the billed
   socket closing beside it, a four-element disclosure in the required order, and a data
