@@ -41,6 +41,20 @@
  * a third party I was here".
  */
 
+// FOR ITS SIDE EFFECT, and it must be the FIRST import in this file.
+//
+// RUN-04 stage four. `@libp2p/webrtc` captures `globalThis.RTCPeerConnection` into a `const`
+// when its module evaluates — `dist/src/webrtc/index.browser.js` is one line and that is the
+// line — so a wrapper installed by any STATEMENT in this file is installed after the capture
+// and is invisible to libp2p forever. Measured, not reasoned about: with the install inside
+// `api.start`, two real browser contexts completed a genuine browser-to-browser dial and
+// `ice-gathering` stayed at 0.
+//
+// A named import would not do the job on its own: import statements are hoisted above every
+// statement here, so what matters is that this module is evaluated FIRST, before anything that
+// pulls in `@libp2p/webrtc`. `packages/cloudflare/src/workerd-shims.ts` is the precedent, and
+// its header records what the same mistake cost there.
+import '../src/ice-observer-install.ts'
 import {
   canonicalCid,
   checkpointsInto,
@@ -151,7 +165,7 @@ import {
   readNetworkClass,
   utcHourPort,
 } from '../src/funnel-reporter.ts'
-import { installIceObserver } from '../src/ice-observer.ts'
+import { onFirstIceGathering } from '../src/ice-observer-install.ts'
 import * as pid from '@libp2p/peer-id'
 // **`import type`, and the distinction matters here rather than being pedantry.** This file's
 // convention is that `CID` is reached through `await import('multiformats/cid')` — see
@@ -342,8 +356,6 @@ function armFunnel(): void {
   funnel.enter('consent')
 }
 
-/** Removes the ICE observer, or does nothing. Held so `stop()` leaves the tab as it found it. */
-let removeIceObserver: (() => void) | null = null
 /** Set once stage six has been reported, so the poll loop stops asking. */
 let funnelSawFirstTask = false
 
@@ -1271,10 +1283,10 @@ const api: TabApi = {
     // defect that reads as a finding. `arm()` and `enter()` are both once-only, so calling this
     // on the path that already armed sends nothing.
     armFunnel()
-    // RUN-04 stage four — installed BEFORE `BrowserNode.start`, because libp2p constructs its
-    // own `RTCPeerConnection` instances inside it and an observer installed afterwards sees
-    // none of them. Install order is the whole of whether this stage is measured.
-    removeIceObserver ??= installIceObserver(() => {
+    // RUN-04 stage four. The observer itself was installed at the top of this file's import
+    // graph — see the side-effect import — and this only registers where its answer goes.
+    // Gathering that already happened is not lost: `onFirstIceGathering` fires immediately.
+    onFirstIceGathering(() => {
       funnel.enter('ice-gathering')
     })
     // Probe before attempting, so a missing capability is a fact about this browser
@@ -2807,10 +2819,11 @@ const api: TabApi = {
     // would read a node that is being dismantled, and the tab strip would go on claiming to
     // be computing for as long as the teardown took.
     endComputingIndicator()
-    // RUN-04 — the wrapper comes off with the node. A stopped tab should be left as it was
-    // found, and `installIceObserver` only ever puts back a global it still owns.
-    removeIceObserver?.()
-    removeIceObserver = null
+    // RUN-04 — the ICE wrapper does NOT come off, and that is deliberate. It is installed at
+    // module evaluation because `@libp2p/webrtc` captures the constructor at its own, so a
+    // remove-on-stop would leave a restarted tab permanently unobservable: the capture has
+    // already happened and cannot happen again. The wrapper is a transparent subclass that
+    // delegates and reports once per visit, so leaving it costs the tab nothing.
     funnelSawFirstTask = false
     if (node !== null) await node.stop()
     node = null
