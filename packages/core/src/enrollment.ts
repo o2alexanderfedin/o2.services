@@ -393,6 +393,25 @@ export function possessionChallenge(nodeKey: PublicKeyHex, userKey: PublicKeyHex
 }
 
 /**
+ * The domain-separation string a TURN mint request is signed under — NET-12.
+ *
+ * Named once, in the package **both sides** of the exchange already depend on, so the signer
+ * and the verifier cannot drift apart. Two encoders producing "the same" bytes is the defect
+ * class Phase 34 removed from `tools/turn-provider-probe.mjs` in the same milestone; putting
+ * this string in `@o2/cloudflare` and a copy of it in `@o2/browser` would have reinstated it
+ * across a package boundary, where it is harder to see.
+ *
+ * **Only the string is shared, not a builder, and that is a constraint rather than a taste.** A
+ * callable on `@o2/core`'s barrel whose only caller is `browser-node.ts` is reachable solely
+ * through the `window.o2` hop, and both the unreachable-export bound and the disposition
+ * register that would have to absorb it are full and frozen for this phase. So each side calls
+ * `encodeCanonical` itself over the same field set. `dag-cbor` sorts keys, so field ORDER cannot
+ * drift; what could drift is the field SET, and `turn-mint-payload.node.test.ts` builds both
+ * sides and asserts byte equality rather than trusting a comment to hold them together.
+ */
+export const TURN_MINT_PURPOSE = 'o2/turn-credential/1.0.0'
+
+/**
  * How long a minted challenge stays spendable.
  *
  * Sized against the exchange it bounds and nothing else: one round trip on a fabric whose

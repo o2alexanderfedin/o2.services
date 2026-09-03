@@ -1301,6 +1301,42 @@ async function aggregateTotalFrom(
   return typeof total === 'number' ? total : null
 }
 
+/**
+ * NET-12's URL parameters, on `?relay=`'s precedent — `?turn=`, `?turnRegion=`,
+ * `?iceTransportPolicy=` and `?turnRefreshMargin=`.
+ *
+ * Returns an object to spread, so absence is a field that is not there rather than a field
+ * set to `undefined`. The two are the same to the runtime and different to a reader, and
+ * `BrowserNodeOptions` is under `exactOptionalPropertyTypes`.
+ *
+ * **This adds no visible figure to the page.** Every visible figure is declared in
+ * `demo-regions.ts` and counted by `UI_SPEC_TALLY`; putting a TURN status on screen would
+ * make this change own `REGIONS`, all three tally fields and UI-SPEC §4.x and §12. Nothing in
+ * NET-12 asks for one.
+ */
+function turnOptionsFromQuery(): {
+  turnEndpoint?: string
+  turnRegion?: string
+  iceRelayOnly?: boolean
+  turnRefreshMarginMs?: number
+} {
+  const query = new URLSearchParams(location.search)
+  const endpoint = query.get('turn')
+  const region = query.get('turnRegion')
+  const margin = Number(query.get('turnRefreshMargin') ?? '')
+  // `iceTransportPolicy` is read INDEPENDENTLY of `?turn=`, and that independence is the point.
+  // An earlier draft returned early when no endpoint was present, which silently dropped the
+  // policy — and the arm that exists to prove a pair CANNOT connect without TURN then connected
+  // directly and reported the floor as broken. A floor arm needs the policy precisely when it
+  // has no rung.
+  return {
+    ...(endpoint === null || endpoint === '' ? {} : { turnEndpoint: endpoint }),
+    ...(region === null || region === '' ? {} : { turnRegion: region }),
+    ...(query.get('iceTransportPolicy') === 'relay' ? { iceRelayOnly: true } : {}),
+    ...(Number.isFinite(margin) && margin > 0 ? { turnRefreshMarginMs: margin } : {}),
+  }
+}
+
 const api: TabApi = {
   onChange(listener) {
     listeners.add(listener)
@@ -1463,6 +1499,15 @@ const api: TabApi = {
       node = await BrowserNode.start({
         relayAddrs: options.relayAddrs,
         blockstoreName: options.blockstoreName,
+        // NET-12 — the TURN rung, activated by URL parameter on the `?relay=` precedent and
+        // OFF unless one is present. Conditional spreads rather than `undefined` values, so a
+        // page without the parameter passes no field at all: roughly forty existing e2e specs
+        // construct a node this way and every one must keep getting the explicit STUN list.
+        //
+        // `?iceTransportPolicy=relay` makes a direct candidate impossible BY POLICY. It exists
+        // for the harness that proves the rung carries a pair when no direct candidate is
+        // usable, and it must never become a default — a tab that can pair directly must.
+        ...turnOptionsFromQuery(),
         // SCHED-03's predicate, sourced from RUN-02's remote sliced flag.
         //
         // **A tab with no readable relay origin gets `false` forever, and that is the correct

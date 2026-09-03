@@ -12,9 +12,9 @@ import { describe, expect, it } from 'vitest'
 import {
   ACCEPTANCE_WINDOW_MS,
   CREDENTIAL_LIFETIME_MS,
-  mintRequestPayload,
   mintTurnCredential,
   sharedSecretMinter,
+  turnMintPayload,
 } from './turn-credential.ts'
 
 /**
@@ -70,7 +70,7 @@ function requestFrom(
   const requestedAt = overrides.requestedAt ?? NOW
   const region = overrides.region ?? REGION
   const signature = toHex(
-    ed25519.sign(mintRequestPayload({ nodeKey, region, requestedAt }), signerSeed),
+    ed25519.sign(turnMintPayload(nodeKey, region, requestedAt), signerSeed),
   )
   return { certificate, nodeKey, region, requestedAt, signature }
 }

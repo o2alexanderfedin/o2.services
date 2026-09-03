@@ -24,6 +24,7 @@
  * what keeps the fabric's capacity independent of the backbone's bandwidth.
  */
 
+import { ed25519 } from '@noble/curves/ed25519.js'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { circuitRelayTransport } from '@libp2p/circuit-relay-v2'
@@ -52,6 +53,9 @@ import {
   publishCapabilities,
   requestEnrollment,
   subtleUserSigner,
+  encodeCanonical,
+  TURN_MINT_PURPOSE,
+  toHex,
   verifyCapabilityRecord,
   verifyCertificate,
 } from '@o2/core'
@@ -119,7 +123,7 @@ import type { Libp2p } from '@libp2p/interface'
 import { currentBrowserLabel } from './browser-id.ts'
 import type { HeldPeer } from './dial-plan.ts'
 import { iceConfiguration } from './ice-configuration.ts'
-import type { TurnRung } from './ice-configuration.ts'
+import { turnCredentialHolder } from './turn-credentials.ts'
 import { IdbBlockstore } from './idb-blockstore.ts'
 import { IdbIdentityStore } from './idb-identity-store.ts'
 import { IdbIssuance } from './idb-issuance.ts'
@@ -134,22 +138,31 @@ export interface BrowserNodeOptions {
   /** Relays to reserve on. At least one is required to be addressable at all. */
   readonly relayAddrs: readonly string[]
   /**
-   * The TURN rung below direct WebRTC — NET-12. **Off by default**, and the default is the
+   * Where to fetch a TURN credential from — NET-12. **Off by default**, and the default is the
    * whole reason this is an option rather than a constant: roughly forty existing e2e specs
    * construct a node with no minting endpoint, and every one of them must keep getting the
    * explicit STUN list and nothing else.
    *
-   * Supplied as a **function** rather than a value because the credential is short-lived and
-   * `@libp2p/webrtc` re-invokes `rtcConfiguration` once per connection in both directions
-   * (`private-to-private/transport.js:100` and `:131`). A value captured at start would be a
-   * credential that expires mid-session; a function is re-asked, which is what makes "short
-   * lived" possible at all.
+   * **An endpoint rather than a caller-supplied credential, and that is forced rather than
+   * preferred.** A mint request must be signed by the node key the certificate names, and the
+   * private half of that key lives in here — `identityFromSeed(seed)` — while the certificate
+   * lives in this tab's `IdbIdentityStore`. A caller has neither, so a caller cannot build the
+   * request. This node fetches its own credential, and the fetch is lazy: `@libp2p/webrtc`
+   * re-invokes `rtcConfiguration` once per connection in both directions
+   * (`private-to-private/transport.js:100` and `:131`), which is what makes "short-lived"
+   * possible at all and is a measured reading of the installed package.
    *
-   * Answering `null` means *no rung right now* — no endpoint configured, or the fetch failed.
-   * The configuration handed onward still carries the explicit STUN list, never `{}`; see THE
-   * TRAP in `ice-configuration.ts`.
+   * A failed fetch means *no rung right now*, never an error: the configuration handed onward
+   * still carries the explicit STUN list, never `{}`. See THE TRAP in `ice-configuration.ts`.
    */
-  readonly turnRung?: () => TurnRung | null | Promise<TurnRung | null>
+  readonly turnEndpoint?: string
+  /**
+   * Which region's rung to ask for. Defaults to `bootstrap-us`, the one object every request
+   * is served by today.
+   */
+  readonly turnRegion?: string
+  /** Refetch this long before the stated expiry. A harness lowers it to exercise rotation. */
+  readonly turnRefreshMarginMs?: number
   /**
    * Forces `iceTransportPolicy: 'relay'`, making a direct candidate impossible **by policy**.
    * Only a harness sets this. It proves *the rung carries a pair when no direct candidate is
@@ -662,6 +675,21 @@ function canRelayFrom(listen: readonly string[]): boolean {
  * depend on `@o2/node` and must not — see this plan's summary for the packaging finding.
  * The duplication is real and is recorded rather than hidden.
  */
+/**
+ * The bytes a TURN mint request is signed over — the SIGNER's side, NET-12.
+ *
+ * `@o2/cloudflare`'s `turnMintPayload` builds the identical object on the verifier's side. Only
+ * {@link TURN_MINT_PURPOSE} crosses the package boundary, because a callable on `@o2/core`'s
+ * barrel reachable solely through the `window.o2` hop would need room in a disposition register
+ * that is full and frozen. `dag-cbor` sorts keys so field ORDER cannot drift; the field SET is
+ * held identical by `turn-mint-payload.node.test.ts`, which builds both sides and compares bytes.
+ */
+function turnMintBytes(nodeKey: string, region: string, requestedAt: number): Uint8Array {
+  const encoded = encodeCanonical({ purpose: TURN_MINT_PURPOSE, nodeKey, region, requestedAt })
+  if (!encoded.ok) throw new Error(`TURN mint payload is not encodable: ${String(encoded.error.kind)}`)
+  return encoded.bytes
+}
+
 async function resolveCertificate(parts: {
   enrollment: BrowserNodeOptions['enrollment']
   identity: NodeIdentity
@@ -1533,6 +1561,40 @@ export class BrowserNode {
     }
     const identity = await identityFromSeed(seed)
 
+    // NET-12 — the TURN rung, built here because this is the only place that holds both halves
+    // a mint request needs: `identity.seed` signs it, and this tab's certificate names who is
+    // asking. The certificate is resolved further down (`resolveCertificate`), AFTER libp2p
+    // exists, so it is read through this cell rather than captured now. That is safe for a
+    // measured reason rather than a hopeful one: `rtcConfiguration`'s function form is invoked
+    // per connection, and the first connection cannot precede the end of `start`.
+    let turnCertificate: NodeCertificate | null = null
+    const turnRegion = options.turnRegion ?? 'bootstrap-us'
+    const turnHolder =
+      options.turnEndpoint === undefined || options.turnEndpoint === ''
+        ? null
+        : turnCredentialHolder({
+            endpoint: options.turnEndpoint,
+            ...(options.turnRefreshMarginMs === undefined
+              ? {}
+              : { refreshMarginMs: options.turnRefreshMarginMs }),
+            requestBody: () => {
+              // A tab that enrolled nowhere holds `null` here, and it still asks. **The gate
+              // decides membership, not the caller**: a tab that pre-judged its own request
+              // would be a second, weaker copy of the admission rule living on the side that
+              // cannot be trusted with it. The hosted minter refuses a missing or unpinned
+              // certificate by name, and the holder turns that refusal into "no rung" — which
+              // `iceConfiguration` renders as the explicit STUN list, never `{}`.
+              const requestedAt = Date.now()
+              return {
+                certificate: turnCertificate,
+                nodeKey: identity.nodeKey,
+                region: turnRegion,
+                requestedAt,
+                signature: toHex(ed25519.sign(turnMintBytes(identity.nodeKey, turnRegion, requestedAt), identity.seed)),
+              }
+            },
+          })
+
     const libp2p = await createLibp2p({
       // The only listen set a browser can offer.
       addresses: { listen: [...BROWSER_LISTEN] },
@@ -1553,7 +1615,7 @@ export class BrowserNode {
         webRTC({
           rtcConfiguration: async () =>
             iceConfiguration({
-              turn: (await options.turnRung?.()) ?? null,
+              turn: (await turnHolder?.rung()) ?? null,
               relayOnly: options.iceRelayOnly === true,
             }),
         }),
@@ -1764,6 +1826,10 @@ export class BrowserNode {
       relayPeerIds,
       reuse: 'may-reuse-a-persisted-certificate',
     })
+
+    // NET-12 — the cell the TURN mint request reads. Set once, here, because this is the first
+    // line at which this tab knows what certificate it holds.
+    turnCertificate = certificate
 
     // AUTH-04 renewal — one cell, read by the index, the publisher and this tab's own
     // accessor. `CertificateHolder`'s doc says why it is a type rather than a local.

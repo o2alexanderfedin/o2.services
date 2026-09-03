@@ -1,3 +1,6 @@
+import { spawn } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 /**
  * How the e2e fixtures launch a browser, and the one Chromium flag they all pass.
  *
@@ -143,4 +146,195 @@ export async function launchFixtureBrowser(
  */
 export function chromiumFixtureArgs(extra: readonly string[] = []): string[] {
   return [SHOW_LOCAL_ICE_CANDIDATES, ...extra]
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// NET-12 — the loopback TURN server the Phase 34 e2e fixtures spawn.
+//
+// **Why it lives in this file rather than its own.** It is a spec-only harness of exactly the
+// class this module already is, and the reachability guard counts orphan *modules* — a module
+// with no production importer — rather than exports. A separate `coturn-harness.ts` would have
+// been a 33rd orphan against a ceiling of 32, and this phase is not permitted to raise that
+// ceiling. Giving it a production importer would have been fake wiring, and inlining it into the
+// two specs that use it would have put two copies of the spawn flags in the tree — with
+// `--allow-loopback-peers`, below, being precisely the line two copies would let drift.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A real RFC 5766 TURN server, on loopback, for the duration of one spec — NET-12.
+ *
+ * ## Why a real server and not a fake
+ *
+ * Criterion 1 says *a credential captured from one session is refused after its stated
+ * lifetime*. A fake would refuse it because this repository told it to, which measures nothing:
+ * the lifetime a minter states is a **claim**, and the clock that decides whether a credential
+ * still works belongs to the TURN server. `coturn` is what turns the claim into an observation.
+ *
+ * Its **log is the outside instrument**, and it plays the role the gateway server's request log
+ * played in Phase 35: a reading taken at the server rather than asserted by the thing under
+ * test. {@link CoturnHarness.allocations} and {@link CoturnHarness.refusals} parse it for the
+ * two facts the arms need.
+ *
+ * ## This harness does NOT mint
+ *
+ * It holds coturn's lifecycle and reads coturn's log, and that is all. Credentials are minted by
+ * `@o2/cloudflare`'s `sharedSecretMinter` — the module the hosted tier actually uses — reached
+ * from a spec by the test-only relative import this repository sanctions
+ * (`packages/net/src/distributed.test.ts`'s note; `packages/node` does not declare
+ * `@o2/cloudflare` as a workspace dependency and this phase does not add one for a test).
+ *
+ * That is deliberate and it was very nearly the other way. A harness with its own mint would be
+ * a second implementation of the same agreement, and the two drifted immediately: the first
+ * draft here built a two-part username while the production minter builds three parts. A spec
+ * standing on the harness's copy would then have proved coturn accepts *the harness*, which is
+ * not a claim anybody needs.
+ *
+ * ## What was measured before anything was built on it, 2026-09-02
+ *
+ * `coturn 4.17.2`. Chromium **does** allocate against a loopback TURN server — this was not
+ * assumed, it was probed first, because the whole of criterion 1 stands on it:
+ *
+ * ```
+ * candidate:185922738 1 udp 50339839 127.0.0.1 64682 typ relay raddr 0.0.0.0 rport 0 …
+ * session 007000000000000001: new, realm=<o2.invalid>, username=<1788403690:smoke>, lifetime=600
+ * session 007000000000000001: … incoming packet ALLOCATE processed, success
+ * ```
+ *
+ * And the refusals, also measured rather than assumed: an **unauthenticated** Allocate answers
+ * `0x0113` error `401` — the same reading the provider probe took against Cloudflare — while an
+ * expired credential and a wrong-secret credential are **observationally identical**, both
+ * producing `check_stun_auth: Cannot find credentials of user <…>` and `error 401:
+ * Unauthorized`. That identity matters and is recorded here so nobody reads more out of an
+ * arm than it can carry: *expired* is not distinguishable from *bad HMAC* by the error text.
+ * What separates them is that the **same minter** with a future expiry works in the same run.
+ *
+ * ## The fence
+ *
+ * `--listening-ip=127.0.0.1 --relay-ip=127.0.0.1`, a fresh port per run, `--no-tls --no-dtls
+ * --no-cli`, and a secret generated per run with `randomBytes` that is never written to a
+ * tracked file. **A coturn bound to a LAN address is an open relay on somebody's network.**
+ */
+
+export interface CoturnHarness {
+  readonly port: number
+  /** The `use-auth-secret` shared secret. The worker under test is given the same value. */
+  readonly secret: string
+  readonly realm: string
+  /** Every `turn:` URL a client should be handed for this server. */
+  readonly urls: readonly string[]
+  /** Usernames this server logged a successful allocation for. */
+  allocations(): readonly string[]
+  /**
+   * Usernames this server answered `401` to.
+   *
+   * An **unauthenticated** Allocate carries no username and appears here as an **empty string**,
+   * because coturn logs it as `user <>`. Said exactly rather than approximately: an earlier
+   * draft of this line promised `null` entries, which this function never produces, and a
+   * comment is not a specification.
+   */
+  refusals(): readonly string[]
+  /** Everything the server has said, for a failure message that needs the raw text. */
+  log(): string
+  stop(): void
+}
+
+/** The line coturn prints once its UDP listener is up. Matched rather than slept on. */
+const READY_PATTERN = /listener opened on/i
+
+/**
+ * Start a loopback `coturn` and answer a handle to it.
+ *
+ * **Fails loudly when `turnserver` is absent**, with the install command in the text. A skip
+ * would be a vacuous green, and this repository does not take them.
+ */
+export async function startCoturn(options: { readonly port?: number } = {}): Promise<CoturnHarness> {
+  const port = options.port ?? 30_000 + Math.floor(Math.random() * 20_000)
+  const secret = randomBytes(24).toString('hex')
+  const realm = 'o2.invalid'
+
+  const child: ChildProcess = spawn(
+    'turnserver',
+    [
+      // Loopback only, both legs. This is the fence, not a preference.
+      '--listening-ip=127.0.0.1',
+      '--relay-ip=127.0.0.1',
+      `--listening-port=${String(port)}`,
+      '--no-tls',
+      '--no-dtls',
+      '--no-cli',
+      // The scheme under test: a username carrying its own expiry, HMAC'd with a shared secret.
+      '--use-auth-secret',
+      `--static-auth-secret=${secret}`,
+      `--realm=${realm}`,
+      '--no-multicast-peers',
+      // MEASURED, not copied from a guide. Without this coturn ALLOCATES happily — the client
+      // gets a `typ relay` candidate and the log says `ALLOCATE processed, success` — and then
+      // silently refuses to relay to the peer, because both peers' relay addresses are on
+      // 127.0.0.1 and loopback peers are denied by default. The symptom is the worst kind: the
+      // allocation reading is green, so every instrument says TURN is working, and the pair
+      // simply never forms. On a real deployment peers are not on loopback and this flag is
+      // neither needed nor wanted; it is here because the whole arrangement is on one machine.
+      '--allow-loopback-peers',
+      // Verbose enough to log allocations and their usernames — the outside instrument.
+      '--verbose',
+      '--simple-log',
+      '--log-file=stdout',
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  )
+
+  let log = ''
+  child.stdout?.on('data', (chunk: Buffer) => (log += chunk.toString()))
+  child.stderr?.on('data', (chunk: Buffer) => (log += chunk.toString()))
+
+  let spawnError: Error | null = null
+  child.on('error', (cause: Error) => (spawnError = cause))
+
+  await new Promise<void>((resolve, reject) => {
+    const deadline = Date.now() + 15_000
+    const poll = setInterval(() => {
+      if (spawnError !== null) {
+        clearInterval(poll)
+        reject(
+          new Error(
+            `could not start 'turnserver': ${String(spawnError)}\n` +
+              `coturn is REQUIRED by this spec and a skip would be a vacuous green. Install it:\n` +
+              `  brew install coturn\n` +
+              `(verified 2026-09-02 as coturn 4.17.2, bottled.)`,
+          ),
+        )
+        return
+      }
+      if (READY_PATTERN.test(log)) {
+        clearInterval(poll)
+        resolve()
+        return
+      }
+      if (Date.now() > deadline) {
+        clearInterval(poll)
+        reject(new Error(`coturn did not report a listener within 15 s. Its output was:\n${log}`))
+      }
+    }, 100)
+  })
+
+  return {
+    port,
+    secret,
+    realm,
+    // Both ports the provider was measured answering on cannot be offered by one local server,
+    // so the shape under test is one entry carrying the URLs this server actually serves. The
+    // arrangement is what is being proved, not the port numbers.
+    urls: [`turn:127.0.0.1:${String(port)}?transport=udp`],
+    allocations: () =>
+      [...log.matchAll(/user <([^>]*)>: incoming packet ALLOCATE processed, success/g)].map(
+        (match) => match[1] ?? '',
+      ),
+    refusals: () =>
+      [...log.matchAll(/user <([^>]*)>: incoming packet .*error 401/g)].map((match) => match[1] ?? ''),
+    log: () => log,
+    stop: () => {
+      child.kill('SIGTERM')
+    },
+  }
 }

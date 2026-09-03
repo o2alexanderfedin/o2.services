@@ -1,5 +1,5 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { encodeCanonical, fromHex, verifyCertificate } from '@o2/core'
+import { TURN_MINT_PURPOSE, encodeCanonical, fromHex, verifyCertificate } from '@o2/core'
 import type { CertificateFailure, NodeCertificate, PublicKeyHex } from '@o2/core'
 
 /**
@@ -36,8 +36,12 @@ import type { CertificateFailure, NodeCertificate, PublicKeyHex } from '@o2/core
  * 3. The signed payload's node key equals `certificate.nodeKey`. Without this a caller may
  *    present **somebody else's** certificate: a gate that checks a certificate and not who is
  *    holding it is a gate anyone can borrow.
- * 4. The signature verifies over canonical bytes of a payload that names its own purpose — a
- *    domain-separation string, the node key, the region and the timestamp.
+ * 4. The signature verifies over `turnMintPayload` (`@o2/core`) — canonical bytes of a payload
+ *    that names its own purpose, the node key, the region and the timestamp. **That builder
+ *    lives in `@o2/core` and not here**, because the signer is a tab in `@o2/browser` and the
+ *    verifier is this module in `@o2/cloudflare`: two packages, one set of bytes, and a second
+ *    copy of the encoder would be two encoders free to drift across a boundary where the drift
+ *    is hard to see.
  * 5. The timestamp is within {@link ACCEPTANCE_WINDOW_MS} of the worker's clock.
  *
  * ## The replay limit is STATED rather than engineered around
@@ -72,11 +76,6 @@ import type { CertificateFailure, NodeCertificate, PublicKeyHex } from '@o2/core
  * and the adapter is written against that observation, not before it.
  */
 
-/**
- * The domain-separation string. Named once, so the signer and the verifier cannot drift apart.
- */
-export const PAYLOAD_PURPOSE = 'o2/turn-credential/1.0.0'
-
 /** How far a request's own timestamp may sit from the worker's clock. */
 export const ACCEPTANCE_WINDOW_MS = 60_000
 
@@ -91,34 +90,7 @@ export const ACCEPTANCE_WINDOW_MS = 60_000
 export const CREDENTIAL_LIFETIME_MS = 600_000
 
 /**
- * The bytes a mint request is signed over.
- *
- * The leading string is **domain separation**: it names what this signature is for, so a
- * signature made for some other purpose in this fabric cannot be replayed into this one. The
- * shape follows `possessionChallenge`/`challengeAnswerBytes` in `@o2/core` — *prove you hold
- * this node key* — reused deliberately even though the payload differs.
- */
-export function mintRequestPayload(fields: {
-  readonly nodeKey: PublicKeyHex
-  readonly region: string
-  readonly requestedAt: number
-}): Uint8Array {
-  const encoded = encodeCanonical({
-    purpose: PAYLOAD_PURPOSE,
-    nodeKey: fields.nodeKey,
-    region: fields.region,
-    requestedAt: fields.requestedAt,
-  })
-  // Throws rather than returning a failure, which is `@o2/core`'s own rule for the payload
-  // builders that feed a signature (`payloadOf`, `possessionChallenge`, `capabilityPayload`):
-  // a record this module built and cannot encode is a defect here, not a caller's bad request,
-  // and returning it as one would read as `bad-signature` at the gate.
-  if (!encoded.ok) throw new Error(`TURN mint payload is not canonically encodable: ${String(encoded.error.kind)}`)
-  return encoded.bytes
-}
-
-/**
- * What a caller sends. `signature` is over {@link mintRequestPayload}, hex.
+ * What a caller sends. `signature` is over `turnMintPayload` from `@o2/core`, hex.
  *
  * `nodeKey` is carried **explicitly** rather than read off the certificate, and that is the
  * whole of why step 3 exists. The signature is verified against *this* key; step 3 is what
@@ -134,6 +106,24 @@ export interface TurnCredentialRequest {
   readonly region: string
   readonly requestedAt: number
   readonly signature: string
+}
+
+/**
+ * The bytes a mint request is signed over — the VERIFIER's side.
+ *
+ * `browser-node.ts` builds the identical object on the signer's side. Only
+ * {@link TURN_MINT_PURPOSE} is shared, for the reason `enrollment.ts` records, and
+ * `turn-mint-payload.node.test.ts` asserts the two produce byte-identical output rather than
+ * leaving a comment to hold them together.
+ */
+export function turnMintPayload(
+  nodeKey: PublicKeyHex,
+  region: string,
+  requestedAt: number,
+): Uint8Array {
+  const encoded = encodeCanonical({ purpose: TURN_MINT_PURPOSE, nodeKey, region, requestedAt })
+  if (!encoded.ok) throw new Error(`TURN mint payload is not encodable: ${String(encoded.error.kind)}`)
+  return encoded.bytes
 }
 
 /** Every way this gate says no. One name per reason, so a caller learns which. */
@@ -303,11 +293,7 @@ export async function mintTurnCredential(
   }
 
   // (4) Possession. The signature must be one the claimed key made over this exact request.
-  const payload = mintRequestPayload({
-    nodeKey,
-    region: request.region,
-    requestedAt: request.requestedAt,
-  })
+  const payload = turnMintPayload(nodeKey, request.region, request.requestedAt)
   let signatureValid = false
   try {
     signatureValid = ed25519.verify(fromHex(request.signature), payload, fromHex(nodeKey))

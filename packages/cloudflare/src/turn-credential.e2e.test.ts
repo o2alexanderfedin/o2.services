@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 // `certificatePayload` is deliberately absent from `@o2/core`'s barrel, and a spec that has to
 // MINT a certificate the gate will accept is on the signing side of that line.
 import { certificatePayload } from '../../core/src/enrollment.ts'
-import { mintRequestPayload } from './turn-credential.ts'
+import { turnMintPayload } from './turn-credential.ts'
 
 /**
  * NET-12 — the gate, running inside the real workerd runtime.
@@ -80,7 +80,7 @@ async function askForCredential(fields: {
   const region = fields.region ?? 'bootstrap-us'
   const requestedAt = Date.now()
   const signature = toHex(
-    ed25519.sign(mintRequestPayload({ nodeKey, region, requestedAt }), fields.signerSeed),
+    ed25519.sign(turnMintPayload(nodeKey, region, requestedAt), fields.signerSeed),
   )
   const response = await fetch(`http://${HOST}:${String(PORT)}/turn-credential`, {
     method: 'POST',
@@ -155,13 +155,13 @@ describe('NET-12 — the hosted tier admits the fabric and refuses everyone else
     const { status, body } = await askForCredential({ certificate, signerSeed: NODE_SEED })
 
     expect(status, `expected a grant, got ${JSON.stringify(body)}`).toBe(200)
-    expect(body.ok).toBe(true)
+    expect(body['ok']).toBe(true)
     // The username carries the node key the certificate names, so an allocation logged by a
     // TURN server is attributable to this identity and not merely to "someone".
-    expect(String(body.username)).toContain(keyOf(NODE_SEED))
-    expect(String(body.credential).length).toBeGreaterThan(0)
-    expect(body.region).toBe('bootstrap-us')
-    expect(Number(body.expiresAt)).toBeGreaterThan(Date.now())
+    expect(String(body['username'])).toContain(keyOf(NODE_SEED))
+    expect(String(body['credential']).length).toBeGreaterThan(0)
+    expect(body['region']).toBe('bootstrap-us')
+    expect(Number(body['expiresAt'])).toBeGreaterThan(Date.now())
   })
 
   it('ARM 2: a certificate from an issuer outside the pinned set is refused BY NAME', async () => {
@@ -173,7 +173,7 @@ describe('NET-12 — the hosted tier admits the fabric and refuses everyone else
       'an outsider was served a TURN credential by the deployed route',
     ).not.toContain('"credential"')
     expect(status).toBe(400)
-    expect(body.kind).toBe('certificate-refused')
+    expect(body['kind']).toBe('certificate-refused')
   })
 
   it('ARM 3: a request carrying no certificate at all is refused', async () => {
@@ -186,7 +186,7 @@ describe('NET-12 — the hosted tier admits the fabric and refuses everyone else
     const body = (await response.json()) as Record<string, unknown>
 
     expect(response.status).toBe(400)
-    expect(body.kind).toBe('malformed-request')
+    expect(body['kind']).toBe('malformed-request')
   })
 
   it('ARM 4: a tampered signature is refused, even with a genuine certificate', async () => {
@@ -199,7 +199,7 @@ describe('NET-12 — the hosted tier admits the fabric and refuses everyone else
 
     expect(JSON.stringify(body)).not.toContain('"credential"')
     expect(status).toBe(400)
-    expect(body.kind).toBe('bad-signature')
+    expect(body['kind']).toBe('bad-signature')
   })
 
   it('answers preflight, the leg that must work before the gate is ever reached', async () => {
@@ -219,7 +219,7 @@ describe('NET-12 — the hosted tier admits the fabric and refuses everyone else
     const body = (await response.json()) as Record<string, unknown>
 
     expect(response.status).toBe(200)
-    expect(typeof body.peerId).toBe('string')
-    expect(typeof body.nodeKey).toBe('string')
+    expect(typeof body['peerId']).toBe('string')
+    expect(typeof body['nodeKey']).toBe('string')
   })
 })
