@@ -42,6 +42,13 @@
 
 import { ADMITTING, clientVersionFrom } from '@o2/libp2p'
 import type { AdmissionDirective } from '@o2/libp2p'
+import {
+  PROPAGATION_COVERS,
+  PROPAGATION_INTERVAL_MS,
+  PROPAGATION_MEASURED_ON,
+  PROPAGATION_POPULATION,
+  PROPAGATION_WINDOW_MS,
+} from '../src/propagation-window.ts'
 
 /**
  * The object this page reads when nobody named one.
@@ -225,6 +232,16 @@ export async function render(root: HTMLElement, search: string): Promise<void> {
         The build this <em>page</em> came from, which is a different thing from the node build
         above it. Reading one as the other has cost this project a false report already.
       </p>
+    </section>
+    <section class="card">
+      <h2>How long a stop takes to arrive</h2>
+      <dl>
+        <dt>observed window</dt><dd>${String(PROPAGATION_WINDOW_MS)} ms</dd>
+        <dt>over</dt><dd>${String(PROPAGATION_POPULATION)} tabs</dd>
+        <dt>at a poll interval of</dt><dd>${String(PROPAGATION_INTERVAL_MS)} ms</dd>
+        <dt>measured</dt><dd>${escape(PROPAGATION_MEASURED_ON)}</dd>
+      </dl>
+      <p class="sub">${escape(PROPAGATION_COVERS)}</p>
     </section>`
 }
 

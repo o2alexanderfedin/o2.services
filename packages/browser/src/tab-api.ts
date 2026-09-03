@@ -660,6 +660,30 @@ export interface TabApi {
   /** BROW-04. Null when no node is running. */
   activity(): TabActivity | null
   /**
+   * RUN-02 — what this tab has been told about admission, and **when it first heard it**.
+   *
+   * `null` when this tab is running no kill switch, which is a page that was never started or
+   * one whose relay address this build could not derive an origin from. That is a different
+   * state from *not halted* and is reported as one.
+   *
+   * ## Why `observedAt` is the tab's own clock and not the reader's
+   *
+   * The propagation window RUN-02 publishes is *elapsed time from the write returning to the
+   * **last** tab observing the halt*. A harness that polled each page and timestamped the
+   * answer would be measuring its own poll interval, not the fabric's — so the moment is taken
+   * inside the page, by the switch, the first time `halted()` turns true, and read back here
+   * afterwards. `packages/node/src/kill-switch-propagation.e2e.test.ts` is the reader.
+   *
+   * It never moves once set. A halt that was lifted and re-applied would otherwise erase the
+   * number being measured.
+   */
+  admissionState(): {
+    readonly halted: boolean
+    readonly observedAt: number | null
+    readonly reads: number
+    readonly failures: number
+  } | null
+  /**
    * BROW-02. Publish this tab's start outcome and read back what peers know.
    *
    * Publishes only when the visitor allowed it; otherwise it asks without telling.

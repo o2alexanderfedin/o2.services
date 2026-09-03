@@ -322,8 +322,15 @@ const NODE_MEASUREMENT = {
    * `packages/node/src/kill-switch-regions.e2e.test.ts` (**e2e** lane — three `wrangler dev`
    * children on 8804–8806, a Vite dev server and a chromium with three contexts).
    * `unitFiles` moves by the same one.
+   *
+   * **235 -> 236 on 2026-09-02 (Phase 36, RUN-02)**, one more:
+   * `packages/node/src/kill-switch-propagation.e2e.test.ts` (**e2e** lane — one `wrangler dev`
+   * on 8808, a Vite dev server and a chromium with six contexts). Measured
+   * `real 41.76 / 42.55 / 41.65` s across three runs on a quiet host; it is long because it
+   * waits out a 30 000 ms poll twice, which is the thing it measures. `unitFiles` moves by the
+   * same one.
    */
-  files: 235,
+  files: 236,
   tests: 2948,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
@@ -507,7 +514,7 @@ const NODE_MEASUREMENT = {
    * hour once spread 25.69 / 33.68 / 22.39 s — 1.5x end to end. Any comparison against this
    * number that turns on less than half of it is reading the host's weather.
    */
-  unitFiles: 157,
+  unitFiles: 158,
   unitTests: 2317,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.

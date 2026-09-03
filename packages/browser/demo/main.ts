@@ -1762,6 +1762,19 @@ const api: TabApi = {
     return { peerId, relayAddrs }
   },
 
+  admissionState() {
+    // RUN-02. Read straight off the switch, so the moment reported is the one the switch
+    // recorded rather than one this getter invented — see `TabApi.admissionState`.
+    const ks = killSwitch
+    if (ks === null) return null
+    return {
+      halted: ks.halted(),
+      observedAt: ks.firstHaltedAt,
+      reads: ks.counts.reads,
+      failures: ks.counts.failures,
+    }
+  },
+
   activity() {
     if (node === null) return null
     return {
