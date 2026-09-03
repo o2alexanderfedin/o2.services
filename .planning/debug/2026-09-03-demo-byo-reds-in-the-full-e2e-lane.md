@@ -1,5 +1,5 @@
 ---
-status: fixing
+status: awaiting_human_verify
 trigger: "On develop at 5909969 a full `npx vitest run --project e2e` gives 13 failed / 303 passed (316); 12 of 13 are in packages/node/src/demo-byo.e2e.test.ts. The same file passes 17/17 alone. Before the merge the lane was 62 files / 315 tests all passing."
 created: 2026-09-03
 updated: 2026-09-03
@@ -22,7 +22,7 @@ reasoning_checkpoint:
 hypothesis: see reasoning_checkpoint above — confirmed.
 test: per-invocation Vite cacheDir for every e2e fixture server, then the identical natural-race command.
 expecting: both files green, zero `504 (Outdated Optimize Dep)` lines, two distinct `.vite-e2e-<pid>` directories written.
-next_action: add `fixtureViteCacheDir` to packages/node/src/e2e-browser-launch.ts and pass it at all 34 call sites.
+next_action: awaiting the user's confirmation. Nothing further to run — do NOT re-enter fix_and_verify. Branch fix/e2e-vite-cache-race-2026-09-03, commits b6a3f94 (fix) and c86c691 (docs), not merged.
 
 ## Symptoms
 
@@ -221,10 +221,18 @@ root_cause: |
   and 316/316 tests green at that exact commit, with demo-byo green in 4012 ms.
 fix: per-invocation Vite `cacheDir` for every e2e fixture server — see files_changed.
 verification: |
-  - full `--project e2e` at 5909969: 62/62, 316/316, EXIT=0, 977.57 s, host quiet 0.49/0.91
-  - control demo-byo alone: 17/17, EXIT=0
-  - natural race (no forcing): demo-byo 13 failed / 4 passed, EXIT=1, host quiet 1.00/0.86, first console
-    line `504 (Outdated Optimize Dep)`
+  - full `--project e2e` at 5909969 (the reported-red commit): 62/62 files, 316/316 tests, EXIT=0,
+    977.57 s, host quiet 0.49/0.91 — the merge is exonerated
+  - full `--project e2e` on this branch: 62/62 files, 316/316 tests, EXIT=0, 1091.36 s,
+    host quiet 0.61 before / 0.88 after (8 cores, ceiling 4.00). ARM 6 of funnel-attribution green.
+  - full `--project node` on this branch: 241/241 files, 3447 passed / 3 skipped, EXIT=0
+  - PLANT (fixtureViteCacheDir returning the shared `.vite`), forced racer: 13 failed / 4 passed,
+    EXIT=1, host quiet 0.77/0.60, observed text
+    `Failed to load resource: the server responded with a status of 504 (Outdated Optimize Dep)`
+  - RESTORED by surgical inverse, `cmp` byte-identical to the pre-plant snapshot (CMP_EXIT=0);
+    same forced racer: 17 passed, EXIT=0, zero 504
+  - the natural-race plant attempt stayed GREEN — the claim is carried by the forced-racer pair,
+    said here rather than hidden
 files_changed:
   - packages/node/src/e2e-browser-launch.ts (fixtureViteCacheDir + pruner)
   - 33 packages/node/src/*.e2e.test.ts (cacheDir argument + import)
