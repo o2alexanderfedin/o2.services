@@ -2292,7 +2292,7 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
   5. A deploy configuration or CI path that would create a preview deployment fails a guard. The preview multiplier is the structural part of the self-report in criterion 1 — the per-deployment cost was ordinary and the count was not
   6. The `idFromName()` name set is a closed, short enumeration in source, and no name is derived from visitor-controlled input — a planted call passing a request-derived string fails the guard, so no visitor can cause an object to be created
   7. **NET-03 is reported as a second route, not as a closure.** On the Cloudflare path TLS is terminated at the edge by a commercial certificate the host already holds, so the certificate requirement **does not arise rather than being satisfied**. The AutoTLS route is untouched and still wants a public authority and a publicly reachable interface, and NET-03's row keeps that half open. A milestone report that ticks NET-03 on this deploy alone has widened what counts as passing
-**Plans**: TBD
+**Plans**: `.planning/phases/phase-29-hosted-tier-assembly-and-first-deploy/` holds `29-01-PLAN.md`, `29-01-SUMMARY.md`, `29-CONTEXT.md`, `29-RESEARCH.md`, and two records the other phases have no equivalent of — `29-REPORT.md`, which carries criteria 3-7 including a RETRACTION that is itself the finding, and `29-EVIDENCE.md`, which holds the PeerId that has now survived five days of eviction. **This line read `TBD` until 2026-09-02**, six artifacts after the fact, which is why the closing decision below is written here rather than inferred from an empty pointer.
 
 **CLOSING DECISION 2026-09-02 — this phase CLOSES UNCOUNTED, on the phases 20/21/22 precedent, and the checkbox stays off deliberately.**
 
