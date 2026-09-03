@@ -1,5 +1,7 @@
 import { KERNEL_RECORD, PI_RECORD, kernelBytes, piKernelBytes } from '@o2/demo'
 import { describe, expect, it } from 'vitest'
+import { grantConsent, memoryConsentStore } from './consent.ts'
+import type { GrantedConsent } from './consent.ts'
 import { describeFetch, fetchModuleForDispatch } from './gateway-module.ts'
 import type { FetchLike } from './streaming-load.ts'
 
@@ -44,6 +46,17 @@ const GATEWAY = 'https://gateway.invalid/ipfs/'
 const MODULE_CID = KERNEL_RECORD.cid.toString()
 const OTHER_CID = PI_RECORD.cid.toString()
 
+/**
+ * A real granted consent — BROW-06.
+ *
+ * Minted the way a visitor's is, through `grantConsent` over a store, because there is no
+ * other way to obtain one and this file is not entitled to a shortcut the page does not
+ * have. `built-bundle.e2e.test.ts` states the same rule for the harness that clicks the
+ * button: *"There is no test-only bypass: the API refuses for the same reason the button is
+ * not there yet."*
+ */
+const CONSENTED: GrantedConsent = grantConsent(memoryConsentStore(), { anchoredTo: 'test-anchors' })
+
 interface Gateway {
   readonly fetch: FetchLike
   /** Requests actually issued. Asserted, never merely printed. */
@@ -71,6 +84,7 @@ describe('fetchModuleForDispatch — the production consumer of loadArtifact', (
   it('fetches, verifies against the CID, compiles, and hands back the bytes', async () => {
     const gateway = serving(kernelBytes)
     const outcome = await fetchModuleForDispatch({
+      consent: CONSENTED,
       gatewayBase: GATEWAY,
       moduleCid: MODULE_CID,
       recordCid: MODULE_CID,
@@ -101,6 +115,7 @@ describe('fetchModuleForDispatch — the production consumer of loadArtifact', (
     // the module rather than about the substitution, which is the swap this case is for.
     const gateway = serving(piKernelBytes)
     const outcome = await fetchModuleForDispatch({
+      consent: CONSENTED,
       gatewayBase: GATEWAY,
       moduleCid: MODULE_CID,
       recordCid: MODULE_CID,
@@ -118,9 +133,62 @@ describe('fetchModuleForDispatch — the production consumer of loadArtifact', (
     expect(Object.hasOwn(outcome, 'content')).toBe(false)
   })
 
+  it('asks no gateway anything when there is no consent, and names consent as the reason', async () => {
+    // BROW-06 at the unit level. The e2e half — `packages/node/src/artifact-fetch-gate.e2e.test.ts`
+    // — reads the same property from *outside* a real page, at a real server's own log, which
+    // is what the criterion asks for; this case is the one that can enumerate all four gap
+    // kinds, which the page cannot be driven into cheaply.
+    for (const gap of [
+      { kind: 'never-asked' } as const,
+      { kind: 'unreadable', detail: 'storage is denied' } as const,
+      { kind: 'terms-changed', answered: '1', current: '2' } as const,
+      { kind: 'anchor-changed', answered: 'aa', current: 'bb' } as const,
+    ]) {
+      const gateway = serving(kernelBytes)
+      const outcome = await fetchModuleForDispatch({
+        consent: gap,
+        gatewayBase: GATEWAY,
+        moduleCid: MODULE_CID,
+        recordCid: MODULE_CID,
+        recordName: KERNEL_RECORD.name,
+        fetch: gateway.fetch,
+      })
+
+      // The whole requirement, in one line: not "it did not run" but "it did not ask".
+      expect(gateway.urls, `a ${gap.kind} gap still pulled bytes`).toEqual([])
+      expect(outcome.ok).toBe(false)
+      if (outcome.ok) return
+      expect(outcome.reason).toContain('before you have agreed')
+      expect(outcome.reason).toContain('nothing left this device')
+    }
+  })
+
+  it('refuses an absent consent ahead of a blank gateway field, so the sentence is about consent', async () => {
+    // Ordering, asserted rather than assumed. Both refusals apply to this call; which one
+    // arrives is the difference between telling a visitor who has agreed to nothing that
+    // their gateway field is empty, and telling them why nothing was asked of anybody.
+    const gateway = serving(kernelBytes)
+    const outcome = await fetchModuleForDispatch({
+      consent: { kind: 'never-asked' },
+      gatewayBase: '   ',
+      moduleCid: 'not-a-cid',
+      recordCid: OTHER_CID,
+      recordName: KERNEL_RECORD.name,
+      fetch: gateway.fetch,
+    })
+
+    expect(gateway.urls).toEqual([])
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.reason).toContain('before you have agreed')
+    expect(outcome.reason).not.toContain('No gateway was given')
+    expect(outcome.reason).not.toContain('is not a CID')
+  })
+
   it('refuses a record that vouches for a different artifact — before pulling anything', async () => {
     const gateway = serving(kernelBytes)
     const outcome = await fetchModuleForDispatch({
+      consent: CONSENTED,
       gatewayBase: GATEWAY,
       moduleCid: MODULE_CID,
       recordCid: OTHER_CID,
@@ -142,6 +210,7 @@ describe('fetchModuleForDispatch — the production consumer of loadArtifact', (
   it('refuses an empty gateway root without blaming the CID, and pulls nothing', async () => {
     const gateway = serving(kernelBytes)
     const outcome = await fetchModuleForDispatch({
+      consent: CONSENTED,
       gatewayBase: '   ',
       moduleCid: MODULE_CID,
       recordCid: MODULE_CID,
@@ -160,6 +229,7 @@ describe('fetchModuleForDispatch — the production consumer of loadArtifact', (
   it('names a gateway root that carries a query string rather than building an uncacheable URL', async () => {
     const gateway = serving(kernelBytes)
     const outcome = await fetchModuleForDispatch({
+      consent: CONSENTED,
       gatewayBase: 'https://gateway.invalid/ipfs/?bust=1',
       moduleCid: MODULE_CID,
       recordCid: MODULE_CID,
@@ -176,6 +246,7 @@ describe('fetchModuleForDispatch — the production consumer of loadArtifact', (
   it('tells a gateway error page apart from a bad artifact', async () => {
     const gateway = serving(kernelBytes, 'text/html')
     const outcome = await fetchModuleForDispatch({
+      consent: CONSENTED,
       gatewayBase: GATEWAY,
       moduleCid: MODULE_CID,
       recordCid: MODULE_CID,
@@ -192,6 +263,7 @@ describe('fetchModuleForDispatch — the production consumer of loadArtifact', (
   it('refuses a CID that is not a CID rather than asking a gateway for it', async () => {
     const gateway = serving(kernelBytes)
     const outcome = await fetchModuleForDispatch({
+      consent: CONSENTED,
       gatewayBase: GATEWAY,
       moduleCid: 'not-a-cid',
       recordCid: 'not-a-cid',
@@ -209,6 +281,7 @@ describe('fetchModuleForDispatch — the production consumer of loadArtifact', (
 describe('describeFetch — the sentence the page shows', () => {
   it('says what was fetched and, in the same breath, what has not been established', async () => {
     const outcome = await fetchModuleForDispatch({
+      consent: CONSENTED,
       gatewayBase: GATEWAY,
       moduleCid: MODULE_CID,
       recordCid: MODULE_CID,

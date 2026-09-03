@@ -96,3 +96,49 @@ commit.
 **This spec is excluded from CI** by `O2_UNIT_ONLY=1` — it is one of the ~800 cases
 `ci.yml` assigns to the developer machine — so CI being green on the bump is not
 evidence against any of this, and was not.
+
+---
+
+## AMENDED 2026-09-02 — half of this document's finding is not about the bump
+
+Closing `NET-13` required driving a **relayed** path to the Circuit Relay v2 data cut on a
+real `circuitRelayServer()`. That arrangement uses the **unbumped** family, no relay bump, no
+8 MiB message, and it reproduced this document's most alarming symptom exactly:
+
+| request each way | what the application received |
+|---|---|
+| 62 KiB | completes, byte-identical |
+| 63 KiB | **0 bytes, delivered as a complete message** |
+| 64 KiB | **49 152 bytes, delivered as a complete message** |
+
+`refusedInbound` was `0` in both truncated cases, as it was here.
+
+**What this changes.** This document reads the bumped family's behaviour as *"an integrity
+failure, not a bound that merely failed to fire."* That sentence bundles two claims, and the
+measurement separates them:
+
+- **"Delivered as complete" is not the bump's doing.** This protocol's message boundary IS
+  *the stream ended* — there is no length prefix — so **any** transport-level cut is
+  indistinguishable from a complete message, on either family, relayed or direct. The
+  unbumped family does it too. This half is a pre-existing framing weakness and belongs with
+  `NET-08`/framing, not with a dependency version.
+- **"A bound that stopped firing" is still the bump's doing, and still blocks it.** On the old
+  family the 8 MiB + 1 message was *refused*, `refusedInbound: 1`. On the bumped family it was
+  *cut and passed on*. That difference is the regression, and nothing here touches it.
+
+**So the hold stands, on a narrower and better-stated reason**: the bump is held because
+`MAX_INBOUND_MESSAGE_BYTES` stopped being enforced, not because the transport delivers a cut
+as a completion — the transport has always done that, and it is a defect this repository owns
+rather than one the bump introduced.
+
+**And it raises the framing question's priority rather than lowering it.** A length prefix
+would turn every one of the five readings above into a detectable truncation, on both
+families, and would make the bump's regression *loud* instead of silent. That is a change to
+this project's own wire protocol, not to a dependency, and it is the reason the boundary
+assertions in `packages/node/src/relayed-budget.node.test.ts` are written on **bytes** and
+never on arrival.
+
+Measured by the `NET-13` work, `packages/node/src/relayed-budget.node.test.ts`; the same
+49 152-byte echo was returned by the hosted relay on 2026-08-24
+(`.planning/consults/2026-08-24-cloudflare-as-a-fabric-node-measured.md` §15), so two
+unrelated relays in different processes over different transports agree on the accounting.

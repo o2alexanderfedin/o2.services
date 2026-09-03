@@ -475,7 +475,7 @@ Run the reduce
 </sc-for>
 </div>
 <sc-if value="{{ hasStalled }}" hint-placeholder-val="{{ false }}">
-<div style="border-left:2px solid var(--color-accent);padding:6px 0 6px 14px;font-size:13px;line-height:1.6">This pair is connected, cannot run your job, and I have stopped trying. A relayed circuit is capped at 2 minutes and 128 KiB and may not carry a job.</div>
+<div style="border-left:2px solid var(--color-accent);padding:6px 0 6px 14px;font-size:13px;line-height:1.6">This pair is connected, cannot run your job, and I have stopped trying. A relayed circuit is capped and may not carry a job: its budget counts both directions, so this pair has about 64 KiB each way, not 128.</div>
 </sc-if>
 </div>
 

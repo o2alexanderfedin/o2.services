@@ -521,6 +521,14 @@ it looks like ceremony.
   hypotheses about a single defect have died here despite each having arithmetic that fit —
   a number that agrees with a theory is not the theory's proof.
 
+- **`wrangler dev` puts the operator's own location inside the Worker.** Measured 2026-09-02
+  while closing the funnel: a local `workerd` populates `request.cf` from the **host's real
+  public address**, so every local run of a Cloudflare spec carries the developer's own
+  city-level geolocation into the object under test. Nothing stores it today — the funnel
+  discards it at collection and proves that against the store — but **never dump `request.cf`
+  into a log, a fixture, a snapshot or a committed file**. The hazard is not the code under
+  test; it is the diagnostic somebody adds next to it.
+
 ### Proofs
 
 - **A proof that cannot fail is not a proof.** Plant the mutation, *watch* it go red, restore,

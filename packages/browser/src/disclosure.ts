@@ -50,8 +50,55 @@
  * of those is a separate decision with its own disclosure consequence — and its own
  * version bump.
  *
+ * ## Version 3, 2026-09-02 — BROW-09, and what was MISSING rather than wrong
+ *
+ * Version 2's six lines were true. Criterion 4 of Phase 35 asks for four specific things and
+ * this module carried three of them: *what code runs*, *whose task it is*, and *what leaves
+ * the device*. The fourth — **what telemetry is sent** — had no line at all. The `reporting`
+ * extra below describes the **opt-in** report, and a visitor reading it learns what happens if
+ * they tick the box and nothing whatever about what happens if they do not. That is the half
+ * that matters most to somebody deciding, and its absence was not visible because nothing
+ * asserted the disclosure's *completeness*. `packages/node/src/disclosure-four-elements.node.test.ts`
+ * now does, with one plant per element.
+ *
+ * The second change is to *What leaves my device?*, and it is a change of **standing** rather
+ * than of fact. Version 2 answered it as a list of exclusions — *"The answers your machine
+ * computes, and nothing else. No files, no browsing history…"* — which is accurate and reads
+ * as a caveat: a reassurance offered by someone who knows you are worried. Criterion 4 asks
+ * for the sovereignty guarantee *"stated as a selling point rather than a caveat"*, and the
+ * reason is not tone. **Data staying on its owner's device is the whole claim this project
+ * makes**, so a visitor meeting it as a mitigation is being told the wrong thing about what
+ * they are being asked to join. The guarantee now leads the answer and the exclusions follow
+ * it.
+ *
+ * ## What version 3 deliberately does NOT say
+ *
+ * The telemetry line states **what is sent**, which is an engineering fact and is settled. It
+ * states no **legal basis** — whether the minimal record rests on consent or on legitimate
+ * interest under GDPR is `.planning/REQUIREMENTS.md` § Open questions item 3, which records
+ * that the sources consulted disagreed with each other and that it is *"settled by legal
+ * review, not engineering judgement"*. An agent choosing between them would be recording a
+ * compliance ruling as a code change. When the owner rules, the sentence lands here and the
+ * version bumps again — which costs nothing, because no cohort exists before Phase 39.
+ *
+ * ## Version 4, 2026-09-02 — the data cost, beside the processor cost
+ *
+ * BROW-10. Criterion 5 asks for *"a rough data cost… beside the CPU disclosure and before
+ * opt-in, stated in bytes for a representative task and taken from a real run of that task
+ * rather than estimated"*, and its reason is a cohort rather than a completeness rule: *"An
+ * international cohort has a mobile-data subset, and a figure nobody measured is the one that
+ * gets quoted back."* The line sits immediately after *How much of my processor?* because
+ * "beside" is where the criterion puts it, and its number comes from `data-cost.ts`, which
+ * records the three runs it was read off and what it does and does not count.
+ *
+ * A second version bump in one phase, and it costs nothing: no cohort exists before Phase 39,
+ * so the only visitors this re-asks are the ones who consented during this phase's own
+ * development.
+ *
  * Pure module — no DOM, no storage, no side effects at import.
  */
+
+import { DISCLOSED_DATA_COST_BYTES } from './data-cost.ts'
 
 /**
  * Bump this whenever any string in `DISCLOSURE` changes.
@@ -59,12 +106,28 @@
  * A test asserts that this constant appears in the rendered gate, so a silent
  * edit to the terms fails rather than quietly re-using an old agreement.
  */
-export const DISCLOSURE_VERSION = '2'
+export const DISCLOSURE_VERSION = '5'
 
-/** Why the current version differs from the one before it. */
+/**
+ * Why the current version differs from the one before it.
+ *
+ * **Version 4 had become FALSE, and the bump is the repair rather than the paperwork.** It
+ * said *"it does not count your visit and it sends nothing about you anywhere"*, which was
+ * true of every build that carried it and stopped being true the moment RUN-04's connectivity
+ * funnel was armed. A page that counts a visit while its own terms say it does not is the
+ * exact defect this constant was created for: `disclosure.ts`'s version-2 note records the
+ * same shape, when persistent identity landed and the sentence *"no identifiers beyond a peer
+ * key generated in this tab"* went false in both halves with no test noticing for twelve days.
+ *
+ * So version 5 states the counting plainly, in a line of its own that enumerates the whole
+ * record, and re-states the three states a visitor can be in: declined and counted nowhere;
+ * consented and counted coarsely; and the separate start report, which is unchanged.
+ */
 export const CONSENT_VERSION_NOTE: string =
-  'this page now says that the key naming your node is stored on your device and reused ' +
-  'when you come back; version 1 said it was generated in the tab'
+  'this page now counts how far a visit gets — six named steps between opening the page and ' +
+  'running a first task — once you have said yes, and a line of its own lists everything ' +
+  'those counts hold. Version 4 said the page did not count your visit at all, and that had ' +
+  'stopped being true'
 
 export interface DisclosureLine {
   /** Short label — the question a visitor is actually asking. */
@@ -117,10 +180,49 @@ export const DISCLOSURE: Disclosure = {
         'in front, and the live figure is shown in the bar at all times.',
     },
     {
+      question: 'How much of my data allowance?',
+      answer:
+        `About ${Math.round(DISCLOSED_DATA_COST_BYTES / 1000)} kilobytes leave this device ` +
+        'for one run of the search described above. That is a measured figure rather than an ' +
+        'estimate — it is what a real run of that search actually sent, and a test compares it ' +
+        'against a fresh run so that it cannot quietly go out of date. It counts what leaves; ' +
+        'what other participants send back to you is not in it, because nothing on this page ' +
+        'measures that.',
+    },
+    {
       question: 'What leaves my device?',
       answer:
-        'The answers your machine computes, and nothing else. No files, no browsing ' +
-        'history, no identifiers beyond the key named below.',
+        'Your own data never leaves this device. That is what the whole system is for, and ' +
+        'it is a property of how the work is arranged rather than a promise: the code that ' +
+        'runs here is handed a public question and computes an answer, so there is nothing ' +
+        'of yours for it to send. What leaves is that answer — small integers and bit ' +
+        'arrays. No files, no browsing history, no identifiers beyond the key named below.',
+    },
+    {
+      question: 'What does this page report about my visit?',
+      answer:
+        'Nothing at all unless you say yes above. This page carries no analytics code, sets ' +
+        'no cookie and contacts no outside company; a visitor who declines is not counted ' +
+        'anywhere, by anything. Once you allow the work to run, this page adds one to a small ' +
+        'set of counters that say how far a visit got — the next answer lists everything ' +
+        'those counters hold, and it is a short list. The optional report below is a separate ' +
+        'thing again: with it turned on, the one line described there is offered to the peers ' +
+        'your node is already connected to and to nobody else, and turning it off is not a ' +
+        'preference this page records and then ignores — your line is not sent when peers are ' +
+        'asked, and your node does not hold it for a peer to ask for either.',
+    },
+    {
+      question: 'What does this page count about my visit?',
+      answer:
+        'Six named steps between opening this page and running a first task, so that the ' +
+        'people building this can see where visitors get stuck. For the two steps where your ' +
+        'browser tries to reach another browser, three coarse values travel beside the count: ' +
+        'a two-letter country code, a rough label for the kind of connection you are on, and ' +
+        'the hour of the day in UTC. That is the entire list. There is no identifier of any ' +
+        'kind in it — nothing that joins two of your visits together and nothing that joins a ' +
+        'step to you — and your network address is used to work out the two-letter country ' +
+        'and is then gone. An hour is not a time, and two letters is a country rather than a ' +
+        'place.',
     },
     {
       question: 'Does this page remember me?',

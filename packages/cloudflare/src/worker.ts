@@ -19,6 +19,36 @@
  * 32 the relay. A route added here "while we are in the file" would be a capability shipped
  * without the phase that measures it, which is the shape `descoped is not satisfied` names.
  *
+ * ## AMENDED 2026-09-02 BY PHASE 37 — the list is now `/self` and `/funnel`
+ *
+ * The sentence above was correct when it was written and it is kept rather than deleted,
+ * because this repository retires a premise by dating it. What it forbids is a route added by
+ * a phase that does not measure the capability; what it does not forbid is the phase that
+ * does. **Phase 37 owns the connectivity funnel** — `RUN-04` and `RUN-05`, the six named
+ * stages and the frozen telemetry schema — so `/funnel` is a surface shipped WITH the phase
+ * that measures it, which is the case the original sentence was drawing a line against rather
+ * than the case it was refusing.
+ *
+ * Two routes, `POST /funnel` and `GET /funnel`, and nothing else moves: `GET /self`'s response
+ * shape is unchanged, `SERVED_BY` is still a constant, and no route anywhere derives an object
+ * name from a request. The next phase that wants a route here is in the same position this one
+ * was, and this block is not a licence it can cite.
+ *
+ * ## AMENDED 2026-09-02 BY PHASE 34 — the list is now `/self`, `/funnel` and `/turn-credential`
+ *
+ * Same reasoning as the Phase 37 block above, and it is cited rather than borrowed. The rule
+ * forbids a route added by a phase that does not measure the capability. **Phase 34 owns the
+ * TURN rung** — `NET-12`, criterion 1 — so `POST /turn-credential` ships WITH the phase that
+ * measures it: the gate is exercised by `turn-credential.test.ts` in the node lane and by
+ * `turn-credential.e2e.test.ts` against a local workerd, and the credential it mints is observed
+ * being accepted, and later refused, by a real RFC 5766 server.
+ *
+ * This route is also the first membership check this tier has ever had. Before it, the only
+ * inbound gate was an IP header — see `turn-credential.ts`'s CORRECTION 1. `GET /self`'s
+ * response shape is unchanged, `SERVED_BY` is still a constant for it, and the next phase that
+ * wants a route here is in the same position this one was: this block is not a licence it can
+ * cite.
+ *
  * ## What it does NOT do — SUPERSEDED 2026-08-26 BY PHASE 30
  *
  * This block said the object *"does not upgrade a WebSocket"* and *"does not construct the
@@ -59,7 +89,7 @@
 // and reopen the gap with this file looking unchanged. FIRST, because ES modules evaluate in
 // import order and `hosted-libp2p.ts` constructs the stack that needs these globals.
 import './workerd-shims.ts'
-import { HostedNode, stubFor } from './hosted-object.ts'
+import { HOSTED_OBJECT_NAMES, HostedNode, stubFor } from './hosted-object.ts'
 import type { HostedObjectName, HostedObjectNamespace } from './hosted-object.ts'
 import {
   HibernatableSockets,
@@ -70,6 +100,26 @@ import {
 import { RelayServiceLog, TrafficSplitCounter } from '@o2/libp2p'
 import { announcedAddresses, createHostedFabric, hostedExpirySweep } from './hosted-libp2p.ts'
 import { readRelayServiceJournal, writeRelayServiceJournal } from './relay-service-journal.ts'
+import {
+  ADMISSION_KEY_HEADER,
+  authoriseWrite,
+  narrowRegion,
+  parseDirective,
+  readDirective,
+  refuseMisaddressed,
+  writeDirective,
+} from './admission-flag.ts'
+import {
+  accrueFunnelReport,
+  emptyFunnelJournal,
+  readFunnelJournal,
+  writeFunnelJournal,
+} from './funnel-journal.ts'
+import { MAX_FUNNEL_BODY_BYTES, funnelDimensionsFrom } from './funnel-collector.ts'
+import { mintTurnCredential, sharedSecretMinter } from './turn-credential.ts'
+import { turnUrlsFor } from './turn-regions.ts'
+import { parseFunnelReport } from '@o2/net'
+import type { FunnelPopulation, FunnelTotals } from '@o2/net'
 import type { HibernationCapableState } from './hibernatable-socket.ts'
 import type { HostedFabric } from './hosted-libp2p.ts'
 import type { CloudflareWebSocket } from './websocket-connection.ts'
@@ -132,6 +182,74 @@ export interface HostedEnv {
    * injected is the version that answers.
    */
   readonly O2_VERSION?: string
+  /**
+   * Which of the three objects this deployment is, from `--var O2_REGION:<name>`.
+   *
+   * **From the deployment and never from the request**, on `ANNOUNCE_MULTIADDRS`'s stated
+   * model and for a sharper reason: the region is what a halt is addressed to, so a region
+   * a caller could choose would be a slice a caller could escape. `SERVED_BY` already refuses
+   * to take an object name from a query string for the same class of reason.
+   *
+   * Optional because a local `wrangler dev` injects nothing and because an object may be
+   * deployed before Phase 33 sites it. An object with no label reports `region: null` and
+   * refuses every region-addressed write — see `refuseMisaddressed`. A value outside the
+   * closed set is treated as absent, with a log line, rather than silently accepted.
+   */
+  readonly O2_REGION?: string
+  /**
+   * The operator's key for `POST /admission`, from `wrangler secret put O2_ADMISSION_KEY`.
+   *
+   * **From the deployment and never from the request**, and never from `wrangler.jsonc` —
+   * that file is tracked, and a key in it is a key in the history. A secret is the only
+   * binding here that is not a `var` for exactly that reason.
+   *
+   * Optional, and absence **refuses every write** rather than admitting them. See
+   * `authoriseWrite`: an object with no operator key has no operator, and the failure points
+   * toward the fabric continuing to work rather than toward anyone being able to stop it.
+   */
+  readonly O2_ADMISSION_KEY?: string
+  /**
+   * The TURN shared secret, from `wrangler secret put O2_TURN_SECRET` — NET-12.
+   *
+   * A **secret** rather than a `var`, on `O2_ADMISSION_KEY`'s stated reason: `wrangler.jsonc` is
+   * tracked, and a secret in it is a secret in the history. The same value is held by the TURN
+   * server, and that shared value being one value is the whole joint — a worker minting under
+   * one secret and a TURN server checking under another produces a `401` that reads like a
+   * network fault.
+   *
+   * Optional, and absence **refuses the mint by name** (`turn-not-configured`) rather than
+   * minting a credential every TURN server would reject. A deployment that is not configured
+   * should say so, not look broken.
+   */
+  readonly O2_TURN_SECRET?: string
+  /**
+   * Comma-separated issuer public keys whose certificates admit a caller to the TURN minter.
+   *
+   * **This is the fabric membership set**, and before Phase 34 this tier had nothing of the
+   * kind — see `turn-credential.ts`'s CORRECTION 1. Absence pins the empty set, which refuses
+   * every caller: an unconfigured gate must be closed, never open.
+   */
+  readonly O2_TRUSTED_ISSUERS?: string
+  /**
+   * Comma-separated TURN URLs this deployment hands out, e.g.
+   * `turn:turn.example.com:3478?transport=udp,turn:turn.example.com:53?transport=udp`.
+   *
+   * Both ports belong here: the provider was measured answering on 3478 and on 53, and 53
+   * survives the firewalls that drop 3478. Absent means this deployment declares no rung and
+   * every region is refused as undeclared.
+   */
+  readonly O2_TURN_URLS?: string
+  /**
+   * Per-region TURN URLs — NET-12, criterion 2's built half.
+   *
+   * Optional and independent of each other: a deployment may declare one region's endpoints and
+   * let the others fall back to {@link O2_TURN_URLS}. **Naming a region here claims nothing
+   * about where anything runs** — Phase 33 owns siting and has not run — it only says which
+   * endpoints a request addressed to that region is handed.
+   */
+  readonly O2_TURN_URLS_US?: string
+  readonly O2_TURN_URLS_EU?: string
+  readonly O2_TURN_URLS_SAM?: string
 }
 
 /**
@@ -252,6 +370,8 @@ export class BootstrapObject {
    */
   readonly #relayLog = new RelayServiceLog()
   #relayRestored: Promise<RelayServiceLog> | undefined
+  /** Memo for {@link BootstrapObject.regionOnce}. `undefined` is *not yet read*; `null` is *no region*. */
+  #region: HostedObjectName | null | undefined
   /**
    * Whether storage already holds a `firstInboundHopStreamAt`.
    *
@@ -273,6 +393,19 @@ export class BootstrapObject {
    * the past and losing it loses the answer.
    */
   #markerBanked = false
+  /**
+   * RUN-04's counters, held by the OBJECT rather than by the fabric.
+   *
+   * The reason `#traffic` and `#relayLog` are here applies unchanged: the fabric is built
+   * lazily on the first inbound upgrade, and `GET /funnel` must answer before any libp2p node
+   * exists — a funnel whose whole subject is visitors who never connected cannot be reachable
+   * only through a connection.
+   *
+   * Held as the PROMISE, exactly as `#relayLogOnce` is, so two concurrent requests cannot each
+   * restore from storage and then each bank a record built on the same starting point. That is
+   * not a hypothetical here: a beacon arrives on page unload, and unloads arrive in bursts.
+   */
+  #funnelRestored: Promise<FunnelTotals> | undefined
   #fabric: Promise<HostedFabric> | undefined
 
   constructor(state: HostedObjectStateWithSockets, env: HostedEnv) {
@@ -325,6 +458,33 @@ export class BootstrapObject {
   }
 
   /**
+   * Which region this object serves, narrowed against the closed set **exactly once**.
+   *
+   * A value outside `HOSTED_OBJECT_NAMES` becomes `null` and says so in the log. A deployment
+   * that mistyped the label then has an object that reports `region: null` and refuses every
+   * region-addressed write — loud, and recoverable by fixing the `--var`. Accepting the string
+   * as written would give it a label that exists nowhere else: every read would look correct
+   * and no write addressed to any real region would ever land, silently.
+   *
+   * Read lazily rather than at construction because a Durable Object is constructed for every
+   * request that reaches it, and a log line per request for a deployment that is fine is noise.
+   */
+  #regionOnce(): HostedObjectName | null {
+    if (this.#region === undefined) {
+      const label = this.#env.O2_REGION
+      this.#region = narrowRegion(label)
+      if (label !== undefined && this.#region === null) {
+        console.warn(
+          `O2_REGION is ${JSON.stringify(label)}, which is not one of ` +
+            `${HOSTED_OBJECT_NAMES.join(', ')} — this object reports no region and refuses ` +
+            'every region-addressed write',
+        )
+      }
+    }
+    return this.#region
+  }
+
+  /**
    * Write the relay log back to storage, so it outlives this instance.
    *
    * **Skipped on an unrestored log, and the skip is a courtesy rather than the safeguard.**
@@ -337,6 +497,111 @@ export class BootstrapObject {
     if (!this.#relayLog.restored) return
     const written = await writeRelayServiceJournal(this.#node.store, this.#relayLog.report())
     if (written.firstInboundHopStreamAt !== undefined) this.#markerBanked = true
+  }
+
+  /**
+   * The banked funnel record, restored from this object's own storage.
+   *
+   * Held as the PROMISE for `#relayLogOnce`'s reason, one member up. The restored value is the
+   * starting point every accrual is applied to, so a request that skipped the restore would
+   * offer totals lower than the stored ones — which `writeFunnelJournal` refuses by name
+   * rather than accepting as a truncation.
+   */
+  #funnelOnce(): Promise<FunnelTotals> {
+    this.#funnelRestored ??= readFunnelJournal(this.#node.store, FUNNEL_POPULATION_PENDING_RULING)
+    return this.#funnelRestored
+  }
+
+  /**
+   * `GET /funnel` — the whole banked record, and criterion 1's *"readable while the fabric is
+   * running"*.
+   *
+   * A fresh object answers six honest zeros, the population and the schema digest. Never a
+   * missing field and never an estimate: `#traffic`'s own comment is the precedent — *"Two
+   * zeroed columns is a reading; a missing field is not."*
+   *
+   * The digest travels with the counts so a reader can see the schema did not move between two
+   * readings, which is `37-RUNBOOK.md` step 5's evidence and is the freeze's other half: the
+   * suite catches a schema change in the tree, and this catches one between two deployments.
+   */
+  async #readFunnel(): Promise<Response> {
+    const totals = await this.#funnelOnce()
+    return Response.json(totals, { headers: FUNNEL_CORS_HEADERS })
+  }
+
+  /**
+   * `POST /funnel` — one report from one visit, banked.
+   *
+   * **The body is read as text and parsed here, deliberately.** `navigator.sendBeacon` is the
+   * only send that survives a page unloading, which is exactly when a `stalledAt` report has to
+   * leave, and a beacon sent as `text/plain` is a CORS-safelisted request that needs no
+   * preflight at all. Requiring `application/json` would make every beacon a preflighted
+   * request, and a preflight cannot be sent from a page that is already unloading — the reports
+   * this route exists for are precisely the ones that would be lost.
+   *
+   * A beacon reads no response, so nothing here can report a refusal to the sender. That is the
+   * accepted cost and it is why the parse refuses rather than defaults: an unparseable body
+   * stores nothing and answers 400 for the benefit of a `fetch` caller and a human with `curl`.
+   */
+  async #bankFunnel(request: Request): Promise<Response> {
+    const body = await request.text()
+    if (body.length > MAX_FUNNEL_BODY_BYTES) {
+      return new Response('report too large', { status: 413, headers: FUNNEL_CORS_HEADERS })
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(body)
+    } catch {
+      return new Response('not a report', { status: 400, headers: FUNNEL_CORS_HEADERS })
+    }
+    const report = parseFunnelReport(parsed)
+    if (report === null) {
+      return new Response('not a report', { status: 400, headers: FUNNEL_CORS_HEADERS })
+    }
+
+    // The country comes off the REQUEST, never out of the body. A visitor cannot choose which
+    // country their visit is filed under; see `funnel-collector.ts`.
+    const dimensions = funnelDimensionsFrom(request)
+
+    // **Accrue and bank are ONE link in the promise chain, and the ordering is the whole of
+    // this method's correctness.** Written first as "accrue, set the memo, then write", which
+    // is wrong twice. (1) A write that throws — a rollback refusal, a record past the ceiling —
+    // left the memo holding counts that storage had refused, so `GET /funnel` reported numbers
+    // the next eviction would erase, which is the exact failure the journal exists to prevent.
+    // (2) Two reports arriving together both accrued from the same base, so the second offered
+    // a total below what the first had banked, `writeFunnelJournal` refused it by name, and the
+    // memo was then permanently below storage — **every later report on that instance refused,
+    // until an eviction repaired it**. That is not a remote case: a terminal report leaves on
+    // `pagehide`, and unloads arrive in bursts.
+    //
+    // Chaining off the previous promise serialises the reports and means the memo only ever
+    // holds what storage confirmed. On a refusal it falls back to the state before the attempt.
+    const attempt = this.#funnelOnce().then(async (totals) => {
+      const banked = accrueFunnelReport(totals, report, dimensions)
+      await writeFunnelJournal(this.#node.store, banked, FUNNEL_POPULATION_PENDING_RULING)
+      return banked
+    })
+    // **On a refusal the memo becomes a fresh READ, not the base the attempt started from.** A
+    // refusal is storage saying this instance's idea of the record is wrong — it is what an
+    // alarm on a fresh instance, or any second writer, leaves behind. Falling back to the stale
+    // base would keep `GET /funnel` under-reporting and would refuse every later report for the
+    // same reason, so the instance would stay poisoned until an eviction repaired it. Re-reading
+    // makes the refusal self-healing. If the re-read itself throws the store is malformed, which
+    // is a genuine fault and stays one.
+    this.#funnelRestored = attempt.catch(async () =>
+      readFunnelJournal(this.#node.store, FUNNEL_POPULATION_PENDING_RULING),
+    )
+    try {
+      await attempt
+    } catch {
+      // A beacon reads no response, so this status is for a `fetch` caller and for a human
+      // with `curl`. What matters is that the report is dropped rather than half-applied.
+      return new Response('the funnel refused this report', {
+        status: 500,
+        headers: FUNNEL_CORS_HEADERS,
+      })
+    }
+    return new Response(null, { status: 204, headers: FUNNEL_CORS_HEADERS })
   }
 
   /**
@@ -436,9 +701,181 @@ export class BootstrapObject {
    * `/self` alone still does not satisfy criterion 2, which says *dials, completes identify,
    * and gets the same PeerId* — three things, and only an outside dial carries the middle one.
    */
+  /**
+   * `POST /admission` — the operator writes this object's directive.
+   *
+   * ## Why this tier grew a second route, enumerated
+   *
+   * `GET /self`'s docblock states this file's default in its own words: *"It is a field on the
+   * one route this object serves and **not a second route**: every route is a surface, and this
+   * tier's surfaces are not."* That default is right and this route owes it an argument. Three
+   * reasons, none of them taste:
+   *
+   * 1. **`wrangler` has no surface that writes Durable Object storage remotely.** There is no
+   *    command that reaches into a deployed object and sets a value. The write has to arrive as
+   *    a request, because a request is the only thing that reaches a Durable Object at all.
+   * 2. **A write cannot be a field on a `GET`.** The directive is read on `/self` as a field,
+   *    which is the pattern; setting it is not a reading and cannot be one.
+   * 3. **Carrying it over libp2p would cost far more surface than it saved.** It would make the
+   *    operator a peer, and need a new protocol, a key-distribution story and a signed record —
+   *    for one boolean. One authenticated route is the smaller surface, not the larger one.
+   *
+   * ## No CORS header on this route, anywhere, including the refusals
+   *
+   * `GET /self` answers `Access-Control-Allow-Origin: *` because its body is already public and
+   * the tab that reads it is on another origin by construction. This route answers **no** CORS
+   * header at all — so a cross-origin page sending a bespoke header and a JSON body triggers a
+   * preflight, the preflight is unanswered, and the browser blocks the request **before the key
+   * check runs**. No page on any origin can reach this surface.
+   *
+   * **That is a second line and not the boundary.** The boundary is the key, which is what a
+   * `curl`, a script or a harness meets — none of them is a browser and none of them is
+   * preflighted. Adding `Access-Control-Allow-Origin` here would remove the outer line while
+   * leaving the real one standing; it would also be the change somebody makes to "fix" a
+   * blocked fetch in a console. Both readings are taken separately in
+   * `kill-switch-volunteer.e2e.test.ts`, labelled with what each proves, because they are not
+   * substitutes for one another.
+   *
+   * ## The order of the two checks, and why the region one is first
+   *
+   * The key is checked first, then the region. A request that presents no key learns nothing
+   * about which region this object serves — the refusal it gets names no label. Reversing them
+   * would turn this route into an unauthenticated way to enumerate the fabric's siting.
+   */
+  async #writeAdmission(request: Request): Promise<Response> {
+    // **The body is read BEFORE the key is checked, and that ordering is a repair rather than
+    // a preference — measured 2026-09-02 against a local workerd.**
+    //
+    // Written first as *check the key, return 401, never touch the body*, which reads like the
+    // careful order and is not. workerd answered every refused write with
+    // `Uncaught TypeError: Can't read from request stream after response has been sent` — one
+    // per refusal — and the next `GET /self` on that object answered **500**. So a refusal
+    // poisoned the instance, and an unauthenticated caller could take a region's status
+    // reading offline by sending two POSTs it was correctly refused. The body has to be
+    // consumed whether or not the write is allowed.
+    //
+    // Bounded, on `#bankFunnel`'s precedent and for its reason: this read happens before any
+    // authentication, so the size is the only thing standing between the object and a body a
+    // stranger chose.
+    //
+    // **It leaks nothing.** The refusal below is composed from the key alone and names no
+    // region; parsing a body an unauthenticated caller sent tells that caller only what it
+    // already wrote.
+    const raw = await request.text()
+    if (raw.length > MAX_ADMISSION_BODY_BYTES) {
+      return new Response('directive too large', { status: 413 })
+    }
+
+    const authorisation = authoriseWrite({
+      configuredKey: this.#env.O2_ADMISSION_KEY,
+      presentedKey: request.headers.get(ADMISSION_KEY_HEADER),
+    })
+    if (!authorisation.allowed) {
+      return new Response(authorisation.reason, { status: 401 })
+    }
+
+    let body: unknown
+    try {
+      body = JSON.parse(raw)
+    } catch {
+      return new Response('not a directive', { status: 400 })
+    }
+    const directive = parseDirective(body)
+    if (directive === null) {
+      return new Response('not a directive', { status: 400 })
+    }
+
+    const refusal = refuseMisaddressed(directive, this.#regionOnce())
+    if (refusal !== null) {
+      return new Response(refusal.reason, { status: 409 })
+    }
+
+    return Response.json(await writeDirective(this.#node.store, directive))
+  }
+
+  /**
+   * NET-12 — mint a short-lived TURN credential for a caller the fabric admits.
+   *
+   * This method is deliberately thin: it reads configuration off `HostedEnv`, parses a body, and
+   * hands both to `mintTurnCredential`, which holds the entire gate and is pure. The deployed
+   * class is the one part of this package no local spec can reach, so nothing worth asserting
+   * lives here.
+   *
+   * A refusal answers **400** rather than 401/403 for every gate failure except a missing
+   * secret, and the reason is deliberate: distinguishing *your certificate is not trusted* from
+   * *your signature is wrong* by status code would let an unauthenticated caller map the gate.
+   * The named reason is in the body for a legitimate caller to read.
+   */
+  async #mintTurnCredential(request: Request): Promise<Response> {
+    const raw = await request.text()
+    if (raw.length > MAX_TURN_BODY_BYTES) {
+      return new Response('request too large', { status: 413, headers: TURN_CORS_HEADERS })
+    }
+    let body: unknown
+    try {
+      body = JSON.parse(raw)
+    } catch {
+      return new Response('not a TURN credential request', { status: 400, headers: TURN_CORS_HEADERS })
+    }
+
+    const secret = this.#env.O2_TURN_SECRET
+    const result = await mintTurnCredential(body, {
+      pinnedIssuers: new Set(commaSeparated(this.#env.O2_TRUSTED_ISSUERS)),
+      now: Date.now(),
+      minter: secret === undefined || secret === '' ? null : sharedSecretMinter(secret),
+      // NET-12 criterion 2's built half. Per-region URLs when the deployment declares them,
+      // the shared list otherwise — a design that survives either answer to a topology question
+      // nobody here has measured, because the region tag rides in the credential either way.
+      urlsForRegion: (region: string) =>
+        turnUrlsFor(region, {
+          ...(this.#env.O2_TURN_URLS === undefined ? {} : { shared: this.#env.O2_TURN_URLS }),
+          perRegion: perRegionTurnUrls(this.#env),
+        }),
+    })
+
+    if (!result.ok) {
+      return Response.json(
+        { ok: false, kind: result.failure.kind, reason: result.reason },
+        { status: result.failure.kind === 'turn-not-configured' ? 503 : 400, headers: TURN_CORS_HEADERS },
+      )
+    }
+    return Response.json({ ok: true, ...result.grant }, { headers: TURN_CORS_HEADERS })
+  }
+
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade') === 'websocket') return this.#upgrade(request)
-    if (new URL(request.url).pathname !== '/self') {
+    const path = new URL(request.url).pathname
+    // RUN-04's two routes. See the AMENDED block in this file's header for why the route list
+    // opened here and why that is not a licence the next phase can cite.
+    if (path === '/funnel') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { status: 204, headers: FUNNEL_CORS_HEADERS })
+      }
+      if (request.method === 'POST') return this.#bankFunnel(request)
+      if (request.method === 'GET') return this.#readFunnel()
+      return new Response('method not allowed', { status: 405, headers: FUNNEL_CORS_HEADERS })
+    }
+    // NET-12's mint route. See the AMENDED-BY-PHASE-34 block in this file's header: this is
+    // the phase that measures the capability, which is the case the one-route rule was drawing
+    // a line *for* rather than against.
+    if (path === '/turn-credential') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { status: 204, headers: TURN_CORS_HEADERS })
+      }
+      if (request.method !== 'POST') {
+        return new Response('method not allowed', { status: 405, headers: TURN_CORS_HEADERS })
+      }
+      return this.#mintTurnCredential(request)
+    }
+    // RUN-02's ONE write surface. See `#writeAdmission` for why this tier grew a route at
+    // all, enumerated rather than asserted, and why nothing under it carries a CORS header.
+    if (path === '/admission') {
+      if (request.method !== 'POST') {
+        return new Response('method not allowed', { status: 405 })
+      }
+      return this.#writeAdmission(request)
+    }
+    if (path !== '/self') {
       return new Response('not found', { status: 404 })
     }
     const identity = await this.#node.identity()
@@ -469,7 +906,17 @@ export class BootstrapObject {
       // when this relay first carried someone rather than only whether it is carrying anyone
       // now.
       relayService: relayLog.report(),
-    })
+      // RUN-02 — whether this object is telling its region's tabs to stop, and which slice
+      // of them. A FIELD on the one route this object serves, for the reason `instance`,
+      // `version`, `traffic` and `relayService` are fields: every route is a surface. The
+      // *write* could not be a field on a `GET`, which is why this phase adds a route and
+      // owes that an argument — it is written at `#writeAdmission`, enumerated.
+      //
+      // Reported from before anything is stored, as `ADMITTING` with this object's own
+      // region label. A missing field would make "nobody has been told to stop" and "this
+      // object does not know about halts" the same reading.
+      admission: await readDirective(this.#node.store, this.#regionOnce()),
+    }, { headers: SELF_CORS_HEADERS })
   }
 
   /**
@@ -520,6 +967,125 @@ export class BootstrapObject {
     const init: UpgradeResponseInit = { status: 101, webSocket: client }
     return new Response(null, init)
   }
+}
+
+/**
+ * The population the funnel's counts are over WHILE THE RULING IS PENDING.
+ *
+ * `.planning/REQUIREMENTS.md` § Open questions item 3 — consent versus legitimate interest —
+ * is **contested across sources and is settled by legal review, not by engineering judgement**.
+ * Until it is settled the reporter is armed at consent, so the counts reaching this object are
+ * over visitors who turned the report on and nobody else.
+ *
+ * `'opted-in-only'` is not a choice between the two readings — it is their **intersection**.
+ * The consent reading permits only consent-armed collection; the legitimate-interest reading
+ * permits consent-armed collection *and* page-load-armed collection. So this value is lawful
+ * under either ruling, and a ruling can only ever widen it. Collecting under the wrong basis is
+ * the irreversible error; not collecting yet is the reversible one.
+ *
+ * It is stored beside the counts and echoed in every read because **a count whose population is
+ * not on the same page as the count is a count that will be quoted wrong** — under this value
+ * the funnel measures a self-selected subset, so stage one equals stage two by construction and
+ * the first drop-off is not measurable at all.
+ */
+const FUNNEL_POPULATION_PENDING_RULING: FunnelPopulation = 'opted-in-only'
+
+/**
+ * What `/funnel` answers a cross-origin caller.
+ *
+ * **The demo page is served from a different origin from this Worker in every arrangement that
+ * will ever exist** — a Vite dev server locally, GitHub Pages in production — so this is not
+ * decoration, it is whether the route works at all.
+ *
+ * `*` rather than a named origin, and the reason is that a narrower value here would be
+ * security theatre rather than security. The endpoint is a public, unauthenticated counter that
+ * accepts anonymous integers: there is no credential to protect, `Access-Control-Allow-
+ * Credentials` is deliberately absent, and an origin allow-list would be trivially bypassed by
+ * anything that is not a browser while breaking the one arrangement this project actually needs
+ * — a static page on one origin reporting to a Worker on another. `start-report.ts` records the
+ * same acceptance for the same reason: *"Counts are unauthenticated: a peer can inflate its
+ * own."* What that costs is written beside the figures rather than mitigated here.
+ *
+ * The preflight headers are answered anyway, even though the reporter's own send is a
+ * CORS-safelisted `text/plain` beacon that needs no preflight. A `fetch` caller — a harness, a
+ * human with `curl`, an operator reading the counts from a dashboard on another origin — is
+ * preflighted, and refusing them would make the route unreadable from anywhere but this Worker.
+ */
+/**
+ * What `GET /self` answers so a page on another origin can read it.
+ *
+ * **Origin `*`, and the body is why that costs nothing.** `/self` carries `peerId`, `nodeKey`,
+ * `instance`, `version`, `traffic`, `relayService` and `admission` — every one of which a node
+ * that announces itself already publishes, and none of which is a secret this header would be
+ * protecting. The tab that needs it is on another origin *by construction*: the client is a
+ * static page and the object is a Worker, and they cannot share one.
+ *
+ * Only `GET` and `OPTIONS`, and no `Access-Control-Allow-Headers` for the admission key —
+ * `POST /admission` is deliberately not reachable from any page, and listing its header here
+ * would be the first half of making it so.
+ */
+/**
+ * The largest directive body this object will read.
+ *
+ * A directive is five small fields; the only one that can grow is `versions`, and an operator
+ * naming more than a few hundred client versions is not slicing anything. Bounded because the
+ * read happens **before** the key check — see `#writeAdmission` for why it has to.
+ */
+const MAX_ADMISSION_BODY_BYTES = 8_192
+
+const SELF_CORS_HEADERS: Readonly<Record<string, string>> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Max-Age': '86400',
+}
+
+/**
+ * The mint route's body ceiling. A certificate plus a signature is well under a kilobyte; this
+ * leaves room for the X.509 form and refuses anything that is not a request at all before it is
+ * parsed.
+ */
+const MAX_TURN_BODY_BYTES = 16_384
+
+/**
+ * CORS for the mint route.
+ *
+ * Preflight is not decoration here. The tab calls this from the Vite dev origin in the phase's
+ * own e2e specs and from a static origin in production; without it the whole path fails before
+ * the gate is reached, and it fails in a way that looks exactly like the gate refusing.
+ */
+const TURN_CORS_HEADERS: Readonly<Record<string, string>> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Max-Age': '86400',
+}
+
+/**
+ * The per-region TURN URLs a deployment declares, read off `HostedEnv` — NET-12.
+ *
+ * Named per region rather than derived from a pattern, because these are third-party endpoints
+ * and a pattern would invent hostnames that may not exist. An absent one falls back to the
+ * shared list; see `turn-regions.ts` for why that fallback is correctness rather than
+ * convenience.
+ */
+function perRegionTurnUrls(env: HostedEnv): Partial<Record<HostedObjectName, string>> {
+  return {
+    ...(env.O2_TURN_URLS_US === undefined ? {} : { 'bootstrap-us': env.O2_TURN_URLS_US }),
+    ...(env.O2_TURN_URLS_EU === undefined ? {} : { 'bootstrap-eu': env.O2_TURN_URLS_EU }),
+    ...(env.O2_TURN_URLS_SAM === undefined ? {} : { 'bootstrap-sam': env.O2_TURN_URLS_SAM }),
+  }
+}
+
+/** Split a comma-separated var, dropping empties — `wrangler dev` injects `''` for an absent one. */
+function commaSeparated(value: string | undefined): string[] {
+  return (value ?? '').split(',').map((part) => part.trim()).filter((part) => part !== '')
+}
+
+const FUNNEL_CORS_HEADERS: Readonly<Record<string, string>> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, X-O2-Network-Class',
+  'Access-Control-Max-Age': '86400',
 }
 
 /**

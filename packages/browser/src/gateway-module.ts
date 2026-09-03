@@ -45,6 +45,29 @@
  * **not** an admission decision, and {@link FetchedModule} carries no field that could be
  * read as one.
  *
+ * ## It does, since 2026-09-02, decide one thing: whether to ask at all — BROW-06
+ *
+ * The paragraph above is about *admission*, and it stands. This is a different question,
+ * and the sentence four paragraphs up is what makes it this module's: **"It runs before
+ * `start()` has necessarily been called."** That was written as a limitation — no anchors,
+ * so no provenance verdict — and it is also a licence. A fetch that does not depend on a
+ * started node cannot be gated by one, so until now nothing gated it at all.
+ *
+ * BROW-06 is not *"do not execute without consent"*, which `consent.ts` already enforces by
+ * making `GrantedConsent` a parameter of the start path. It is *"do not **request** task
+ * bytes without consent"*, and the criterion states why in terms of who is watching: a
+ * reviewer with a network log open reads a fetch on its own as preparation-to-run. Bytes
+ * pulled and then not executed still told a gateway operator that this visitor is here and
+ * which artifact they were about to run — which is the harm, whatever the page then does
+ * with the response.
+ *
+ * So {@link FetchModuleOptions.consent} is **required**, in the shape `consent.ts`
+ * established: a caller without a consent does not fail a check, it fails to compile. The
+ * runtime half admits {@link ConsentGap} as well, because the page has to be able to say
+ * *"there is none, and here is why"* — and the check is the **first** thing this function
+ * does, ahead of even the blank-gateway refusal, because "you left the gateway field empty"
+ * is the wrong sentence to show somebody who has not agreed to anything yet.
+ *
  * ## Why the gateway base has no default
  *
  * A path gateway must answer `Content-Type: application/wasm` or `compileStreaming` will
@@ -64,6 +87,8 @@
  */
 
 import { CID } from 'multiformats/cid'
+import { GrantedConsent } from './consent.ts'
+import type { ConsentGap } from './consent.ts'
 import { describeLoadFailure, loadArtifact } from './streaming-load.ts'
 import type { FetchLike } from './streaming-load.ts'
 
@@ -119,6 +144,22 @@ export interface FetchedModule extends FetchFacts {
 export type FetchOutcome = FetchedModule | FetchRefusal
 
 export interface FetchModuleOptions {
+  /**
+   * The visitor's consent, or the reason there is none — BROW-06.
+   *
+   * **Required, with no default**, for `readConsent`'s stated reason one module over: a
+   * default would be a fail-open, and a caller that forgot the field would silently request
+   * task bytes on behalf of somebody who has not agreed to anything. Making it a compile
+   * error at every call site is the cheaper failure.
+   *
+   * The gap arm is not a weakening. {@link GrantedConsent} is still unforgeable — nothing
+   * outside `consent.ts` can mint one — so the only way to reach the fetch is to hold a
+   * consent that was granted or found. A {@link ConsentGap} is the page's way of saying
+   * *there is none*, and it carries **which** kind so the refusal can name it: "you have
+   * not been asked yet" and "the terms changed since you agreed" are different things to
+   * tell a visitor, which is the distinction that union exists to draw.
+   */
+  readonly consent: GrantedConsent | ConsentGap
   /** A path-gateway root with a trailing slash and no query — `gatewayUrl` refuses the rest. */
   readonly gatewayBase: string
   /** The CID the dispatch will name. */
@@ -134,11 +175,43 @@ export interface FetchModuleOptions {
 const refuse = (reason: string): FetchRefusal => ({ ok: false, reason })
 
 /**
+ * The half-sentence naming why there is no consent to fetch under.
+ *
+ * One clause each, written to be dropped into the refusal above rather than shown alone.
+ * The four kinds are `consent.ts`'s and are exhaustive there; the `default` arm exists so
+ * that a fifth kind added later arrives here as a sentence a reader can act on instead of
+ * as `undefined` in the middle of a refusal.
+ */
+function describeConsentGap(gap: ConsentGap): string {
+  switch (gap.kind) {
+    case 'never-asked':
+      return 'absent because you have not been asked yet'
+    case 'unreadable':
+      return `absent because this browser’s stored answer could not be read (${gap.detail})`
+    case 'terms-changed':
+      return `out of date: you agreed to version ${gap.answered} and these are version ${gap.current}`
+    case 'anchor-changed':
+      return `given under different terms: you agreed while ${gap.answered} could sign the code, and now it is ${gap.current}`
+    default:
+      return `absent for a reason this page has no wording for (${JSON.stringify(gap)})`
+  }
+}
+
+/**
  * Fetch a module from a content-addressed gateway, verify it, and refuse loudly otherwise.
  *
  * The order is not arbitrary and each step exists because skipping it produces a wrong
  * answer rather than merely a worse one:
  *
+ * 0. **Consent — BROW-06, and it is first for a reason that is not fastidiousness.** Every
+ *    other refusal below is a sentence about the *request*: your gateway field is blank,
+ *    your CID is not a CID, your record names something else. All three presuppose that
+ *    asking was allowed. A visitor who has not agreed is not owed a critique of their
+ *    inputs, and — the part that is measurable — a refusal arriving from step 1 for a
+ *    visitor who has not consented would be indistinguishable, in a network log, from a
+ *    gate that works. It is checked here rather than at the call site so that the check
+ *    cannot be routed around: `demo/main.ts` reads consent and passes what it found,
+ *    including a gap, and this is the only thing standing between that gap and a socket.
  * 1. **Gateway present.** An empty base would otherwise reach `new URL(cid, '')` and be
  *    reported as `not-a-url`, which blames the CID for a field the visitor left blank.
  * 2. **Both CIDs parse.** A typo in the record's CID must not be discovered as a digest
@@ -149,6 +222,16 @@ const refuse = (reason: string): FetchRefusal => ({ ok: false, reason })
  * 4. **`loadArtifact`.** Fetch, verify against the CID, compile through the streaming API.
  */
 export async function fetchModuleForDispatch(options: FetchModuleOptions): Promise<FetchOutcome> {
+  // BROW-06. `instanceof` and not a `kind` sniff: the class is the unforgeable thing, and a
+  // structural check would accept an object that merely looks like a consent.
+  if (!(options.consent instanceof GrantedConsent)) {
+    return refuse(
+      `no artifact bytes are requested before you have agreed to this page using your machine — ` +
+        `consent here is ${describeConsentGap(options.consent)}, so nothing was asked of any ` +
+        'gateway and nothing left this device.',
+    )
+  }
+
   const gatewayBase = options.gatewayBase.trim()
   if (gatewayBase === '') {
     return refuse(

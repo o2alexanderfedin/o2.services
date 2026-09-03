@@ -924,8 +924,42 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * DELETED, and deletion on this tier is the alarm. **The raise's own wording is what made the
  * reading checkable**, and that is the argument for this register rather than for a count:
  * a ceiling could have absorbed the entry and no sentence would have said what would close it.
+ *
+ * **Raised 3 → 4 on 2026-09-02, in the same commit that moved `BROW-09` to `Partial`**, and it
+ * is the `HOST-13` shape once more with one difference worth naming. `HOST-13`'s open leg had no
+ * shape this file could read because the driver is the Workers runtime; `BROW-09`'s has no shape
+ * this file could read because **the act that closes it is a ruling rather than a run**. The
+ * disclosure states its four things and each is asserted with a plant; what is absent is the
+ * legal basis of the telemetry sentence, which § Open questions item 3 records as contested
+ * across sources and settled by legal review. No symbol has no caller, no entry point is
+ * undriven, and no tier is unconfigured — so a call-site search cannot express it, which is
+ * exactly what this register is for. Raised by the one entry that arrived.
+ *
+ * **Raised 4 → 5 on 2026-09-02, in the commit that moved `RUN-05` to `Partial`**, and it is
+ * `BROW-09`'s shape exactly — the same open question, one row over. `RUN-05`'s schema half is
+ * fully read by machine: `packages/net/src/funnel-schema.test.ts` compares a hand-written digest
+ * against the field set in both lanes and was watched red under three plants, and
+ * `packages/cloudflare/src/funnel-collector.e2e.test.ts` dumps the Durable Object's persisted
+ * store and finds no address and no cross-session identifier, with a positive control and two
+ * watched-red plants. What keeps the row `Partial` is **one sentence that no run can settle**:
+ * whether the telemetry's legal basis is consent or legitimate interest, which § Open questions
+ * item 3 records as contested across sources and settled by legal review. Its witnesses are the
+ * disclosure guard that today asserts the basis is stated NOWHERE and that would have to be
+ * inverted in the same commit as whichever sentence lands. Raised by the one entry that arrived.
+ *
+ * **Raised 5 → 6 on 2026-09-02, in the commit that moved `NET-12` to `Partial`** (Phase 34,
+ * plan 34-01), and it is this register's shape rather than a ceiling raised to make a red go
+ * away. Every mechanism `NET-12` names is wired AND driven — `iceConfiguration` at the one
+ * `webRTC()` site, `mintTurnCredential` as the body of `POST /turn-credential`, `turnUrlsFor`
+ * deciding that route's URLs, and the credential holder consulted by `rtcConfiguration`'s
+ * function form once per connection — so there is no *"nothing calls X"* sentence for this file
+ * to read, and typing one would be false. What holds the row open is criterion 2's
+ * **observation**, which needs three *sited* objects (Phase 33, gated on the owner) and clients
+ * on **two continents** (the cohort): an experiment nobody can run here, not code nobody wired.
+ * Thirteen witnesses, every one of them measured by running the scan rather than typed. Raised
+ * by the one entry that arrived.
  */
-const REREAD_REGISTER_CEILING = 3
+const REREAD_REGISTER_CEILING = 6
 
 /**
  * ## The rule this list encodes
@@ -1643,6 +1677,98 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // physical wall. The bucket is unchanged — `experiment-not-run` is exactly right, and now
   // for a checkable reason: the arrangement exists, the dispatch has not happened, and the
   // dispatch is an owner act because it is a push to a public repository.
+  {
+    // ── Added 2026-09-02 by Plan 35-01 ────────────────────────────────────────────────
+    //
+    // **The open leg is not a symbol and cannot become one: it is a sentence somebody with
+    // legal standing has to choose.** `BROW-09` asks the disclosure to state four things, and
+    // four things it states — each asserted individually in the two witnesses below, each with
+    // a plant watched red, plus the ordering. What is missing is the **legal basis** of the
+    // telemetry element: consent versus legitimate interest under GDPR, recorded at
+    // `.planning/REQUIREMENTS.md` § Open questions item 3 as *contested across sources* and
+    // *"settled by legal review, not engineering judgement"*.
+    //
+    // So there is no exported symbol with no caller to name, and no configuration or tier to
+    // drive. `experiment-not-run` is the nearest of the three buckets and is not a comfortable
+    // fit: the act that would close this row is a **ruling**, not a measurement. It is chosen
+    // over the other two because it is the only one that says *the thing that would close this
+    // has not been done yet*, which is true, rather than pointing at a code path that is not
+    // the obstacle. If a fourth bucket is ever wanted, this is the entry that wants it.
+    //
+    // **What would close it**, so the promise this id carries is specific rather than a
+    // reminder: the owner picks reading A (consent) or reading B (legitimate interest) — both
+    // drafted verbatim in
+    // `.planning/phases/phase-35-conditions-of-entry-in-the-browser/35-01-SUMMARY.md` — the
+    // chosen sentence lands in `DISCLOSURE`, `DISCLOSURE_VERSION` bumps again, `policy.html`
+    // mirrors it, and `disclosure-four-elements.node.test.ts` gains a case asserting the
+    // sentence is present with its removal planted. That file today asserts the **absence** of
+    // any basis sentence, so the guard has to be inverted in the same commit as the ruling and
+    // cannot be left half-turned.
+    id: 'BROW-09',
+    because: 'experiment-not-run',
+    reread: '2026-09-02',
+    witnesses: [
+      'packages/node/src/disclosure-before-optin.e2e.test.ts',
+      'packages/node/src/disclosure-four-elements.node.test.ts',
+    ],
+  },
+  {
+    // Phase 37. The row's schema half is machine-read and green; what is unread is the LEGAL
+    // BASIS sentence, and the act that closes it is a ruling rather than a run — `BROW-09`'s
+    // shape, on the same open question. The witness is the one spec the ruling moves: the
+    // disclosure guard that today asserts the basis appears nowhere and would have to be
+    // inverted in the same commit as whichever sentence lands.
+    id: 'RUN-05',
+    because: 'experiment-not-run',
+    reread: '2026-09-02',
+    witnesses: ['packages/node/src/disclosure-four-elements.node.test.ts'],
+  },
+  {
+    // ── Added 2026-09-02 by Phase 34 (34-01), and the promise it carries is precise ──────
+    //
+    // `NET-12` is `Partial`, and the leg holding it open is **not** a symbol without a caller.
+    // Every mechanism the row names is wired and driven: `iceConfiguration` is constructed at
+    // `browser-node.ts`'s one `webRTC()` site, `mintTurnCredential` is the body of
+    // `POST /turn-credential`, `turnUrlsFor` decides that route's URLs, and the credential
+    // holder is consulted by `rtcConfiguration`'s function form once per connection. So there
+    // is no *"nothing calls X"* sentence for this file to read, and typing one would be false.
+    //
+    // What is open is criterion 2's **observation**, and it is an experiment nobody can run
+    // here rather than code nobody wired. It needs TWO things this milestone has neither of:
+    //
+    // 1. three **sited** objects — Phase 33's subject, gated on the owner and on money;
+    // 2. clients on **two continents** — without them there is no cross-continent *pair* to
+    //    observe even if the three objects existed. Phase 39's cohort, or the tester cohort
+    //    the owner already has access to.
+    //
+    // A second leg is open for the same class of reason: nothing has been observed against the
+    // **provider's own TURN service**, because no key exists. The Cloudflare credential adapter
+    // is deliberately unwritten behind a named seam (`TurnMinter`) rather than written against
+    // documentation, and the runbook's first step is a spending alert rather than an
+    // engineering one — the `HOST-10` ordering this milestone has already lost once.
+    //
+    // **The promise:** re-read this row when Phase 33 has sited the three objects AND a cohort
+    // exists on two continents. A same-region substitute does not discharge it. Everything that
+    // COULD be measured locally was, and the witnesses below are what measured it.
+    id: 'NET-12',
+    because: 'experiment-not-run',
+    reread: '2026-09-02',
+    witnesses: [
+      'packages/browser/src/ice-configuration-library.node.test.ts',
+      'packages/browser/src/ice-configuration.test.ts',
+      'packages/browser/src/turn-credentials.test.ts',
+      'packages/cloudflare/src/turn-credential.e2e.test.ts',
+      'packages/cloudflare/src/turn-credential.test.ts',
+      'packages/cloudflare/src/turn-regions-source.node.test.ts',
+      'packages/cloudflare/src/turn-regions.test.ts',
+      'packages/cloudflare/src/turn-sharding.e2e.test.ts',
+      'packages/cloudflare/src/worker.test.ts',
+      'packages/node/src/ice-servers-alive.e2e.test.ts',
+      'packages/node/src/turn-end-to-end.e2e.test.ts',
+      'packages/node/src/turn-fallback.e2e.test.ts',
+      'packages/node/src/turn-mint-payload.node.test.ts',
+    ],
+  },
   {
     id: 'AOT-03',
     because: 'experiment-not-run',

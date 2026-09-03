@@ -207,17 +207,54 @@ export interface Transport {
  * anything but types" rule at the top is intact in the sense that matters: nothing
  * platform-specific enters here.
  */
+export type SendRefusalReason =
+  /**
+   * NET-09 — this node's own per-destination stream gate and its queue are both full.
+   * Nothing is implied about the destination; it was never asked.
+   */
+  | 'per-peer-stream-budget'
+  /**
+   * NET-13 — the only path this node holds to the destination is a relayed circuit,
+   * and the message is larger than that circuit's per-direction budget.
+   *
+   * The pair fell all the way through to a relay, so it has a **control** path and
+   * no data path. Sending anyway does not fail cleanly: the relay cuts the circuit
+   * part-way and — measured 2026-09-02, `relayed-budget.node.test.ts` — what arrives
+   * at the far end is a short message the receiving transport reports as complete.
+   * A caller matching on this literal learns the pair is control-only *before*
+   * spending a timeout finding out.
+   */
+  | 'control-only-path'
+
 export class SendRefused extends Error {
   /** The destination this node declined to send to. */
   readonly to: string
   /** The node that refused — its own peer id, not the destination's. */
   readonly by: string
+  /**
+   * Which bound refused, as a literal rather than as prose.
+   *
+   * Required, not optional. The message already says why in English and a caller
+   * cannot branch on English — `rpc.ts` flattens every `send` rejection's message
+   * into one `detail` string, so a refusal that named itself only in prose would
+   * reach every caller as something to string-match. A new refusal has to pick a
+   * name here, which is the point.
+   */
+  readonly reason: SendRefusalReason
 
-  constructor(message: string, detail: { readonly to: string; readonly by: string }) {
+  constructor(
+    message: string,
+    detail: {
+      readonly to: string
+      readonly by: string
+      readonly reason: SendRefusalReason
+    },
+  ) {
     super(message)
     this.name = 'SendRefused'
     this.to = detail.to
     this.by = detail.by
+    this.reason = detail.reason
   }
 }
 

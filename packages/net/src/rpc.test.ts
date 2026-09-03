@@ -48,6 +48,7 @@ describe('RpcEndpoint.request — send rejections, by kind', () => {
     const refusal = new SendRefused('local refused a send to remote: gate full', {
       to: 'remote',
       by: 'local',
+      reason: 'per-peer-stream-budget',
     })
     const failure = await failureOf(rejectingTransport(refusal), { hello: 'world' })
 
@@ -57,6 +58,9 @@ describe('RpcEndpoint.request — send rejections, by kind', () => {
     if (detail.kind !== 'send-refused') return
     expect(detail.to).toBe('remote')
     expect(detail.by).toBe('local')
+    // NET-13 — the literal survives the flattening. `detail` below is English and a
+    // caller can only substring-match it; this field is what a caller branches on.
+    expect(detail.reason).toBe('per-peer-stream-budget')
     expect(detail.detail).toContain('gate full')
     // The rendered message names the refusing node, so a log line is readable.
     expect((failure as RpcFailure).message).toContain('local')

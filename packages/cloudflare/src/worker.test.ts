@@ -44,6 +44,7 @@ import { FakeDurableObjectAlarms, FakeDurableObjectStorage } from './do-storage.
 import { BootstrapObject } from './worker.ts'
 import { DoDatastore } from './do-datastore.ts'
 import { writeRelayServiceJournal } from './relay-service-journal.ts'
+import { readFunnelJournal } from './funnel-journal.ts'
 import type { RelayServiceTotals } from '@o2/libp2p'
 import type { CloudflareWebSocket } from './websocket-connection.ts'
 import type { HostedEnv, HostedObjectStateWithSockets } from './worker.ts'
@@ -234,6 +235,44 @@ describe('criterion 2’s evidence — one PeerId across a construction boundary
 
     expect(response.status).toBe(404)
   })
+
+  /**
+   * MOVED 2026-09-02 BY PHASE 34, in the same commit as the route it is about.
+   *
+   * The case above asserts *every other path 404s*, and `/turn-credential` stopped being an
+   * "other path" the moment `NET-12`'s mint route landed. Left alone it would have reddened for
+   * the right reason at the wrong time — the route is a capability shipped WITH the phase that
+   * measures it, not a surface that appeared while somebody was in the file. So the pair below
+   * states the new boundary explicitly: the mint route is served, and a neighbouring path that
+   * merely looks like it is not.
+   */
+  it('serves the NET-12 mint route rather than 404ing it', async () => {
+    const object = new BootstrapObject(
+      newState(new FakeDurableObjectStorage(), new FakeDurableObjectAlarms()),
+      ENV,
+    )
+
+    const response = await object.fetch(
+      new Request('https://example.invalid/turn-credential', { method: 'OPTIONS' }),
+    )
+
+    // Preflight, because it is the leg that must work before the gate is ever reached.
+    expect(response.status).toBe(204)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*')
+  })
+
+  it('still 404s a path that merely resembles the mint route', async () => {
+    const object = new BootstrapObject(
+      newState(new FakeDurableObjectStorage(), new FakeDurableObjectAlarms()),
+      ENV,
+    )
+
+    const response = await object.fetch(
+      new Request('https://example.invalid/turn-credentials', { method: 'POST' }),
+    )
+
+    expect(response.status).toBe(404)
+  })
 })
 describe('`GET /self` names the build it is running', () => {
   /**
@@ -401,5 +440,86 @@ describe('`GET /self` carries a relay-service record that OUTLIVES the instance'
       direct: { connectionSeconds: 0, bytes: 0 },
       relayed: { connectionSeconds: 0, bytes: 0 },
     })
+  })
+})
+
+/**
+ * RUN-04 — `POST /funnel` accrues and banks as ONE link in a chain, not as three statements.
+ *
+ * **Both cases here were written after a review found the defect, and neither is hypothetical.**
+ * The first version of `#bankFunnel` accrued, set the in-memory memo, then wrote. That is wrong
+ * in two ways a passing suite would not have shown:
+ *
+ * 1. A write that throws left the memo holding counts storage had refused, so `GET /funnel`
+ *    reported numbers the next eviction would erase — the exact loss the journal exists to
+ *    prevent, arriving through the route that was supposed to prevent it.
+ * 2. Two reports arriving together both accrued from the same base. The second offered a total
+ *    below what the first banked, `writeFunnelJournal` refused it by name, and the memo was
+ *    then permanently below storage — every later report on that instance refused until an
+ *    eviction repaired it. A terminal report leaves on `pagehide`, and unloads arrive together.
+ */
+describe('`POST /funnel` banks without losing a report or poisoning the instance', () => {
+  const REPORT = {
+    stage: 'page-load',
+    kind: 'entered',
+    hourBucket: 9,
+    population: 'opted-in-only',
+    networkClass: 'wifi',
+  } as const
+
+  function post(object: BootstrapObject): Promise<Response> {
+    return object.fetch(
+      new Request('https://example.invalid/funnel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(REPORT),
+      }),
+    )
+  }
+
+  it('takes two reports that arrive TOGETHER and loses neither', async () => {
+    const storage = new FakeDurableObjectStorage()
+    const object = new BootstrapObject(newState(storage, new FakeDurableObjectAlarms()), ENV)
+
+    // Not awaited one at a time. Awaiting them in sequence is the arrangement that passed
+    // against the broken ordering and proved nothing about the burst it was written for.
+    const [first, second] = await Promise.all([post(object), post(object)])
+
+    expect(first.status).toBe(204)
+    expect(second.status, 'the second concurrent report was refused').toBe(204)
+
+    // Two, written as the literal. Reading the count off the same vector would agree with any
+    // answer the code happened to produce.
+    const stored = await readFunnelJournal(new DoDatastore(storage), 'opted-in-only')
+    expect(stored.entered['page-load']).toBe(2)
+  })
+
+  it('reports what STORAGE holds, never what an attempt hoped to hold', async () => {
+    const storage = new FakeDurableObjectStorage()
+    const object = new BootstrapObject(newState(storage, new FakeDurableObjectAlarms()), ENV)
+    await post(object)
+
+    // A record already in storage that is HIGHER than anything this instance has accrued, as
+    // an alarm on a fresh instance or a concurrent writer would leave. The next bank offers a
+    // lower total and must be refused.
+    const store = new DoDatastore(storage)
+    const ahead = await readFunnelJournal(store, 'opted-in-only')
+    await store.put(
+      new (await import('interface-datastore')).Key('/journal/funnel'),
+      new TextEncoder().encode(
+        JSON.stringify({ ...ahead, entered: { ...ahead.entered, 'page-load': 99 } }),
+      ),
+    )
+
+    const refused = await post(object)
+    expect(refused.status, 'a report that storage refused was answered as if it had landed').toBe(500)
+
+    // And the route still answers what is actually stored.
+    const read = await object.fetch(new Request('https://example.invalid/funnel'))
+    const body = (await read.json()) as { entered: Record<string, number> }
+    expect(
+      body.entered['page-load'],
+      'GET /funnel reported a count storage had refused, which the next eviction would erase',
+    ).toBe(99)
   })
 })

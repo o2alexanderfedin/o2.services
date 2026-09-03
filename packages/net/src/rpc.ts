@@ -19,7 +19,7 @@
  */
 
 import { NotEncodableError, SendRefused, decodeCanonical, encodeCanonical } from '@o2/core'
-import type { CanonicalValue, Transport } from '@o2/core'
+import type { CanonicalValue, SendRefusalReason, Transport } from '@o2/core'
 
 /** Default time a request waits before giving up. */
 export const DEFAULT_RPC_TIMEOUT_MS = 30_000
@@ -38,6 +38,15 @@ export type RpcError =
       readonly kind: 'send-refused'
       readonly to: string
       readonly by: string
+      /**
+       * Which bound refused, carried through as the literal the `Transport` chose.
+       *
+       * NET-13's reason for existing. `detail` below is the refusal's English, and a
+       * caller that had only English could do nothing with it but match substrings —
+       * so a job deciding whether a pair is worth re-offering compares this field to
+       * `'control-only-path'` and gets an answer it can act on.
+       */
+      readonly reason: SendRefusalReason
       readonly detail: string
     }
   | { readonly kind: 'closed' }
@@ -60,7 +69,7 @@ function describe(e: RpcError): string {
     case 'send-failed':
       return `rpc send to ${e.to} failed: ${e.detail}`
     case 'send-refused':
-      return `rpc send to ${e.to} refused by ${e.by}: ${e.detail}`
+      return `rpc send to ${e.to} refused by ${e.by} (${e.reason}): ${e.detail}`
     case 'closed':
       return 'rpc endpoint closed'
     case 'undecodable':
@@ -209,7 +218,7 @@ export class RpcEndpoint {
         reject(
           new RpcFailure(
             cause instanceof SendRefused
-              ? { kind: 'send-refused', to, by: cause.by, detail }
+              ? { kind: 'send-refused', to, by: cause.by, reason: cause.reason, detail }
               : { kind: 'send-failed', to, detail },
           ),
         )

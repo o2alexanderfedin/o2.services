@@ -41,6 +41,20 @@
  * a third party I was here".
  */
 
+// FOR ITS SIDE EFFECT, and it must be the FIRST import in this file.
+//
+// RUN-04 stage four. `@libp2p/webrtc` captures `globalThis.RTCPeerConnection` into a `const`
+// when its module evaluates — `dist/src/webrtc/index.browser.js` is one line and that is the
+// line — so a wrapper installed by any STATEMENT in this file is installed after the capture
+// and is invisible to libp2p forever. Measured, not reasoned about: with the install inside
+// `api.start`, two real browser contexts completed a genuine browser-to-browser dial and
+// `ice-gathering` stayed at 0.
+//
+// A named import would not do the job on its own: import statements are hoisted above every
+// statement here, so what matters is that this module is evaluated FIRST, before anything that
+// pulls in `@libp2p/webrtc`. `packages/cloudflare/src/workerd-shims.ts` is the precedent, and
+// its header records what the same mistake cost there.
+import '../src/ice-observer-install.ts'
 import {
   canonicalCid,
   checkpointsInto,
@@ -58,7 +72,7 @@ import type {
   StartFailure,
   StartOutcome,
 } from '@o2/core'
-import { nodeKeyForPeerId, peerIdForNodeKey } from '@o2/libp2p'
+import { clientVersionFrom, nodeKeyForPeerId, peerIdForNodeKey } from '@o2/libp2p'
 import {
   RemoteExecutor,
   RpcRecordIndex,
@@ -138,6 +152,21 @@ import { DialPlanner } from '../src/dial-plan.ts'
 import { IdbCheckpoints } from '../src/idb-checkpoints.ts'
 // AOT-05's last mile. Relative, not through the barrel — see the module's own header.
 import { fetchModuleForDispatch } from '../src/gateway-module.ts'
+// BROW-07's carrier. Relative for the same reason, stated in that module's own header.
+import { ComputingIndicator, documentTitlePort } from '../src/computing-indicator.ts'
+import { KillSwitch, switchEndpointFor } from '../src/kill-switch.ts'
+// RUN-04's two halves. Relative and **deliberately not through the barrel**, on
+// `computing-indicator.ts`'s stated rule and for its stated reason: a barrel export whose only
+// caller is this file would be an exported-but-statically-unreachable symbol in front of
+// `reachability-guard.node.test.ts` for the benefit of no consumer.
+import {
+  FunnelReporter,
+  beaconSendPort,
+  funnelEndpointFrom,
+  readNetworkClass,
+  utcHourPort,
+} from '../src/funnel-reporter.ts'
+import { onFirstIceGathering } from '../src/ice-observer-install.ts'
 import * as pid from '@libp2p/peer-id'
 // **`import type`, and the distinction matters here rather than being pedantry.** This file's
 // convention is that `CID` is reached through `await import('multiformats/cid')` — see
@@ -208,6 +237,266 @@ function notify(): void {
 function required(): BrowserNode {
   if (node === null) throw new Error('node not started')
   return node
+}
+
+/**
+ * The tab-strip indicator — BROW-07's page half.
+ *
+ * ## Why this polls, which the phase plan requires be justified rather than assumed
+ *
+ * `BrowserNode` publishes **no execution event**. `onActivity` fires when a peer dispatches
+ * work here (`browser-node.ts`'s `onDispatch` seam) and has no counterpart for a task
+ * *finishing*, and it says nothing at all about this tab's own self-dispatched shards. The
+ * two sources of in-flight work therefore have no common event, and building the indicator
+ * out of one event plus an inference about the other would give the page two mechanisms that
+ * can disagree about whether this machine is busy.
+ *
+ * What does exist is one authoritative count: `CountingExecutor` sits **inside**
+ * `GovernedExecutor` (`browser-node.ts:1826` explains the ordering) so it counts tasks
+ * actually running rather than tasks parked on the governor's serialization chain, and every
+ * path that reaches `.execute` — a peer's dispatch and this page's own alike — goes through
+ * it. `node.executorInFlight` is that count. Reading it on a tick cannot disagree with
+ * itself.
+ *
+ * ## The interval, and why 250 ms rather than something smaller
+ *
+ * A backgrounded tab is exactly the case this indicator exists for, and Chromium throttles a
+ * hidden tab's timers to roughly **1 Hz** (and harder still after several minutes of
+ * hiding). Anything faster than that is not delivered where it matters, so the choice is
+ * between a figure that is honest about the floor and one that merely looks attentive.
+ * 250 ms is fast enough to be indistinguishable from instant in a foreground tab and slow
+ * enough that the throttled case degrades to about a second — which is the actual guarantee,
+ * and is well inside the life of any task worth indicating.
+ *
+ * The tick runs only while a node is up. An idle page installs no timer.
+ *
+ * ## The dwell, which is what makes the indicator *persistent* rather than a strobe
+ *
+ * `CountingExecutor` counts calls inside the **inner** executor, so a task waiting for its
+ * slice on `GovernedExecutor`'s serialization chain is not counted — that is the right
+ * definition for SCHED-06's concurrency reading and the wrong one here. A throttled tab
+ * spends most of its wall clock idling between tasks: `VisibilityGovernor` sleeps
+ * `sliceMs * (1/duty - 1)` per slice (`visibility-governor.ts:153`) with `sliceMs` defaulting
+ * to 50 (`:75`), so at this page's own `backgroundDutyCycle` of `0.05` the gap between tasks
+ * is **950 ms** and an instantaneous reading finds the executor idle almost every time.
+ *
+ * A tab **backgrounded and throttled** is exactly the state BROW-07 is about. An indicator
+ * sampling `executorInFlight` alone would therefore blink off for most of the interval in
+ * which a visitor is most likely to look at it, and "the tab strip said I was not computing
+ * while it was computing" is the failure this requirement exists to prevent. So a reading of
+ * zero only clears the title once it has been zero for {@link COMPUTING_DWELL_MS} — long
+ * enough to cover that 950 ms gap several times over, short enough that a tab which has
+ * genuinely finished stops claiming otherwise within a few seconds.
+ *
+ * **What this does not cover, stated rather than left to be discovered:** a visitor who sets
+ * a cap far below the background one by hand — `setDutyCycle(0.005)` gives a 9.95 s gap —
+ * makes the gap longer than the dwell, and the indicator will blink for them. The dwell is
+ * sited against the duty cycles this page itself chooses, not against every value the API
+ * admits. Stop clears the title immediately and does not wait out the dwell, because a
+ * stopped tab is not computing and that is not a sampling question.
+ */
+const COMPUTING_POLL_MS = 250
+const COMPUTING_DWELL_MS = 4_000
+let computingIndicator: ComputingIndicator | null = null
+let computingTicker: ReturnType<typeof setInterval> | null = null
+let computingLastBusyAt = 0
+/**
+ * RUN-02 — this tab's reading of whether its region has been told to stop.
+ *
+ * `null` until consent has been granted and a node has been started, which is the whole of the
+ * P10 argument: `built-bundle.e2e.test.ts` asserts that every request this page makes before
+ * consent carries the page's own origin, and a poll running at page load would break it. It is
+ * constructed and started inside `start`, which is reached only through `#allow`.
+ *
+ * The endpoint is derived from the relay address this tab was already given, so there is no
+ * second knob to drift. A page that was given no readable relay address gets no switch and
+ * `halted()` is never consulted — see the `paused:` wiring below for why that is the right
+ * failure direction.
+ */
+let killSwitch: KillSwitch | null = null
+
+/**
+ * This page's own client version, from the stamp `stampBuildIdentity` put in its head.
+ *
+ * **The page's own, never the node's.** `vite.config.ts` records the misreading that closed
+ * on 2026-09-01: the deployed node's `/self` version was read as the client's, `gh-pages` sat
+ * a release behind what the node answered, and the client was reported stale when it was not.
+ * A version slice addressed at *clients* has to be read off the client.
+ *
+ * `clientVersionFrom` rather than a split written here, so the `-dirty` rule lives in one
+ * place — a developer build compares on its released version like every other build.
+ *
+ * `null` on a page with no stamp, which is a real case: `vite dev` serves `index.html`
+ * untransformed by the production plugin. A `null` version is halted by `versions: 'all'` and
+ * is **not** halted by a version slice, which is `admission-directive.ts`'s stated rule.
+ */
+function thisPageVersion(): string | null {
+  const meta = document.querySelector('meta[name="o2-build"]')
+  return clientVersionFrom(meta?.getAttribute('content') ?? null)
+}
+
+function computingTick(): void {
+  // RUN-04's stages five and six ride this poll rather than starting a second timer: they are
+  // read off the same two counters BROW-07 already samples here, at the same rate.
+  funnelTick()
+  const indicator = computingIndicator
+  if (indicator === null) return
+  const inFlight = node?.executorInFlight ?? 0
+  if (inFlight > 0) computingLastBusyAt = Date.now()
+  const withinDwell = computingLastBusyAt !== 0 && Date.now() - computingLastBusyAt < COMPUTING_DWELL_MS
+  // RUN-02 — the halted marker rides the same poll. `killSwitch` is null until consent, so a
+  // page that has not opted in reports `false` and shows nothing, which is correct: it has
+  // asked nobody whether it should stop.
+  indicator.report(inFlight > 0 || withinDwell ? 1 : 0, killSwitch?.halted() ?? false)
+}
+
+/**
+ * RUN-04 — the six-stage funnel, on this visitor's side.
+ *
+ * ## Constructed once, inert unless the page was configured
+ *
+ * `funnelEndpointFrom` reads `?funnel=` and answers `null` for a page that names none, which
+ * is every published page today. An inert reporter's methods are no-ops, so the six call sites
+ * below cost nothing and say nothing when nobody asked for a funnel. **There is no default
+ * endpoint and there must not be one** — see `funnel-reporter.ts`'s header for what a default
+ * would cost, and `funnel-reporter.node.test.ts` for the guard that keeps it out.
+ *
+ * ## Armed at consent, which is the intersection of both readings of open question 3
+ *
+ * Stage one is *composed* at module evaluation and *held*; it leaves only when
+ * {@link armFunnel} runs, carrying the hour it happened rather than the hour it was flushed.
+ * That hold is the whole mechanism by which the pending default stays lawful under either
+ * ruling: **nothing at all is sent by a visitor who does not consent.**
+ */
+const funnel = ((): FunnelReporter => {
+  const endpoint = funnelEndpointFrom(location.search)
+  if (endpoint === null) return new FunnelReporter()
+  return new FunnelReporter({
+    send: beaconSendPort(endpoint),
+    clock: utcHourPort(),
+    networkClass: readNetworkClass(),
+  })
+})()
+
+// Stage one. Composed here — the earliest point in this page's life — and held until consent.
+funnel.enter('page-load')
+
+/**
+ * The arming point, and the one value the legal ruling moves.
+ *
+ * Called from **both** places a visitor can arrive at a granted consent: the gate control, and
+ * a returning visit whose consent was already stored. Missing the second would make every
+ * returning visitor invisible to the funnel while looking like a page-load drop-off, which is a
+ * defect that reads as a finding.
+ */
+function armFunnel(): void {
+  funnel.arm()
+  funnel.enter('consent')
+}
+
+/** Set once stage six has been reported, so the poll loop stops asking. */
+let funnelSawFirstTask = false
+/**
+ * The peer ids this tab was told to use as relays — stage three's peers, not stage five's.
+ *
+ * Filled from the `relayAddrs` this tab actually started with, so it names what this visit
+ * bootstrapped through rather than whatever a page happened to be configured with. A peer id
+ * is the `/p2p/<id>` tail of a multiaddr, and an address without one contributes nothing.
+ */
+const funnelRelayPeers = new Set<string>()
+
+/** Remember which peers are relays, for {@link funnelTick}. */
+function noteFunnelRelays(addrs: readonly string[]): void {
+  for (const addr of addrs) {
+    const at = addr.lastIndexOf('/p2p/')
+    if (at === -1) continue
+    const id = addr.slice(at + '/p2p/'.length).split('/')[0]
+    if (id !== undefined && id !== '') funnelRelayPeers.add(id)
+  }
+}
+
+/**
+ * Stages five and six, read off the same 250 ms poll BROW-07 already runs.
+ *
+ * ## Stage five's class, and why `relayed` is a value this tier does not produce
+ *
+ * `pathTo` answers `carries-work`, `control-only` or `unconnected`. **A control-only pair is
+ * not a peer this visitor can compute with**, so folding it into the connected count would
+ * inflate stage five against stage six and hide the funnel's largest leak inside its own
+ * vocabulary — which is why the schema carries `control-only` as a value of its own.
+ *
+ * The other two map to `direct`, and that is a statement about this tier rather than a
+ * shortcut: in a browser every relayed circuit is a *limited* connection, so `pathTo` has
+ * already separated it as `control-only`, and anything left that carries work is either a
+ * direct WSS connection to a bootstrap node or a WebRTC one. `classifyConnection` calls the
+ * second `direct` too, deliberately — a direct browser-to-browser address still names the relay
+ * that signalled it. So `relayed` is produced by the hosted tier and not by this one, and the
+ * schema carries it because the schema is shared.
+ *
+ * ## Stage six counts a task that FINISHED, and the predicate is why
+ *
+ * Phase 35 measured `activity().tasksExecuted` — `GovernedExecutor`'s `#executed` — going
+ * `0 → 128` inside 800 ms, because at a duty cycle of 1 it increments **before**
+ * `inner.execute(task)`. It counts tasks *admitted*. Stage six's words are *first task
+ * EXECUTED*, so the predicate here is `executed >= 1 && executorInFlight === 0`, which is only
+ * true once an admitted task has left the executor: `CountingExecutor.execute` raises
+ * `#inFlight` as its first statement and lowers it in a `finally`, and `GovernedExecutor`
+ * raises `#executed` in the statement immediately before calling it — so the intermediate state
+ * is never observable between two polls, and no sampling rate can miss it.
+ */
+function funnelTick(): void {
+  const running = node
+  if (running === null) return
+
+  for (const peer of running.transport.peers) {
+    // **The relay is not a classified connection, and leaving it in put the stages out of
+    // order.** MEASURED 2026-09-02: with every peer counted, stage five fired within a poll of
+    // stage three — the tab's connection to its bootstrap node — so a single tab reported
+    // `connection-classified` while `ice-gathering` stayed at zero, which is the roadmap's
+    // fifth and fourth stages arriving in the wrong order. The relay IS stage three, and
+    // counting it again as stage five would report the same fact twice under two names and
+    // make the drop between them structurally zero.
+    //
+    // Stage five is about a peer this visitor can compute WITH, which is what makes
+    // `control-only` worth distinguishing from `direct` at all.
+    if (funnelRelayPeers.has(peer)) continue
+    const path = running.transport.pathTo(peer)
+    if (path === 'unconnected') continue
+    funnel.enter('connection-classified', path === 'control-only' ? 'control-only' : 'direct')
+    break
+  }
+
+  if (!funnelSawFirstTask && running.executor.executed >= 1 && running.executorInFlight === 0) {
+    funnelSawFirstTask = true
+    funnel.enter('first-task')
+  }
+}
+
+function beginComputingIndicator(): void {
+  // Constructed lazily rather than at module scope for `localConsentStore`'s reason: a
+  // module that reads a browser global when it is loaded cannot be loaded anywhere else.
+  computingIndicator ??= new ComputingIndicator(documentTitlePort())
+  // A fresh node has done no work; a stale mark from a previous node would decorate the
+  // title for a tab that has just started and is idle.
+  computingLastBusyAt = 0
+  computingTick()
+  computingTicker ??= setInterval(computingTick, COMPUTING_POLL_MS)
+}
+
+function endComputingIndicator(): void {
+  if (computingTicker !== null) {
+    clearInterval(computingTicker)
+    computingTicker = null
+  }
+  // Reported rather than left decorated: a stopped tab is not computing, and the title is
+  // the only place a visitor looking at another tab would find that out. The dwell is
+  // deliberately skipped — it exists to smooth a *sampled* reading of a running executor,
+  // and there is nothing to sample once the thread has been terminated.
+  computingLastBusyAt = 0
+  // `false`, not the switch's reading: Stop is a stronger statement than a halt and the tab
+  // has just terminated its worker, so a marker saying "not taking new work" would be the
+  // weaker of two true sentences shown in place of the stronger one.
+  computingIndicator?.report(0, false)
 }
 
 /**
@@ -1012,6 +1301,42 @@ async function aggregateTotalFrom(
   return typeof total === 'number' ? total : null
 }
 
+/**
+ * NET-12's URL parameters, on `?relay=`'s precedent — `?turn=`, `?turnRegion=`,
+ * `?iceTransportPolicy=` and `?turnRefreshMargin=`.
+ *
+ * Returns an object to spread, so absence is a field that is not there rather than a field
+ * set to `undefined`. The two are the same to the runtime and different to a reader, and
+ * `BrowserNodeOptions` is under `exactOptionalPropertyTypes`.
+ *
+ * **This adds no visible figure to the page.** Every visible figure is declared in
+ * `demo-regions.ts` and counted by `UI_SPEC_TALLY`; putting a TURN status on screen would
+ * make this change own `REGIONS`, all three tally fields and UI-SPEC §4.x and §12. Nothing in
+ * NET-12 asks for one.
+ */
+function turnOptionsFromQuery(): {
+  turnEndpoint?: string
+  turnRegion?: string
+  iceRelayOnly?: boolean
+  turnRefreshMarginMs?: number
+} {
+  const query = new URLSearchParams(location.search)
+  const endpoint = query.get('turn')
+  const region = query.get('turnRegion')
+  const margin = Number(query.get('turnRefreshMargin') ?? '')
+  // `iceTransportPolicy` is read INDEPENDENTLY of `?turn=`, and that independence is the point.
+  // An earlier draft returned early when no endpoint was present, which silently dropped the
+  // policy — and the arm that exists to prove a pair CANNOT connect without TURN then connected
+  // directly and reported the floor as broken. A floor arm needs the policy precisely when it
+  // has no rung.
+  return {
+    ...(endpoint === null || endpoint === '' ? {} : { turnEndpoint: endpoint }),
+    ...(region === null || region === '' ? {} : { turnRegion: region }),
+    ...(query.get('iceTransportPolicy') === 'relay' ? { iceRelayOnly: true } : {}),
+    ...(Number.isFinite(margin) && margin > 0 ? { turnRefreshMarginMs: margin } : {}),
+  }
+}
+
 const api: TabApi = {
   onChange(listener) {
     listeners.add(listener)
@@ -1032,6 +1357,11 @@ const api: TabApi = {
     const reporting = options.reporting === true
     consent = grantConsent(store, { anchoredTo: DEMO_ANCHORS, reportingAllowed: reporting })
     if (!reporting) declinedLocally += 1
+    // RUN-04's arming point — stage two, and the moment the held stage one is allowed to
+    // leave. AFTER `grantConsent` returns, never before: the whole reason the pending default
+    // is lawful under either reading of open question 3 is that a visitor who does not consent
+    // is not counted, and a send one line earlier would be exactly that visitor being counted.
+    armFunnel()
     notify()
     return stateOf()
   },
@@ -1053,6 +1383,18 @@ const api: TabApi = {
     // have moved. `consent` above is assigned from the same read and is what the
     // *request* path consults; this is the one the node is constructed with.
     const granted = requireConsent()
+    // RUN-04 — the OTHER way a visitor arrives at a granted consent. A returning visit reads a
+    // stored consent and never calls `api.grantConsent`, so arming only there would make every
+    // returning visitor invisible to the funnel while looking like a page-load drop-off — a
+    // defect that reads as a finding. `arm()` and `enter()` are both once-only, so calling this
+    // on the path that already armed sends nothing.
+    armFunnel()
+    // RUN-04 stage four. The observer itself was installed at the top of this file's import
+    // graph — see the side-effect import — and this only registers where its answer goes.
+    // Gathering that already happened is not lost: `onFirstIceGathering` fires immediately.
+    onFirstIceGathering(() => {
+      funnel.enter('ice-gathering')
+    })
     // Probe before attempting, so a missing capability is a fact about this browser
     // rather than an inference from an error message.
     const environment = probeEnvironment()
@@ -1129,10 +1471,51 @@ const api: TabApi = {
       ? await visitorEnrolmentOption(chosen.enrolment.providerAddr)
       : null
 
+    // RUN-02 — the switch is built here, AFTER consent, and started here for the same
+    // reason. `built-bundle.e2e.test.ts`'s P10 asserts that every request this page makes
+    // before consent is same-origin, over the whole request set; a poll at page load would
+    // break it, and P10 is right — a visitor who has not opted in has not agreed to talk to
+    // anybody. This line is reached only through `#allow`.
+    //
+    // The endpoint comes from the relay address this tab was given rather than from a second
+    // configuration knob, so the object it polls is the object it dials.
+    const switchEndpoint = options.relayAddrs
+      .map((addr) => switchEndpointFor(addr))
+      .find((origin): origin is string => origin !== null)
+    killSwitch =
+      switchEndpoint === undefined
+        ? null
+        : new KillSwitch({
+            endpoint: switchEndpoint,
+            clientVersion: thisPageVersion(),
+            fetch: (input, init) => globalThis.fetch(input, init),
+            ...(options.admissionPollIntervalMs === undefined
+              ? {}
+              : { intervalMs: options.admissionPollIntervalMs }),
+          })
+    killSwitch?.start()
+
     try {
       node = await BrowserNode.start({
         relayAddrs: options.relayAddrs,
         blockstoreName: options.blockstoreName,
+        // NET-12 — the TURN rung, activated by URL parameter on the `?relay=` precedent and
+        // OFF unless one is present. Conditional spreads rather than `undefined` values, so a
+        // page without the parameter passes no field at all: roughly forty existing e2e specs
+        // construct a node this way and every one must keep getting the explicit STUN list.
+        //
+        // `?iceTransportPolicy=relay` makes a direct candidate impossible BY POLICY. It exists
+        // for the harness that proves the rung carries a pair when no direct candidate is
+        // usable, and it must never become a default — a tab that can pair directly must.
+        ...turnOptionsFromQuery(),
+        // SCHED-03's predicate, sourced from RUN-02's remote sliced flag.
+        //
+        // **A tab with no readable relay origin gets `false` forever, and that is the correct
+        // failure direction rather than an oversight.** The alternative — halting a tab that
+        // cannot ask — would mean a page given an address this build cannot parse stops
+        // computing and says nothing about why. An operator's silence is not a stop order,
+        // and neither is a page's inability to hear one.
+        paused: () => killSwitch?.halted() ?? false,
         // Conditional spread, so a tab that has never enrolled passes no key at all rather
         // than an empty array. The two are the same to `PeerVerifier` — both are a set of
         // size zero — and different to a reader, who can see here that "pins nobody" is a
@@ -1278,6 +1661,22 @@ const api: TabApi = {
     // A peer dispatching work here changes what the surface must say, and the page
     // cannot poll for it — see `onActivity`.
     node.onActivity(notify)
+    // RUN-04 — which peers are relays, so `funnelTick` does not count stage three's connection
+    // a second time as stage five. Recorded from what this tab actually started with.
+    noteFunnelRelays(options.relayAddrs ?? [])
+    // RUN-04 stage three — the dial to the bootstrap peer completed.
+    //
+    // **Chosen by measurement rather than by plausibility, and the reason it is HERE.**
+    // `BrowserNode.start` resolving is itself the evidence: a browser has no listening socket,
+    // so it can only be on the fabric by way of a relay reservation, and a start that could not
+    // reach one rejects with `no-relay-reachable` before this line. Reading a libp2p event
+    // instead — `peer:connect` or `peer:identify` — would fire for peers reached later over
+    // WebRTC as well, so it would report stage three for a visit that never dialled a bootstrap
+    // node at all. The peer count is asserted rather than assumed for the same reason.
+    if (node.transport.peers.length > 0) funnel.enter('wss-bootstrap')
+    // BROW-07 — the tab strip starts saying whether this machine is working, and keeps
+    // saying it while the visitor is looking at something else.
+    beginComputingIndicator()
     notify()
     return node.peerId
   },
@@ -1406,6 +1805,19 @@ const api: TabApi = {
       blockstoreName: options.blockstoreName ?? 'o2-blocks',
     })
     return { peerId, relayAddrs }
+  },
+
+  admissionState() {
+    // RUN-02. Read straight off the switch, so the moment reported is the one the switch
+    // recorded rather than one this getter invented — see `TabApi.admissionState`.
+    const ks = killSwitch
+    if (ks === null) return null
+    return {
+      halted: ks.halted(),
+      observedAt: ks.firstHaltedAt,
+      reads: ks.counts.reads,
+      failures: ks.counts.failures,
+    }
   },
 
   activity() {
@@ -1599,11 +2011,19 @@ const api: TabApi = {
       // *"Always prefer local execution, unless it must be executed remotely … or the
       // current node is fully loaded."* This tab is the node, so it offers itself every
       // combine first and reaches for a peer only when one of the named conditions
-      // refuses it. Both ports are **this tab's own**, not second copies: `node.admission`
-      // is the `LocalCapacity` its `serveAgent` refuses a peer's combine on, and
+      // refuses it. Both ports are **this tab's own**, not second copies:
+      // `node.localAdmission` is the one reading every local path takes, and
       // `node.authorize` is the one authorizer it serves with. A tab admitting its own
       // work by a different rule would be more permissive to itself than to everybody
       // else.
+      //
+      // **CORRECTED 2026-09-02 (Phase 36). This line said `node.admission` and the sentence
+      // above it was already true — the wiring was what did not match.** `node.admission`
+      // is a bare `LocalCapacity` and has never heard of `paused`, which `serveAgent`
+      // consults; so while this tab was paused it refused every peer's combine and went on
+      // combining for itself, which is the exact inverse of the rule the paragraph states.
+      // `node.localAdmission` folds `paused` into the same reading, from the same binding
+      // `serveAgent` is handed. See `browser-node.ts`'s member docblock.
       //
       // **What this costs is stated on screen and in the outcome, not hidden.** A combine
       // this tab performed is signed by nobody — `localDispatch` signs nothing on purpose,
@@ -1614,7 +2034,7 @@ const api: TabApi = {
       // so a local result that disagrees with a peer's still surfaces as a disagreement.
       placement: {
         kind: 'prefers-local-combining',
-        capacity: node.admission,
+        capacity: node.localAdmission,
         authorize: node.authorize,
       },
     })
@@ -1759,7 +2179,7 @@ const api: TabApi = {
       // — its own capacity, its own authorizer — refuses it.
       placement: {
         kind: 'prefers-local-combining',
-        capacity: node.admission,
+        capacity: node.localAdmission,
         authorize: node.authorize,
       },
     })
@@ -1987,7 +2407,7 @@ const api: TabApi = {
         // the pool it places over, so without it every shard carried
         // `unreachable: … Can not dial self` against this tab's own id and a two-tab run
         // at `redundancy: 2` reached one replica. See `rpcAdmission`'s `LocalAdmission`.
-        admit: rpcAdmission(node.rpc, { local: node.admission }),
+        admit: rpcAdmission(node.rpc, { local: node.localAdmission }),
       },
       node.store,
       [node.egress],
@@ -2296,10 +2716,29 @@ const api: TabApi = {
    * dispatch — which names the record's CID — would find nothing there. Comparing the two
    * turns that from a `module block missing` several seconds later into a sentence naming
    * what happened. It has no known way to fire, and it is three lines.
+   *
+   * ## The order of the three steps is BROW-06, and it was the wrong way round
+   *
+   * This function opened with `required()` until 2026-09-02, so a tab that had not started
+   * threw `node not started` and a tab that had started must already have consented — which
+   * looks like a gate and is not one. It made the criterion **untestable**: with the fetch
+   * unreachable in the un-consented state, no network log could distinguish a consent gate
+   * from a node-state gate, and removing the consent check would have changed nothing an
+   * instrument could see. That is the shape of a proof that cannot fail.
+   *
+   * So the order is now: **consent, then fetch, then `required()` for the put.** `required()`
+   * still gates the blockstore write, which genuinely needs a node; it no longer stands in
+   * front of the network, which needs only a visitor's agreement.
+   *
+   * **`readConsent` and not `requireConsent()`, deliberately.** `requireConsent()` throws,
+   * and a throw here would put the refusal back in front of the fetch at a *different* call
+   * site — the same defect one line up. The gap is passed down instead, and
+   * `fetchModuleForDispatch` is the single place that turns it into a refusal.
    */
   async fetchModule(options) {
-    const n = required()
+    const found = readConsent(store, DEMO_ANCHORS)
     const outcome = await fetchModuleForDispatch({
+      consent: found.ok ? found.consent : found.gap,
       gatewayBase: options.gatewayBase,
       moduleCid: options.moduleCid,
       recordCid: options.recordCid,
@@ -2307,6 +2746,7 @@ const api: TabApi = {
     })
     if (!outcome.ok) return outcome
 
+    const n = required()
     const stored = await n.store.put(outcome.content)
     if (stored.toString() !== outcome.cid) {
       return {
@@ -2546,6 +2986,16 @@ const api: TabApi = {
   },
 
   async stop() {
+    // BROW-07, first and before the await: a tick that fired part-way through `node.stop()`
+    // would read a node that is being dismantled, and the tab strip would go on claiming to
+    // be computing for as long as the teardown took.
+    endComputingIndicator()
+    // RUN-04 — the ICE wrapper does NOT come off, and that is deliberate. It is installed at
+    // module evaluation because `@libp2p/webrtc` captures the constructor at its own, so a
+    // remove-on-stop would leave a restarted tab permanently unobservable: the capture has
+    // already happened and cannot happen again. The wrapper is a transparent subclass that
+    // delegates and reports once per visit, so leaving it costs the tab nothing.
+    funnelSawFirstTask = false
     if (node !== null) await node.stop()
     node = null
     // Back to "the question does not arise". A stopped tab cannot be out of step with a
@@ -2566,3 +3016,19 @@ const api: TabApi = {
 }
 
 window.o2 = api
+
+/**
+ * RUN-04's terminal report — where this visit stopped.
+ *
+ * `pagehide` rather than `beforeunload` or `unload`: it is the one event that fires on a
+ * bfcache eviction and on mobile Safari, where `unload` frequently does not, and a funnel that
+ * missed those would under-report exactly the population it exists to measure. The send is a
+ * beacon for the same reason — see `funnel-reporter.ts`.
+ *
+ * `FunnelReporter.stalled` is once-only and sends nothing for a visit that reached the last
+ * stage, so a `pagehide` that fires twice, or one that fires after a completed visit, costs
+ * nothing.
+ */
+window.addEventListener('pagehide', () => {
+  funnel.stalled()
+})
