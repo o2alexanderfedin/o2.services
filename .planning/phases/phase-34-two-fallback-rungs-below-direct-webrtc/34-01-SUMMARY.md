@@ -448,11 +448,26 @@ raised**; it exists to fail exactly when the opt-out starts spreading, and it di
 | ICE entry ceiling | 4 entries. Measured in Chromium: 4-entries-5-URLs and 5-entries **both** accepted with an empty console, so the ceiling is the library's advice about gathering latency, not an engine limit. Honoured anyway, and without dropping a survivor — both TURN ports ride in one entry's `urls` |
 | Local workerd ports | 8814 (Task 2), 8815 + 8816 (Task 4), 8817 (Task 5) |
 
-**The comparison inside one run, which is what this repository prefers to an absolute:** on a
-quiet host (`load/core 1.30`), arm A connected in **2 011 ms** while arm B — the identical
-arrangement with no TURN — spent its full **7 476 ms** deadline without forming a pair, and arm
-D's post-expiry gathering spent **7 493 ms** likewise. The ratio, not the absolute, is the
-reading: connecting over TURN is roughly a quarter of the time the no-TURN arm spends failing.
+**The comparison inside one run, which is what this repository prefers to an absolute.** All four
+figures below are from the **same** run on a quiet host (`load/core 1.30` before and after):
+
+| Arm | Duration | What it is |
+|---|---|---|
+| A | **2 011 ms** | connects over TURN |
+| B | **7 476 ms** | no TURN — spends its dial deadline without forming a pair |
+| C | **7 565 ms** | already-expired credential — likewise |
+| D | **18 583 ms** | the whole arm: connect, wait out an 8 s lifetime, re-attempt |
+
+The reading is the **ratio**, not the absolutes: connecting over TURN takes roughly a quarter of
+what the two not-connecting arms spend before giving up, and B and C agree with each other to
+within 1.2 %, which is what a bounded deadline should look like.
+
+**Arm D's post-expiry attempt is NOT separately timed.** Its 18 583 ms spans connect + wait +
+re-attempt together, so the only honest thing to say about the post-expiry leg is that it is
+bounded by the same dial deadline as B and C rather than measured. An earlier draft of this
+paragraph quoted "7 493 ms" for it — a number that was arm C's, from a *different* run, for a leg
+nobody had timed. It is corrected here rather than deleted, because writing a measured span that
+was never measured is a named defect in this repository and the correction is the record.
 
 ---
 
@@ -463,19 +478,22 @@ reading: connecting over TURN is roughly a quarter of the time the no-TURN arm s
 | `npx tsc --noEmit` | **exit 0** |
 | `npx vitest run --project node` | **exit 0** — 238 files, 3 406 passed, 3 skipped |
 | `npx vitest run --project browser` | **exit 0** — 396 files, 6 531 passed (chromium + firefox + webkit) |
-| `npx vitest run --project e2e` | see below |
+| `npx vitest run --project e2e` | **exit 0** — 61 files, 311 passed |
 | Pre-commit cheap guards | **exit 0** — 9 files, 400 passed |
 
 Every exit code was read with `EXIT=$?` on the line immediately after the command, never after a
 pipe. The browser and node lanes were re-run on a quiet host after an oversubscribed first pass;
 both banners read `host was quiet` for the runs quoted.
 
-**The e2e lane** was verified per-spec for every spec this phase added or touched, each on a
-quiet host: `ice-servers-alive` (8), `turn-credential.e2e` (6), `turn-fallback` (5),
-`turn-end-to-end` (2), `turn-sharding` (5), and the regression check `two-tabs` (6). A full-lane
-sweep exceeds a ten-minute command budget and was started in the background; **if it has not been
-read to completion, the full-lane figure is not claimed here** — the per-spec results above are
-what this SUMMARY stands on.
+**The e2e lane was read to completion**: 61 files, 311 tests, `E2E_LANE_EXIT=0`, **1 205.71 s**
+wall clock with the banner reading `host was quiet` (load/core 1.99 before, 1.17 after). It runs
+at `fileParallelism: false` by that project's own design, which is why it exceeds a ten-minute
+command budget and was run detached with its exit code appended to the log rather than read
+through a pipe.
+
+Every spec this phase added or touched was additionally verified on its own, on a quiet host:
+`ice-servers-alive` (8), `turn-credential.e2e` (6), `turn-fallback` (5), `turn-end-to-end` (2),
+`turn-sharding` (5), and the regression check `two-tabs` (6).
 
 ---
 
