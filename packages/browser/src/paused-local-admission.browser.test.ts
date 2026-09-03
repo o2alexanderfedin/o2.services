@@ -81,13 +81,19 @@ afterEach(async () => {
 const createWorker = (): Worker => new TaskExecutorWorker()
 
 /**
- * DET-03's stated literal, on `start-unwind.browser.test.ts`'s reasoning.
+ * DET-03 — **`[]`, not the opt-out**, and the difference is the point.
  *
- * No node here executes anything — every case asks a question and stops — so provenance
- * decides nothing. Stated rather than defaulted because `trustAnchors` is required, and a
- * reader counting this literal learns which files do not exercise the signed path.
+ * No node here executes anything: every case asks `localAdmission` a question and stops, so
+ * provenance decides nothing and the opt-out here would not be a decision this file makes.
+ * That word exists to cost somebody one, on `relayed-budget.node.test.ts`'s reasoning. An
+ * empty anchor set is the accurate statement instead — this tab trusts nobody and refuses
+ * every module — and it leaves `guardModuleProvenance` composed rather than swapped for the
+ * identity wrapper `browser-node.ts` substitutes when the opt-out is passed. If a later case
+ * adds a dispatch it fails loudly, rather than quietly running something unsigned.
+ *
+ * Stated rather than defaulted because `trustAnchors` is required and carries no default.
  */
-const ADMISSION_ANCHORS = 'runs-unsigned-artifacts' as const
+const ADMISSION_ANCHORS = [] as const
 
 /** Start a tab with a `paused` thunk, or without one when `paused` is omitted. */
 async function startTab(label: string, paused?: () => boolean): Promise<BrowserNode> {

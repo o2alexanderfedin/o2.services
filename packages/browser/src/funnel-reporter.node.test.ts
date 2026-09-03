@@ -86,15 +86,24 @@ describe('the reporter carries no origin to fall back to', () => {
     }
   })
 
-  it('the demo reads its endpoint from the URL and from nowhere else', () => {
+  it('the demo reads its endpoint from the URL and the relay, and from nowhere else', () => {
     const code = stripComments(readFileSync(DEMO_MAIN, 'utf8'))
-    // The positive half: not merely "no literal" but "the one route that exists is the
-    // configured one". A file with no origin AND no reader would pass the three cases above.
+    // The positive half: not merely "no literal" but "every route that exists is a derived
+    // one". A file with no origin AND no reader would pass the three cases above.
     expect(
       code,
       'demo/main.ts no longer reads the funnel endpoint from the page URL, so either the ' +
         'wiring moved or the reporter is reached some other way — check which before ' +
         'relaxing this',
     ).toContain('funnelEndpointFrom')
+    // AND the second route, added 2026-09-03 because the first one measured nothing: a link
+    // posted to a group chat carries no parameter, so the endpoint is derived from the relay
+    // the tab started with. Without this the page would fall back to being inert on exactly
+    // the visits that matter, which is the state this whole file exists to make legible.
+    expect(
+      code,
+      'demo/main.ts no longer targets the reporter from its relay, so a page reached by a ' +
+        'bare link is inert again — which is what made the first real run report zero',
+    ).toContain('funnel.target(')
   })
 })

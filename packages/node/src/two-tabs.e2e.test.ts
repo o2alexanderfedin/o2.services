@@ -15,7 +15,7 @@ import type { TabNameRecord } from '@o2/browser'
 import { KERNEL_RECORD, kernelBytes } from '@o2/demo'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
-import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -165,6 +165,7 @@ beforeAll(async () => {
     root: ROOT,
     logLevel: 'error',
     server: { port: 0 },
+    cacheDir: fixtureViteCacheDir(ROOT),
     // Dependency pre-bundling must stay ON. Several libp2p transitive deps are
     // CommonJS (`netmask`, reached via @libp2p/utils), and without pre-bundling the
     // browser fails on `does not provide an export named 'Netmask'` — an ESM/CJS

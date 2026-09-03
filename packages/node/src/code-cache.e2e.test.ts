@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { sha256 } from '@o2/core'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { ARTIFACT_SIZED, CHAINED_HOT, syntheticArtifact } from '../../browser/src/synthetic-artifact.ts'
-import { chromiumFixtureArgs } from './e2e-browser-launch.ts'
+import { chromiumFixtureArgs, fixtureViteCacheDir } from './e2e-browser-launch.ts'
 
 /**
  * AOT-05, criterion 4 — does a second visit hit V8's code cache?
@@ -519,6 +519,7 @@ beforeAll(async () => {
     root: ROOT,
     logLevel: 'error',
     server: { port: 0 },
+    cacheDir: fixtureViteCacheDir(ROOT),
     plugins: [
       {
         name: 'o2-code-cache-fixtures',

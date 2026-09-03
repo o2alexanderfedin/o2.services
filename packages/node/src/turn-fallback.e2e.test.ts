@@ -18,7 +18,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 // does not add one for a test. The minter reached here is the SAME module the hosted tier runs,
 // which is the point: a harness with its own copy would prove coturn accepts the harness.
 import { sharedSecretMinter } from '../../cloudflare/src/turn-credential.ts'
-import { launchFixtureBrowser, startCoturn } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser, startCoturn } from './e2e-browser-launch.ts'
 import type { CoturnHarness } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
@@ -369,7 +369,7 @@ beforeAll(async () => {
   if (relayAddress === undefined) throw new Error('relay produced no browser-dialable address')
   relayAddr = relayAddress
 
-  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 }, cacheDir: fixtureViteCacheDir(ROOT) })
   await server.listen()
   const url = server.resolvedUrls?.local[0]
   if (url === undefined) throw new Error('vite dev server produced no URL')

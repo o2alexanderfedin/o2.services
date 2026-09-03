@@ -88,6 +88,7 @@ import type { ChildProcess } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fixtureViteCacheDir } from './e2e-browser-launch.ts'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
@@ -258,7 +259,7 @@ beforeAll(async () => {
     peerIds.set(region, await waitForReady(PORTS[region], 120_000))
   }
 
-  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 }, cacheDir: fixtureViteCacheDir(ROOT) })
   await server.listen()
   const url = server.resolvedUrls?.local[0]
   if (url === undefined) throw new Error('vite dev server produced no URL')

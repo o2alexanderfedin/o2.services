@@ -11,7 +11,7 @@ import type { Browser, BrowserContext, Page } from 'playwright'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { launchFixtureBrowser, startCoturn } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser, startCoturn } from './e2e-browser-launch.ts'
 import type { CoturnHarness } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
@@ -246,7 +246,7 @@ beforeAll(async () => {
   await startWorker(ADMITTING_PORT, issuerKey)
   await startWorker(REFUSING_PORT, STRANGER_ISSUER)
 
-  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 }, cacheDir: fixtureViteCacheDir(ROOT) })
   await server.listen()
   const url = server.resolvedUrls?.local[0]
   if (url === undefined) throw new Error('vite dev server produced no URL')

@@ -70,6 +70,7 @@ import type { FunnelStage } from '@o2/net'
 // `computing-indicator.ts`, and publishing it would add an exported-but-statically-unreachable
 // symbol in front of `reachability-guard.node.test.ts` for the benefit of no consumer.
 import { FUNNEL_ARMING } from '../../browser/src/funnel-reporter.ts'
+import { fixtureViteCacheDir } from './e2e-browser-launch.ts'
 
 const CLOUDFLARE_DIR = fileURLToPath(new URL('../../cloudflare', import.meta.url))
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -177,6 +178,20 @@ function pageUrl(arm: Arm, relay: string): string {
   return `${baseUrl}${PAGE}?relay=${encodeURIComponent(relay)}&funnel=${encodeURIComponent(arm.origin)}`
 }
 
+/**
+ * The URL a link posted to a group chat actually carries: a relay and **no `?funnel=`**.
+ *
+ * This is the shape that measured nothing. On the first real run the deployed relay recorded
+ * 6 615 inbound hop streams and the funnel recorded zero on all six stages, because the only
+ * route to a collector was a parameter the circulating link does not have. ARM 6 opens this URL
+ * and asserts reports arrive anyway — derived from the relay the tab started with, which in
+ * this harness IS the arm's own collector, so the derivation being correct and the reports
+ * arriving are the same observation.
+ */
+function bareLinkUrl(relay: string): string {
+  return `${baseUrl}${PAGE}?relay=${encodeURIComponent(relay)}`
+}
+
 function relayAddr(arm: Arm): string {
   return `/ip4/${HOST}/tcp/${String(new URL(arm.origin).port)}/ws/p2p/${arm.peerId}`
 }
@@ -237,7 +252,7 @@ function attributedTo(
 }
 
 beforeAll(async () => {
-  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 }, cacheDir: fixtureViteCacheDir(ROOT) })
   await server.listen()
   const url = server.resolvedUrls?.local[0]
   if (url === undefined) throw new Error('vite dev server produced no URL')
@@ -252,10 +267,15 @@ afterAll(async () => {
 
 /** Open a page for an arm, run `drive`, then leave BY NAVIGATION so `pagehide` fires. */
 async function visit(arm: Arm, relay: string, drive: (page: Page) => Promise<void>): Promise<void> {
+  await visitUrl(pageUrl(arm, relay), drive)
+}
+
+/** {@link visit}, over a URL the caller composed. ARM 6 opens a link with no `?funnel=`. */
+async function visitUrl(url: string, drive: (page: Page) => Promise<void>): Promise<void> {
   const context: BrowserContext = await browser.newContext()
   const page = await context.newPage()
   try {
-    await page.goto(pageUrl(arm, relay))
+    await page.goto(url)
     await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
     await drive(page)
     // **Navigation, not close.** `pagehide` fires reliably on a navigation in Playwright;
@@ -450,6 +470,49 @@ describe('criterion 2 — a third stall stage, which takes two tabs to reach', (
         ['page-load', 'consent', 'wss-bootstrap', 'ice-gathering', 'connection-classified'],
         2,
       )
+    } finally {
+      await arm.stop()
+    }
+  }, 300_000)
+})
+
+/**
+ * The bare link — the shape that measured nothing, and the repair asserted in production form.
+ *
+ * **Why this arm exists and no unit test could replace it.** Every unit case in
+ * `funnel-reporter.test.ts` was green throughout the run that reported zero, because they all
+ * hand the reporter an endpoint. What was broken was the WIRING: a page opened without
+ * `?funnel=` built an inert reporter and no test opened such a page. So this arm opens exactly
+ * the URL that circulates, drives the same visit ARM 4 drives, and asserts the same vector.
+ *
+ * **It is also the scope fence, asserted rather than described.** The relay here is
+ * `/ip4/127.0.0.1/tcp/<port>/ws/...` and the collector this arm reads is `http://127.0.0.1:<port>`
+ * — the same host and port, because in this harness the relay IS the collector. A derivation
+ * that reached anywhere else would leave this arm's vector at six zeros, so "the target derived
+ * is the relay's own origin" and "the reports arrived" are one observation, not two.
+ */
+describe('criterion 2 — a link with no funnel parameter, which is the link that circulates', () => {
+  it('ARM 6 — a bare link derives its collector from the relay and reports the same vector', async () => {
+    const arm = await newArm()
+    try {
+      const before = await readFunnel(arm.origin)
+      expect(before.entered['page-load'], `arm 6 floor — ${render(before)}`).toBe(0)
+
+      const relay = relayAddr(arm)
+      await visitUrl(bareLinkUrl(relay), async (page) => {
+        await page.evaluate(async ([one]) => {
+          window.o2.grantConsent()
+          return window.o2.start({ relayAddrs: [one as string], blockstoreName: 'o2-arm-6' })
+        }, [relay])
+        await sleep(3_000)
+      })
+
+      const after = await untilStalled(arm.origin, 'wss-bootstrap')
+      // eslint-disable-next-line no-console
+      console.log(`[attribution] arm 6 bare link: ${render(after)}`)
+      // The same vector ARM 4 produces from a configured page. Integer literals throughout,
+      // by way of `attributedTo`; nothing here is read back out of the reading it tests.
+      attributedTo(before, after, 'wss-bootstrap', ['page-load', 'consent', 'wss-bootstrap'])
     } finally {
       await arm.stop()
     }

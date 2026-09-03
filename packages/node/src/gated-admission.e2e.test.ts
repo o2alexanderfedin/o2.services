@@ -86,7 +86,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { toHex } from '@o2/core'
 import type { PublicKeyHex } from '@o2/core'
 import { encodeRequest, parseResponse } from '@o2/net'
-import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -282,7 +282,7 @@ beforeAll(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-gated-admission-'))
   await startCoLocatedDoor()
 
-  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 }, cacheDir: fixtureViteCacheDir(ROOT) })
   await server.listen()
   const url = server.resolvedUrls?.local[0]
   if (url === undefined) throw new Error('vite dev server produced no URL')
