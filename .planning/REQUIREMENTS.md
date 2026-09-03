@@ -1531,6 +1531,34 @@ a branch inside `fabric-node.ts`.
 
 ---
 
+### Secrets at rest on a volunteer's device (existing `AUTH-` prefix)
+
+**Minted 2026-09-02**, out of an owner question about whether this fabric could host protected
+infrastructure for people under a hostile state — see
+`.planning/consults/2026-09-02-can-this-host-infrastructure-under-a-hostile-state.md`. Most of
+that analysis is not a requirement and stays in the consult. This row is the part that is: not
+a property the fabric lacks for a population it was not designed for, but a secret this
+repository writes to disk unprotected for **every** volunteer, whatever their jurisdiction.
+
+**It carries the `AUTH-` prefix rather than a new one**, against this section's "two new
+prefixes, and only two" — because it is not a new category. `AUTH-01` already owns a node's
+identity key; this is the same key, at rest instead of at generation.
+
+- [ ] **AUTH-06**: Every long-lived *secret* a node writes to its device — the identity
+      seed, and the provider key where a tier stores one — is encrypted at rest under a
+      passphrase-derived key, on both the browser and the node tier, and a wrong
+      passphrase refuses by name rather than minting a fresh identity. The certificate is
+      out of scope: it is public material and encrypting it would break offline
+      verification while protecting nothing
+      *(Opened 2026-09-02. **AUTH-01 says the key is generated on-device and says nothing
+      about what happens to it afterwards**, which is the gap: browser
+      `packages/browser/src/idb-identity-store.ts:95` stores a raw 32-byte seed in
+      IndexedDB, node `packages/node/src/identity-store.ts:67-86` stores the same seed as a
+      raw file with filesystem mode as its only protection. Argon2id is in design §3.9 and
+      appears in this tree only as a comment at
+      `packages/node/src/capability-fixture.ts:18`. The visitor's owner key is out of scope:
+      it is already non-extractable at `packages/browser/src/visitor-key.ts:134`. Phase 42.)*
+
 ### The public run and what it measures (new prefix `RUN-`)
 
 - [x] **RUN-04**: The six-stage connectivity funnel — page load → consent → WSS to bootstrap →

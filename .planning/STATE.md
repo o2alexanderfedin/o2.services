@@ -1002,6 +1002,18 @@ that straggler-dominated distributions have meaningless means.
 
 ### Roadmap Evolution
 
+- **Phase 42 added 2026-09-02** — *Keys at Rest, Not in the Clear.* Filed after an owner
+  question about whether this platform could host infrastructure for people under a hostile
+  state. The analysis is at
+  `.planning/consults/2026-09-02-can-this-host-infrastructure-under-a-hostile-state.md`; the
+  finding that became a phase is that both tiers persist a raw ed25519 seed —
+  `packages/browser/src/idb-identity-store.ts:95` into IndexedDB, and
+  `packages/node/src/identity-store.ts:67-86` as a file whose only protection is its mode.
+  Opens **AUTH-06**, which exists because AUTH-01 covers where the key is generated and is
+  silent on what happens to it afterwards. **Appended, so it lands after Phase 39 recruits
+  real people** — whether it should instead gate Phase 39's go/no-go checklist is recorded in
+  the phase entry as an open question for the owner and is not answered here.
+
 - **Phase 27 added 2026-08-08** — *The Demo UI, Driven by the Real Fabric.* Filed by owner
   instruction after a UI mockup covering all four workloads was imported to
   `docs/design/mockups/o2-fabric-demo/`. **Corrected by hand 2026-08-10; the original clause is
