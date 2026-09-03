@@ -118,6 +118,8 @@ import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { currentBrowserLabel } from './browser-id.ts'
 import type { HeldPeer } from './dial-plan.ts'
+import { iceConfiguration } from './ice-configuration.ts'
+import type { TurnRung } from './ice-configuration.ts'
 import { IdbBlockstore } from './idb-blockstore.ts'
 import { IdbIdentityStore } from './idb-identity-store.ts'
 import { IdbIssuance } from './idb-issuance.ts'
@@ -131,6 +133,30 @@ import type { WorkerFactory } from './worker-executor.ts'
 export interface BrowserNodeOptions {
   /** Relays to reserve on. At least one is required to be addressable at all. */
   readonly relayAddrs: readonly string[]
+  /**
+   * The TURN rung below direct WebRTC — NET-12. **Off by default**, and the default is the
+   * whole reason this is an option rather than a constant: roughly forty existing e2e specs
+   * construct a node with no minting endpoint, and every one of them must keep getting the
+   * explicit STUN list and nothing else.
+   *
+   * Supplied as a **function** rather than a value because the credential is short-lived and
+   * `@libp2p/webrtc` re-invokes `rtcConfiguration` once per connection in both directions
+   * (`private-to-private/transport.js:100` and `:131`). A value captured at start would be a
+   * credential that expires mid-session; a function is re-asked, which is what makes "short
+   * lived" possible at all.
+   *
+   * Answering `null` means *no rung right now* — no endpoint configured, or the fetch failed.
+   * The configuration handed onward still carries the explicit STUN list, never `{}`; see THE
+   * TRAP in `ice-configuration.ts`.
+   */
+  readonly turnRung?: () => TurnRung | null | Promise<TurnRung | null>
+  /**
+   * Forces `iceTransportPolicy: 'relay'`, making a direct candidate impossible **by policy**.
+   * Only a harness sets this. It proves *the rung carries a pair when no direct candidate is
+   * usable*; it says nothing about how often real networks make direct candidates unusable,
+   * and it must never be defaulted on.
+   */
+  readonly iceRelayOnly?: boolean
   /**
    * How long this tab keeps another node's provider record before sweeping it. **1 hour
    * by default** — {@link PROVIDER_RECORD_VALIDITY_MS}.
@@ -1516,7 +1542,23 @@ export class BrowserNode {
       // dialling. `identity.peerId` is computed from this same key's public half rather
       // than from `nodeKey`, so the two cannot disagree.
       privateKey: identity.privateKey,
-      transports: [webSockets(), webRTC(), circuitRelayTransport()],
+      transports: [
+        webSockets(),
+        // NET-12 — the FUNCTION form, even when there is no credential to fetch. The package
+        // re-invokes it per connection, so this is the seam a short-lived credential arrives
+        // through. Passing a plain object here would mean changing the call shape twice, and
+        // the value it returns always carries an explicit `iceServers` — a configuration
+        // without that key is an instruction to use four defaults this project never chose,
+        // one of which stopped resolving. See `ice-configuration.ts`.
+        webRTC({
+          rtcConfiguration: async () =>
+            iceConfiguration({
+              turn: (await options.turnRung?.()) ?? null,
+              relayOnly: options.iceRelayOnly === true,
+            }),
+        }),
+        circuitRelayTransport(),
+      ],
       connectionEncrypters: [noise()],
       streamMuxers: [yamux()],
       services: {

@@ -40,12 +40,31 @@ function probe(host, port, type, attrs, label) {
   })
 }
 
-const HOSTS = [
+/**
+ * The hosts to probe, read from **this repository's own list** rather than a copy.
+ *
+ * It used to be a hand-edited literal here, and the consult that ruled the provider had to say
+ * *"reproduce after editing its `HOSTS` list"*. That is a second list, and a second list is a
+ * thing that can disagree with the first — which is the exact defect Phase 34 exists to remove
+ * from the ICE configuration. So the STUN legs come from `STUN_SERVERS`, and a name dropped
+ * there stops being probed here in the same change.
+ *
+ * The TURN legs stay written out: they are the *provider question*, not the fabric's STUN list,
+ * and both ports belong in the probe because Cloudflare was measured answering on each.
+ */
+const { STUN_SERVERS } = await import('../packages/browser/src/ice-configuration.ts')
+
+const TURN_HOSTS = [
   ['turn.cloudflare.com', 3478],
   ['turn.cloudflare.com', 53],
-  ['stun.l.google.com', 19302],
-  ['stun1.l.google.com', 19302],
-  ['stun.l.google.com', 3478],
+]
+
+const HOSTS = [
+  ...TURN_HOSTS,
+  ...STUN_SERVERS.map((entry) => {
+    const [host, port] = entry.urls.replace(/^stuns?:/, '').split(':')
+    return [host, Number(port ?? '3478')]
+  }),
 ]
 for (const [h, p] of HOSTS) {
   const bind = await probe(h, p, 0x0001, Buffer.alloc(0), `${h}:${p} STUN Binding  `)

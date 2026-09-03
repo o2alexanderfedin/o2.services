@@ -101,9 +101,17 @@ Phase 34's first task should state `iceServers` in this repository, drop the dea
 carry the reason beside each survivor. The Cloudflare TURN rung then goes into the same
 structure through `rtcConfiguration`'s function form rather than beside it.
 
-Reproduce with `node tools/turn-provider-probe.mjs` after editing its `HOSTS` list; the
-`ENOTFOUND` arrives as a socket error rather than a timeout, which is itself the distinction
-between *no such name* and *no answer*.
+Reproduce with `node tools/turn-provider-probe.mjs`; the `ENOTFOUND` arrives as a socket error
+rather than a timeout, which is itself the distinction between *no such name* and *no answer*.
+
+**AMENDED 2026-09-02 (Phase 34, Task 1) — the editing step is gone.** This line read *"after
+editing its `HOSTS` list"*. The tool now reads `STUN_SERVERS` from
+`packages/browser/src/ice-configuration.ts`, so its STUN legs ARE the fabric's stated list and a
+name dropped there stops being probed here in the same change. A hand-edited `HOSTS` was a second
+list, and a second list can disagree with the first — the exact defect this consult argued the
+ICE configuration should stop having. The TURN legs stay written out in the tool, because they
+are the provider question rather than the fabric's STUN list. Re-run 2026-09-02 after the change
+reproduced every reading in the table above unchanged.
 
 ---
 

@@ -180,3 +180,17 @@ export type {
   UrlDefect,
   UrlResult,
 } from './streaming-load.ts'
+// `iceConfiguration` and `turnEntry` are deliberately NOT re-exported here. Both are called by
+// `browser-node.ts`, which is inside this package, and nothing outside it consumes either one —
+// so publishing them would add two callable barrel exports with no call path from any entry
+// point, which `reachability-guard.node.test.ts` reddens on and which is the "correct and
+// unreached" shape this repository has been caught by three times. The types below ARE
+// published, because `BrowserNodeOptions.turnRung` names `TurnRung` in its signature and a
+// caller cannot supply one without being able to name it.
+export { STUN_SERVERS } from './ice-configuration.ts'
+export type {
+  IceConfiguration,
+  IceConfigurationOptions,
+  StunEntry,
+  TurnRung,
+} from './ice-configuration.ts'
