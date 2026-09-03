@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="o2-build" content="2.0.0-rc.11 193a252" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>o2.services — fabric status</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font: 15px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+        margin-inline: auto; max-width: 52rem; padding: 2rem 1.25rem 4rem;
+      }
+      h1 { font-size: 1.15rem; margin: 0 0 .3rem; }
+      h2 { font-size: .95rem; margin: 0 0 .5rem; word-break: break-all; }
+      .sub { opacity: .65; font-size: .85rem; }
+      .card { border: 1px solid currentColor; border-radius: 6px; padding: .9rem 1.1rem; margin: 1.2rem 0; }
+      .verdict { font-weight: 700; margin: .2rem 0 .8rem; }
+      .halted .verdict { color: #b00; }
+      .unreachable .verdict { opacity: .7; font-weight: 400; font-style: italic; }
+      dl { display: grid; grid-template-columns: max-content 1fr; gap: .15rem .9rem; margin: 0; }
+      dt { opacity: .65; }
+      dd { margin: 0; word-break: break-all; }
+      code {
+        background: color-mix(in srgb, currentColor 12%, transparent);
+        padding: .1em .35em; border-radius: 3px;
+      }
+      a { color: inherit; }
+    </style>
+    <script type="module" crossorigin src="./assets/status-Bpmfp2A1.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/cid-BXpsijIc.js">
+    <link rel="modulepreload" crossorigin href="./assets/src-Du3LlYjV.js">
+    <link rel="modulepreload" crossorigin href="./assets/src-BTE1dbav.js">
+  </head>
+  <body>
+    <!--
+      RUN-03. Written for a volunteer who has been given nothing: no account, no key, no
+      cookie. Everything on this page comes from `GET /self`, which is public, plus this
+      page's own build stamp. It starts no node, runs no worker, asks for no permission and
+      stores nothing — see `status.ts` for why that is not a P10 regression.
+
+      A second static page, on `policy.html`'s shape: its own inline styles, no framework,
+      no region catalogue, one named reader. It carries no `data-region` and no figure, so
+      `UI_SPEC_TALLY` does not move for it.
+    -->
+    <h1>Fabric status</h1>
+    <p class="sub">
+      What the fabric's bootstrap objects are publishing about themselves, read live. Nothing
+      here needs an account, a key or a cookie, and nothing on this page can change anything —
+      the operator's write surface is not reachable from any web page. Add
+      <code>?self=https://host</code> (comma-separated for several) to point this at other
+      objects.
+    </p>
+    <main id="objects">
+      <p class="sub">Reading…</p>
+    </main>
+    <p class="sub">
+      <a href="./index.html">The node itself</a> ·
+      <a href="./policy.html">What that page does</a>
+    </p>
+  </body>
+</html>
