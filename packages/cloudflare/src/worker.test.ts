@@ -235,6 +235,44 @@ describe('criterion 2’s evidence — one PeerId across a construction boundary
 
     expect(response.status).toBe(404)
   })
+
+  /**
+   * MOVED 2026-09-02 BY PHASE 34, in the same commit as the route it is about.
+   *
+   * The case above asserts *every other path 404s*, and `/turn-credential` stopped being an
+   * "other path" the moment `NET-12`'s mint route landed. Left alone it would have reddened for
+   * the right reason at the wrong time — the route is a capability shipped WITH the phase that
+   * measures it, not a surface that appeared while somebody was in the file. So the pair below
+   * states the new boundary explicitly: the mint route is served, and a neighbouring path that
+   * merely looks like it is not.
+   */
+  it('serves the NET-12 mint route rather than 404ing it', async () => {
+    const object = new BootstrapObject(
+      newState(new FakeDurableObjectStorage(), new FakeDurableObjectAlarms()),
+      ENV,
+    )
+
+    const response = await object.fetch(
+      new Request('https://example.invalid/turn-credential', { method: 'OPTIONS' }),
+    )
+
+    // Preflight, because it is the leg that must work before the gate is ever reached.
+    expect(response.status).toBe(204)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*')
+  })
+
+  it('still 404s a path that merely resembles the mint route', async () => {
+    const object = new BootstrapObject(
+      newState(new FakeDurableObjectStorage(), new FakeDurableObjectAlarms()),
+      ENV,
+    )
+
+    const response = await object.fetch(
+      new Request('https://example.invalid/turn-credentials', { method: 'POST' }),
+    )
+
+    expect(response.status).toBe(404)
+  })
 })
 describe('`GET /self` names the build it is running', () => {
   /**

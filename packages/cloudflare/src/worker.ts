@@ -34,6 +34,21 @@
  * name from a request. The next phase that wants a route here is in the same position this one
  * was, and this block is not a licence it can cite.
  *
+ * ## AMENDED 2026-09-02 BY PHASE 34 — the list is now `/self`, `/funnel` and `/turn-credential`
+ *
+ * Same reasoning as the Phase 37 block above, and it is cited rather than borrowed. The rule
+ * forbids a route added by a phase that does not measure the capability. **Phase 34 owns the
+ * TURN rung** — `NET-12`, criterion 1 — so `POST /turn-credential` ships WITH the phase that
+ * measures it: the gate is exercised by `turn-credential.test.ts` in the node lane and by
+ * `turn-credential.e2e.test.ts` against a local workerd, and the credential it mints is observed
+ * being accepted, and later refused, by a real RFC 5766 server.
+ *
+ * This route is also the first membership check this tier has ever had. Before it, the only
+ * inbound gate was an IP header — see `turn-credential.ts`'s CORRECTION 1. `GET /self`'s
+ * response shape is unchanged, `SERVED_BY` is still a constant for it, and the next phase that
+ * wants a route here is in the same position this one was: this block is not a licence it can
+ * cite.
+ *
  * ## What it does NOT do — SUPERSEDED 2026-08-26 BY PHASE 30
  *
  * This block said the object *"does not upgrade a WebSocket"* and *"does not construct the
@@ -101,6 +116,7 @@ import {
   writeFunnelJournal,
 } from './funnel-journal.ts'
 import { MAX_FUNNEL_BODY_BYTES, funnelDimensionsFrom } from './funnel-collector.ts'
+import { mintTurnCredential, sharedSecretMinter } from './turn-credential.ts'
 import { parseFunnelReport } from '@o2/net'
 import type { FunnelPopulation, FunnelTotals } from '@o2/net'
 import type { HibernationCapableState } from './hibernatable-socket.ts'
@@ -191,6 +207,37 @@ export interface HostedEnv {
    * toward the fabric continuing to work rather than toward anyone being able to stop it.
    */
   readonly O2_ADMISSION_KEY?: string
+  /**
+   * The TURN shared secret, from `wrangler secret put O2_TURN_SECRET` — NET-12.
+   *
+   * A **secret** rather than a `var`, on `O2_ADMISSION_KEY`'s stated reason: `wrangler.jsonc` is
+   * tracked, and a secret in it is a secret in the history. The same value is held by the TURN
+   * server, and that shared value being one value is the whole joint — a worker minting under
+   * one secret and a TURN server checking under another produces a `401` that reads like a
+   * network fault.
+   *
+   * Optional, and absence **refuses the mint by name** (`turn-not-configured`) rather than
+   * minting a credential every TURN server would reject. A deployment that is not configured
+   * should say so, not look broken.
+   */
+  readonly O2_TURN_SECRET?: string
+  /**
+   * Comma-separated issuer public keys whose certificates admit a caller to the TURN minter.
+   *
+   * **This is the fabric membership set**, and before Phase 34 this tier had nothing of the
+   * kind — see `turn-credential.ts`'s CORRECTION 1. Absence pins the empty set, which refuses
+   * every caller: an unconfigured gate must be closed, never open.
+   */
+  readonly O2_TRUSTED_ISSUERS?: string
+  /**
+   * Comma-separated TURN URLs this deployment hands out, e.g.
+   * `turn:turn.example.com:3478?transport=udp,turn:turn.example.com:53?transport=udp`.
+   *
+   * Both ports belong here: the provider was measured answering on 3478 and on 53, and 53
+   * survives the firewalls that drop 3478. Absent means this deployment declares no rung and
+   * every region is refused as undeclared.
+   */
+  readonly O2_TURN_URLS?: string
 }
 
 /**
@@ -734,6 +781,53 @@ export class BootstrapObject {
     return Response.json(await writeDirective(this.#node.store, directive))
   }
 
+  /**
+   * NET-12 — mint a short-lived TURN credential for a caller the fabric admits.
+   *
+   * This method is deliberately thin: it reads configuration off `HostedEnv`, parses a body, and
+   * hands both to `mintTurnCredential`, which holds the entire gate and is pure. The deployed
+   * class is the one part of this package no local spec can reach, so nothing worth asserting
+   * lives here.
+   *
+   * A refusal answers **400** rather than 401/403 for every gate failure except a missing
+   * secret, and the reason is deliberate: distinguishing *your certificate is not trusted* from
+   * *your signature is wrong* by status code would let an unauthenticated caller map the gate.
+   * The named reason is in the body for a legitimate caller to read.
+   */
+  async #mintTurnCredential(request: Request): Promise<Response> {
+    const raw = await request.text()
+    if (raw.length > MAX_TURN_BODY_BYTES) {
+      return new Response('request too large', { status: 413, headers: TURN_CORS_HEADERS })
+    }
+    let body: unknown
+    try {
+      body = JSON.parse(raw)
+    } catch {
+      return new Response('not a TURN credential request', { status: 400, headers: TURN_CORS_HEADERS })
+    }
+
+    const secret = this.#env.O2_TURN_SECRET
+    const urls = commaSeparated(this.#env.O2_TURN_URLS)
+    const result = await mintTurnCredential(body, {
+      pinnedIssuers: new Set(commaSeparated(this.#env.O2_TRUSTED_ISSUERS)),
+      now: Date.now(),
+      minter: secret === undefined || secret === '' ? null : sharedSecretMinter(secret),
+      // Task 5 replaces this with the per-region mapping. Until then a single declared list
+      // serves whichever region this object is, which is why the region still rides in the
+      // credential rather than being assumed.
+      urlsForRegion: (region: string) =>
+        urls.length === 0 ? null : HOSTED_OBJECT_NAMES.includes(region as HostedObjectName) ? urls : null,
+    })
+
+    if (!result.ok) {
+      return Response.json(
+        { ok: false, kind: result.failure.kind, reason: result.reason },
+        { status: result.failure.kind === 'turn-not-configured' ? 503 : 400, headers: TURN_CORS_HEADERS },
+      )
+    }
+    return Response.json({ ok: true, ...result.grant }, { headers: TURN_CORS_HEADERS })
+  }
+
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade') === 'websocket') return this.#upgrade(request)
     const path = new URL(request.url).pathname
@@ -746,6 +840,18 @@ export class BootstrapObject {
       if (request.method === 'POST') return this.#bankFunnel(request)
       if (request.method === 'GET') return this.#readFunnel()
       return new Response('method not allowed', { status: 405, headers: FUNNEL_CORS_HEADERS })
+    }
+    // NET-12's mint route. See the AMENDED-BY-PHASE-34 block in this file's header: this is
+    // the phase that measures the capability, which is the case the one-route rule was drawing
+    // a line *for* rather than against.
+    if (path === '/turn-credential') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { status: 204, headers: TURN_CORS_HEADERS })
+      }
+      if (request.method !== 'POST') {
+        return new Response('method not allowed', { status: 405, headers: TURN_CORS_HEADERS })
+      }
+      return this.#mintTurnCredential(request)
     }
     // RUN-02's ONE write surface. See `#writeAdmission` for why this tier grew a route at
     // all, enumerated rather than asserted, and why nothing under it carries a CORS header.
@@ -917,6 +1023,32 @@ const SELF_CORS_HEADERS: Readonly<Record<string, string>> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Access-Control-Max-Age': '86400',
+}
+
+/**
+ * The mint route's body ceiling. A certificate plus a signature is well under a kilobyte; this
+ * leaves room for the X.509 form and refuses anything that is not a request at all before it is
+ * parsed.
+ */
+const MAX_TURN_BODY_BYTES = 16_384
+
+/**
+ * CORS for the mint route.
+ *
+ * Preflight is not decoration here. The tab calls this from the Vite dev origin in the phase's
+ * own e2e specs and from a static origin in production; without it the whole path fails before
+ * the gate is reached, and it fails in a way that looks exactly like the gate refusing.
+ */
+const TURN_CORS_HEADERS: Readonly<Record<string, string>> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Max-Age': '86400',
+}
+
+/** Split a comma-separated var, dropping empties — `wrangler dev` injects `''` for an absent one. */
+function commaSeparated(value: string | undefined): string[] {
+  return (value ?? '').split(',').map((part) => part.trim()).filter((part) => part !== '')
 }
 
 const FUNNEL_CORS_HEADERS: Readonly<Record<string, string>> = {
