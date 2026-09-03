@@ -41,7 +41,7 @@
  */
 
 import { peerIdFromString } from '@libp2p/peer-id'
-import type { Libp2p, Stream } from '@libp2p/interface'
+import type { Connection, Libp2p, Stream } from '@libp2p/interface'
 import { SendRefused } from '@o2/core'
 import type { Transport } from '@o2/core'
 import {
@@ -50,7 +50,55 @@ import {
   MAX_INBOUND_MESSAGES_IN_FLIGHT_PER_PEER,
   MAX_QUEUED_SENDS_PER_PEER,
   WIRE_CHUNK_BYTES,
+  relayedBudgetPerDirection,
 } from './constants.ts'
+
+/**
+ * NET-13 — what this node's connections to one peer are good for.
+ *
+ * Three answers rather than two, because "connected" is the word that caused the
+ * defect. `libp2p.getPeers()` counts a peer whose only connection is a relayed
+ * circuit, and a relayed circuit is a **control** path: one bidirectional data
+ * counter for the whole connection, so a symmetric exchange gets 64 KiB each way and
+ * a job's worth of bytes is not merely slow over it, it is cut. Reporting that pair
+ * as connected and reporting it as able to carry work are different claims, and this
+ * type is what keeps them different.
+ */
+export type PeerPath =
+  /** At least one open, **unlimited** connection exists. Work may be dispatched. */
+  | 'carries-work'
+  /**
+   * Open connections exist and every one of them is limited — the pair fell all the
+   * way through to a relay. Small control traffic still crosses it; bulk data does
+   * not.
+   */
+  | 'control-only'
+  /** No open connection at all. */
+  | 'unconnected'
+
+/**
+ * Whether one connection is a control path rather than a data path.
+ *
+ * **A positive test on `limits` being present**, which is libp2p's own answer and the
+ * same predicate the browser tier reads (`browser-node.ts`'s `carries` map). Measured
+ * on two unrelated relays — a hosted one on 2026-08-24 (consult §15) and a local
+ * `circuitRelayServer()` on 2026-09-02 — `connection.limits` on a relayed connection
+ * is `{}`: an object, present, and **empty**. So the presence of the object is a sound
+ * reading of the connection's *class* on both, and its contents are a sound reading of
+ * nothing; the budget has to come from {@link relayedBudgetPerDirection} instead. A
+ * direct connection reports `undefined`, measured in the same run.
+ *
+ * **Why the remote address is not consulted as a second opinion.** The obvious belt —
+ * "does the address contain `/p2p-circuit`" — is wrong on the case that matters most:
+ * a pair that successfully upgraded to WebRTC keeps a remote address of the form
+ * `<relay>/p2p-circuit/webrtc/p2p/<peer>`, so a substring test files the *successful*
+ * upgrade as control-only. Distinguishing the two needs `Circuit.exactMatch`, and
+ * `@multiformats/multiaddr-matcher` is not a dependency of this package. A hand-rolled
+ * approximation of it here would be the `dial-plan.ts` substring defect a second time.
+ */
+function isControlPath(connection: Connection): boolean {
+  return connection.limits !== undefined
+}
 
 /** The fabric's own protocol id, versioned so a later wire change is negotiable. */
 export const O2_RPC_PROTOCOL = '/o2/rpc/1.0.0'
@@ -328,6 +376,41 @@ export class Libp2pTransport implements Transport {
 
   async send(to: string, message: Uint8Array<ArrayBuffer>): Promise<void> {
     if (this.#stopped) throw new Error('transport stopped')
+
+    // NET-13 — refuse, by name, before spending anything on a send the relay will cut.
+    //
+    // Checked ahead of the gate and the dial so the refusal is immediate: a caller that
+    // is going to be turned away learns now rather than at the far end of a timeout,
+    // which is the whole difference between a refusal and a stall.
+    //
+    // **Both conditions, never the path alone.** Rendezvous, offers and every other
+    // small control exchange negotiate over limited connections on purpose — that is
+    // what the `runOnLimitedConnection` flag below is for — so a gate keyed on the path
+    // class alone would silence discovery across the whole fabric. Only a message that
+    // cannot fit its own direction is refused.
+    //
+    // The flag is named here without its value on purpose: `relayed-job.node.test.ts`
+    // counts that flag's `true` literals in this file and requires exactly two, one
+    // inside `handle` and one inside `dialProtocol`. A third occurrence in prose makes
+    // the count read three, and the guard stops being able to tell a missing
+    // registration from a comment. Measured — this comment's first draft spelled the
+    // literal out while explaining not to, and reddened that case.
+    //
+    // The budget is the default this node would itself serve, because the connection
+    // does not state its own: `limits` on a relayed connection is measured to be an
+    // empty object. A relay whose operator raised `defaultDataLimit` will therefore
+    // see some sends refused that it would in fact have carried — conservative in the
+    // direction that costs a named refusal rather than a cut circuit.
+    const perDirection = relayedBudgetPerDirection()
+    if (BigInt(message.byteLength) > perDirection && this.pathTo(to) === 'control-only') {
+      throw new SendRefused(
+        `${this.localId} refused a send to ${to}: the only path to it is a relayed ` +
+          `circuit, whose budget is ${perDirection} bytes in each direction, and this ` +
+          `message is ${message.byteLength} bytes`,
+        { to, by: this.localId, reason: 'control-only-path' },
+      )
+    }
+
     // Created **before** the gate is taken, deliberately. The bounded wait behind
     // the gate is part of what this send costs, so it has to sit inside the same
     // budget as the dial and the write — a signal created after the wait would
@@ -414,6 +497,42 @@ export class Libp2pTransport implements Transport {
     return this.#libp2p.getPeers().map((peer) => peer.toString())
   }
 
+  /**
+   * NET-13 — what this node's connections to `to` are good for, right now.
+   *
+   * Read live rather than cached, for {@link DialPlanner.stalled}'s reason one tier
+   * over: the answer is about *now*, and a pair that has since upgraded or gone away
+   * must not still be reported by its last verdict.
+   *
+   * An unparseable peer id answers `'unconnected'` rather than throwing. This is a
+   * report, and {@link send} consults it before doing anything else — raising here
+   * would turn a malformed destination into a different error than the dial already
+   * raises for it, which is a behaviour change nobody asked for.
+   */
+  pathTo(to: string): PeerPath {
+    let open: Connection[]
+    try {
+      open = this.#libp2p.getConnections(peerIdFromString(to)).filter((c) => c.status === 'open')
+    } catch {
+      return 'unconnected'
+    }
+    if (open.length === 0) return 'unconnected'
+    return open.some((c) => !isControlPath(c)) ? 'carries-work' : 'control-only'
+  }
+
+  /**
+   * NET-13 — every connected peer this node reaches over nothing but a relay.
+   *
+   * The reading a fabric otherwise does not have. Every surface downstream of
+   * `peers` counts these as compute peers, and the relay's own budget forbids them
+   * from carrying the work — a condition nobody reports is a condition nobody can
+   * act on. The browser tier already reports its own version of this
+   * (`TabApi.relayedOnly`); this is the same claim at the transport both tiers share.
+   */
+  get controlOnlyPeers(): readonly string[] {
+    return this.peers.filter((peer) => this.pathTo(peer) === 'control-only')
+  }
+
   /** Deregister the protocol. Does not stop the underlying libp2p node. */
   async stop(): Promise<void> {
     if (this.#stopped) return
@@ -489,7 +608,7 @@ export class Libp2pTransport implements Transport {
       throw new SendRefused(
         `${this.localId} refused a send to ${to}: ${gate.active} of ${this.#maxStreamsPerPeer} ` +
           `streams in use and ${gate.queue.length} of ${this.#maxQueuedSends} sends queued`,
-        { to, by: this.localId },
+        { to, by: this.localId, reason: 'per-peer-stream-budget' },
       )
     }
 

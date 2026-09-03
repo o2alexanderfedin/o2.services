@@ -660,6 +660,30 @@ export interface TabApi {
   /** BROW-04. Null when no node is running. */
   activity(): TabActivity | null
   /**
+   * RUN-02 — what this tab has been told about admission, and **when it first heard it**.
+   *
+   * `null` when this tab is running no kill switch, which is a page that was never started or
+   * one whose relay address this build could not derive an origin from. That is a different
+   * state from *not halted* and is reported as one.
+   *
+   * ## Why `observedAt` is the tab's own clock and not the reader's
+   *
+   * The propagation window RUN-02 publishes is *elapsed time from the write returning to the
+   * **last** tab observing the halt*. A harness that polled each page and timestamped the
+   * answer would be measuring its own poll interval, not the fabric's — so the moment is taken
+   * inside the page, by the switch, the first time `halted()` turns true, and read back here
+   * afterwards. `packages/node/src/kill-switch-propagation.e2e.test.ts` is the reader.
+   *
+   * It never moves once set. A halt that was lifted and re-applied would otherwise erase the
+   * number being measured.
+   */
+  admissionState(): {
+    readonly halted: boolean
+    readonly observedAt: number | null
+    readonly reads: number
+    readonly failures: number
+  } | null
+  /**
    * BROW-02. Publish this tab's start outcome and read back what peers know.
    *
    * Publishes only when the visitor allowed it; otherwise it asks without telling.
@@ -877,6 +901,26 @@ export interface TabApi {
       operatorId: string
       providerAddr: string
     }
+    /**
+     * How often this tab asks its bootstrap object whether its region has been halted —
+     * RUN-02.
+     *
+     * Absent is the production default, `ADMISSION_POLL_INTERVAL_MS` in
+     * `packages/browser/src/kill-switch.ts`, whose cost arithmetic is written beside the
+     * constant.
+     *
+     * **This is configuration, not a test bypass, and the distinction is checkable.** A
+     * visitor could set it; the production default is what applies when it is absent; and
+     * **nothing is skipped at any value** — a shorter interval polls more often, it does not
+     * poll differently, and it changes no decision the switch makes. `built-bundle.e2e.test.ts`
+     * records the rule this is measured against: *"There is no test-only bypass: the API
+     * refuses for the same reason the button is not there yet."*
+     *
+     * It exists because Phase 36's propagation window has to be read at **two** intervals to
+     * say whether the window's dominant term is the poll — a single reading at one interval
+     * is a number with no way to tell what it is a number about.
+     */
+    admissionPollIntervalMs?: number
   }): Promise<string>
   /**
    * Join using whatever the page's own origin says to dial.

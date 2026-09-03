@@ -21,6 +21,7 @@ export type {
 } from './ports.ts'
 // NET-09 — the marker a Transport raises when *this* node declined to send.
 export { SendRefused } from './ports.ts'
+export type { SendRefusalReason } from './ports.ts'
 
 // Hashing — pure JS, so it works outside a secure context. See hash.ts.
 export { SHA256_CODE, sha256 } from './hash.ts'
@@ -407,6 +408,11 @@ export {
   requestEnrollment,
   resolveReplicaSets,
   shouldRenewCertificate,
+  // NET-12 — the domain-separation string a TURN mint request is signed under. Exported because
+  // the SIGNER (a tab, `@o2/browser`) and the VERIFIER (the hosted minter, `@o2/cloudflare`) are
+  // in different packages and must produce byte-identical bytes. A string rather than a builder;
+  // `enrollment.ts` records why.
+  TURN_MINT_PURPOSE,
   // The WebCrypto arm of `UserSigner`: turns a non-extractable `CryptoKey` pair into the
   // thing `requestEnrollment` asks for, so a visitor's owner key can be one the page that
   // rendered it cannot read. Both platform tiers call this when their `enrollment` option

@@ -231,7 +231,23 @@ count alone answers only half the question. Plus a Stop button.
 | `computePeers()` | peers that answered an offer and will actually execute a task |
 | `heldPeers()` | each peer plus `carriesWork` — false when the only connection is a relayed circuit |
 
-A relayed circuit is capped at **2 minutes / 128 KiB** and may not carry a job. Two
+A relayed circuit is capped and may not carry a job — but **the cap is not the pair of
+numbers this line carried until 2026-09-02**, and a UI that renders the old ones tells a
+visitor they have twice the room they have.
+
+> **CORRECTED 2026-09-02.** This sentence read *"capped at **2 minutes / 128 KiB**"*. Both
+> figures are wrong for a UI to quote. **The data limit counts BOTH directions**, so a
+> symmetric request/response gets **64 KiB each way, not 128** — measured twice on unrelated
+> relays: the hosted one on 2026-08-24 and a local `circuitRelayServer()` on 2026-09-02, both
+> returning a **49 152**-byte echo for a 64 KiB request. The usable figure is lower again,
+> because the counter is on **wire** bytes: 62 KiB each way completes, 63 KiB is cut. **The
+> duration limit was not observed at all** — a relayed connection held 206 s through ten pings
+> with no cut. And both are defaults **of the relay server**, so an operator running the server
+> sets them; a UI must not state them as properties of the fabric. See
+> `packages/libp2p/src/constants.ts` — `relayedBudgetPerDirection()` is derived from
+> `RELAY_DATA_LIMIT_BYTES` so the two cannot drift apart.
+
+Two
 tabs can end up mutually connected and unusable; discovery rounds report
 `relayedOnly[]` and `stalled[]` for exactly that. The honest sentence a UI must be able
 to render: *"this pair is connected, cannot run your job, and I have stopped trying."*

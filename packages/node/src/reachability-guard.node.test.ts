@@ -684,6 +684,18 @@ describe('the guard cannot report clean because it looked at nothing', () => {
       // caller is `BootstrapObject`. So the condition is not "declared on the hosted tier"
       // but "reached only through it", which is a wider set than the earlier raises implied.
       // Raised by exactly the one that arrived.
+      //
+      // 2026-09-02 (Phase 37, the connectivity funnel): 113 -> 116. Three rows, all in
+      // `@o2/net` and all on the same standing condition one hop out: `parseFunnelReport`,
+      // `isFunnelCountry` and `isFunnelNetworkClass` are reached from
+      // `BootstrapObject.fetch`'s `POST /funnel` handler and from nowhere else, and `fetch` is
+      // invoked by the Workers runtime. **Three and not the nine the phase could have
+      // published**: the four remaining schema predicates stay module-private because
+      // `parseFunnelReport` is their only caller, and the journal's own read/write pair is
+      // deliberately NOT added to `@o2/cloudflare`'s barrel — `worker.ts` imports it
+      // relatively, so publishing it would have cost two more rows for no reader. Read
+      // behaviourally by `funnel-collector.e2e.test.ts` against a real workerd and by
+      // `funnel-schema.test.ts` in both lanes. Raised by exactly the three that arrived.
     ).toBeLessThanOrEqual(UNREACHABLE_CEILING)
   }, GRAPH_TIMEOUT_MS)
 
@@ -1451,9 +1463,69 @@ interface OpenFinding {
  * symbols; this number exists so a seventh arrival cannot slip in under a bound that was
  * sized for six.
  */
-const UNREACHABLE_CEILING = 113
+/**
+ * **116 -> 118 on 2026-09-02 (Phase 36, RUN-02), matched to exactly two register rows.**
+ *
+ * `libp2p/clientVersionFrom` and `libp2p/isHaltedFor`, both added to `GLOBAL_OBJECT_HOP` in
+ * the same commit and both named by the derived case rather than read off the source. The
+ * raise is by exactly two and the register grew by exactly two — this number tracks the
+ * register, and a raise that outran it would be the ceiling absorbing an arrival nobody
+ * classified.
+ *
+ * The sequence is worth keeping because it is the guard working rather than being worked
+ * around: the two symbols were put in `packages/libp2p/src/index.ts` one commit earlier, the
+ * guard refused at `118 against a bound of 116` with **no** register entry available — nothing
+ * called them yet — and the barrel line was narrowed instead. They entered the barrel, the
+ * register and this number together, in the commit that gave them a caller.
+ */
+const UNREACHABLE_CEILING = 118
 
 const OPEN_FINDINGS: readonly OpenFinding[] = [
+  {
+    key: 'net/parseFunnelReport',
+    declaredIn: 'packages/net/src/funnel-schema.ts',
+    callers: 'unreachable-only',
+    reason:
+      'RUN-05, Phase 37 — the connectivity funnel\'s wire parser, beside the contract it '
+      + 'parses for the reason `parseRequest`/`parseResponse` are in the same package: a '
+      + 'second, more lenient reading of one contract living in the tier that receives the '
+      + 'bytes is how a field the other end never sends comes to be accepted. Wired: '
+      + '`BootstrapObject.fetch` routes `POST /funnel` to `#bankFunnel`, which parses the body '
+      + 'with this before anything is stored. Unreachable for the hosted tier\'s standing '
+      + 'condition, one hop out: the only caller is `fetch`, which the Workers runtime invokes '
+      + 'and no call expression in this repository does. Read in BOTH lanes by '
+      + '`packages/net/src/funnel-schema.test.ts` — every field refused one at a time, a clock '
+      + 'refused where an hour belongs, and an unnamed field proved dropped rather than stored '
+      + '— and end to end against a real workerd by `funnel-collector.e2e.test.ts`.',
+  },
+  {
+    key: 'net/isFunnelCountry',
+    declaredIn: 'packages/net/src/funnel-schema.ts',
+    callers: 'unreachable-only',
+    reason:
+      'RUN-05, criterion 4 — the country validator, published because `@o2/cloudflare` reads '
+      + '`CF-IPCountry` off the request and must check it against the range declared here '
+      + 'rather than against a second copy. That is `isStartBrowserLabel`\'s stated discipline '
+      + 'and its stated reason: the disclosure promise rests on the coarseness, so the range is '
+      + 'checked where the range is declared. Wired: `funnelDimensionsFrom` in '
+      + '`packages/cloudflare/src/funnel-collector.ts`, reached from `BootstrapObject.fetch`. '
+      + 'Unreachable for that method\'s standing condition. Read in both lanes by '
+      + '`funnel-schema.test.ts` and at the header by `funnel-collector.test.ts`, which also '
+      + 'records the measured finding that Cloudflare\'s Tor pseudo-country `T1` carries a '
+      + 'digit and is therefore filed as `ZZ`.',
+  },
+  {
+    key: 'net/isFunnelNetworkClass',
+    declaredIn: 'packages/net/src/funnel-schema.ts',
+    callers: 'unreachable-only',
+    reason:
+      'RUN-05 — the network-class validator, published for the reason `isFunnelCountry` is and '
+      + 'reached through the same one caller. The list is closed because a value whose width '
+      + 'the sender chooses is the fingerprint criterion 4 forbids: the browser\'s own '
+      + '`effectiveType` really does answer `slow-2g`, and `funnel-collector.test.ts` reads '
+      + 'that value being refused into `unknown` rather than stored as sent. Unreachable for '
+      + '`BootstrapObject.fetch`\'s standing condition.',
+  },
   {
     key: 'cloudflare/DoDatastore',
     declaredIn: 'packages/cloudflare/src/do-datastore.ts',
@@ -2521,7 +2593,25 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
 //
 // Closing condition, checkable and with no forecast attached: `cloudflare-node.ts` importing
 // `'./workerd-shims.ts'`.
-const ORPHAN_MODULE_CEILING = 31
+//
+// 2026-09-02: 31 → 32, raised by exactly one and named. `packages/browser/demo/status.ts` is
+// RUN-03's status page, and its mechanism is one this list has already accepted seven times:
+// it is loaded by an HTML `<script type="module">`, which no TypeScript import graph can see.
+// `demo/nav.ts` and the six `demo/surfaces/*.ts` are on this list for exactly that reason —
+// `demo/index.html:1729` and `:1756` import them from inline module scripts — and
+// `status.html` names `./status.ts` the same way. It IS wired, in the only way an HTML entry
+// point can be, and `vite.config.ts` now names `status.html` in `rollupOptions.input` so the
+// build emits it.
+//
+// **Giving it a production importer was considered and rejected as fake wiring.** Nothing in
+// the traced graph has any use for a status page; an import added to satisfy this count would
+// be a line whose only purpose is a number. `status-page-address.node.test.ts` imports
+// `DEFAULT_STATUS_ORIGIN` from it, which is a real reader and is not a production one.
+//
+// Closing condition, checkable: this list stops growing for HTML entry points when the graph
+// learns to read `<script type="module" src>` — the same closing condition `demo/nav.ts` and
+// the six surfaces are waiting on, and one nobody has scheduled.
+const ORPHAN_MODULE_CEILING = 32
 
 /**
  * A production module that reaches **no barrel at all**, named by path.

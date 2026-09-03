@@ -245,7 +245,92 @@ const NODE_MEASUREMENT = {
    * nodes on ephemeral ports, including a circuit relay). `unitFiles` moves by the same two,
    * for the identity recorded above.
    */
-  files: 219,
+  /**
+   * **219 -> 228 on 2026-09-02 (Phase 37, the connectivity funnel)**, nine files. Seven are
+   * this phase's own — `packages/net/src/funnel-schema.test.ts`,
+   * `packages/cloudflare/src/funnel-journal.test.ts`,
+   * `packages/cloudflare/src/funnel-collector.test.ts`,
+   * `packages/browser/src/funnel-reporter.test.ts`,
+   * `packages/browser/src/funnel-reporter.node.test.ts` and
+   * `packages/browser/src/ice-observer.test.ts` and
+   * `packages/node/src/proxy-figures.node.test.ts` — and two arrived from other work between
+   * the 2026-08-30 reading and this one.
+   *
+   * **COUNTED, not adjusted, and the difference is this table's own rule.** The figure comes
+   * from re-running the guard's walk (`228`) rather than from adding seven to 219, which is the
+   * arithmetic the `d4573a0`/`a96096b` note above records going wrong: subtracting a known
+   * departure from a stale total is wrong by everything that arrived and looks more careful
+   * than counting. Cross-checked against `git ls-files` filtered by the same globs, which reads
+   * **224** with **4** of this phase's specs still untracked at the moment of the reading —
+   * 224 + 4 = 228, and the two routes agree.
+   *
+   * **The span table is untouched and that is measured rather than assumed.** None of the seven
+   * belongs in it: all are pure — ports, constants, a fake `RTCPeerConnection` and two text
+   * scans, with no thread, no process and no socket — and each ran in the same invocation as
+   * `slow-specs.node.test.ts` at well under the 1000 ms cut. This phase's three e2e specs do
+   * NOT move this field: `relative()` filters the `.e2e.` suffix out of `NODE_PROJECT_FILES`,
+   * which is what the drift assertion reads.
+   *
+   * `unitFiles` moves by the same nine, for the identity recorded above:
+   * `files - excludedInNode`, where the subtrahend is 78 and none of the nine is on that list.
+   */
+  /**
+   * **228 -> 229 on 2026-09-02 (Phase 36, RUN-02)**, one file:
+   * `packages/libp2p/src/admission-directive.test.ts` (node lane). A matcher and a string
+   * split — no thread, no process, no socket — and it ran at `Duration 127ms` in its own
+   * invocation, well under the 1000 ms cut, so the span table is untouched.
+   *
+   * `unitFiles` moves by the same one, for the identity recorded above: it is
+   * `files - excludedInNode`, and this file is not on the explicitly-named slow list.
+   *
+   * Moved rather than left to `FILE_COUNT_TOLERANCE`, which is 5 and would have absorbed it
+   * silently — a tolerance that hides a known arrival is worse than no tolerance, because the
+   * next arrival is then measured against a number nobody has checked.
+   *
+   * **229 -> 230 on 2026-09-02 (Phase 36, RUN-02)**, one more:
+   * `packages/cloudflare/src/admission-flag.test.ts` (node lane). Storage over the complete
+   * fake, a key comparison and a region check — no thread, no process, no socket — and it ran
+   * at `Duration 621ms` in its own invocation, under the 1000 ms cut. `unitFiles` moves by the
+   * same one.
+   *
+   * **230 -> 231 on 2026-09-02 (Phase 36, RUN-02)**, one more:
+   * `packages/cloudflare/src/admission-slices.e2e.test.ts` (**e2e** lane — it spawns three
+   * `wrangler dev` children on ports 8801–8803 and opens real sockets, so it belongs where
+   * `fileParallelism: false` holds). `unitFiles` moves by the same one, for the identity
+   * recorded above and for the reason the `inbound-listener.e2e.test.ts` note gives: the
+   * subtrahend is the explicitly-named slow node specs only, and an e2e file is on neither
+   * side of that list. Measured `Duration 5.75s` in its own invocation, host quiet at
+   * load/core 0.71 — the span table is untouched because `relative()` filters the `.e2e.`
+   * suffix out of `NODE_PROJECT_FILES`, which is what the drift assertion reads.
+   *
+   * **231 -> 232 on 2026-09-02 (Phase 36, RUN-02)**, one more:
+   * `packages/browser/src/kill-switch.test.ts`. A bare `*.test.ts`, so it runs in the `node`
+   * lane **and** the `browser` lane — the portability claim is the module's own and a spec
+   * that only ran where `fetch` exists could not tell a port from a global. It counts once
+   * here, as `computing-indicator.test.ts` does. Two ports and a scripted fetch: no thread,
+   * no process, no socket. `unitFiles` moves by the same one.
+   *
+   * **232 -> 234 on 2026-09-02 (Phase 36, RUN-02 / RUN-03)**, two files:
+   * `packages/node/src/status-page-address.node.test.ts` (node lane — it reads two files off
+   * disk and compares them, which is why it carries the `.node.` suffix: the bare glob runs in
+   * the `browser` lane too and `readFileSync` does not exist there) and
+   * `packages/node/src/kill-switch-volunteer.e2e.test.ts` (**e2e** lane — it runs the real
+   * production build, spawns `wrangler dev` on 8807, stands a static server and launches
+   * chromium). `unitFiles` moves by the same two, for the identity recorded above.
+   *
+   * **234 -> 235 on 2026-09-02 (Phase 36, RUN-02)**, one more:
+   * `packages/node/src/kill-switch-regions.e2e.test.ts` (**e2e** lane — three `wrangler dev`
+   * children on 8804–8806, a Vite dev server and a chromium with three contexts).
+   * `unitFiles` moves by the same one.
+   *
+   * **235 -> 236 on 2026-09-02 (Phase 36, RUN-02)**, one more:
+   * `packages/node/src/kill-switch-propagation.e2e.test.ts` (**e2e** lane — one `wrangler dev`
+   * on 8808, a Vite dev server and a chromium with six contexts). Measured
+   * `real 41.76 / 42.55 / 41.65` s across three runs on a quiet host; it is long because it
+   * waits out a 30 000 ms poll twice, which is the thing it measures. `unitFiles` moves by the
+   * same one.
+   */
+  files: 236,
   tests: 2948,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
@@ -429,7 +514,7 @@ const NODE_MEASUREMENT = {
    * hour once spread 25.69 / 33.68 / 22.39 s — 1.5x end to end. Any comparison against this
    * number that turns on less than half of it is reading the host's weather.
    */
-  unitFiles: 141,
+  unitFiles: 158,
   unitTests: 2317,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.

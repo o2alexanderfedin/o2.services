@@ -516,7 +516,21 @@ describe('CHURN-04 — the shipped colouring run supplies admission control', ()
     // reached one replica and four e2e files went red. Widening this back to a prefix match
     // would let the same omission return silently, which is the whole reason the expectation
     // is an equality over the trimmed line rather than a `toContain`.
-    expect(wiring).toEqual(['admit: rpcAdmission(node.rpc, { local: node.admission }),'])
+    //
+    // **THE PORT MOVED 2026-09-02 (Phase 36, RUN-02), and this is not a refactor.** It read
+    // `{ local: node.admission }` until then. `node.admission` is a bare `LocalCapacity`,
+    // and `AgentOptions.paused` is consulted inside `serveAgent`, which answers **peers** —
+    // so this line, which is the branch `rpcAdmission` takes for an offer addressed to the
+    // submitter itself, never consulted it. A paused tab therefore refused every peer and
+    // went on computing its own work: the exact inverse of the rule `demo/main.ts` states
+    // six lines above the `capacity:` port and `browser-node.ts` states at its `authorize`
+    // hoist — *"a tab that admitted its own work by a rule other than the one it admits a
+    // peer's by would be more permissive to itself than to everybody else"*.
+    //
+    // `node.localAdmission` is the one reading every local path takes, with `paused` folded
+    // in from the same binding `serveAgent` is handed. The equality moved with the port and
+    // stayed an equality, for the reason above.
+    expect(wiring).toEqual(['admit: rpcAdmission(node.rpc, { local: node.localAdmission }),'])
   })
 
   it('imports rpcAdmission from @o2/net rather than reimplementing the probe', () => {

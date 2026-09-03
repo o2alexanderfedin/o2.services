@@ -43,6 +43,14 @@ export {
 // The constant's docblock carries the reading that makes it necessary: `kad-dht` splits
 // provider lifetime across two modules, and the one that looks authoritative is inert.
 export { PROVIDER_RECORD_VALIDITY_MS, providerRecordPolicy } from './constants.ts'
+
+// NET-13's `relayedBudgetPerDirection` is deliberately NOT re-exported here. It is
+// derived from `RELAY_DATA_LIMIT_BYTES` — which is — and its only consumer is
+// `Libp2pTransport.send` inside this package, which imports it module-relatively. A
+// barrel export would publish a surface nothing outside consumes, which is the
+// "+12 callable exports for an owner non-decision" the crypto-backend factories are
+// kept off the barrel for. The phase that needs the figure in another package adds
+// the export beside the consumer that wants it.
 export type { ProviderRecordPolicy } from './constants.ts'
 
 // AUTH-02 / AUTH-04 — who a relay admits, stated by the operator and read by nothing yet.
@@ -120,6 +128,22 @@ export {
 } from './dht-record-sweep.ts'
 export { TrafficSplitCounter, classifyConnection, trafficSplitMetrics } from './traffic-split.ts'
 export type { ConnectionClass, TrafficLeg, TrafficSplit } from './traffic-split.ts'
+
+// RUN-02's halt, beside `traffic-split.ts` and for the same reason: a wire shape the hosted
+// tier produces and clients read, in the one package both of them already depend on.
+//
+// **`isHaltedFor` and `clientVersionFrom` waited for a caller, and this line records why.**
+// Both were exported in this module's first commit and `reachability-guard.node.test.ts`
+// refused it: `the guard found 118 unreachable callable barrel exports against a bound of
+// 116`. Nothing called either one at that moment — the Worker stores and serves the directive
+// and never matches on it, and the matcher belongs to the client, which did not exist yet.
+// The two legitimate answers were to wire the symbol or to register it with a checkable
+// reason; raising the ceiling was neither. They are here now because `demo/main.ts` — one of
+// the guard's six entry points — reaches `kill-switch.ts`, which calls both. Kept as a note
+// rather than deleted, because the next person to add a shared shape before its reader will
+// meet the same refusal and this says what to do about it.
+export { ADMITTING, clientVersionFrom, isHaltedFor } from './admission-directive.ts'
+export type { AdmissionDirective } from './admission-directive.ts'
 export {
   NO_RELAY_SERVICE,
   RELAY_HOP_PROTOCOL,

@@ -103,7 +103,11 @@ export type {
 
 // Discovery and admission over RPC — SCHED-01, SCHED-03, NET-06.
 export { DEFAULT_PROBE_TIMEOUT_MS, RpcRecordIndex, rpcAdmission } from './discovery.ts'
-export type { AdmissionOptions } from './discovery.ts'
+// `LocalAdmission` joins `AdmissionOptions` here because Phase 36 gave it a second
+// implementer: `BrowserNode.localAdmission` answers a tab's own offers by the same rule
+// `serveAgent` applies to a peer's. A type, so it is outside `reachability-guard`'s
+// jurisdiction by construction.
+export type { AdmissionOptions, LocalAdmission } from './discovery.ts'
 
 // SCHED-01's requestor half — a data CID and a peer list become dispatchable
 // candidates. The bridge `discoverExecutors` never had: it answers in node keys and
@@ -136,3 +140,51 @@ export type { PublishOptions, PublishResult } from './start-report.ts'
 // Finding browsers that cannot announce themselves — NET-03.
 export { findReservedPeers, MAX_RESERVED_PEERS_PER_ANSWER, serveReservations } from './rendezvous.ts'
 export type { Rendezvous, RendezvousOptions } from './rendezvous.ts'
+
+
+// RUN-04 / RUN-05 — the connectivity funnel's wire contract, read by the browser tier that
+// composes a report and by the hosted tier that banks it. It lives in `@o2/net` rather than in
+// `@o2/core` because `packages/cloudflare/package.json` declares `@o2/net` and does not declare
+// `@o2/core`, which is the same reason `protocol.ts` and `start-report.ts` are here.
+//
+// **Three callables and no more, and the count is deliberate.** `reachability-guard.node.test.ts`
+// holds every unreachable callable barrel export by NAME in a register, and everything below
+// `BootstrapObject.fetch` is unreachable for this tier's standing reason — the Workers runtime
+// invokes it and no call expression in this repository does. So each callable published here
+// costs a register row. `parseFunnelReport` is published because a wire contract's parser
+// belongs beside the contract (the `parseRequest`/`parseResponse` precedent, four blocks up);
+// `isFunnelCountry` and `isFunnelNetworkClass` because `@o2/cloudflare` reads two headers and
+// must check them against the ranges declared here rather than against a second copy. The four
+// remaining predicates stay module-private: `parseFunnelReport` uses them and nothing else
+// does.
+export {
+  FUNNEL_CELL_BOUNDS,
+  FUNNEL_CONNECTION_CLASSES,
+  FUNNEL_FIELDS,
+  FUNNEL_HOUR_BUCKETS,
+  FUNNEL_MAX_CELLS,
+  FUNNEL_NETWORK_CLASSES,
+  FUNNEL_POPULATION,
+  FUNNEL_QUESTIONS,
+  FUNNEL_RECORD_CEILING_BYTES,
+  FUNNEL_SCHEMA_DIGEST,
+  FUNNEL_SCHEMA_FROZEN_AT,
+  FUNNEL_STAGES,
+  FUNNEL_UNKNOWN_COUNTRY,
+  FUNNEL_WEBRTC_STAGES,
+  isFunnelCountry,
+  isFunnelNetworkClass,
+  MEASURED_STORAGE_WALL_BYTES,
+  parseFunnelReport,
+} from './funnel-schema.ts'
+export type {
+  FunnelConnectionClass,
+  FunnelField,
+  FunnelFieldDomain,
+  FunnelNetworkClass,
+  FunnelPopulation,
+  FunnelQuestion,
+  FunnelReport,
+  FunnelStage,
+  FunnelTotals,
+} from './funnel-schema.ts'

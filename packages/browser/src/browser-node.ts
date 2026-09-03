@@ -24,6 +24,7 @@
  * what keeps the fabric's capacity independent of the backbone's bandwidth.
  */
 
+import { ed25519 } from '@noble/curves/ed25519.js'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { circuitRelayTransport } from '@libp2p/circuit-relay-v2'
@@ -52,16 +53,21 @@ import {
   publishCapabilities,
   requestEnrollment,
   subtleUserSigner,
+  encodeCanonical,
+  TURN_MINT_PURPOSE,
+  toHex,
   verifyCapabilityRecord,
   verifyCertificate,
 } from '@o2/core'
 import type {
+  Admission,
   Blockstore,
   Executor,
   IssuanceBudget,
   NodeCertificate,
   NodeRecords,
   NodeSovereignty,
+  Offer,
   PublicKeyHex,
   RecordIndex,
   ResultAttestor,
@@ -105,14 +111,19 @@ import {
   UNREACHABLE_PROVIDER,
   authorizeCapability,
   enrolOverRpc,
+  // SCHED-03's refusal string, imported rather than composed a second time here: one
+  // sentence a requestor reads, in one place, on `pausedRefusal`'s own discipline.
+  pausedRefusal,
   serveAgent,
   withholdingFrom,
 } from '@o2/net'
-import type { Authorizer, EnrolOutcome, SovereignCids } from '@o2/net'
+import type { Authorizer, EnrolOutcome, LocalAdmission, SovereignCids } from '@o2/net'
 import { createLibp2p } from 'libp2p'
 import type { Libp2p } from '@libp2p/interface'
 import { currentBrowserLabel } from './browser-id.ts'
 import type { HeldPeer } from './dial-plan.ts'
+import { iceConfiguration } from './ice-configuration.ts'
+import { turnCredentialHolder } from './turn-credentials.ts'
 import { IdbBlockstore } from './idb-blockstore.ts'
 import { IdbIdentityStore } from './idb-identity-store.ts'
 import { IdbIssuance } from './idb-issuance.ts'
@@ -126,6 +137,39 @@ import type { WorkerFactory } from './worker-executor.ts'
 export interface BrowserNodeOptions {
   /** Relays to reserve on. At least one is required to be addressable at all. */
   readonly relayAddrs: readonly string[]
+  /**
+   * Where to fetch a TURN credential from — NET-12. **Off by default**, and the default is the
+   * whole reason this is an option rather than a constant: roughly forty existing e2e specs
+   * construct a node with no minting endpoint, and every one of them must keep getting the
+   * explicit STUN list and nothing else.
+   *
+   * **An endpoint rather than a caller-supplied credential, and that is forced rather than
+   * preferred.** A mint request must be signed by the node key the certificate names, and the
+   * private half of that key lives in here — `identityFromSeed(seed)` — while the certificate
+   * lives in this tab's `IdbIdentityStore`. A caller has neither, so a caller cannot build the
+   * request. This node fetches its own credential, and the fetch is lazy: `@libp2p/webrtc`
+   * re-invokes `rtcConfiguration` once per connection in both directions
+   * (`private-to-private/transport.js:100` and `:131`), which is what makes "short-lived"
+   * possible at all and is a measured reading of the installed package.
+   *
+   * A failed fetch means *no rung right now*, never an error: the configuration handed onward
+   * still carries the explicit STUN list, never `{}`. See THE TRAP in `ice-configuration.ts`.
+   */
+  readonly turnEndpoint?: string
+  /**
+   * Which region's rung to ask for. Defaults to `bootstrap-us`, the one object every request
+   * is served by today.
+   */
+  readonly turnRegion?: string
+  /** Refetch this long before the stated expiry. A harness lowers it to exercise rotation. */
+  readonly turnRefreshMarginMs?: number
+  /**
+   * Forces `iceTransportPolicy: 'relay'`, making a direct candidate impossible **by policy**.
+   * Only a harness sets this. It proves *the rung carries a pair when no direct candidate is
+   * usable*; it says nothing about how often real networks make direct candidates unusable,
+   * and it must never be defaulted on.
+   */
+  readonly iceRelayOnly?: boolean
   /**
    * How long this tab keeps another node's provider record before sweeping it. **1 hour
    * by default** — {@link PROVIDER_RECORD_VALIDITY_MS}.
@@ -631,6 +675,21 @@ function canRelayFrom(listen: readonly string[]): boolean {
  * depend on `@o2/node` and must not — see this plan's summary for the packaging finding.
  * The duplication is real and is recorded rather than hidden.
  */
+/**
+ * The bytes a TURN mint request is signed over — the SIGNER's side, NET-12.
+ *
+ * `@o2/cloudflare`'s `turnMintPayload` builds the identical object on the verifier's side. Only
+ * {@link TURN_MINT_PURPOSE} crosses the package boundary, because a callable on `@o2/core`'s
+ * barrel reachable solely through the `window.o2` hop would need room in a disposition register
+ * that is full and frozen. `dag-cbor` sorts keys so field ORDER cannot drift; the field SET is
+ * held identical by `turn-mint-payload.node.test.ts`, which builds both sides and compares bytes.
+ */
+function turnMintBytes(nodeKey: string, region: string, requestedAt: number): Uint8Array {
+  const encoded = encodeCanonical({ purpose: TURN_MINT_PURPOSE, nodeKey, region, requestedAt })
+  if (!encoded.ok) throw new Error(`TURN mint payload is not encodable: ${String(encoded.error.kind)}`)
+  return encoded.bytes
+}
+
 async function resolveCertificate(parts: {
   enrollment: BrowserNodeOptions['enrollment']
   identity: NodeIdentity
@@ -1123,6 +1182,44 @@ export class BrowserNode {
    */
   readonly admission: LocalCapacity
   /**
+   * How this tab answers an offer addressed to **itself** — SCHED-03 and RUN-02.
+   *
+   * ## What was wrong before this member existed, measured rather than supposed
+   *
+   * `AgentOptions.paused` is consulted at `net/src/agent.ts`, inside `serveAgent`, and
+   * `serveAgent` answers **peers**. A tab running its own work does not go through it:
+   * `rpcAdmission`'s first branch short-circuits the wire for an offer addressed to the
+   * submitter — *"a node does not learn its own capacity over a wire"* — and the port it
+   * consults there was {@link BrowserNode.admission}, a bare `LocalCapacity` that has never
+   * heard of `paused`. Two more sites did the same on the `prefers-local-combining`
+   * placement.
+   *
+   * **So a paused tab refused every peer and went on computing its own work.** That is the
+   * exact inverse of the rule this file already states twice in its own words — see the
+   * `authorize` hoist below, *"a tab that admitted its own work by a rule other than the one
+   * it admits a peer's by would be more permissive to itself than to everybody else. One
+   * value, two readers, no way for them to disagree"* — and `demo/main.ts` says the same
+   * about the two ports it passes. The sentences were right and the wiring did not match
+   * them.
+   *
+   * ## What this is
+   *
+   * The **one reading every local path takes**, with `paused` folded in. The bound goes on
+   * the one reading rather than at the three call sites, which is Phase 31's recorded
+   * pattern: *"a bound is enforced on the one reading every path takes, never at the call
+   * sites."* It closes over the **same** `paused` value that goes to `serveAgent`, not a
+   * second copy of it, so the two readers cannot disagree.
+   *
+   * Its refusal is `pausedAnswer`'s `offer` arm in `LocalAdmission` clothing: capacity
+   * published **unchanged**, `standing: 'declining-all-work'`, and `pausedRefusal`'s string
+   * rather than a second one composed here. The figures say *my capabilities have not
+   * shrunk*; the standing says *and I am not taking work anyway*.
+   *
+   * {@link BrowserNode.admission} stays exposed unchanged, because `demo/main.ts` reads
+   * `admission.slots` and that reading is about **capacity**, which this does not move.
+   */
+  readonly localAdmission: LocalAdmission
+  /**
    * The one authorizer this tab serves with — AUTH-03.
    *
    * **Exposed so there is exactly one of it.** `serveAgent` consults this when a *peer*
@@ -1203,6 +1300,7 @@ export class BrowserNode {
     capGovernor: DutyCycleGovernor
     worker: WorkerExecutor
     admission: LocalCapacity
+    localAdmission: LocalAdmission
     authorize: Authorizer
     counter: CountingExecutor
     startLedger: StartOutcomeLedger
@@ -1227,6 +1325,7 @@ export class BrowserNode {
     this.#capGovernor = parts.capGovernor
     this.worker = parts.worker
     this.admission = parts.admission
+    this.localAdmission = parts.localAdmission
     this.authorize = parts.authorize
     this.#counter = parts.counter
     this.#startLedger = parts.startLedger
@@ -1462,6 +1561,40 @@ export class BrowserNode {
     }
     const identity = await identityFromSeed(seed)
 
+    // NET-12 — the TURN rung, built here because this is the only place that holds both halves
+    // a mint request needs: `identity.seed` signs it, and this tab's certificate names who is
+    // asking. The certificate is resolved further down (`resolveCertificate`), AFTER libp2p
+    // exists, so it is read through this cell rather than captured now. That is safe for a
+    // measured reason rather than a hopeful one: `rtcConfiguration`'s function form is invoked
+    // per connection, and the first connection cannot precede the end of `start`.
+    let turnCertificate: NodeCertificate | null = null
+    const turnRegion = options.turnRegion ?? 'bootstrap-us'
+    const turnHolder =
+      options.turnEndpoint === undefined || options.turnEndpoint === ''
+        ? null
+        : turnCredentialHolder({
+            endpoint: options.turnEndpoint,
+            ...(options.turnRefreshMarginMs === undefined
+              ? {}
+              : { refreshMarginMs: options.turnRefreshMarginMs }),
+            requestBody: () => {
+              // A tab that enrolled nowhere holds `null` here, and it still asks. **The gate
+              // decides membership, not the caller**: a tab that pre-judged its own request
+              // would be a second, weaker copy of the admission rule living on the side that
+              // cannot be trusted with it. The hosted minter refuses a missing or unpinned
+              // certificate by name, and the holder turns that refusal into "no rung" — which
+              // `iceConfiguration` renders as the explicit STUN list, never `{}`.
+              const requestedAt = Date.now()
+              return {
+                certificate: turnCertificate,
+                nodeKey: identity.nodeKey,
+                region: turnRegion,
+                requestedAt,
+                signature: toHex(ed25519.sign(turnMintBytes(identity.nodeKey, turnRegion, requestedAt), identity.seed)),
+              }
+            },
+          })
+
     const libp2p = await createLibp2p({
       // The only listen set a browser can offer.
       addresses: { listen: [...BROWSER_LISTEN] },
@@ -1471,7 +1604,23 @@ export class BrowserNode {
       // dialling. `identity.peerId` is computed from this same key's public half rather
       // than from `nodeKey`, so the two cannot disagree.
       privateKey: identity.privateKey,
-      transports: [webSockets(), webRTC(), circuitRelayTransport()],
+      transports: [
+        webSockets(),
+        // NET-12 — the FUNCTION form, even when there is no credential to fetch. The package
+        // re-invokes it per connection, so this is the seam a short-lived credential arrives
+        // through. Passing a plain object here would mean changing the call shape twice, and
+        // the value it returns always carries an explicit `iceServers` — a configuration
+        // without that key is an instruction to use four defaults this project never chose,
+        // one of which stopped resolving. See `ice-configuration.ts`.
+        webRTC({
+          rtcConfiguration: async () =>
+            iceConfiguration({
+              turn: (await turnHolder?.rung()) ?? null,
+              relayOnly: options.iceRelayOnly === true,
+            }),
+        }),
+        circuitRelayTransport(),
+      ],
       connectionEncrypters: [noise()],
       streamMuxers: [yamux()],
       services: {
@@ -1677,6 +1826,10 @@ export class BrowserNode {
       relayPeerIds,
       reuse: 'may-reuse-a-persisted-certificate',
     })
+
+    // NET-12 — the cell the TURN mint request reads. Set once, here, because this is the first
+    // line at which this tab knows what certificate it holds.
+    turnCertificate = certificate
 
     // AUTH-04 renewal — one cell, read by the index, the publisher and this tab's own
     // accessor. `CertificateHolder`'s doc says why it is a type rather than a local.
@@ -2075,6 +2228,40 @@ export class BrowserNode {
       now: Date.now,
     })
 
+    // SCHED-03 / RUN-02 — built once, here, and read by every LOCAL path, exactly as
+    // `authorize` one line up is built once and read by both consumers. Same site, same
+    // stated reason. See {@link BrowserNode.localAdmission} for what was wrong before it.
+    //
+    // **`paused` is read from ONE binding, and that is the whole of the design.** The value
+    // below is what the `serveAgent` call at the bottom of this function also passes, so a
+    // peer's offer and this tab's own offer consult the same predicate at the same instant.
+    // Resolving the option twice would be two readers with nothing able to catch them
+    // disagreeing — the objection this file already records against a second authorizer.
+    //
+    // The named opt-out is written here, once, which is where the factory now states the
+    // posture a caller who said nothing gets. `serve-agent-hooks.node.test.ts` counts it and
+    // its note is the reason it must stay exactly one: driving it to zero would be a factory
+    // that had either hard-wired a pause nobody asked for or dropped the hook.
+    const paused = options.paused ?? 'never-pauses'
+    const localAdmission: LocalAdmission = {
+      would: (offer: Offer): Admission => {
+        if (typeof paused === 'function' && paused()) {
+          // `pausedAnswer`'s `offer` arm, verbatim in its two claims. Capacity is published
+          // UNCHANGED — the figures say "my capabilities have not shrunk" — and `standing`
+          // is what says "and I am not taking work anyway". A refusal that reported zero
+          // slots would be a node claiming to have shrunk, which is a different and false
+          // statement, and it would be read as such by a requestor's headroom map.
+          return {
+            accepted: false,
+            reason: pausedRefusal(nodeId),
+            capacity: { slots: admission.slots, inFlight: admission.inFlight },
+            standing: 'declining-all-work',
+          }
+        }
+        return admission.would(offer)
+      },
+    }
+
     // ── SCHED-01 / NET-06 — registration and provider announcement, and a tab does both ──
     //
     // Constructed here, before the node, so both are readable off it; started below, once
@@ -2133,6 +2320,7 @@ export class BrowserNode {
       capGovernor,
       worker,
       admission,
+      localAdmission,
       authorize,
       counter,
       startLedger,
@@ -2276,7 +2464,7 @@ export class BrowserNode {
       //
       // A per-node setting, not a node kind: `fabric-node.ts` threads the identical
       // ternary over its own option, and `serve-agent-hooks.node.test.ts` counts both.
-      paused: options.paused ?? 'never-pauses',
+      paused,
       // BROW-02. **The named opt-out is gone from this file**, because there is no longer
       // a tab this factory can build that has been told nothing: every node holds a ledger
       // and every node's own start is the first row in it. See the construction above for
