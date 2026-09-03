@@ -61,7 +61,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { FUNNEL_SCHEMA_DIGEST } from '@o2/net'
+import { FUNNEL_FIELDS, FUNNEL_SCHEMA_DIGEST } from '@o2/net'
 import { CLIENT_ADDRESS_HEADER } from './websocket-connection.ts'
 import { CLIENT_COUNTRY_HEADER } from './funnel-collector.ts'
 
@@ -349,8 +349,31 @@ describe('criterion 4 — the dump, checked against the store and not against th
 
     // The finer half of the platform's geolocation record — present in the handler on every
     // request, absent here. This is what the two-letter rule is FOR.
-    for (const finer of ['San Jose', 'California', 'Los_Angeles', 'Zoox']) {
-      expect(dump, `${finer} is in the store. ${where}`).not.toContain(finer)
+    //
+    // **This block named the operator's real city, region, timezone and network organisation
+    // until 2026-09-02, and that was the defect rather than the control.** To assert that a
+    // real location is absent, a hard-coded list has to hold the real location — so the check
+    // committed, to a PUBLIC repository, exactly the data it existed to keep out of a store.
+    // A control that must publish the secret to protect it is not a control.
+    //
+    // It is replaced by two value-free readings that are together strictly stronger:
+    //
+    // 1. the platform's own PROPERTY NAMES. These are Cloudflare's public API surface, not
+    //    anybody's data, and a leak that carries its own name fails here whatever the value.
+    for (const named of [
+      'city',
+      'postalCode',
+      'latitude',
+      'longitude',
+      'asOrganization',
+      'regionCode',
+      'colo',
+      'timezone',
+      'clientTcpRtt',
+    ]) {
+      expect(dump, `the platform property ${named} is in the store. ${where}`).not.toContain(
+        named,
+      )
     }
 
     // A cross-session identifier: any run of >= 16 hex or >= 22 base64url characters, inside
@@ -359,6 +382,16 @@ describe('criterion 4 — the dump, checked against the store and not against th
     const funnelRows = rows.filter((row) => row.key === '/journal/funnel')
     expect(funnelRows.length, `no funnel record found. ${where}`).toBe(1)
     const record = funnelRecord()
+
+    // 2. the record's field set is EXACTLY what the frozen schema declares. This is the half
+    //    that catches a BARE value — a city stored under no recognisable name, which the
+    //    property-name reading above cannot see and which the retired hard-coded list could
+    //    only see by publishing the city. Anything the schema does not declare fails here
+    //    whatever it is called and whatever it contains.
+    expect(
+      Object.keys(record as object).sort(),
+      `the funnel record carries a field the frozen schema does not declare. ${where}`,
+    ).toEqual([...FUNNEL_FIELDS.map((field) => field.name), 'schemaDigest'].sort())
 
     // **`schemaDigest` is excluded BY NAME and the reason is not that it is inconvenient.** It
     // is sixteen hex characters, so it matches the pattern; it is also a hand-written literal

@@ -66,25 +66,35 @@ describe('the country comes off the request, coarsely, and never from the addres
   })
 
   /**
-   * MEASURED 2026-09-02 on a local `wrangler dev`, and the values are this machine's real ones.
+   * MEASURED 2026-09-02 on a local `wrangler dev`. The **reading** was real; the **values
+   * below are synthetic**, and that is a correction rather than a weakening.
    *
    * `request.cf` is NOT edge-only: it arrived locally carrying thirty-three properties
-   * populated from this host's public address. The fixture below is that reading, trimmed to
-   * the fields that matter to the argument and otherwise verbatim.
+   * populated from this host's public address — a city, a postal code, coordinates, an ASN
+   * and an organisation name. This fixture held that reading verbatim until 2026-09-02, which
+   * committed the operator's own street-level location and network into a **public**
+   * repository — the exact act `CLAUDE.md` records as forbidden, in a file written to prove
+   * the collector discards such data.
+   *
+   * **The substitution costs the case nothing**, and that is why it is safe: only `country` is
+   * load-bearing here, and every other field exists to be looked for in the output and not
+   * found. A synthetic city proves the property for any city. Documentation-reserved values
+   * are used deliberately — ASN `64496` is RFC 5398's documentation range — so a future reader
+   * cannot mistake one for a measurement.
    */
   const MEASURED_CF = {
     country: 'US',
-    city: 'San Jose',
-    region: 'California',
-    regionCode: 'CA',
+    city: 'EXAMPLE-CITY',
+    region: 'EXAMPLE-REGION',
+    regionCode: 'XX',
     continent: 'NA',
-    colo: 'SJC',
-    asn: 62_628,
-    asOrganization: 'Zoox Labs, Inc.',
-    latitude: '37.33939',
-    longitude: '-121.89496',
-    postalCode: '95110',
-    timezone: 'America/Los_Angeles',
+    colo: 'XXX',
+    asn: 64_496,
+    asOrganization: 'Example Networks, Inc.',
+    latitude: '0.00000',
+    longitude: '0.00000',
+    postalCode: '00000',
+    timezone: 'Etc/UTC',
     clientTcpRtt: 7,
   }
 
@@ -109,15 +119,15 @@ describe('the country comes off the request, coarsely, and never from the addres
     const dimensions = funnelDimensionsFrom(req(new Headers(), MEASURED_CF))
     const rendered = JSON.stringify(dimensions)
     for (const forbidden of [
-      'San Jose',
-      'California',
-      '95110',
-      '37.33939',
-      '-121.89496',
-      'Zoox',
-      '62628',
-      'America/Los_Angeles',
-      'SJC',
+      'EXAMPLE-CITY',
+      'EXAMPLE-REGION',
+      '00000',
+      '0.00000',
+      '0.00000',
+      'Example',
+      '64496',
+      'Etc/UTC',
+      'XXX',
     ]) {
       expect(rendered, `the dimensions carry ${forbidden}`).not.toContain(forbidden)
     }

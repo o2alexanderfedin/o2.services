@@ -70,13 +70,15 @@ export const CLIENT_COUNTRY_HEADER = 'CF-IPCountry'
  * **MEASURED 2026-09-02 on a local `wrangler dev`, and the reading is why this constant has a
  * docblock rather than being inlined.** `request.cf` exists locally — it is not an edge-only
  * object — and it arrived carrying **thirty-three** properties populated from this machine's
- * real public address. Read verbatim off the probe:
+ * real public address. **The shape below is the probe's; the values are synthetic** — this
+ * block quoted the operator's own city, postal code, coordinates and network organisation
+ * until 2026-09-02, in a public repository:
  *
  * ```
- * country = 'US'          city = 'San Jose'       region = 'California'
- * postalCode = '95110'    latitude = '37.33939'   longitude = '-121.89496'
- * asn = 62628             asOrganization = 'Zoox Labs, Inc.'
- * timezone = 'America/Los_Angeles'                clientTcpRtt = 7
+ * country = 'US'          city = 'EXAMPLE-CITY'       region = 'EXAMPLE-REGION'
+ * postalCode = '00000'    latitude = '0.00000'   longitude = '0.00000'
+ * asn = 64496             asOrganization = 'Example Networks, Inc.'
+ * timezone = 'Etc/UTC'                clientTcpRtt = 7
  * ```
  *
  * **That is a street-level location, an ISP and a network fingerprint, one property access

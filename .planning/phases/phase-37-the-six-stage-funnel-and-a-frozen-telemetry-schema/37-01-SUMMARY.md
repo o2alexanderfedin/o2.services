@@ -364,14 +364,16 @@ user-agent = curl/8.7.1
 `inbound-listener.e2e.test.ts:331`'s recorded finding and hands criterion 4 its control for free.
 
 **`request.cf` EXISTS on a local `wrangler dev`, and it is not empty.** Thirty-three properties,
-populated from this machine's real public address:
+populated from this machine's real public address. **The shape is the reading's; the values
+below are synthetic** — this block carried the operator's own location and network until
+2026-09-02:
 
 ```
-country = 'US'          city = 'San Jose'       region = 'California'
-regionCode = 'CA'       continent = 'NA'        colo = 'SJC'
-postalCode = '95110'    latitude = '37.33939'   longitude = '-121.89496'
-asn = 62628             asOrganization = 'Zoox Labs, Inc.'
-timezone = 'America/Los_Angeles'   isEUCountry = False   clientTcpRtt = 7
+country = 'US'          city = 'EXAMPLE-CITY'       region = 'EXAMPLE-REGION'
+regionCode = 'XX'       continent = 'NA'        colo = 'XXX'
+postalCode = '00000'    latitude = '0.00000'   longitude = '0.00000'
+asn = 64496             asOrganization = 'Example Networks, Inc.'
+timezone = 'Etc/UTC'   isEUCountry = False   clientTcpRtt = 7
 ```
 
 **Two consequences, and both changed the work.**
