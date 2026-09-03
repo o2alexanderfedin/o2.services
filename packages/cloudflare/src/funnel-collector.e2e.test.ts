@@ -61,7 +61,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { FUNNEL_FIELDS, FUNNEL_SCHEMA_DIGEST } from '@o2/net'
+import { FUNNEL_SCHEMA_DIGEST } from '@o2/net'
 import { CLIENT_ADDRESS_HEADER } from './websocket-connection.ts'
 import { CLIENT_COUNTRY_HEADER } from './funnel-collector.ts'
 
@@ -388,10 +388,31 @@ describe('criterion 4 — the dump, checked against the store and not against th
     //    property-name reading above cannot see and which the retired hard-coded list could
     //    only see by publishing the city. Anything the schema does not declare fails here
     //    whatever it is called and whatever it contains.
+    //    **The set is a hand-written literal and NOT derived from `FUNNEL_FIELDS`, and the
+    //    first attempt at this case got that wrong.** `FUNNEL_FIELDS` names the DIMENSIONS
+    //    the three questions are asked over — `stage`, `country`, `networkClass`,
+    //    `connectionClass`, `hourBucket` — while the banked record is their AGGREGATE:
+    //    `byStageHour` folds the hour bucket, `webrtcAttempts` and `webrtcOutcomes` fold the
+    //    country and the two classes. Comparing them compares two vocabularies and fails on a
+    //    healthy record, which is what it did.
+    //
+    //    Deriving the expected set from the record would also be worthless — an assertion
+    //    must not reuse the value it tests. So the seven names are typed in, and a field
+    //    added to the banked record without a person editing this line fails here.
     expect(
       Object.keys(record as object).sort(),
-      `the funnel record carries a field the frozen schema does not declare. ${where}`,
-    ).toEqual([...FUNNEL_FIELDS.map((field) => field.name), 'schemaDigest'].sort())
+      `the funnel record carries a field nothing declared. ${where}`,
+    ).toEqual(
+      [
+        'byStageHour',
+        'entered',
+        'population',
+        'schemaDigest',
+        'stalledAt',
+        'webrtcAttempts',
+        'webrtcOutcomes',
+      ].sort(),
+    )
 
     // **`schemaDigest` is excluded BY NAME and the reason is not that it is inconvenient.** It
     // is sixteen hex characters, so it matches the pattern; it is also a hand-written literal

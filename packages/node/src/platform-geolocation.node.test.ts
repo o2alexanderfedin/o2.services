@@ -199,16 +199,33 @@ interface PathExemption {
   /** Repo-relative path. A trailing `/` exempts the whole tree beneath it. */
   readonly path: string
   readonly reason: string
+  /**
+   * A string that must be PRESENT in the file for the exemption to hold.
+   *
+   * This is what stops an exemption becoming a hole. A path entry alone says *this file
+   * may carry a location-shaped cluster*; a sentinel says *and here is the evidence the
+   * cluster is synthetic*. Replace the synthetic values with a real reading and the
+   * sentinel goes with them, so the exemption lapses and the file is flagged again — which
+   * is the behaviour an exemption for redacted data must have, since the redaction is the
+   * only reason the finding was defensible.
+   */
+  readonly sentinel?: string
 }
 
 /**
  * Whole files that are exempt, each carrying the reason it is not a violation.
  *
- * **One entry, and the live findings are deliberately not in here.** A guard born green
- * by exempting the violations it found demonstrates nothing and preserves what it was
- * built to remove. Where a finding is defensible, the entry goes here with its reason;
- * where it is not, the file gets redacted. Both remedies are named in the failure
- * message, and neither is chosen by this file on the reader's behalf.
+ * **The guard was born red on three real findings and they were REDACTED, not exempted.**
+ * A guard born green by exempting the violations it found demonstrates nothing and
+ * preserves what it was built to remove. All three carried this machine's real city,
+ * postal code, coordinates, ASN and network organisation into a PUBLIC repository; the
+ * values are now synthetic and documentation-reserved.
+ *
+ * **The three entries below are therefore not forgiveness — they are the residue of a
+ * redaction, and each is CONDITIONAL on its sentinel.** The cluster shape is still there
+ * because the fixture still has to be `request.cf`-shaped to prove anything; what is gone
+ * is the data. Put a real reading back and the sentinel goes with it, the exemption lapses
+ * and the file is flagged again.
  */
 const EXEMPT_PATHS: readonly PathExemption[] = [
   {
@@ -216,10 +233,35 @@ const EXEMPT_PATHS: readonly PathExemption[] = [
     reason:
       'the rule cannot be written down without naming the properties it looks for; a reader who greps and lands here finds the prohibition, not a copy of a real location',
   },
+  {
+    path: 'packages/cloudflare/src/funnel-collector.test.ts',
+    reason:
+      'the fixture must be shaped like the platform object to prove the collector discards it, and its values were redacted to synthetic ones on 2026-09-02; only `country` is load-bearing and a synthetic city proves the property for any city',
+    sentinel: 'EXAMPLE-CITY',
+  },
+  {
+    path: 'packages/cloudflare/src/funnel-collector.ts',
+    reason:
+      'the docblock records what the platform hands the collector, which is the argument for reading one property of thirty-three; redacted to synthetic values on 2026-09-02',
+    sentinel: 'EXAMPLE-CITY',
+  },
+  {
+    path: '.planning/phases/phase-37-the-six-stage-funnel-and-a-frozen-telemetry-schema/37-01-SUMMARY.md',
+    reason:
+      'the phase record states what was measured at the door, which is why criterion 4 has a positive control at all; redacted to synthetic values on 2026-09-02',
+    sentinel: 'EXAMPLE-CITY',
+  },
 ]
 
-function exemptPathFor(file: string): PathExemption | undefined {
-  return EXEMPT_PATHS.find(({ path }) => (path.endsWith('/') ? file.startsWith(path) : file === path))
+function exemptPathFor(file: string, content: string): PathExemption | undefined {
+  const entry = EXEMPT_PATHS.find(({ path }) =>
+    path.endsWith('/') ? file.startsWith(path) : file === path,
+  )
+  if (entry === undefined) return undefined
+  // A sentinel that is no longer in the file means the redaction it stood for is gone, so
+  // the exemption does not apply and the finding is reported as if it had never existed.
+  if (entry.sentinel !== undefined && !content.includes(entry.sentinel)) return undefined
+  return entry
 }
 
 // ---------------------------------------------------------------------------
@@ -320,6 +362,8 @@ interface Finding {
 interface RepoScan {
   readonly findings: readonly Finding[]
   readonly scanned: readonly string[]
+  /** Files an exemption actually applied to — a sentinel that lapsed is NOT in here. */
+  readonly exempted: readonly string[]
   readonly used: ReadonlySet<string>
   /** Tracked files skipped as binary that no declared extension covers. */
   readonly invisible: readonly string[]
@@ -337,6 +381,7 @@ interface RepoScan {
 function scanRepository(): RepoScan {
   const findings: Finding[] = []
   const scanned: string[] = []
+  const exempted: string[] = []
   const invisible: string[] = []
   const binary: string[] = []
   const used = new Set<string>()
@@ -364,9 +409,10 @@ function scanRepository(): RepoScan {
       continue
     }
 
-    const exemption = exemptPathFor(file)
     const content = bytes.toString('utf8')
+    const exemption = exemptPathFor(file, content)
     scanned.push(file)
+    if (exemption !== undefined) exempted.push(file)
 
     const dump = isLocationDump(content)
     const statements = dumpingStatements(content)
@@ -404,7 +450,7 @@ function scanRepository(): RepoScan {
     }
   }
 
-  return { findings, scanned, used, invisible, binary }
+  return { findings, scanned, exempted, used, invisible, binary }
 }
 
 const REPO: RepoScan = scanRepository()
@@ -437,8 +483,24 @@ describe('the repository scan is looking at the repository', () => {
   })
 
   it('did not exempt the repository out from under itself', () => {
-    const exempt = REPO.scanned.filter((file) => exemptPathFor(file) !== undefined)
+    const exempt = REPO.exempted
     expect(exempt.length).toBeLessThan(REPO.scanned.length / 4)
+  })
+
+  it('holds every sentinel it depends on, so no exemption is standing on a redaction that is gone', () => {
+    // A `sentinel` is the evidence that an exempted cluster is synthetic. If one is missing
+    // the exemption silently lapses and the file is reported — which is the correct
+    // behaviour and also an easy thing to not notice, so it is asserted here by name rather
+    // than left to be discovered through the finding list.
+    const missing = EXEMPT_PATHS.filter((entry) => entry.sentinel !== undefined).filter(
+      (entry) => !REPO.exempted.includes(entry.path),
+    )
+    expect(
+      missing.map((entry) => `${entry.path} no longer contains "${entry.sentinel ?? ''}"`),
+      'an exemption in EXEMPT_PATHS carries a sentinel the file no longer holds, so the ' +
+        'redaction it stood for has been undone or the file was renamed. Restore the ' +
+        'synthetic values, or remove the entry — do not remove the sentinel.',
+    ).toEqual([])
   })
 
   it('has no file that escaped the scan by looking like a binary', () => {
