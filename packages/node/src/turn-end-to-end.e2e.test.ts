@@ -65,6 +65,14 @@ const REFUSING_PORT = 8816
 /** A stranger nobody enrolled with. The refusing worker pins this and only this. */
 const STRANGER_ISSUER = toHex(ed25519.getPublicKey(new Uint8Array(32).fill(99)))
 
+/**
+ * An anchor this file never uses, because nothing here runs an artifact.
+ *
+ * Present so the relay can be started without reaching for the provenance opt-out — see the
+ * comment at its call site.
+ */
+const UNUSED_TRUST_ANCHOR = toHex(ed25519.getPublicKey(new Uint8Array(32).fill(62)))
+
 let relay: FabricNode
 let relayAddr: string
 let issuerKey: string
@@ -218,7 +226,12 @@ beforeAll(async () => {
     maxReservations: 16,
     blockstoreDir: join(workdir, 'provider'),
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
-    trustAnchors: 'runs-unsigned-artifacts',
+    // A real anchor rather than `'runs-unsigned-artifacts'`, and the difference is not
+    // cosmetic. This relay relays and issues; **nothing in this file runs an artifact at
+    // all** — no `runJob`, no `putModule` — so the provenance opt-out would be claiming an
+    // exemption this spec has no use for. `trust-anchors.node.test.ts` bounds how far that
+    // opt-out spreads through the suite precisely so it is not reached for by reflex.
+    trustAnchors: [UNUSED_TRUST_ANCHOR],
     // What gives it a signing key at all, so `issuerKey` below is real rather than invented.
     issuesCertificates: 'issues-without-an-aggregate-budget',
   })

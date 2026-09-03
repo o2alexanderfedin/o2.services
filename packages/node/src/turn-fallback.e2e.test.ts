@@ -6,6 +6,8 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dgram from 'node:dgram'
 import { randomBytes } from 'node:crypto'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { toHex } from '@o2/core'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
 import { createServer } from 'vite'
@@ -82,6 +84,14 @@ const PAGE = 'packages/browser/demo/index.html'
 
 /** Arm D's credential lifetime. Long enough to be a real passage of time, short enough to be cheap. */
 const SHORT_LIFETIME_MS = 8_000
+
+/**
+ * An anchor this file never uses, because nothing here runs an artifact.
+ *
+ * Present so the relay can be started without reaching for the provenance opt-out — see the
+ * comment at its call site.
+ */
+const UNUSED_TRUST_ANCHOR = toHex(ed25519.getPublicKey(new Uint8Array(32).fill(61)))
 
 let relay: FabricNode
 let relayAddr: string
@@ -348,7 +358,12 @@ beforeAll(async () => {
     startReporting: 'reports-its-own-start',
     maxReservations: 16,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
-    trustAnchors: 'runs-unsigned-artifacts',
+    // A real anchor rather than `'runs-unsigned-artifacts'`, and the difference is not
+    // cosmetic. This relay relays and issues; **nothing in this file runs an artifact at
+    // all** — no `runJob`, no `putModule` — so the provenance opt-out would be claiming an
+    // exemption this spec has no use for. `trust-anchors.node.test.ts` bounds how far that
+    // opt-out spreads through the suite precisely so it is not reached for by reflex.
+    trustAnchors: [UNUSED_TRUST_ANCHOR],
   })
   const relayAddress = relay.browserDialableAddrs[0]
   if (relayAddress === undefined) throw new Error('relay produced no browser-dialable address')
