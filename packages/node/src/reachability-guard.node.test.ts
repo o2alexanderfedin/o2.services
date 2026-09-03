@@ -2593,7 +2593,25 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
 //
 // Closing condition, checkable and with no forecast attached: `cloudflare-node.ts` importing
 // `'./workerd-shims.ts'`.
-const ORPHAN_MODULE_CEILING = 31
+//
+// 2026-09-02: 31 → 32, raised by exactly one and named. `packages/browser/demo/status.ts` is
+// RUN-03's status page, and its mechanism is one this list has already accepted seven times:
+// it is loaded by an HTML `<script type="module">`, which no TypeScript import graph can see.
+// `demo/nav.ts` and the six `demo/surfaces/*.ts` are on this list for exactly that reason —
+// `demo/index.html:1729` and `:1756` import them from inline module scripts — and
+// `status.html` names `./status.ts` the same way. It IS wired, in the only way an HTML entry
+// point can be, and `vite.config.ts` now names `status.html` in `rollupOptions.input` so the
+// build emits it.
+//
+// **Giving it a production importer was considered and rejected as fake wiring.** Nothing in
+// the traced graph has any use for a status page; an import added to satisfy this count would
+// be a line whose only purpose is a number. `status-page-address.node.test.ts` imports
+// `DEFAULT_STATUS_ORIGIN` from it, which is a real reader and is not a production one.
+//
+// Closing condition, checkable: this list stops growing for HTML entry points when the graph
+// learns to read `<script type="module" src>` — the same closing condition `demo/nav.ts` and
+// the six surfaces are waiting on, and one nobody has scheduled.
+const ORPHAN_MODULE_CEILING = 32
 
 /**
  * A production module that reaches **no barrel at all**, named by path.

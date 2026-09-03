@@ -309,8 +309,16 @@ const NODE_MEASUREMENT = {
    * that only ran where `fetch` exists could not tell a port from a global. It counts once
    * here, as `computing-indicator.test.ts` does. Two ports and a scripted fetch: no thread,
    * no process, no socket. `unitFiles` moves by the same one.
+   *
+   * **232 -> 234 on 2026-09-02 (Phase 36, RUN-02 / RUN-03)**, two files:
+   * `packages/node/src/status-page-address.node.test.ts` (node lane — it reads two files off
+   * disk and compares them, which is why it carries the `.node.` suffix: the bare glob runs in
+   * the `browser` lane too and `readFileSync` does not exist there) and
+   * `packages/node/src/kill-switch-volunteer.e2e.test.ts` (**e2e** lane — it runs the real
+   * production build, spawns `wrangler dev` on 8807, stands a static server and launches
+   * chromium). `unitFiles` moves by the same two, for the identity recorded above.
    */
-  files: 232,
+  files: 234,
   tests: 2948,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
@@ -494,7 +502,7 @@ const NODE_MEASUREMENT = {
    * hour once spread 25.69 / 33.68 / 22.39 s — 1.5x end to end. Any comparison against this
    * number that turns on less than half of it is reading the host's weather.
    */
-  unitFiles: 154,
+  unitFiles: 156,
   unitTests: 2317,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.

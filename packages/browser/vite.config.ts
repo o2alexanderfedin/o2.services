@@ -193,6 +193,43 @@ const config: UserConfig = defineConfig({
     outDir: new URL('./dist', import.meta.url).pathname,
     emptyOutDir: true,
     target: 'es2023',
+    /**
+     * Every page this site serves, named — because Vite builds **only** `index.html` when
+     * nothing is named, and a page that is only in `demo/` is a page no volunteer can reach.
+     *
+     * ## CORRECTED 2026-09-02, and the defect was live on the published site
+     *
+     * `demo/index.html` creates an `<a href="./policy.html">` inside `#gate-version` — the
+     * disclosure's third reader, written for somebody assessing this page for a blocklist.
+     * This block had no `rollupOptions.input`, so `dist/` held `index.html`, `assets/` and
+     * `perf/` and no `policy.html`, and the link 404ed on the live site. Confirmed against
+     * `https://o2alexanderfedin.github.io/o2.services/policy.html` — **HTTP 404**, with the
+     * site root answering **200** as the control, and the string `policy.html` present in the
+     * live bundle. Working:
+     * `.planning/debug/2026-09-02-the-policy-page-404s-in-production.md`.
+     *
+     * **It failed silently and it failed for a checkable reason.** The link is assigned from
+     * JavaScript, so it never appeared in a grep over served HTML; and every guard that could
+     * have caught it reads the **source tree**, where the file has always existed. A proof that
+     * reads `demo/` cannot see a build that omits a file. That is why
+     * `kill-switch-volunteer.e2e.test.ts` runs the real production build and reads `dist/`.
+     *
+     * Naming the inputs also gets `stampBuildIdentity` onto all three, because
+     * `transformIndexHtml` runs per HTML input — so `status.html` carries the `o2-build` meta
+     * it reads back, and so does `policy.html`.
+     *
+     * `scripts/deploy-pages.sh` copies `$DIST/.` wholesale and checks `index.html` and
+     * `bootstrap.json` by name, so two more emitted pages cost the deploy path nothing. Read
+     * before this landed rather than assumed: that script has already been broken once by a
+     * change no local run could reach.
+     */
+    rollupOptions: {
+      input: {
+        index: new URL('./demo/index.html', import.meta.url).pathname,
+        policy: new URL('./demo/policy.html', import.meta.url).pathname,
+        status: new URL('./demo/status.html', import.meta.url).pathname,
+      },
+    },
   },
 })
 

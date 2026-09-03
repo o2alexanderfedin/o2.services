@@ -684,6 +684,29 @@ export class BootstrapObject {
    * would turn this route into an unauthenticated way to enumerate the fabric's siting.
    */
   async #writeAdmission(request: Request): Promise<Response> {
+    // **The body is read BEFORE the key is checked, and that ordering is a repair rather than
+    // a preference — measured 2026-09-02 against a local workerd.**
+    //
+    // Written first as *check the key, return 401, never touch the body*, which reads like the
+    // careful order and is not. workerd answered every refused write with
+    // `Uncaught TypeError: Can't read from request stream after response has been sent` — one
+    // per refusal — and the next `GET /self` on that object answered **500**. So a refusal
+    // poisoned the instance, and an unauthenticated caller could take a region's status
+    // reading offline by sending two POSTs it was correctly refused. The body has to be
+    // consumed whether or not the write is allowed.
+    //
+    // Bounded, on `#bankFunnel`'s precedent and for its reason: this read happens before any
+    // authentication, so the size is the only thing standing between the object and a body a
+    // stranger chose.
+    //
+    // **It leaks nothing.** The refusal below is composed from the key alone and names no
+    // region; parsing a body an unauthenticated caller sent tells that caller only what it
+    // already wrote.
+    const raw = await request.text()
+    if (raw.length > MAX_ADMISSION_BODY_BYTES) {
+      return new Response('directive too large', { status: 413 })
+    }
+
     const authorisation = authoriseWrite({
       configuredKey: this.#env.O2_ADMISSION_KEY,
       presentedKey: request.headers.get(ADMISSION_KEY_HEADER),
@@ -694,7 +717,7 @@ export class BootstrapObject {
 
     let body: unknown
     try {
-      body = await request.json()
+      body = JSON.parse(raw)
     } catch {
       return new Response('not a directive', { status: 400 })
     }
@@ -881,6 +904,15 @@ const FUNNEL_POPULATION_PENDING_RULING: FunnelPopulation = 'opted-in-only'
  * `POST /admission` is deliberately not reachable from any page, and listing its header here
  * would be the first half of making it so.
  */
+/**
+ * The largest directive body this object will read.
+ *
+ * A directive is five small fields; the only one that can grow is `versions`, and an operator
+ * naming more than a few hundred client versions is not slicing anything. Bounded because the
+ * read happens **before** the key check — see `#writeAdmission` for why it has to.
+ */
+const MAX_ADMISSION_BODY_BYTES = 8_192
+
 const SELF_CORS_HEADERS: Readonly<Record<string, string>> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
