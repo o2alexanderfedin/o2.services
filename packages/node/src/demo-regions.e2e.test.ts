@@ -17,7 +17,7 @@ import {
 import type { Region } from '../../browser/src/demo-regions.ts'
 import { ATTESTATION_HOOK, absenceSentences, methodOf, p6, p7, p8 } from './demo-region-properties.ts'
 import type { DomRegion } from './demo-region-properties.ts'
-import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 
 /**
  * The anti-placeholder guard — UI-SPEC section 9's P1, P2, P3, P4, P6, P7 and P8.
@@ -339,7 +339,7 @@ describe('the page, with the fabric stopped', () => {
     // disabled and `activity()` is null — which is the state every property below is about.
     // A `FabricNode` relay is deliberately not started: nothing here dials one, and a relay
     // that nothing dials would be seconds of setup buying no coverage.
-    server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+    server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 }, cacheDir: fixtureViteCacheDir(ROOT) })
     await server.listen()
     const url = server.resolvedUrls?.local[0]
     if (url === undefined) throw new Error('vite dev server produced no URL')

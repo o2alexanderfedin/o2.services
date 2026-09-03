@@ -8,7 +8,7 @@ import { createServer } from 'vite'
 import type { Plugin, ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
-import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -246,6 +246,7 @@ beforeAll(async () => {
     root: ROOT,
     logLevel: 'error',
     server: { port: 0 },
+    cacheDir: fixtureViteCacheDir(ROOT),
     plugins: [bootstrapPlugin()],
   })
   await server.listen()

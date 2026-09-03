@@ -59,7 +59,7 @@ import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { toHex } from '@o2/core'
 import type { PublicKeyHex } from '@o2/core'
-import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -254,7 +254,7 @@ beforeAll(async () => {
   relayCid = (await relay.blockstore.put(RELAY_BYTES)).toString()
   memberCid = (await member.blockstore.put(MEMBER_BYTES)).toString()
 
-  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 }, cacheDir: fixtureViteCacheDir(ROOT) })
   await server.listen()
   const url = server.resolvedUrls?.local[0]
   if (url === undefined) throw new Error('vite dev server produced no URL')

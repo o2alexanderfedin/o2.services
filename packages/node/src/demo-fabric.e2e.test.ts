@@ -18,7 +18,7 @@ import { REGIONS } from '../../browser/src/demo-regions.ts'
 import type { Region } from '../../browser/src/demo-regions.ts'
 import { ATTESTATION_HOOK, absenceSentences, p6, p7, p8 } from './demo-region-properties.ts'
 import type { DomRegion } from './demo-region-properties.ts'
-import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -463,7 +463,7 @@ describe('the fabric-state surface, on a real page', () => {
     if (address === undefined) throw new Error('relay produced no browser-dialable address')
     relayAddr = address
 
-    server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+    server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 }, cacheDir: fixtureViteCacheDir(ROOT) })
     await server.listen()
     const url = server.resolvedUrls?.local[0]
     if (url === undefined) throw new Error('vite dev server produced no URL')

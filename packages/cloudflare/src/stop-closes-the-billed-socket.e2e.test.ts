@@ -216,7 +216,22 @@ beforeAll(async () => {
   )
   selfReport = await waitForReady(120_000)
 
-  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+  server = await createServer({
+    root: ROOT,
+    logLevel: 'error',
+    server: { port: 0 },
+    // One optimiser cache per `vitest run`, not one shared by every lane on the machine.
+    // See `fixtureViteCacheDir` in packages/node/src/e2e-browser-launch.ts for the race this
+    // closes and for the reading that established it: two Vite servers on one `cacheDir`
+    // leave the loser's live pages asking for dep modules under a `browserHash` that no
+    // longer exists, and Vite answers `504 Outdated Optimize Dep`.
+    //
+    // Written out here rather than imported, because no `packages/cloudflare` spec reaches
+    // into `packages/node` today and a bug fix is not the place to open that route. The key
+    // is `process.ppid` — measured identical across the files of one invocation and distinct
+    // across concurrent ones — so it must stay in step with the helper if either moves.
+    cacheDir: join(ROOT, 'node_modules', `.vite-e2e-${String(process.ppid)}`),
+  })
   await server.listen()
   const url = server.resolvedUrls?.local[0]
   if (url === undefined) throw new Error('vite dev server produced no URL')

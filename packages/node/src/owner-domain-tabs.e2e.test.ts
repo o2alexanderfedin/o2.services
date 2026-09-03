@@ -11,7 +11,7 @@ import { describeAttestation } from '@o2/core'
 import type { PublicKeyHex } from '@o2/core'
 import { KERNEL_RECORD, KERNEL_TRUST_ANCHOR, kernelBytes } from '@o2/demo'
 import type { TabNameRecord } from '@o2/browser'
-import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -519,6 +519,7 @@ beforeAll(async () => {
     root: ROOT,
     logLevel: 'error',
     server: { port: 0 },
+    cacheDir: fixtureViteCacheDir(ROOT),
     plugins: [bootstrapPlugin()],
   })
   await server.listen()
