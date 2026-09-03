@@ -117,6 +117,7 @@ import {
 } from './funnel-journal.ts'
 import { MAX_FUNNEL_BODY_BYTES, funnelDimensionsFrom } from './funnel-collector.ts'
 import { mintTurnCredential, sharedSecretMinter } from './turn-credential.ts'
+import { turnUrlsFor } from './turn-regions.ts'
 import { parseFunnelReport } from '@o2/net'
 import type { FunnelPopulation, FunnelTotals } from '@o2/net'
 import type { HibernationCapableState } from './hibernatable-socket.ts'
@@ -238,6 +239,17 @@ export interface HostedEnv {
    * every region is refused as undeclared.
    */
   readonly O2_TURN_URLS?: string
+  /**
+   * Per-region TURN URLs — NET-12, criterion 2's built half.
+   *
+   * Optional and independent of each other: a deployment may declare one region's endpoints and
+   * let the others fall back to {@link O2_TURN_URLS}. **Naming a region here claims nothing
+   * about where anything runs** — Phase 33 owns siting and has not run — it only says which
+   * endpoints a request addressed to that region is handed.
+   */
+  readonly O2_TURN_URLS_US?: string
+  readonly O2_TURN_URLS_EU?: string
+  readonly O2_TURN_URLS_SAM?: string
 }
 
 /**
@@ -807,16 +819,18 @@ export class BootstrapObject {
     }
 
     const secret = this.#env.O2_TURN_SECRET
-    const urls = commaSeparated(this.#env.O2_TURN_URLS)
     const result = await mintTurnCredential(body, {
       pinnedIssuers: new Set(commaSeparated(this.#env.O2_TRUSTED_ISSUERS)),
       now: Date.now(),
       minter: secret === undefined || secret === '' ? null : sharedSecretMinter(secret),
-      // Task 5 replaces this with the per-region mapping. Until then a single declared list
-      // serves whichever region this object is, which is why the region still rides in the
-      // credential rather than being assumed.
+      // NET-12 criterion 2's built half. Per-region URLs when the deployment declares them,
+      // the shared list otherwise — a design that survives either answer to a topology question
+      // nobody here has measured, because the region tag rides in the credential either way.
       urlsForRegion: (region: string) =>
-        urls.length === 0 ? null : HOSTED_OBJECT_NAMES.includes(region as HostedObjectName) ? urls : null,
+        turnUrlsFor(region, {
+          ...(this.#env.O2_TURN_URLS === undefined ? {} : { shared: this.#env.O2_TURN_URLS }),
+          perRegion: perRegionTurnUrls(this.#env),
+        }),
     })
 
     if (!result.ok) {
@@ -1044,6 +1058,22 @@ const TURN_CORS_HEADERS: Readonly<Record<string, string>> = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Max-Age': '86400',
+}
+
+/**
+ * The per-region TURN URLs a deployment declares, read off `HostedEnv` — NET-12.
+ *
+ * Named per region rather than derived from a pattern, because these are third-party endpoints
+ * and a pattern would invent hostnames that may not exist. An absent one falls back to the
+ * shared list; see `turn-regions.ts` for why that fallback is correctness rather than
+ * convenience.
+ */
+function perRegionTurnUrls(env: HostedEnv): Partial<Record<HostedObjectName, string>> {
+  return {
+    ...(env.O2_TURN_URLS_US === undefined ? {} : { 'bootstrap-us': env.O2_TURN_URLS_US }),
+    ...(env.O2_TURN_URLS_EU === undefined ? {} : { 'bootstrap-eu': env.O2_TURN_URLS_EU }),
+    ...(env.O2_TURN_URLS_SAM === undefined ? {} : { 'bootstrap-sam': env.O2_TURN_URLS_SAM }),
+  }
 }
 
 /** Split a comma-separated var, dropping empties — `wrangler dev` injects `''` for an absent one. */
