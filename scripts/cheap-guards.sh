@@ -47,6 +47,15 @@
 # agent's judgement, because what runs on every commit is a decision with a price on every
 # commit.
 #
+# **Both are load-bearing by plant, not by presence.** `state-frontmatter`: `total_phases`
+# 14 -> 13 — the exact defect that walked past the hook — refused with `expected 13 to be 14`,
+# `1 failed | 8 passed (9)`. `acceptance-traceability`: the `AUTH-06` traceability row deleted,
+# one hunk, one deletion, refused with `expected [ 'AUTH-06' ] to deeply equal []`. Each was
+# restored by the surgical inverse of its own edit and `cmp`-verified against a snapshot taken
+# immediately before planting, and the set re-read 400/400 afterwards. Adding a spec here
+# without watching it refuse something would be adding a name to a list, which is what this
+# file's own docblock says a guard is not.
+#
 # ## NEVER set O2_UNIT_ONLY here
 #
 # That is the whole hole. `slow-specs.node.test.ts` asserts this file does not mention it.
