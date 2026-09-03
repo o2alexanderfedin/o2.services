@@ -12,7 +12,7 @@
     "@libp2p/kad-dht": "16.4.0",
     "@libp2p/peer-id": "6.0.12",
     "@libp2p/record": "4.0.15",
-    "@noble/curves": "2.2.0",
+    "@noble/curves": "2.4.0",
     "@o2/core": "*",
     "@o2/net": "*",
     "interface-datastore": "10.0.1",
