@@ -280,7 +280,53 @@ stopped_at: >-
   refuses.
   READ `completed_phases: 0` WITH ALL OF THIS. It counts ticked checkboxes and it is
   correct; it is not a measure of progress.
-last_updated: "2026-09-02T21:55:00.000Z"
+  2026-09-02 LATE — THE SAFE BLOCK IS DONE. Requirements 113/25 at the start of the run,
+  121/18 now. Executed today: PHASE 35 (7/8, BROW-09 Partial on the owner's telemetry
+  ruling), PHASE 37 (RUN-04 Done, RUN-05 Partial), PHASE 36 (all four criteria, RUN-02 and
+  RUN-03 Done), and PHASE 34's criteria 1 and 3 — criterion 1 on a real coturn 4.17.2 with
+  `typ relay` read off the SELECTED candidate pair, criterion 3 (NET-13) on two unrelated
+  relays agreeing on a 49 152-byte echo. NET-12 stays unchecked: a cross-continent pair
+  needs three SITED objects and clients on two continents, and no same-region substitute
+  was counted in its place.
+  WHAT THE DAY'S PLANTS ARE WORTH, AND THIS IS THE HEADLINE. Twelve plants across four
+  phases stayed GREEN, and every one of them was a blind instrument rather than a nuisance.
+  Phase 37: a raw-IP proof was reading a DECIMAL TRANSCRIPTION of the stored bytes, because
+  `node:sqlite` returns BLOBs as `Uint8Array` and not `Buffer` — so "no IP in the store" was
+  not looking at the store. Phase 36: the plan's own instrument could not see its property
+  AT ALL, putting the halted tab MIDDLE of three on a quiet host, and a later log showed 132
+  admission calls on it with none from the probe; had the arithmetic fallen the other way
+  the criterion would have closed on a reading that meant nothing. Phase 34: coturn refuses
+  a FAR-FUTURE credential identically to an expired one, so the plan's own expiry plant
+  swapped one refusal for another — the case was right and the plant was wrong. Phase 35:
+  removing `worker.terminate()` was invisible to its instrument. Not one was deleted.
+  THREE LIVE DEFECTS FIXED, all found rather than reported. Pause worked BACKWARDS — a
+  paused tab refused every peer and kept computing its own work, the opposite of the rule
+  the tree states twice in its own comments. The POLICY PAGE 404ed in production and had
+  since the consent gate shipped, because `vite.config.ts` declared no `rollupOptions.input`
+  — now proved against the BUILT output, since a proof that reads the source cannot see a
+  build that omits a file. And a refusal written before the request body was read left the
+  stream dangling so the next `GET /self` answered 500: TWO CORRECTLY-REFUSED POSTS FROM A
+  STRANGER COULD TAKE A REGION'S STATUS OFFLINE, found only because one spec pipes
+  workerd's stderr where every other spec discards it.
+  ONE FINDING THAT IS THE PROJECT'S OWN WORST SHAPE: without `--allow-loopback-peers`,
+  coturn allocates, logs `ALLOCATE processed, success`, hands out a `typ relay` candidate,
+  and the pair SILENTLY NEVER FORMS. Every instrument green, nothing working.
+  DECISIONS THE OWNER TOOK TODAY. TURN provider is Cloudflare, after a probe refuted "use
+  Google" — Google answers STUN and returns NOTHING to a TURN Allocate, Cloudflare answers
+  401, and it also listens on port 53 which survives firewalls that drop 3478. The free
+  tier is native to the Realtime SFU and does not reach a data-channel fabric; the SFU is
+  admissible as an ACCELERANT AND NOT A FOUNDATION, admissible exactly as far as its traffic
+  lands in Phase 32's `relayed` column. And `acceptance-traceability` and `state-frontmatter`
+  JOINED THE CHEAP GUARD SET — a phase addition had passed all 345 of them while leaving the
+  ledger inconsistent twice. Both proved load-bearing by plant, not by presence.
+  ONE TASK WAS REFUSED RATHER THAN EXECUTED, AND THE REFUSAL IS THE RIGHT OUTCOME: routing a
+  TURN mint to a named region's object through `stubFor` would let a visitor's string create
+  and permanently site objects, which is the defect Phase 29 criterion 6 forbids. Phase 33's
+  planning must resolve it, because siting-aware routing is its subject.
+  STILL OWNER-OWNED, ALL SEVEN IN `.planning/OWNER-ACTIONS.md`: the spending alert FIRST,
+  three Durable Objects, a Cloudflare TURN key, the telemetry's legal basis, two devices with
+  Telegram, the first invite, and the arm64 dispatch.
+last_updated: "2026-09-03T04:25:00.000Z"
 last_activity: 2026-08-28 — the hosted tier deployed and released four times, the browser client published and fixed, criterion 2 met in full, Phase 29 closed uncounted on criterion 1 alone
 progress:
   total_phases: 14
