@@ -15,11 +15,22 @@
  *
  * If this module ever *defaulted* its endpoint to a deployed collector, then every end-to-end
  * run in this repository would post to the owner's live Durable Object — money spent and a
- * store polluted, by a test suite. So the endpoint is **configuration**: it arrives from
- * `?funnel=` on the URL, and with nothing configured the reporter is **inert** and every method
- * is a no-op returning `false`. That is the production default.
- * `funnel-reporter.node.test.ts` reads this file's own source and asserts it carries no origin
- * literal, so the rule is mechanical rather than remembered.
+ * store polluted, by a test suite. So the endpoint is never written down here: it is either
+ * **configured** by `?funnel=` on the URL, or **derived from the relay this visit started
+ * with**, and with neither the reporter is **inert** and every method is a no-op returning
+ * `false`. `funnel-reporter.node.test.ts` reads this file's own source and asserts it carries
+ * no origin literal — not even a scheme joined to a host — so the rule is mechanical rather
+ * than remembered. That is why {@link funnelEndpointFromRelay} assembles its scheme from a
+ * variable instead of writing one.
+ *
+ * **AMENDED 2026-09-03, and the amendment is why the derivation exists.** Until then the only
+ * route was `?funnel=`, and the bare link is the one that circulates in a group chat. The
+ * deployed relay recorded 6 615 inbound hop streams and 1 298 080 bytes on the first real run
+ * — browsers that really connected — and the funnel recorded **zero on all six stages**. The
+ * fence was not wrong; it was resting on the absence of a branch, and an absent branch cannot
+ * tell a test arrangement apart from a published page. It now rests on the relay instead, which
+ * is the same fence held by construction: a local relay derives a local target, so a test run
+ * still cannot reach anything anybody pays for.
  *
  * ## Ports, not globals
  *
@@ -40,6 +51,10 @@
  * See {@link FUNNEL_ARMING}.
  */
 
+// The relay address is parsed with the library rather than by hand: `@multiformats/multiaddr`
+// is already a dependency of this package and is already imported by `browser-node.ts`, and it
+// is what knows that the legacy `/wss` shorthand and the modern `/tls/ws` pair mean one thing.
+import { multiaddr } from '@multiformats/multiaddr'
 import { FUNNEL_STAGES } from '@o2/net'
 import type {
   FunnelConnectionClass,
@@ -86,7 +101,12 @@ export interface FunnelClockPort {
 
 /** How a reporter is built. Every field absent means an inert reporter. */
 export interface FunnelReporterOptions {
-  /** Absent means inert. There is no default and there must not be one. */
+  /**
+   * Absent means inert. There is no default and there must not be one.
+   *
+   * Absent is also **not final**: {@link FunnelReporter.target} installs one later, for a page
+   * that learns where its collector is only after it has learned its relay.
+   */
   readonly send?: FunnelSendPort
   readonly clock?: FunnelClockPort
   /** The device's own coarse reading of its connection. */
@@ -104,7 +124,11 @@ const COMPLETED_STAGE: FunnelStage = 'first-task'
  * "already sent" without reading state back off the object.
  */
 export class FunnelReporter {
-  readonly #send: FunnelSendPort | null
+  /**
+   * Not `readonly`: {@link target} installs one late. See that method for why a page cannot
+   * always know where its collector is at the moment this object is built.
+   */
+  #send: FunnelSendPort | null
   readonly #clock: FunnelClockPort | null
   readonly #networkClass: FunnelNetworkClass
   readonly #population: FunnelPopulation
@@ -129,9 +153,10 @@ export class FunnelReporter {
   /**
    * True when this reporter can send anything at all.
    *
-   * A reporter built with no send port is inert, which is what a page with no `?funnel=`
-   * parameter gets. Exposed so a caller can log the state rather than infer it from a `false`
-   * that could equally mean "already sent".
+   * A reporter built with no send port is inert, and stays inert until {@link target} supplies
+   * one — so on a page with neither a `?funnel=` parameter nor a derivable relay this is `false`
+   * for the whole visit. Exposed so a caller can log the state rather than infer it from a
+   * `false` that could equally mean "already sent".
    */
   get active(): boolean {
     return this.#send !== null && this.#clock !== null
@@ -149,13 +174,36 @@ export class FunnelReporter {
    * who opens the page at 23:58 and consents at 00:01 belongs to hour 23 for stage one, and
    * filing them under hour 0 would put a smear into the one question the hour bucket exists to
    * answer.
+   *
+   * **Arming with no send port does not discard the hold, and that is the repair of 2026-09-03.**
+   * The demo arms at consent and only learns its relay when it starts, so an arm that flushed
+   * into a null port would drop stages one and two — the two stages a funnel most needs — and
+   * would do it invisibly. They stay held until {@link target}, still carrying the hour they
+   * happened.
    */
   arm(): boolean {
     if (this.#armed) return false
     this.#armed = true
-    let flushed = false
-    for (const report of this.#held.splice(0)) flushed = this.#post(report) || flushed
-    return flushed
+    return this.#flush()
+  }
+
+  /**
+   * Install the send port, once, for a page that could not know one when it was constructed.
+   *
+   * **This moves WHERE an already-consented report goes. It does not move WHETHER one is made.**
+   * A visit that has not armed sends nothing when this is called: the hold is released by the
+   * conjunction of armed *and* targeted, in either order, and never by this call alone.
+   *
+   * First install wins, which is where the precedence in {@link funnelEndpointFrom} is enforced
+   * a second time at the wiring: a page that named `?funnel=` already holds a port, so a later
+   * relay-derived call is a no-op rather than a redirection.
+   *
+   * Answers whether anything was flushed by it.
+   */
+  target(send: FunnelSendPort): boolean {
+    if (this.#send !== null) return false
+    this.#send = send
+    return this.#flush()
   }
 
   /**
@@ -208,13 +256,26 @@ export class FunnelReporter {
     return this.#clock?.hourBucket() ?? 0
   }
 
-  /** Send it, or hold it until arming. */
+  /**
+   * Send it, or hold it until this reporter is both armed and targeted.
+   *
+   * The hold is bounded by construction and needs no eviction: `enter` is once-per-stage and
+   * `stalled` is once-per-visit, so at most seven reports can ever be in it.
+   */
   #offer(report: FunnelReport): boolean {
-    if (!this.#armed) {
+    if (!this.#armed || this.#send === null) {
       this.#held.push(report)
       return false
     }
     return this.#post(report)
+  }
+
+  /** Release the hold, in composition order, if both conditions are now met. */
+  #flush(): boolean {
+    if (!this.#armed || this.#send === null) return false
+    let flushed = false
+    for (const report of this.#held.splice(0)) flushed = this.#post(report) || flushed
+    return flushed
   }
 
   #post(report: FunnelReport): boolean {
@@ -225,30 +286,131 @@ export class FunnelReporter {
 }
 
 /**
- * Where the collector is, taken from the page's own URL.
+ * Where the collector is: the page's own URL first, then the relay this visit started with.
  *
- * **There is no default and no fallback**, which is the scope fence in one function: absent
- * `?funnel=`, this answers `null`, the reporter is inert, and no test run in this repository
- * can post to anything anybody pays for. See this module's header.
+ * ## Precedence, in one sentence
  *
- * Anything that is not a parseable absolute URL answers `null` rather than being sent to. A
- * relative value would resolve against whatever origin the page happens to be on, which for a
- * page served from a static host is a request to that host — a wrong destination that would
- * look like a working configuration.
+ * An explicit `?funnel=` wins; otherwise the first relay address that yields an origin wins;
+ * otherwise `null`, and the reporter is inert exactly as before.
+ *
+ * ## THE FENCE IS NOT REMOVED — IT IS RE-FOUNDED, AND THAT COST A REAL RUN
+ *
+ * This function used to end at the first paragraph, and said so: *"there is no default and no
+ * fallback, which is the scope fence in one function"*. **The fence was right and its
+ * foundation was not.** It rested on the ABSENCE of a branch, and an absence cannot tell a
+ * test arrangement apart from a published page — it only ever answers `null` to both. What
+ * that cost is measured: on the first real run, from a link posted to a group chat, the
+ * deployed relay recorded 6 615 inbound hop streams and 1 298 080 bytes, and the funnel
+ * recorded **zero on every one of its six stages**. The link that circulates is the bare one,
+ * so the reporter was inert for the entire run and the milestone's headline number was never
+ * taken.
+ *
+ * The fence now rests on the relay, which holds it **by construction rather than by a missing
+ * branch**: a test arrangement bootstraps off a local relay, so the derived target is local and
+ * nothing anybody pays for is reachable from it; a published page bootstraps off the deployed
+ * node, so the target is that node. There is still no literal origin in this file and there
+ * must never be one, and there is still no fall back to the page's own origin — a relative
+ * value would resolve against whatever static host served the page, which is a wrong
+ * destination that would look like a working configuration.
+ *
+ * @param search the page's query string, e.g. `location.search`
+ * @param relayAddrs the relay multiaddrs this visit actually started with, in order
  */
-export function funnelEndpointFrom(search: string): string | null {
+export function funnelEndpointFrom(
+  search: string,
+  relayAddrs: readonly string[] = [],
+): string | null {
   let configured: string | null
   try {
     configured = new URLSearchParams(search).get('funnel')
   } catch {
     return null
   }
-  if (configured === null || configured === '') return null
+  if (configured !== null && configured !== '') {
+    try {
+      const url = new URL(configured)
+      // Path and query are dropped: what is configured is an ORIGIN, and the route below it is
+      // this project's to name rather than a caller's.
+      return `${url.origin}/funnel`
+    } catch {
+      // A configured value that will not parse is refused rather than falling through to the
+      // relay. Somebody named a destination and got it wrong; silently sending somewhere else
+      // would hide the mistake behind a working funnel.
+      return null
+    }
+  }
+  for (const addr of relayAddrs) {
+    const derived = funnelEndpointFromRelay(addr)
+    if (derived !== null) return derived
+  }
+  return null
+}
+
+/**
+ * The collector's origin, derived from the address of the relay a tab bootstrapped through.
+ *
+ * The relay is the one host this visit is already talking to and the one host this project
+ * deploys, so it is the only thing on a bare page that names the right destination without a
+ * literal being written down. What it derives:
+ *
+ * - `/dns4/<host>/tcp/443/tls/ws/...` -> `https://<host>/funnel`
+ * - `/dns6/...` and `/dnsaddr/...` likewise, and the legacy `/wss` shorthand is the same thing
+ * - a TLS port that is not 443 is kept: `https://<host>:<port>/funnel`
+ * - `/ip4/127.0.0.1/tcp/8796/ws/...` -> `http://127.0.0.1:8796/funnel`
+ * - anything else, including a `/p2p-circuit` address, an address with no websocket component
+ *   and an address that will not parse at all -> `null`. It does not guess.
+ *
+ * **The insecure scheme is reachable only from an insecure relay, and that is the whole reason
+ * it exists.** A plain `/ws` relay is what a test arrangement has — a loopback listener with no
+ * certificate — and a published page cannot reach one anyway, because a browser on an HTTPS
+ * page refuses mixed content. So `http` here is not a weakening of the deployed path; it is the
+ * only scheme a local relay can answer on, and deriving it is what lets a test assert this
+ * function's behaviour against something it can actually run.
+ *
+ * The scheme is assembled from a variable rather than written as a literal so that this module
+ * still carries no `scheme://host` text of any kind — `funnel-reporter.node.test.ts` scans for
+ * exactly that, and a derived origin must not weaken a scan that exists to keep a default out.
+ */
+export function funnelEndpointFromRelay(relayAddr: string): string | null {
+  let components: { readonly name: string; readonly value?: string }[]
   try {
-    const url = new URL(configured)
-    // Path and query are dropped: what is configured is an ORIGIN, and the route below it is
-    // this project's to name rather than a caller's.
-    return `${url.origin}/funnel`
+    components = multiaddr(relayAddr).getComponents()
+  } catch {
+    return null
+  }
+  let host: string | null = null
+  let port: string | null = null
+  let websocket = false
+  let secure = false
+  for (const { name, value } of components) {
+    // A circuit address names the relay AND a peer behind it, so its host is not the host that
+    // serves anything. Refused outright rather than read for its first hop.
+    if (name === 'p2p-circuit') return null
+    if (name === 'dns4' || name === 'dns6' || name === 'dnsaddr' || name === 'ip4') {
+      host = value ?? null
+    } else if (name === 'tcp') {
+      port = value ?? null
+    } else if (name === 'wss') {
+      // The legacy shorthand: one component meaning both of the two below.
+      websocket = true
+      secure = true
+    } else if (name === 'tls') {
+      secure = true
+    } else if (name === 'ws') {
+      websocket = true
+    }
+  }
+  // A websocket component is required rather than assumed. `/ip4/1.2.3.4/tcp/4001` is a peer
+  // this browser cannot dial and a host nothing says serves HTTP, and `/udp/.../webrtc-direct`
+  // names a UDP port that is not an HTTP one. Both answer `null` by this test and not by a
+  // special case.
+  if (host === null || host === '' || port === null || !websocket) return null
+  const scheme = secure ? 'https' : 'http'
+  try {
+    // Through `URL` rather than string-joined, for two reasons in one line: it rejects a host
+    // that is not one, and its `origin` drops a port that is the scheme's default — which is
+    // what makes 443 disappear and 8443 stay without either being written here.
+    return `${new URL(`${scheme}://${host}:${port}`).origin}/funnel`
   } catch {
     return null
   }

@@ -355,11 +355,18 @@ function computingTick(): void {
  *
  * ## Constructed once, inert unless the page was configured
  *
- * `funnelEndpointFrom` reads `?funnel=` and answers `null` for a page that names none, which
- * is every published page today. An inert reporter's methods are no-ops, so the six call sites
- * below cost nothing and say nothing when nobody asked for a funnel. **There is no default
- * endpoint and there must not be one** — see `funnel-reporter.ts`'s header for what a default
- * would cost, and `funnel-reporter.node.test.ts` for the guard that keeps it out.
+ * `funnelEndpointFrom` reads `?funnel=` and answers `null` for a page that names none. **There
+ * is no default endpoint and there must not be one** — see `funnel-reporter.ts`'s header for
+ * what a default would cost, and `funnel-reporter.node.test.ts` for the guard that keeps it out.
+ *
+ * ## Targeted later, from the relay this tab actually started with
+ *
+ * A bare link carries no `?funnel=`, and the bare link is the one that circulates. So this
+ * constructor leaves the send port absent on such a page and {@link TabApi.start} installs one
+ * derived from `options.relayAddrs` — see the call to `funnel.target` there. The clock and the
+ * network class are supplied HERE either way, and that is not tidiness: an hour is baked into a
+ * report when the report is composed, so a reporter built without a clock would file the held
+ * stage one under hour 0 and put a smear into the one question the hour bucket answers.
  *
  * ## Armed at consent, which is the intersection of both readings of open question 3
  *
@@ -370,9 +377,8 @@ function computingTick(): void {
  */
 const funnel = ((): FunnelReporter => {
   const endpoint = funnelEndpointFrom(location.search)
-  if (endpoint === null) return new FunnelReporter()
   return new FunnelReporter({
-    send: beaconSendPort(endpoint),
+    ...(endpoint === null ? {} : { send: beaconSendPort(endpoint) }),
     clock: utcHourPort(),
     networkClass: readNetworkClass(),
   })
@@ -1389,6 +1395,22 @@ const api: TabApi = {
     // defect that reads as a finding. `arm()` and `enter()` are both once-only, so calling this
     // on the path that already armed sends nothing.
     armFunnel()
+    // RUN-04 — where the reports go, derived from the relay this tab actually started with.
+    //
+    // **This is the repair for a run that measured nothing.** The reporter is constructed at
+    // module evaluation, where the only endpoint available is an explicit `?funnel=`; a link
+    // posted to a group chat carries none, so on the first real run every stage stayed at zero
+    // while the relay recorded thousands of inbound streams. The relay address is known here
+    // and nowhere earlier, and it is the SAME value `noteFunnelRelays` reads below — this does
+    // not fetch `/bootstrap.json` a second time.
+    //
+    // Placed immediately after arming and before the node is built, so a visit that consents
+    // and then fails to bootstrap still reports stages one and two and its terminal stall,
+    // which is a drop-off the funnel exists to measure.
+    //
+    // `funnel.target` is once-only, so a page that named `?funnel=` keeps what it named.
+    const funnelEndpoint = funnelEndpointFrom(location.search, options.relayAddrs ?? [])
+    if (funnelEndpoint !== null) funnel.target(beaconSendPort(funnelEndpoint))
     // RUN-04 stage four. The observer itself was installed at the top of this file's import
     // graph — see the side-effect import — and this only registers where its answer goes.
     // Gathering that already happened is not lost: `onFirstIceGathering` fires immediately.
