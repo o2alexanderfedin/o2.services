@@ -54,6 +54,7 @@ import { FUNNEL_SCHEMA_DIGEST, FUNNEL_STAGES } from '@o2/net'
 import type { FunnelStage } from '@o2/net'
 import { KERNEL_RECORD, kernelBytes } from '@o2/demo'
 import type { TabNameRecord } from '@o2/browser'
+import { fixtureViteCacheDir } from './e2e-browser-launch.ts'
 
 const CLOUDFLARE_DIR = fileURLToPath(new URL('../../cloudflare', import.meta.url))
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -185,7 +186,7 @@ beforeAll(async () => {
   )
   workerPeerId = await waitForSelf(120_000)
 
-  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 }, cacheDir: fixtureViteCacheDir(ROOT) })
   await server.listen()
   const url = server.resolvedUrls?.local[0]
   if (url === undefined) throw new Error('vite dev server produced no URL')

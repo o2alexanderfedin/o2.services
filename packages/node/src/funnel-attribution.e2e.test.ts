@@ -70,6 +70,7 @@ import type { FunnelStage } from '@o2/net'
 // `computing-indicator.ts`, and publishing it would add an exported-but-statically-unreachable
 // symbol in front of `reachability-guard.node.test.ts` for the benefit of no consumer.
 import { FUNNEL_ARMING } from '../../browser/src/funnel-reporter.ts'
+import { fixtureViteCacheDir } from './e2e-browser-launch.ts'
 
 const CLOUDFLARE_DIR = fileURLToPath(new URL('../../cloudflare', import.meta.url))
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -251,7 +252,7 @@ function attributedTo(
 }
 
 beforeAll(async () => {
-  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 }, cacheDir: fixtureViteCacheDir(ROOT) })
   await server.listen()
   const url = server.resolvedUrls?.local[0]
   if (url === undefined) throw new Error('vite dev server produced no URL')

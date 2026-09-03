@@ -19,7 +19,7 @@ import { RemoteExecutor } from '@o2/net'
 import { MODULE_ECHOES_INPUT } from '../../core/src/executor/fixtures.ts'
 import { ECHO_GUEST_C, LIFTED_ECHO } from '../../../tools/aot/echo-guest.ts'
 import { OWNER_ID, OWNER_KEY } from './capability-fixture.ts'
-import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -245,7 +245,7 @@ describe.skipIf(LIFTED === undefined)('AOT-04 — a live browser tab runs a tran
 
     // Rooted at the repo so workspace packages resolve and the harness page can load a
     // module from `src/`. Pre-bundling stays ON — see the note in `two-tabs.e2e.test.ts`.
-    server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+    server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 }, cacheDir: fixtureViteCacheDir(ROOT) })
     await server.listen()
     const url = server.resolvedUrls?.local[0]
     if (url === undefined) throw new Error('vite dev server produced no URL')

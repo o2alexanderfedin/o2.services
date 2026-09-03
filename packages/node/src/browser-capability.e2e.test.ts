@@ -14,7 +14,7 @@ import { RemoteExecutor } from '@o2/net'
 // Test-only relative imports — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { OWNER_ID, OWNER_KEY, chainSupplierFor, directChainFor } from './capability-fixture.ts'
-import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -183,7 +183,7 @@ beforeAll(async () => {
   // Rooted at the repo so workspace packages and their `./src/index.ts` entries resolve
   // without fs.allow gymnastics, and so the harness page can load a module from `src/`.
   // Dependency pre-bundling must stay ON — see the note in `two-tabs.e2e.test.ts`.
-  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 }, cacheDir: fixtureViteCacheDir(ROOT) })
   await server.listen()
   const url = server.resolvedUrls?.local[0]
   if (url === undefined) throw new Error('vite dev server produced no URL')

@@ -8,7 +8,7 @@ import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { perfReport } from '../../browser/vite.config.ts'
 import { PROVENANCE, SOURCE_DOCUMENT } from '../../browser/demo/surfaces/bench.ts'
-import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 
 /**
  * **P9 — every figure on the Benchmarks surface occurs verbatim in the committed document.**
@@ -116,6 +116,7 @@ beforeAll(async () => {
     root: ROOT,
     logLevel: 'error',
     server: { port: 0 },
+    cacheDir: fixtureViteCacheDir(ROOT),
     plugins: [perfReport()],
   })
   await server.listen()

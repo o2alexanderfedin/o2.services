@@ -17,7 +17,7 @@ import type { AgentResponse } from '@o2/net'
 import type { TabNameRecord } from '@o2/browser'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
-import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -243,7 +243,7 @@ beforeAll(async () => {
 
   // Rooted at the repo so workspace packages and their `./src/index.ts` entries resolve.
   // Dependency pre-bundling must stay ON — see the note in `two-tabs.e2e.test.ts`.
-  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 }, cacheDir: fixtureViteCacheDir(ROOT) })
   await server.listen()
   const url = server.resolvedUrls?.local[0]
   if (url === undefined) throw new Error('vite dev server produced no URL')

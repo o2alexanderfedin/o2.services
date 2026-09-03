@@ -8,7 +8,7 @@ import type { Browser, Page } from 'playwright'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 
 /**
  * BROW-06 — consent blocks the **fetch**, read at the network rather than inferred.
@@ -116,7 +116,7 @@ beforeAll(async () => {
   }
   gatewayOrigin = `http://127.0.0.1:${String((address as AddressInfo).port)}`
 
-  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 } })
+  server = await createServer({ root: ROOT, logLevel: 'error', server: { port: 0 }, cacheDir: fixtureViteCacheDir(ROOT) })
   await server.listen()
   const url = server.resolvedUrls?.local[0]
   if (url === undefined) throw new Error('vite dev server produced no URL')

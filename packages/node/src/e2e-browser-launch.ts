@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import { readdirSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 /**
  * How the e2e fixtures launch a browser, and the one Chromium flag they all pass.
  *
@@ -336,5 +338,101 @@ export async function startCoturn(options: { readonly port?: number } = {}): Pro
     stop: () => {
       child.kill('SIGTERM')
     },
+  }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// The Vite dependency-optimiser cache the e2e fixtures serve their pages from.
+//
+// **Why it lives in this file rather than its own.** Same reason the coturn harness above does:
+// it is a spec-only harness, and the reachability guard counts orphan *modules* rather than
+// exports. A separate `e2e-vite-cache.ts` would have been one more orphan against a ceiling this
+// phase is not permitted to raise.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** The prefix every per-invocation cache directory carries. Matched by the pruner below. */
+const FIXTURE_VITE_CACHE_PREFIX = '.vite-e2e-'
+
+/** Prune runs once per process; a second call in the same spec file would be pure I/O. */
+let pruned = false
+
+/**
+ * Where ONE `vitest run` invocation keeps its optimised dependencies — MEASURED 2026-09-03.
+ *
+ * ## The defect this closes, and it is a false-finding defect rather than a slow one
+ *
+ * Thirty-four e2e specs build a page with `createServer({ root: ROOT, ... })` and none of them
+ * named a `cacheDir`, so every one of them shared Vite's default `node_modules/.vite`. That is a
+ * **per-invocation resource stored at a fixed path**, and two Vite servers optimising it at once
+ * is not hypothetical on a machine where more than one lane runs: the winner replaces `deps/` and
+ * the `browserHash` with it, and the loser's already-loaded pages then ask for dep modules under a
+ * hash that no longer exists. Vite answers **`504 Outdated Optimize Dep`**, the page's module
+ * graph dies, `window.o2` never appears, and the spec reds somewhere far away from the cause.
+ *
+ * **Reproduced without forcing anything**: `rm -rf node_modules/.vite/deps`, then two ordinary
+ * `npx vitest run --project e2e <one file>` processes started together.
+ *
+ * | run | result | first console line |
+ * |---|---|---|
+ * | `demo-byo` alone, control | **17 passed**, 21.23 s | — |
+ * | `demo-byo` racing `demo-pi` on the shared cache | **13 failed / 4 passed**, 64.69 s | `504 (Outdated Optimize Dep)` |
+ * | `demo-pi`, the other process | 10 passed | — |
+ *
+ * The host was quiet for all three — `load/core 1.00 before, 0.86 after` against a ceiling of 4.00
+ * on the failing one — so this is a race on a build cache and not contention. It presented as
+ * twelve reds inside `demo-byo.e2e.test.ts` and was read as a regression in a merge that had
+ * nothing to do with it; that merge's full lane is 62/62 files and 316/316 tests green.
+ *
+ * ## Why `process.ppid` and not a random id
+ *
+ * The key has to be **one value for every file of one lane** — otherwise each of 34 specs pays a
+ * cold optimise instead of one per run — **and a different value for a lane running beside it**.
+ * `process.ppid` is exactly that, and it was measured rather than assumed: two files in one
+ * invocation reported `ppid=8115` and `ppid=8115`, and the next invocation reported `ppid=8162`
+ * for both. A random id would fail the first half; a constant would fail the second.
+ *
+ * **This is not a rule saying "do not run two lanes".** Such a rule would be the special case: it
+ * would leave the collision in place and ask people to avoid it. Naming the resource after the
+ * invocation that owns it removes the collision, and it does so against *any* concurrent Vite
+ * server rather than against the particular pair that was measured.
+ *
+ * The cost, stated rather than discovered: each invocation now starts from a cold optimiser cache
+ * once — about 15 s by the control readings above — instead of inheriting the previous run's.
+ */
+export function fixtureViteCacheDir(root: string): string {
+  pruneStaleFixtureViteCaches(root)
+  return join(root, 'node_modules', `${FIXTURE_VITE_CACHE_PREFIX}${String(process.ppid)}`)
+}
+
+/**
+ * Remove the cache directories of invocations that have exited, and **only** those.
+ *
+ * A directory whose pid is still alive belongs to a lane running beside this one — which is the
+ * very thing {@link fixtureViteCacheDir} exists to protect — so it is left alone. `process.kill`
+ * with signal `0` sends nothing; it asks whether the pid exists. `EPERM` means it exists and is
+ * not ours, which is also a reason to keep it. Only `ESRCH` — no such process — removes anything.
+ */
+function pruneStaleFixtureViteCaches(root: string): void {
+  if (pruned) return
+  pruned = true
+  const modules = join(root, 'node_modules')
+  let entries: string[]
+  try {
+    entries = readdirSync(modules)
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    if (!entry.startsWith(FIXTURE_VITE_CACHE_PREFIX)) continue
+    const pid = Number(entry.slice(FIXTURE_VITE_CACHE_PREFIX.length))
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.ppid) continue
+    try {
+      process.kill(pid, 0)
+      continue
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== 'ESRCH') continue
+    }
+    rmSync(join(modules, entry), { recursive: true, force: true })
   }
 }
