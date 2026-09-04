@@ -67,26 +67,37 @@ import type {
 /**
  * When the reporter starts counting.
  *
- * **`'at-consent'` while `.planning/REQUIREMENTS.md` § Open questions item 3 is pending, and
- * that is NOT a choice between the two readings — it is their intersection.** The consent
- * reading permits only consent-armed collection; the legitimate-interest reading permits
- * consent-armed collection *and* page-load-armed collection. So this value is lawful under
- * either ruling and a ruling can only ever widen it. Collecting under the wrong basis is the
- * irreversible error; not collecting yet is the reversible one.
+ * **SETTLED 2026-09-04 by owner ruling, and the value did not have to move.**
+ * `.planning/REQUIREMENTS.md` § Open questions item 3 is answered: the ground is the visitor's
+ * permission and nothing else. `'at-consent'` is what that ruling requires, and it is what this
+ * constant already held.
  *
- * The question is settled by legal review and not by engineering judgement, and nothing in this
- * repository states a basis — `disclosure-four-elements.node.test.ts` holds an absence guard
- * that says so.
+ * **It held it for a reason worth keeping, because the reasoning is what made the ruling free.**
+ * Before the ruling this value was NOT a guess at the answer — it was the *intersection* of the
+ * two readings. Permission permits only consent-armed collection; the other reading permitted
+ * consent-armed collection *and* page-load-armed collection. So `'at-consent'` was lawful under
+ * either outcome and a ruling could only ever widen it. Collecting on the wrong ground is the
+ * irreversible error; not collecting yet is the reversible one. The ruling did not widen it, so
+ * eleven days of counting taken under the intersection are counting taken under the ruling.
  *
- * **What it costs, which is real and must be published beside any figure taken under it:** the
- * funnel measures a **self-selected opted-in subset**. Stage one is sent at the same moment as
- * stage two, so their counts are equal by construction and the first drop-off — how many
- * visitors arrive and never consent — is not measurable at all.
+ * **What it costs — now permanent rather than pending, and it must be published beside any
+ * figure taken under it.** The funnel measures a **self-selected opted-in subset**. Stage one is
+ * sent at the same moment as stage two, so their counts are equal by construction and the first
+ * drop-off — how many visitors arrive and never consent — is not measurable at all. Under the
+ * refused reading it would have been; it is not, and no figure derived from this funnel may use
+ * an arrival count it does not have. `BENCH-08`'s denominator is therefore the opted-in
+ * population, stated as such wherever the rate is published.
  */
 export const FUNNEL_ARMING: 'at-consent' | 'at-page-load' = 'at-consent'
 
-/** Which visitors the counts are over, under {@link FUNNEL_ARMING}. */
-export const FUNNEL_PENDING_POPULATION: FunnelPopulation = 'opted-in-only'
+/**
+ * Which visitors the counts are over, under {@link FUNNEL_ARMING}.
+ *
+ * Named `FUNNEL_POPULATION` until 2026-09-04, when the pending question it was named
+ * after was ruled on. The value is unchanged; the word `PENDING` had become a claim the tree
+ * no longer makes.
+ */
+export const FUNNEL_POPULATION: FunnelPopulation = 'opted-in-only'
 
 /** Where a report goes. `send` answers whether the platform accepted it for delivery. */
 export interface FunnelSendPort {
@@ -144,7 +155,7 @@ export class FunnelReporter {
     this.#send = options.send ?? null
     this.#clock = options.clock ?? null
     this.#networkClass = options.networkClass ?? 'unknown'
-    this.#population = options.population ?? FUNNEL_PENDING_POPULATION
+    this.#population = options.population ?? FUNNEL_POPULATION
     // Armed from the start only under the reading that permits it. Under the pending default
     // the reporter holds until `arm()` — see `FUNNEL_ARMING`.
     this.#armed = FUNNEL_ARMING === 'at-page-load'

@@ -947,6 +947,26 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * disclosure guard that today asserts the basis is stated NOWHERE and that would have to be
  * inverted in the same commit as whichever sentence lands. Raised by the one entry that arrived.
  *
+ * **Lowered 6 → 4 on 2026-09-04, in the commit that landed the telemetry ruling** — the
+ * ordinary exit, and both departures at once because both entries were the same open question
+ * one row apart. The owner ruled CONSENT, the sentence landed in `DISCLOSURE`, and `BROW-09`
+ * and `RUN-05` both became `Done`, so neither is *unreached* any longer and the ceiling follows
+ * them down in the same commit rather than keeping the slack their departure opened. That is
+ * `OPEN_FINDING_CEILING`'s stated rule applied here — *a ceiling with slack in it stops
+ * binding*.
+ *
+ * **One thing both entries promised turned out not to be needed, and it is recorded rather than
+ * quietly dropped.** Each said the disclosure guard *"has to be inverted in the same commit as
+ * the ruling and cannot be left half-turned"*. It did not: the guard forbids the phrases
+ * `legitimate interest`, `legal basis` and `gdpr`, and the sentence that landed contains none of
+ * them, so the guard stayed green through the ruling. What the commit did instead was
+ * deliberate rather than forced — the guard's rationale was rewritten from *take the ruling
+ * first* to *the ruling was permission*, a positive case was added beside it with two plants
+ * watched red, and its `GDPR` leg was fixed to lower case, having been compared against a
+ * lower-cased string and therefore unable to fail at all. **The promise was written from a
+ * plausible reading of the guard rather than from the guard**, which is the same class as this
+ * file's other recorded corrections.
+ *
  * **Raised 5 → 6 on 2026-09-02, in the commit that moved `NET-12` to `Partial`** (Phase 34,
  * plan 34-01), and it is this register's shape rather than a ceiling raised to make a red go
  * away. Every mechanism `NET-12` names is wired AND driven — `iceConfiguration` at the one
@@ -959,7 +979,7 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * Thirteen witnesses, every one of them measured by running the scan rather than typed. Raised
  * by the one entry that arrived.
  */
-const REREAD_REGISTER_CEILING = 6
+const REREAD_REGISTER_CEILING = 4
 
 /**
  * ## The rule this list encodes
@@ -1677,52 +1697,6 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // physical wall. The bucket is unchanged — `experiment-not-run` is exactly right, and now
   // for a checkable reason: the arrangement exists, the dispatch has not happened, and the
   // dispatch is an owner act because it is a push to a public repository.
-  {
-    // ── Added 2026-09-02 by Plan 35-01 ────────────────────────────────────────────────
-    //
-    // **The open leg is not a symbol and cannot become one: it is a sentence somebody with
-    // legal standing has to choose.** `BROW-09` asks the disclosure to state four things, and
-    // four things it states — each asserted individually in the two witnesses below, each with
-    // a plant watched red, plus the ordering. What is missing is the **legal basis** of the
-    // telemetry element: consent versus legitimate interest under GDPR, recorded at
-    // `.planning/REQUIREMENTS.md` § Open questions item 3 as *contested across sources* and
-    // *"settled by legal review, not engineering judgement"*.
-    //
-    // So there is no exported symbol with no caller to name, and no configuration or tier to
-    // drive. `experiment-not-run` is the nearest of the three buckets and is not a comfortable
-    // fit: the act that would close this row is a **ruling**, not a measurement. It is chosen
-    // over the other two because it is the only one that says *the thing that would close this
-    // has not been done yet*, which is true, rather than pointing at a code path that is not
-    // the obstacle. If a fourth bucket is ever wanted, this is the entry that wants it.
-    //
-    // **What would close it**, so the promise this id carries is specific rather than a
-    // reminder: the owner picks reading A (consent) or reading B (legitimate interest) — both
-    // drafted verbatim in
-    // `.planning/phases/phase-35-conditions-of-entry-in-the-browser/35-01-SUMMARY.md` — the
-    // chosen sentence lands in `DISCLOSURE`, `DISCLOSURE_VERSION` bumps again, `policy.html`
-    // mirrors it, and `disclosure-four-elements.node.test.ts` gains a case asserting the
-    // sentence is present with its removal planted. That file today asserts the **absence** of
-    // any basis sentence, so the guard has to be inverted in the same commit as the ruling and
-    // cannot be left half-turned.
-    id: 'BROW-09',
-    because: 'experiment-not-run',
-    reread: '2026-09-02',
-    witnesses: [
-      'packages/node/src/disclosure-before-optin.e2e.test.ts',
-      'packages/node/src/disclosure-four-elements.node.test.ts',
-    ],
-  },
-  {
-    // Phase 37. The row's schema half is machine-read and green; what is unread is the LEGAL
-    // BASIS sentence, and the act that closes it is a ruling rather than a run — `BROW-09`'s
-    // shape, on the same open question. The witness is the one spec the ruling moves: the
-    // disclosure guard that today asserts the basis appears nowhere and would have to be
-    // inverted in the same commit as whichever sentence lands.
-    id: 'RUN-05',
-    because: 'experiment-not-run',
-    reread: '2026-09-02',
-    witnesses: ['packages/node/src/disclosure-four-elements.node.test.ts'],
-  },
   {
     // ── Added 2026-09-02 by Phase 34 (34-01), and the promise it carries is precise ──────
     //
