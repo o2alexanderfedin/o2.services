@@ -26,6 +26,26 @@ export type { SendRefusalReason } from './ports.ts'
 // Hashing — pure JS, so it works outside a secure context. See hash.ts.
 export { SHA256_CODE, sha256 } from './hash.ts'
 
+// Sealed secrets — AUTH-06. Argon2id over a passphrase, xchacha20poly1305 over the
+// bytes, and the cost parameters recorded in the envelope so raising the defaults cannot
+// brick a record already on disk. `sealHeaderBytes` and `SealHeader` are deliberately NOT
+// re-exported: they are the AEAD's additional-data construction, reachable from the module
+// for the spec that proves the binding, and not a surface a caller has any business
+// building by hand.
+export {
+  DEFAULT_KDF_PARAMS,
+  SEAL_VERSION,
+  SealedSecretShapeError,
+  SealedSecretVersionError,
+  SecretUnlockError,
+  deriveSealKey,
+  openSecret,
+  parseSealedSecret,
+  sealSecret,
+  sealWithKey,
+} from './sealed-secret.ts'
+export type { SealKdfParams, SealedSecret } from './sealed-secret.ts'
+
 // Canonical encoding — DET-05.
 export { NotEncodableError, canonicalCid, decodeCanonical, encodeCanonical } from './canonical/encode.ts'
 export type {

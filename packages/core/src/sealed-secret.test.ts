@@ -140,10 +140,10 @@ const OLD_PARAMS_FIXTURE: SealedSecret = {
   m: 8192,
   p: 1,
   dkLen: 32,
-  salt: 'FIXTURE-PENDING-SALT',
+  salt: 'KFbKCD_Yrz83jnToLyWe3A',
   aead: 'xchacha20poly1305',
-  nonce: 'FIXTURE-PENDING-NONCE',
-  ciphertext: 'FIXTURE-PENDING-CIPHERTEXT',
+  nonce: 'uuIObO7o0LAdpiY2pOrydti_SELpN7gb',
+  ciphertext: 'bSwcTUlZtft9PbiS7wVl3i8xqbfPlcZwBEiK9i-1RszyRbmBCMm0XzLeYtjoqjVw',
 }
 
 /** The passphrase {@link OLD_PARAMS_FIXTURE} was sealed under. */
@@ -242,7 +242,8 @@ describe('criterion 4 — a wrong passphrase has exactly one outcome, a named th
     // ...and with the same key and the same nonce but NO additional data it does not.
     expect(() => xchacha20poly1305(key, nonce, undefined).decrypt(ciphertext)).toThrow()
     // ...nor with a header that differs in a field that does not feed the KDF.
-    const otherHeader = sealHeaderBytes({ ...envelope, v: 7 })
+    const shifted: SealedSecret = { ...envelope, v: 7 }
+    const otherHeader = sealHeaderBytes(shifted)
     expect(() => xchacha20poly1305(key, nonce, otherHeader).decrypt(ciphertext)).toThrow()
   }, 60_000)
 })
@@ -345,6 +346,12 @@ describe('cost is read comparatively, never against a millisecond bound', () => 
     const t2 = performance.now()
 
     const ratio = (t2 - t1) / (t1 - t0)
+    // Printed, not merely asserted: a ratio that only ever becomes a boolean cannot be
+    // compared against the next run, and this file executes on four runtimes whose
+    // absolute costs differ by more than the property under test does.
+    console.log(
+      `[sealed-secret kdf] cheap ${(t1 - t0).toFixed(1)} ms, defaults ${(t2 - t1).toFixed(1)} ms, ratio ${ratio.toFixed(2)}`,
+    )
     // A ratio taken inside one run, per `CLAUDE.md` § Measurement: it cancels the machine,
     // the load and the engine, all three of which differ across the four runtimes this
     // file executes on. No millisecond figure is asserted anywhere in this file.
