@@ -405,13 +405,23 @@ async function peerIdOfOneStart(options: Parameters<typeof startTab>[0]): Promis
   return id
 }
 
-/** Whatever `BrowserNode.start` rejected with, or `null` when it did not reject. */
+/**
+ * Whatever `BrowserNode.start` rejected with — or, when it did **not** reject, an `Error`
+ * naming the peer id it started under.
+ *
+ * The peer id is in there so a planted build *prints the defect happening* rather than only
+ * failing an assertion. A fail-open on the unlock path is a tab that came up, joined the
+ * fabric and answered to a name nobody has a certificate for; `not an Error: null` says the
+ * refusal is missing and says nothing about what arrived instead, and the second half is the
+ * one that makes a reader believe the first.
+ */
 async function startFailure(options: Parameters<typeof startTab>[0]): Promise<unknown> {
   try {
     const node = await startTab(options)
+    const peerId = node.peerId
     await node.stop()
     started.splice(started.indexOf(node), 1)
-    return null
+    return new Error(`the start SUCCEEDED and this tab came up as ${peerId}, which it must not have`)
   } catch (cause: unknown) {
     return cause
   }
@@ -419,6 +429,12 @@ async function startFailure(options: Parameters<typeof startTab>[0]): Promise<un
 
 function nameOf(thrown: unknown): string {
   return thrown instanceof Error ? thrown.name : `not an Error: ${JSON.stringify(thrown) ?? 'undefined'}`
+}
+
+/** What a refusal actually was, for an assertion message that diagnoses rather than restates. */
+function describeThrown(thrown: unknown): string {
+  if (thrown instanceof Error) return `${thrown.name}: ${thrown.message}`
+  return `not an Error: ${JSON.stringify(thrown) ?? 'undefined'}`
 }
 
 // ─── the cases ───────────────────────────────────────────────────────────────
@@ -547,7 +563,10 @@ describe('criterion 4 — a wrong passphrase refuses by name and mints nothing',
     expect(before).not.toBeNull()
 
     const failure = await startFailure({ blockstoreName: store, passphrase: WRONG_PASSPHRASE })
-    expect(nameOf(failure)).toBe('SealedIdentityUnlockError')
+    expect(
+      nameOf(failure),
+      `the wrong passphrase did not refuse by name — what happened instead: ${describeThrown(failure)}`,
+    ).toBe('SealedIdentityUnlockError')
 
     // Nothing new arrived, and nothing was rewritten. A refusal that had quietly re-sealed
     // would still throw and would still leave a database of the right shape.
@@ -573,7 +592,7 @@ describe('criterion 4 — a wrong passphrase refuses by name and mints nothing',
   it('refuses a passphrase under the floor before deriving anything from it', async () => {
     const store = freshStore('weak')
     const failure = await startFailure({ blockstoreName: store, passphrase: 'too-short' })
-    expect(nameOf(failure)).toBe('WeakPassphraseError')
+    expect(nameOf(failure), describeThrown(failure)).toBe('WeakPassphraseError')
   }, 60_000)
 })
 
@@ -590,7 +609,25 @@ describe('the migration — a tab that already held a plaintext seed', () => {
 
     const opened = await openRecord(dbName, SEALED_SEED_KEY, SPEC_PASSPHRASE)
     expect(sameBytes(opened, KNOWN_SEED), 'the envelope opened to bytes that are not the ones it found').toBe(true)
-    expect(await keysOf(dbName)).not.toContain(SEED_KEY)
+    // **`soft`, and that is the difference between watching a plant and inferring one.**
+    // A key-name assertion is the weaker of the two readings below and a hard failure here
+    // would abort the case before the byte scan under it ran — so the assertion that
+    // actually carries criterion 1 over a migrated store would never be watched failing.
+    // Measured: with the migration's `delete` removed and this assertion hard, the byte scan
+    // never executed. `visitor-enrolment.e2e.test.ts` records the identical move for the
+    // identical reason.
+    expect.soft(await keysOf(dbName)).not.toContain(SEED_KEY)
+
+    // **CRITERION 1 again, over a MIGRATED database — and this is not a duplicate.**
+    // Criterion 1's own case above starts on a database nothing has ever written to, so it
+    // never reaches the migration arm at all. A leftover plaintext copy lives in exactly one
+    // place — a database that used to hold one — so an absence assertion that only ever
+    // looks at fresh stores cannot see the failure it is named for. Measured rather than
+    // reasoned: with the migration's `delete` removed, the key-name assertion above reddens
+    // and criterion 1's case stays GREEN.
+    const dump = await dumpIdentityDb(dbName)
+    expectDumpIsNotEmpty(dump, 'the migrated database')
+    expect(findNeedle(dump, KNOWN_SEED)).toBeNull()
   }, 180_000)
 
   it('under a promise to write no new secret it is adopted and reported, and NOT deleted', async () => {
@@ -636,7 +673,7 @@ describe('the promise to write no new secret, and what it costs', () => {
       blockstoreName: store,
       whenSeedIsGone: 'refuses-to-start-without-its-seed',
     })
-    expect(nameOf(failure)).toBe('ContradictoryIdentityPolicyError')
+    expect(nameOf(failure), describeThrown(failure)).toBe('ContradictoryIdentityPolicyError')
     expect(failure instanceof Error ? failure.message : '').toContain('writes-no-new-secret')
     expect(failure instanceof Error ? failure.message : '').toContain(
       'refuses-to-start-without-its-seed',
