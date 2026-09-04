@@ -2567,7 +2567,11 @@ The six stages move in order against a real relay and real WebRTC, read out of t
   3. `CONTRIBUTING.md` states explicitly that pull requests are **triaged, never merged**, and that any fix is implemented **independently of the reported diff**. No CLA is planned — the owner ruled to rely on the civilized world rather than build CLA machinery — so provenance for the later relicensing track is preserved by not merging rather than by paperwork
   4. Public recruitment copy and project copy do **not** promise permanent open licensing. The settled position is open source with monetization for commercial use added later, and three dated precedents — Terraform→OpenTofu, Redis→Valkey, Elastic→OpenSearch — show the shape of the backlash when the copy and the later licensing disagree
   5. The copy carries no payment framing and no cryptocurrency framing, and is read against the five patterns `packages/node/src/vocabulary.node.test.ts` enforces. That guard scans tracked files, so recruitment copy that lives outside the tree is checked by hand against the same five patterns before it is sent — an unchecked message is the one a reviewer greps
-**Plans**: TBD
+**Plans**: 4 plans in 3 waves
+- [ ] `38-01-PLAN.md` — detect the embedded browser on a host-injected bridge object rather than a user-agent string, and offer the "open in your own browser" notice (wave 1)
+- [ ] `38-02-PLAN.md` — the hidden-gap instrument: say in words whether the script kept running, was slowed down or was stopped while the page was hidden, and keep it on screen after the notice is dismissed (wave 2)
+- [ ] `38-03-PLAN.md` — recruitment copy into the tree so both guards reach it, the five patterns into one shared module, and one command for copy that never reaches the tree (wave 1)
+- [ ] `38-04-PLAN.md` — the owner script for two real phones, the checkpoint, and the ledger moved by exactly what they reported (wave 3, blocking checkpoint)
 
 ### Phase 39: The Public Run
 **Goal**: As the project owner, I want the first invite to go out only after seven conditions hold on a dated checklist with named evidence for each, and invites to go out in stages by region and by cohort slice with the funnel read between them, so that the fabric's headline claim is finally measured on hundreds of independently-owned devices rather than asserted.
