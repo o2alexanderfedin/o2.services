@@ -294,52 +294,98 @@ describe('the disclosure says what a visitor needs to decide', () => {
    * later tab, and `browser-node.ts` says in its own words that the peer id *"survives a
    * reload"*.
    *
-   * **What this case couples, and why it is coupled this way.** The durable fact lives in
-   * `browser-node.ts`: it opens an identity store, loads a stored seed, and mints only when
-   * there is none. That is read here **from the source text of the module that does it**,
-   * not restated — so the day somebody removes persistence, the antecedent goes false and
-   * this case stops demanding the disclosure. It cannot rot into a rule that outlives its
-   * reason.
+   * ## RE-KEYED 2026-09-04 (AUTH-06), and the re-keying is the case working
    *
-   * The consequent is deliberately weak on wording and strong on substance: the text must
-   * say the key is *stored* and that it is *reused*, because those are the two facts a
-   * visitor needs and the two the old text denied. It does not pin phrasing — the copy is
-   * allowed to improve.
+   * This case read the antecedent off `browser-node.ts` — *"does the factory call `loadSeed`
+   * and `saveSeed`?"* — and AUTH-06 deleted both, along with every other writer of a
+   * plaintext secret. **It went red, and it went red for the right reason**, which is the
+   * one its own docblock predicted: *"the day somebody removes persistence, the antecedent
+   * goes false and this case stops demanding the disclosure."*
+   *
+   * But *"stops demanding"* is not enough on its own, because the disclosure it stopped
+   * demanding was still on the page and was now **false**. A visitor was being told a key is
+   * stored and loaded again next time, by a page that had stopped storing one. So the
+   * antecedent moved rather than being deleted, and it gained its other half.
+   *
+   * **The antecedent is now `demo/main.ts`, not `browser-node.ts`, and that is where it
+   * belongs.** The factory can persist an identity — it does whenever a caller supplies a
+   * passphrase — but whether *this page's visitor* gets one is decided by the single
+   * `identityProtection` value the demo passes, and the disclosure is shown to that
+   * visitor and to nobody else. Reading the factory answered a question about a library;
+   * this reads the question a person is actually being asked to consent to.
+   *
+   * **Two arms, and each one demands its own sentence**:
+   *
+   * - `writes-no-new-secret` — the page keeps no new key, so the disclosure must say the
+   *   node key is made fresh and is not kept, and must NOT say it is stored and reloaded.
+   * - `passphrase` — the page keeps one, so the disclosure must say it is stored and reused,
+   *   which is what version 2 through version 6 said.
+   *
+   * That makes this case red **in both directions**: it is what caught the disclosure going
+   * false when the demo stopped persisting, and it is what will catch it staying false when
+   * the demo starts persisting again. A guard that only fires one way is a guard that gets
+   * you once.
+   *
+   * The consequents stay deliberately weak on wording and strong on substance. They do not
+   * pin phrasing — the copy is allowed to improve.
    *
    * **This does not check that the disclosure is true in general**, and no test can. It
    * checks the one property whose violation has already happened once.
    */
-  it('discloses the stored identity for as long as the node factory persists one', async () => {
+  it('discloses what the demo page actually does with a visitor’s node key, in whichever direction that is', async () => {
     // Read from source rather than by starting a node: this is a browser-project spec and
     // `BrowserNode.start` opens IndexedDB, dials, and needs a relay. The subject is what the
-    // factory *does*, and its source is the honest record of that.
+    // page *does*, and its source is the honest record of that.
+    const page = await import('../demo/main.ts?raw').then((m) => m.default)
     const factory = await import('./browser-node.ts?raw').then((m) => m.default)
 
-    // The antecedent: does the node factory persist an identity across sessions?
-    const persistsIdentity =
-      factory.includes('loadSeed()') && factory.includes('saveSeed(') && factory.includes('IdbIdentityStore')
-
-    // Stated as a check rather than assumed, so a reader learns which branch ran. If this
-    // is ever false the case below is vacuous, and a vacuous case that looks like a passing
-    // one is exactly what this file exists to prevent elsewhere.
+    // The antecedent, in two halves. The first is that the factory still has an identity
+    // store to persist into at all — if that ever goes, both arms below are meaningless and
+    // the whole case should be revisited rather than re-pointed a third time.
     expect(
-      persistsIdentity,
-      'browser-node.ts no longer looks like it persists an identity — if that is deliberate, ' +
-        'this case and the disclosure line it guards should both be revisited, not deleted',
+      factory.includes('IdbIdentityStore') && factory.includes('identityProtection'),
+      'browser-node.ts no longer takes an identity protection or opens an identity store — if '
+        + 'that is deliberate, this case and the disclosure lines it guards should all be '
+        + 'revisited, not deleted',
     ).toBe(true)
+
+    // The second half, and the one that decides which sentence is true: what this page
+    // passes. Exactly one of the two arms must be present, so a page that passed both — or
+    // neither — is a finding rather than a silently-chosen branch.
+    const keepsNoKey = page.includes("identityProtection: { kind: 'writes-no-new-secret' }")
+    const keepsAKey = page.includes("identityProtection: { kind: 'passphrase'")
+    expect(
+      [keepsNoKey, keepsAKey].filter(Boolean).length,
+      'demo/main.ts must pass exactly one identityProtection arm to BrowserNode.start — this '
+        + 'case reads which sentence the disclosure owes a visitor off that one value',
+    ).toBe(1)
 
     const prose = DISCLOSURE.lines
       .flatMap((line) => [line.question, line.answer])
       .join(' ')
       .toLowerCase()
 
-    // It is kept somewhere.
-    expect(prose, 'the disclosure must say the key is stored').toMatch(/stored|storage|kept/)
-    // And it comes back — the half the old text actively denied by saying "in this tab".
-    expect(prose, 'the disclosure must say the key is reused across visits').toMatch(
-      /again|reused|returns?|next time|come back/,
-    )
-    // And the claim that made version 1 false must not reappear verbatim.
+    if (keepsAKey) {
+      // It is kept somewhere.
+      expect(prose, 'the disclosure must say the key is stored').toMatch(/stored|storage|kept/)
+      // And it comes back — the half version 1's text actively denied by saying "in this tab".
+      expect(prose, 'the disclosure must say the key is reused across visits').toMatch(
+        /again|reused|returns?|next time|come back/,
+      )
+    } else {
+      // The page keeps no new key, so the visitor must be told that and must NOT be told the
+      // opposite. Both halves, because a text that added the true sentence and left the false
+      // one beside it would satisfy a one-sided check and mislead a reader just as much.
+      expect(prose, 'the disclosure must say a fresh node key is made each visit').toMatch(
+        /fresh|new one|not kept|does not keep|is not stored/,
+      )
+      expect(
+        prose,
+        'the disclosure must not claim a stored node key comes back, because this page keeps none',
+      ).not.toMatch(/loaded again the next time|two visits are the same node/)
+    }
+
+    // And the claim that made version 1 false must not reappear verbatim, in either arm.
     expect(prose).not.toContain('generated in this tab')
   })
 })

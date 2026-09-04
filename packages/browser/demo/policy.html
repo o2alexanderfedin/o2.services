@@ -111,10 +111,15 @@
       <li>The results the visitor's machine computes, which are small integers and bit arrays.</li>
       <li>
         A peer key. It is not derived from anything about the device, and it does not
-        persist across origins. It <em>does</em> persist across visits: it is stored in
-        the browser for this site, and loaded again next time rather than made afresh,
-        so two visits are the same node rather than two strangers. Nothing on this page
-        forgets it; clearing this site's data in the browser is what removes it.
+        persist across origins. Since 2026-09-04 it does <em>not</em> persist across
+        visits either: this page makes a fresh one each visit and writes none to the
+        browser, so two visits are two different nodes and nothing joins them together.
+        The reason it changed is that a key written in the clear is readable by anyone
+        who copies the browser profile, and this page asks its visitors for no
+        passphrase to protect one with. <strong>One carry-over</strong>: a browser that
+        already holds a key from an earlier version of this page keeps it and reuses it,
+        rather than having its node identity deleted out from under it. Clearing this
+        site's data in the browser removes that.
       </li>
       <li>
         Optionally, and only if the visitor ticks the box: one line recording the
@@ -126,8 +131,11 @@
       <li>
         Nothing else. No files, no browsing history, no cookies, no advertising
         identifiers. Note that "no cookies" is a statement about cookies and not about
-        storage in general: the peer key above is kept in this browser's own storage for
-        this site, and it is the one durable thing this page leaves behind.
+        storage in general: this page does keep the visitor's own answer to the consent
+        gate in this browser's storage for this site, so that they are not asked again on
+        every visit, and — for a visitor who joins a provider — the signed statement
+        recording that. Neither is sent anywhere by this page; both are removed by
+        clearing this site's data.
       </li>
     </ul>
 
@@ -140,9 +148,11 @@
       </li>
       <li>
         It sets no cookies and uses no third-party analytics service — the counts described
-        below are taken by this project's own collector and go nowhere else. It does keep one value in
-        this browser's storage for this site — the peer key described above — which is
-        what lets a returning visitor be the same node rather than a new one.
+        below are taken by this project's own collector and go nowhere else. It does keep
+        values in this browser's storage for this site: the visitor's own answer to the
+        consent gate, and the signed statement from a provider they chose to join. It no
+        longer keeps a peer key, so a returning visitor is a new node rather than the same
+        one.
       </li>
       <li>
         <strong>A visitor who does not agree is not counted anywhere, by anything.</strong>
