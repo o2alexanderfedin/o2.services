@@ -668,7 +668,12 @@ describe('AUTH-02 — the door a browser tab actually meets is a seed, and it ca
         // because that is the only visitor `writes-no-new-secret` leaves with an identity
         // that survives a start. Planted before the first start, per engine so no two
         // profiles share one.
-        await plantLegacyIdentitySeed(page, store, PLANTED_SEEDS[name] ?? new Uint8Array(32).fill(1))
+        //
+        // Read into ONE local rather than looked up twice: the plant and the assertion below
+        // must be the same bytes, and two lookups is two places for that to stop being true.
+        const planted = PLANTED_SEEDS[name]
+        if (planted === undefined) throw new Error(`no planted seed declared for ${name}`)
+        await plantLegacyIdentitySeed(page, store, planted)
 
         // ---- arm A: no certificate. ------------------------------------------------------
         const unenrolled = await startTabNode(page, store, false)
@@ -679,7 +684,7 @@ describe('AUTH-02 — the door a browser tab actually meets is a seed, and it ca
           unenrolled,
           `${name}'s tab did not adopt the planted pre-AUTH-06 seed — it minted instead, which is `
             + 'what a tab with no stored key does and is not what this case is reading',
-        ).toBe((await identityFromSeed(PLANTED_SEEDS[name] ?? new Uint8Array(32).fill(1))).peerId)
+        ).toBe((await identityFromSeed(planted)).peerId)
 
         await until(
           async () => (await page.evaluate(() => window.o2.peers())).includes(seed.node.peerId),
