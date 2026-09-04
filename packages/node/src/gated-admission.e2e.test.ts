@@ -85,6 +85,7 @@ import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { toHex } from '@o2/core'
 import type { PublicKeyHex } from '@o2/core'
+import type { IdentityProtection } from '@o2/libp2p'
 import { encodeRequest, parseResponse } from '@o2/net'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
@@ -243,6 +244,17 @@ async function tabSaysReserved(peerId: string): Promise<readonly string[]> {
  * It does now, and a reading of the criterion that installed its own gate would be grading a
  * hook rather than the production path from `relayAdmission` through `relayAdmissionGate`.
  */
+/**
+ * AUTH-06 — stated because the fixture below restarts door on its own directory and
+ * refuses if the issuer key moved.
+ *
+ * Plan 42-02 made `FabricNodeOptions.identityProtection` default to `writes-no-new-secret`, so
+ * a node told nothing persists no secret and mints a fresh provider key on every start. The
+ * refusal a few lines down would then fire for a reason about identity rather than about the
+ * gate this file measures. Persistence is asked for; the refusal is left as strict as it was.
+ */
+const PERSISTS: IdentityProtection = { kind: 'passphrase', passphrase: 'gated-admission-spec-passphrase' }
+
 async function startCoLocatedDoor(): Promise<void> {
   const minting = await FabricNode.start({
     // Admits nobody, and that is the truthful posture for a node whose entire life is to mint
@@ -251,6 +263,7 @@ async function startCoLocatedDoor(): Promise<void> {
     relayAdmission: new Set<PublicKeyHex>(),
     startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'door'),
+    identityProtection: PERSISTS,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [publisher.pub],
     issuesCertificates: 'issues-without-an-aggregate-budget',
@@ -266,6 +279,7 @@ async function startCoLocatedDoor(): Promise<void> {
     relayAdmission: new Set<PublicKeyHex>([issuer]),
     startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'door'),
+    identityProtection: PERSISTS,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [publisher.pub],
     issuesCertificates: 'issues-without-an-aggregate-budget',

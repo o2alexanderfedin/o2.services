@@ -92,6 +92,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { PublicKeyHex } from '@o2/core'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { nodeKeyForPeerId } from '@o2/libp2p'
+import type { IdentityProtection } from '@o2/libp2p'
 import { RpcRecordIndex, encodeRequest, parseResponse } from '@o2/net'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
@@ -320,11 +321,23 @@ async function certificateIssuerOf(peerId: string): Promise<PublicKeyHex | null>
  * life is to mint a key and stop: it meets no peer, and stating the open literal would put
  * another open site in the repository-wide posture census for a node that never had a door.
  */
+/**
+ * AUTH-06 — stated because `startProvider` below restarts the provider on its own directory
+ * and refuses if the issuer key moved.
+ *
+ * Plan 42-02 made `FabricNodeOptions.identityProtection` default to `writes-no-new-secret`, so
+ * a node told nothing persists no secret and mints a fresh provider key on every start. The
+ * refusal four lines below would then fire for a reason about identity rather than about the
+ * gate this file measures. Persistence is asked for; the refusal is left as strict as it was.
+ */
+const PERSISTS: IdentityProtection = { kind: 'passphrase', passphrase: 'gated-seed-spec-passphrase' }
+
 async function startProvider(): Promise<void> {
   const minting = await FabricNode.start({
     relayAdmission: new Set<PublicKeyHex>(),
     startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'provider'),
+    identityProtection: PERSISTS,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: TRUST_ANCHORS,
     issuesCertificates: 'issues-without-an-aggregate-budget',
@@ -338,6 +351,7 @@ async function startProvider(): Promise<void> {
     relayAdmission: new Set<PublicKeyHex>([providerIssuer]),
     startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'provider'),
+    identityProtection: PERSISTS,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: TRUST_ANCHORS,
     issuesCertificates: 'issues-without-an-aggregate-budget',
