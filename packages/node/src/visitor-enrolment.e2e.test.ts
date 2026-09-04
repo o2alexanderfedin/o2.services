@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcessByStdio } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,6 +13,7 @@ import type { PublicKeyHex } from '@o2/core'
 import type { IdentityProtection } from '@o2/libp2p'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { E2E_PASSPHRASE, signInDemoTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -111,6 +112,8 @@ import { FabricNode } from './fabric-node.ts'
 
 const SEED = fileURLToPath(new URL('./bin/seed.ts', import.meta.url))
 const PAGE_PATH = '/packages/browser/demo/index.html'
+/** The repository root, for the one assertion below that reads committed source. */
+const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /**
  * The test-only harness page, served by the SAME seed process on the SAME port.
@@ -685,6 +688,10 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
 
         // ---- The visitor's first click. The real consent control, not `grantConsent()`.
         await page.locator('#allow').click()
+        // ---- The visitor's SECOND act — AUTH-06, `42-06`. `#allow` reveals `#signin`, and
+        // `#main`, which holds `#enrol-offer`, is what UNLOCK reveals. The real controls
+        // again: `signInDemoTab` fills the page's own field and presses its own button.
+        await signInDemoTab(page)
 
         // ---- B2: the page references `enrollmentProvider`. Before 2026-08-17 this element
         // did not exist and `grep -c enrol` over `index.html` returned 1, on an unrelated
@@ -709,19 +716,19 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
         expect(before.accepted, 'nothing may be accepted before the visitor accepts it').toBe(false)
         expect(before.heldIssuer, 'a tab that never enrolled holds no certificate').toBeUndefined()
 
-        // ---- The visitor's second click. THIS is the whole of what B1 was missing: an
+        // ---- The visitor's next click. THIS is the whole of what B1 was missing: an
         // explicit action, on a control that exists, taking no argument from anybody.
+        //
+        // Since `42-04` this tab already has a node by now — unlocking started one — and the
+        // `#enrol` handler restarts it rather than leaving the visitor to, because the
+        // sentence on the button promised an enrolled tab. So the third click this case used
+        // to make is gone: what it did, the handler now does.
         await page.locator('#enrol').click()
         await expect
           .poll(async () => page?.evaluate(async () => (await window.o2.enrolmentOffer()).accepted), {
             timeout: 60_000,
           })
           .toBe(true)
-
-        // ---- The visitor's third click: start the node. `autoStart` still passes no
-        // `enrollment` — go and read it. What reaches `BrowserNode` is the decision above,
-        // read back out of this origin's own storage by `api.start`.
-        await page.locator('#join').click()
 
         // The certificate, read from the tab's own store through `enrolledIssuer`. This is
         // the arm that says the enrolment ROUND TRIP completed: a decision alone would be
@@ -754,6 +761,84 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
           await advertised(),
           'the uncertificated stranger must still be out while the enrolled tab is in',
         ).not.toContain(strangerNode?.peerId ?? '')
+
+        // ---- T-42-27 — the two credentials meet HERE, so their separation is read here.
+        //
+        // This tab now holds both: a passphrase it registered with, and a certificate a real
+        // provider signed. The threat is the first reaching the second.
+        //
+        // **Which of the two available forms this file could reach, stated because the plan
+        // asked.** The stronger one — assert the passphrase against the request payloads the
+        // enrolment sent — is **out of reach here**, and not for want of trying: the enrolment
+        // round trip is a libp2p stream over a WebSocket to the seed, so `page.on('request')`
+        // sees one WebSocket upgrade and no frames, and a Noise-encrypted payload would say
+        // nothing about the plaintext anyway. What IS in reach is the second form the plan
+        // names, and a storage reading beside it.
+        //
+        // Form one: the source. `requireSignIn()` is the only way to obtain the held
+        // passphrase, and it must have exactly ONE call site — the `identityProtection`
+        // field. A second call site anywhere is the whole of this threat.
+        const glue = await readFile(join(ROOT, 'packages/browser/demo/main.ts'), 'utf8')
+        const callSites = glue
+          .split('\n')
+          .map((line, index) => ({ line: line.trim(), number: index + 1 }))
+          .filter((entry) => entry.line.includes('requireSignIn()') && !entry.line.startsWith('*'))
+        expect(
+          callSites.map((entry) => `${String(entry.number)}: ${entry.line}`),
+          'the held passphrase is obtained at more than one site in demo/main.ts, so this ' +
+            'assertion can no longer say where it goes',
+        ).toHaveLength(1)
+        expect(
+          callSites[0]?.line,
+          'the one call to requireSignIn() is no longer the identityProtection field — the ' +
+            'passphrase now reaches somewhere else, and T-42-27 is about exactly that',
+        ).toBe("identityProtection: { kind: 'passphrase', passphrase: requireSignIn() },")
+
+        // Form two: what this origin actually wrote. Every value in every object store of
+        // every database this tab holds, searched for the passphrase — with the positive
+        // control the search needs, because an absence assertion over an empty dump cannot
+        // fail. The control is the provider's own issuer key, which the enrolment DID store.
+        const dump = await page.evaluate(async () => {
+          const names = (await indexedDB.databases()).map((entry) => entry.name ?? '')
+          const out: string[] = []
+          for (const name of names) {
+            if (name === '') continue
+            const db = await new Promise<IDBDatabase | null>((resolve) => {
+              const request = indexedDB.open(name)
+              request.onsuccess = (): void => resolve(request.result)
+              request.onerror = (): void => resolve(null)
+            })
+            if (db === null) continue
+            for (const store of Array.from(db.objectStoreNames)) {
+              const values = await new Promise<unknown[]>((resolve) => {
+                const request = db.transaction(store, 'readonly').objectStore(store).getAll()
+                request.onsuccess = (): void => resolve(request.result as unknown[])
+                request.onerror = (): void => resolve([])
+              })
+              for (const value of values) {
+                out.push(
+                  value instanceof Uint8Array || value instanceof ArrayBuffer
+                    ? new TextDecoder().decode(value as never)
+                    : typeof value === 'string'
+                      ? value
+                      : JSON.stringify(value),
+                )
+              }
+            }
+            db.close()
+          }
+          return out.join('\u0000')
+        })
+        expect(
+          dump.includes(providerIssuer),
+          'the positive control failed: this origin does not hold the certificate the ' +
+            'enrolment obtained, so the absence below is an absence from an empty search',
+        ).toBe(true)
+        expect(
+          dump.includes(E2E_PASSPHRASE),
+          'the passphrase this visitor registered with is somewhere in this origin storage — ' +
+            'T-42-27. It is held in page memory for one visit and nothing may write it down',
+        ).toBe(false)
       } finally {
         await page?.close().catch(() => {})
         await browser?.close().catch(() => {})
@@ -818,6 +903,11 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
         await tab.goto(pageUrl)
         await tab.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
         await tab.locator('#allow').click()
+        // AUTH-06, `42-06` — the act between the gate and the surfaces. It is also what
+        // starts this tab's node, which is why the `#join` press that stood below is gone:
+        // `#enrol` restarts the running node so that it enrols, and `#join` would be a press
+        // on a control the page has already spent.
+        await signInDemoTab(tab)
         await tab.locator('#enrol-offer').waitFor({ state: 'visible', timeout: 60_000 })
         await tab.locator('#enrol').click()
         await expect
@@ -825,7 +915,6 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
             timeout: 60_000,
           })
           .toBe(true)
-        await tab.locator('#join').click()
         await expect
           .poll(
             async () => tab.evaluate(async () => (await window.o2.enrolmentOffer()).heldIssuer),

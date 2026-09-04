@@ -89,6 +89,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fixtureViteCacheDir } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
@@ -300,11 +301,13 @@ async function startTab(region: HostedObjectName): Promise<Page> {
   const address = `/ip4/${HOST}/tcp/${String(PORTS[region])}/ws/p2p/${String(peerIds.get(region))}`
   await page.goto(`${baseUrl}${PAGE}?relay=${encodeURIComponent(address)}`)
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+  // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor
+  // clicks the button. AUTH-06, `42-06`: it signs in for the same reason too, because
+  // `window.o2.start` refuses with `SignedOutError` until somebody has opened their own
+  // envelope. `signInHarnessTab` does both, in the order its header explains.
+  await signInHarnessTab(page)
   await page.evaluate(
     async ([addr, name, duty, poll]) => {
-      // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor
-      // clicks the button.
-      window.o2.grantConsent()
       return window.o2.start({
         relayAddrs: [addr as string],
         blockstoreName: name as string,

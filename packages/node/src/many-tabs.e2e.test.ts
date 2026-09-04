@@ -6,6 +6,7 @@ import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { RELAY_MAX_RESERVATIONS } from '@o2/libp2p'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -89,13 +90,18 @@ describe('criterion 3 — simultaneous browser reservations', () => {
 
     // Start every node, then wait for all of them — so the reservations really are
     // concurrent rather than sixteen sequential ones that each release first.
+    // BROW-01 / AUTH-06: sixteen harnesses consent and sign in for the same reasons a
+    // visitor presses the two controls. **All sixteen register against ONE origin's default
+    // identity database**, which is the property `cold-start-seed-race.e2e.test.ts` pins —
+    // N tabs opening one cold origin at once hold ONE identity — so it is a concurrency
+    // reading arriving for free rather than a hazard. The sixteen distinct peer ids below
+    // come from the sixteen distinct `blockstoreName`s, which is a different database each.
+    await Promise.all(pages.map(async (page) => signInHarnessTab(page)))
     const peerIds = await Promise.all(
       pages.map(async (page, i) =>
         page.evaluate(
-          async ([address, store]) => {
-            window.o2.grantConsent()
-            return window.o2.start({ relayAddrs: [address!], blockstoreName: store! })
-          },
+          async ([address, store]) =>
+            window.o2.start({ relayAddrs: [address!], blockstoreName: store! }),
           [relayAddr, `o2-many-${i}`],
         ),
       ),

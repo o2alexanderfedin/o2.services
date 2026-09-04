@@ -1271,7 +1271,10 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // THROUGH THE UI excluding a connected-but-unverified peer off the wire"*, and priced it at
   // *"~60-90 lines to join them, no production change needed"*. Both halves held.
   // `visitor-enrolment.e2e.test.ts` gained a second case per engine that clicks `#allow`,
-  // `#enrol` and `#join`, restarts on the SAME ORIGIN through
+  // signs in, and clicks `#enrol` — it clicked `#join` too until `42-06`, and stopped
+  // because since `42-04` unlocking starts the node and `#enrol` restarts it so that it
+  // enrols, so the third press was on a control the page had already spent — restarts on
+  // the SAME ORIGIN through
   // `/packages/browser/harness/capability.html` — which the seed's own Vite server serves on
   // the same port as the demo page — and reads `fetchBlock` through the composed
   // `FetchingBlockstore`. No production file changed.

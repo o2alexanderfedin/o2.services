@@ -2704,7 +2704,25 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
 // Closing condition, checkable: this list stops growing for HTML entry points when the graph
 // learns to read `<script type="module" src>` — the same closing condition `demo/nav.ts` and
 // the six surfaces are waiting on, and one nobody has scheduled.
-const ORPHAN_MODULE_CEILING = 32
+//
+// 2026-09-04: 32 → 33, raised by exactly one and named. `packages/node/src/e2e-signin.ts` is
+// the sign-in step thirty-seven e2e fixtures take since `42-04` moved the demo page's front
+// door, and its mechanism is the one this list accepted first: it is
+// `packages/node/src/e2e-browser-launch.ts` again — a test-only module imported by RELATIVE
+// PATH from spec files, which the traced graph does not walk because specs are not production.
+//
+// **Barrel-exporting it was considered and rejected for `capability-fixture.ts`'s stated
+// reason**, which is the same one: putting it in `packages/node/src/index.ts` would take it
+// off this list and put three symbols on the OTHER register — `signInDemoTab`,
+// `signInHarnessTab` and `registerHarnessTab`, none of which any production caller will ever
+// have, because a production page has a visitor pressing the buttons. That trades one honest
+// orphan for three rows that read like unwired features. It would also hand a shipped barrel
+// a module whose whole content is a test passphrase and two Playwright drivers.
+//
+// Closing condition, checkable and with no forecast attached: this entry leaves when
+// `e2e-browser-launch.ts` does — that is, when the graph learns to walk spec files, which
+// nobody has scheduled either.
+const ORPHAN_MODULE_CEILING = 33
 
 /**
  * A production module that reaches **no barrel at all**, named by path.

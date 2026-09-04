@@ -6,6 +6,7 @@ import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -156,13 +157,13 @@ describe.each(ENGINES)('BROW-07 in $name', ({ name, type }) => {
     // would make everything below vacuous.
     expect(await worker.title()).toBe(BASE_TITLE)
 
+    // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor
+    // clicks the button. AUTH-06, `42-06`: it signs in for the same reason too, because
+    // `window.o2.start` refuses with `SignedOutError` until somebody has opened their own
+    // envelope. `signInHarnessTab` does both, in the order its header explains.
+    await signInHarnessTab(worker)
     await worker.evaluate(
-      async ([address, store]) => {
-        // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor
-        // clicks the button.
-        window.o2.grantConsent()
-        return window.o2.start({ relayAddrs: [address!], blockstoreName: store! })
-      },
+      async ([address, store]) => window.o2.start({ relayAddrs: [address!], blockstoreName: store! }),
       [relayAddr, `o2-indicator-${name}`],
     )
 

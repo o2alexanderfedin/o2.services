@@ -9,6 +9,7 @@ import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 
 /**
  * BROW-06 — consent blocks the **fetch**, read at the network rather than inferred.
@@ -230,11 +231,15 @@ describe('BROW-06 — no artifact bytes are requested before consent is recorded
       { timeout: 30_000 },
     )
     await page.click('#allow')
-    await page.waitForFunction(
-      () => document.getElementById('main')?.hasAttribute('hidden') === false,
-      null,
-      { timeout: 30_000 },
-    )
+    // AUTH-06, `42-06` — the only change this file takes, and every assertion below is
+    // untouched. `#allow` reveals `#signin`; `#main` is what UNLOCK reveals, and unlocking
+    // is what `window.o2.start` now requires. **It does not produce a running node here**:
+    // this fixture stands up a Vite server and a gateway server and no relay at all, so
+    // `revealMain` finds nothing to dial and starts nothing — which is precisely why the
+    // refusal below is still the blockstore put's rather than a consent refusal, exactly as
+    // it was before this plan. The running-node reading is taken by
+    // `signin-journey.e2e.test.ts`, on a fixture that has a relay.
+    await signInDemoTab(page)
 
     const attempt = await attemptFetch(page)
     await page.waitForTimeout(1_000)

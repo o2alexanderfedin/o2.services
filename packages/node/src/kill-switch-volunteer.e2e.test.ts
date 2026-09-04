@@ -54,6 +54,7 @@ import type { Browser, BrowserContext, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ADMISSION_KEY_HEADER } from '../../cloudflare/src/admission-flag.ts'
 import { STOPPED_TITLE_PREFIX } from '../../browser/src/computing-indicator.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const DIST = join(ROOT, 'packages', 'browser', 'dist')
@@ -267,9 +268,20 @@ describe('RUN-02 / RUN-03 — a volunteer sees the stop, and cannot cause one', 
     const tabContext = await browser.newContext()
     const tab = await tabContext.newPage()
     const relayAddr = `/ip4/${HOST}/tcp/${String(PORT)}/ws/p2p/${workerPeerId}`
-    await tab.goto(`${baseUrl}/index.html?relay=${encodeURIComponent(relayAddr)}`)
+    // **Opened WITHOUT `?relay=`, and that is `42-04`'s doing rather than a preference.**
+    // Since `42-04` the page starts a node itself the moment somebody unlocks, provided
+    // relay discovery found an address — and this case needs a start it configures, because
+    // the short admission poll below is what brings the halt inside its own budget. Two
+    // starts in one tab is two `BrowserNode`s racing for one reservation. So discovery is
+    // given nothing to find (this dumb static server serves no `bootstrap.json`), the page
+    // says so in `#state`, and the relay reaches the node through the harness's own call —
+    // which is where it always came from in this file.
+    await tab.goto(`${baseUrl}/index.html`)
     await tab.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
     await tab.click('#allow')
+    // `42-04` moved the door: `#allow` reveals `#signin`, and `window.o2.start` refuses with
+    // `SignedOutError` until somebody has opened their own envelope.
+    await signInDemoTab(tab)
     await tab.evaluate(
       async (addr: string) =>
         void (await window.o2.start({
