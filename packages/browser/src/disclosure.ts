@@ -140,7 +140,7 @@ import { DISCLOSED_DATA_COST_BYTES } from './data-cost.ts'
  * A test asserts that this constant appears in the rendered gate, so a silent
  * edit to the terms fails rather than quietly re-using an old agreement.
  */
-export const DISCLOSURE_VERSION = '6'
+export const DISCLOSURE_VERSION = '7'
 
 /**
  * Why the current version differs from the one before it.
@@ -163,13 +163,45 @@ export const DISCLOSURE_VERSION = '6'
  * owner ruled on 2026-09-04 and the sentence landed. A returning visitor is re-asked for a
  * sentence that grants them no less than before, which is the cost of the mechanism working
  * rather than a sign it misfired.
+ *
+ * ## Version 7, 2026-09-04 — AUTH-06, and version 6 had become FALSE the way version 1 did
+ *
+ * The same shape as the v1 -> v2 bump three hundred lines up, and it is worth saying so
+ * plainly rather than letting a reader discover the parallel: a sentence about the visitor's
+ * node key stopped being true because the code under it changed.
+ *
+ * AUTH-06 made `BrowserNodeOptions.identityProtection` required, and a visitor to this page
+ * is asked for no passphrase — so `demo/main.ts` passes `{ kind: 'writes-no-new-secret' }`
+ * and the page **writes no node key at all**. Version 6 told that visitor *"A key is stored
+ * in this browser, for this site … it is loaded again the next time you visit rather than
+ * made afresh — so two visits are the same node, not two strangers."* Every clause of that
+ * is now false for a new visitor.
+ *
+ * Why the page stopped storing one, in the words the code uses: a key written in the clear
+ * is readable by anyone who copies this browser profile, and the only two alternatives were
+ * to keep writing it in the clear or to demand a passphrase from somebody who came here to
+ * look at a page. Neither is what a visitor asked for, so the page keeps nothing.
+ *
+ * **The carry-over is in the visitor-facing text and not only here**, because it is about a
+ * particular person rather than about the code: a browser that already holds a key from an
+ * earlier version of this page keeps it and reuses it. Deleting somebody's identity because
+ * they were never asked for a passphrase is worse than the exposure it would close — their
+ * node would come back a stranger to every peer that knows it.
+ *
+ * **What this bump does NOT do**, on this module's own standing scope rule: it discloses
+ * what the code already does. It takes no position on whether a visitor *should* be asked
+ * for a passphrase, and it makes no promise about a later version of this page doing so. A
+ * page that starts keeping a key again owes its visitors the opposite sentence and another
+ * bump; `consent.test.ts` reads the demo's own `identityProtection` value and demands
+ * whichever of the two sentences is the true one, so the guard fires in both directions.
  */
 export const CONSENT_VERSION_NOTE: string =
-  'this page now says what all of it rests on — your permission, and nothing else. The ' +
-  'counters begin when you allow the work to run, the optional report begins only if you tick ' +
-  'its box, and there is no third footing on which anything is taken from a visitor who does ' +
-  'neither. Version 5 described what is counted and said nothing about why it is allowed to ' +
-  'be, because that was an open question until it was ruled on'
+  'this page no longer keeps a node key. Version 6 told you one was stored here and loaded ' +
+  'again on your next visit, so that two visits were the same node. That has changed: a key ' +
+  'is now made fresh each visit and is not written to this browser at all, because keeping ' +
+  'one where anybody who copies this browser could read it is worse than making a new one. ' +
+  'Two visits are therefore two different nodes. If an earlier version of this page already ' +
+  'left a key here it is kept and reused rather than discarded'
 
 export interface DisclosureLine {
   /** Short label — the question a visitor is actually asking. */
@@ -274,19 +306,26 @@ export const DISCLOSURE: Disclosure = {
     {
       question: 'Does this page remember me?',
       answer:
-        'Yes, in one specific way. A key is stored in this browser, for this site. It is ' +
-        'the name other participants know your node by, and it is loaded again the next ' +
-        'time you visit rather than made afresh — so two visits are the same node, not two ' +
-        'strangers. It is not shared with other sites, and it says nothing about you or ' +
-        'your device. There is currently no control on this page that forgets it; clearing ' +
-        'this site’s data in your browser is what removes it.',
+        'Not by your node key. That key is the name other participants know you by while ' +
+        'the work runs, and this page makes a fresh one each visit and does not keep it — ' +
+        'so two visits are two different nodes rather than one, and nothing joins them ' +
+        'together. It says nothing about you or your device either way. Two things are ' +
+        'kept, and both are yours: your answer to this page, so that you are not asked ' +
+        'again every time; and, if you choose to join a provider, the signed statement ' +
+        'that records it, which is what lets a later visit recognise who admitted you. ' +
+        'One carry-over, stated because it applies to some people and not others: if an ' +
+        'earlier version of this page already put a node key in this browser, that key is ' +
+        'kept and reused rather than thrown away — losing it would make your node a ' +
+        'stranger to everyone who knows it. Clearing this site’s data in your browser ' +
+        'removes all of it.',
     },
     {
       question: 'How do I stop it?',
       answer:
         'The Stop control in the bar. It ends the thread and closes the connections ' +
-        'immediately — it does not ask the work to finish first. It does not forget the ' +
-        'key above: stopping ends the work, and this tab returns as the same node.',
+        'immediately — it does not ask the work to finish first. It does not undo your ' +
+        'answer to this page: stopping ends the work, and starting again begins it under ' +
+        'a new node key, exactly as a new visit would.',
     },
   ],
   affirm: 'Allow this page to use my processor',

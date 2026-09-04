@@ -63,6 +63,9 @@ function buildFull(): BrowserNodeOptions {
     trustAnchors: 'runs-unsigned-artifacts',
     whenSeedIsGone: 'mints-a-new-identity',
     startReporting: 'reports-its-own-start',
+    // AUTH-06, and the fourth of the same kind: required with no default, so it appears in
+    // every literal, and this file constructs no node so the value is never taken.
+    identityProtection: { kind: 'writes-no-new-secret' },
   }
 }
 
@@ -102,6 +105,23 @@ describe('BrowserNodeOptions requires a killable thread — the compile-time pro
     // @ts-expect-error BROW-01 — startReporting is required; omitting it must fail `tsc --noEmit`, naming 'startReporting'.
     const withoutAChoice: BrowserNodeOptions = rest
     expect(withoutAChoice.relayAddrs).toEqual([])
+  })
+
+  it('fails to compile with identityProtection omitted', () => {
+    // AUTH-06, and the same guard for the same reason `startReporting`'s exists: a field
+    // with a default is written at no call site, so every text count reads zero for it and
+    // every behavioural test passes on whichever value the default happened to be.
+    //
+    // What this option carries is where a long-lived secret lives on somebody else's
+    // device. `FabricNodeOptions.identityProtection` is deliberately optional — its default
+    // is the arm that writes nothing, and it has 169 sibling call sites — and this one is
+    // deliberately not, because `whenSeedIsGone:` has 22 and every one of them is a place
+    // this goes too. The asymmetry is a count, not a preference, and this case is what stops
+    // it being closed by adding a default here.
+    const { identityProtection: _unused, ...rest } = buildFull()
+    // @ts-expect-error AUTH-06 — identityProtection is required; omitting it must fail `tsc --noEmit`, naming 'identityProtection'.
+    const withoutAPolicy: BrowserNodeOptions = rest
+    expect(withoutAPolicy.relayAddrs).toEqual([])
   })
 })
 

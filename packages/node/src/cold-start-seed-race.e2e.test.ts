@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
 import { createServer } from 'vite'
-import type { Plugin, ViteDevServer } from 'vite'
+import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
@@ -74,6 +74,31 @@ import { FabricNode } from './fabric-node.ts'
  * a millisecond says the tabs genuinely overlapped, and a spread of hundreds says the timer
  * clamp won and this trial measured nothing about the race.
  *
+ * ## The driver moved on 2026-09-04 (AUTH-06), and the subject did not
+ *
+ * This file drove `window.o2.autoStart` — the demo — until then. AUTH-06 made
+ * `identityProtection` a required option, and a **visitor is asked for no passphrase**, so
+ * `demo/main.ts` now starts under `writes-no-new-secret` and persists nothing at all until
+ * `42-04` asks. Left on that path this fixture would have measured four tabs each minting a
+ * per-session identity, which is not a race and not a property: the assertions would have
+ * gone red for a reason that has nothing to do with the transaction they are about.
+ *
+ * The alternative — a passphrase parameter on `TabApi` — was refused. `demo/main.ts` records
+ * the rule in its own words: *a page that was found rather than configured must not be
+ * configurable by whatever found it*, and a passphrase is the last thing that should be
+ * relaxed for.
+ *
+ * So the tabs are driven through `packages/browser/harness/capability.html`, whose harness
+ * *"constructs the factory directly, which is also the sharper thing to do: the subject is
+ * `BrowserNode.start`'s composition, not the demo glue above it."* Everything this file
+ * measures is unchanged — one context, one origin, one IndexedDB, four real tabs released
+ * against a shared wall-clock instant, three trials, both readings, the spread printed. What
+ * changed is which `start` call the tabs make, and it is the same `BrowserNode.start`.
+ *
+ * The consent gate went with it: the harness page installs no `window.o2` and asks for no
+ * consent, so `armTab` no longer clicks `#allow`. That was never part of the subject —
+ * `demo/main.ts` writes the consent record, and the seed is minted by `start`.
+ *
  * ## What this file does not claim
  *
  * One host, one chromium, one profile. These are N tabs of one browser and not N devices —
@@ -82,7 +107,7 @@ import { FabricNode } from './fabric-node.ts'
  */
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
-const PAGE = 'packages/browser/demo/index.html'
+const PAGE = 'packages/browser/harness/capability.html'
 
 /** Tabs per trial. Four is enough for a last-writer-wins race to have three losers. */
 const TABS = 4
@@ -97,6 +122,18 @@ const TABS = 4
 const TRIALS = 3
 /** How far ahead of now the shared release instant is set, so every tab is armed before it. */
 const RELEASE_LEAD_MS = 1_500
+
+/**
+ * AUTH-06 — the passphrase every tab of every trial starts under.
+ *
+ * **One value, shared by all four tabs, and that is the fixture's premise rather than a
+ * convenience**: four tabs of one profile are one person's browser, so they hold one
+ * passphrase, and the question this file asks is what four such tabs do to one cold store.
+ * Four different passphrases would be four different people and no race at all.
+ *
+ * A fixture constant naming nothing outside this file, at or above `PASSPHRASE_MIN_LENGTH`.
+ */
+const SPEC_PASSPHRASE = 'a-fixture-passphrase-for-a-tab'
 
 /** Page load, wasm init, node start. */
 const TAB_BUDGET_MS = 180_000
@@ -121,29 +158,20 @@ function directWsAddr(node: FabricNode, name: string): string {
   return found
 }
 
-/** `/bootstrap.json`, named by the origin that serves the page. No provider: see the docblock. */
-function bootstrapPlugin(): Plugin {
-  return {
-    name: 'o2-cold-start-bootstrap',
-    configureServer(dev: ViteDevServer) {
-      dev.middlewares.use((request, response, next) => {
-        if ((request.url ?? '').split('?')[0] !== '/bootstrap.json') {
-          next()
-          return
-        }
-        response.setHeader('content-type', 'application/json')
-        response.end(JSON.stringify({ relayAddrs: [relayAddr] }))
-      })
-    },
-  }
-}
+/*
+ * `/bootstrap.json` used to be served here by a Vite middleware, because `autoStart` reads
+ * the relay list from the origin. The harness takes `relayAddrs` as an argument, so the
+ * middleware has nothing left to answer and is gone rather than left serving a route nobody
+ * requests.
+ */
 
 /**
- * Bring one tab to the point where `autoStart` is the only thing left to do.
+ * Bring one tab to the point where `start` is the only thing left to do.
  *
- * Consent is granted here and **no node is started**, which is what keeps the origin cold
- * for the seed: `#allow` reveals `#main` and writes the consent record, and the node is
- * minted by `autoStart` alone. Only the first tab of the profile is shown the gate.
+ * **No node is started here**, which is what keeps the origin cold for the seed: the page
+ * loads its module, installs `window.o2capability`, and waits. The harness page renders no
+ * surface and asks for no consent — see its own comment for why that is right for a page a
+ * visitor never opens — so there is no gate to click.
  */
 async function armTab(name: string): Promise<Page> {
   const ctx = context
@@ -157,13 +185,9 @@ async function armTab(name: string): Promise<Page> {
     if (message.type() === 'error') process.stderr.write(`[${name}] console: ${message.text()}\n`)
   })
   await page.goto(pageUrl)
-  await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: TAB_BUDGET_MS })
-  if (await page.isVisible('#gate')) await page.click('#allow')
-  await page.waitForFunction(
-    () => document.getElementById('main')?.hasAttribute('hidden') === false,
-    null,
-    { timeout: TAB_BUDGET_MS },
-  )
+  await page.waitForFunction(() => typeof window.o2capability !== 'undefined', null, {
+    timeout: TAB_BUDGET_MS,
+  })
   return page
 }
 
@@ -182,16 +206,26 @@ async function startTogether(
   const started = await Promise.all(
     pages.map(async (page) =>
       page.evaluate(
-        async ([name, at]) => {
+        async ([name, at, anchor, relay, passphrase]) => {
           const delay = (at as number) - Date.now()
           if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
           // Stamped where the wait ends and BEFORE the start, so the number reports when
           // this tab was released rather than how long its start took.
           const releasedAt = Date.now()
-          const node = await window.o2.autoStart({ blockstoreName: name as string })
-          return { peerId: node.peerId, releasedAt }
+          const peerId = await window.o2capability.start({
+            relayAddrs: [relay as string],
+            blockstoreName: name as string,
+            trustAnchors: [anchor as string],
+            sovereignty: { ownerId: '', canExecuteSovereign: false },
+            whenSeedIsGone: 'mints-a-new-identity',
+            // AUTH-06 — the same passphrase in all four tabs, because they are four tabs
+            // of one person's browser. The seal happens INSIDE the transaction this file
+            // is about; the Argon2id derivation that produces the key happens before it.
+            identityProtection: { kind: 'passphrase', passphrase: passphrase as string },
+          })
+          return { peerId, releasedAt }
         },
-        [store, releaseAt] as const,
+        [store, releaseAt, KERNEL_TRUST_ANCHOR, relayAddr, SPEC_PASSPHRASE] as const,
       ),
     ),
   )
@@ -204,25 +238,29 @@ async function startTogether(
 
 /** Stop, reload, and start again — the restart that makes a lost mint visible. */
 async function restartTogether(store: string): Promise<string[]> {
-  await Promise.all(pages.map(async (page) => page.evaluate(async () => window.o2.stop())))
+  await Promise.all(pages.map(async (page) => page.evaluate(async () => window.o2capability.stop())))
   await Promise.all(
     pages.map(async (page) => {
       await page.reload()
-      await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, {
+      await page.waitForFunction(() => typeof window.o2capability !== 'undefined', null, {
         timeout: TAB_BUDGET_MS,
       })
-      await page.waitForFunction(
-        () => document.getElementById('main')?.hasAttribute('hidden') === false,
-        null,
-        { timeout: TAB_BUDGET_MS },
-      )
     }),
   )
   return Promise.all(
     pages.map(async (page) =>
-      page
-        .evaluate(async (name) => window.o2.autoStart({ blockstoreName: name }), store)
-        .then((started) => started.peerId),
+      page.evaluate(
+        async ([name, anchor, relay, passphrase]) =>
+          window.o2capability.start({
+            relayAddrs: [relay],
+            blockstoreName: name,
+            trustAnchors: [anchor],
+            sovereignty: { ownerId: '', canExecuteSovereign: false },
+            whenSeedIsGone: 'mints-a-new-identity',
+            identityProtection: { kind: 'passphrase', passphrase },
+          }),
+        [store, KERNEL_TRUST_ANCHOR, relayAddr, SPEC_PASSPHRASE] as const,
+      ),
     ),
   )
 }
@@ -247,7 +285,6 @@ beforeAll(async () => {
     logLevel: 'error',
     server: { port: 0 },
     cacheDir: fixtureViteCacheDir(ROOT),
-    plugins: [bootstrapPlugin()],
   })
   await server.listen()
   const url = server.resolvedUrls?.local[0]
@@ -261,7 +298,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const page of pages) {
-    await page.evaluate(async () => window.o2.stop()).catch(() => {})
+    await page.evaluate(async () => window.o2capability.stop()).catch(() => {})
   }
   await context?.close().catch(() => {})
   await browser?.close().catch(() => {})
@@ -299,7 +336,9 @@ describe('AUTH-01 — a cold origin opened by several tabs at once holds one ide
         if (distinct > 1) raced.push(trial)
         if (changed > 0) drifted.push(trial)
 
-        await Promise.all(pages.map(async (page) => page.evaluate(async () => window.o2.stop())))
+        await Promise.all(
+          pages.map(async (page) => page.evaluate(async () => window.o2capability.stop())),
+        )
       }
 
       // The claim, in the two forms that can disagree. The first is the mint: four tabs of

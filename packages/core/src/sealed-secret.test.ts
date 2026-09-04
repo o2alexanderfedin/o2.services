@@ -67,10 +67,12 @@ import {
   SecretUnlockError,
   deriveSealKey,
   openSecret,
+  openWithKey,
   parseSealedSecret,
   sealHeaderBytes,
   sealSecret,
   sealWithKey,
+  sealedUnderSameKey,
 } from './sealed-secret.ts'
 
 /**
@@ -357,4 +359,83 @@ describe('cost is read comparatively, never against a millisecond bound', () => 
     // file executes on. No millisecond figure is asserted anywhere in this file.
     expect(ratio).toBeGreaterThan(2)
   }, 120_000)
+})
+
+describe('opening with an already-derived key — the synchronous counterpart of sealWithKey', () => {
+  it('opens with the key it was sealed under, synchronously, and yields the same bytes', async () => {
+    const salt = crypto.getRandomValues(new Uint8Array(16))
+    const key = await deriveSealKey(PASSPHRASE, salt, CHEAP_PARAMS)
+    const envelope = sealWithKey(key, secret32(), CHEAP_PARAMS, salt)
+
+    const opened = openWithKey(key, envelope)
+    // Synchronous, for the reason `sealWithKey` is: `idb-identity-store.ts` opens inside
+    // the same IndexedDB transaction it reads in, and awaiting a non-transaction promise
+    // there commits the transaction out from under the check.
+    expect(typeof (opened as unknown as { then?: unknown }).then).toBe('undefined')
+    expect(bytesEqual(opened, secret32())).toBe(true)
+  }, 60_000)
+
+  it('refuses a key that is not the one it was sealed under, by name and with no return path', async () => {
+    const salt = crypto.getRandomValues(new Uint8Array(16))
+    const key = await deriveSealKey(PASSPHRASE, salt, CHEAP_PARAMS)
+    const other = await deriveSealKey('a completely different passphrase', salt, CHEAP_PARAMS)
+    const envelope = sealWithKey(key, secret32(), CHEAP_PARAMS, salt)
+
+    let thrown: unknown = 'nothing was thrown, which is the fail-open this case forbids'
+    try {
+      openWithKey(other, envelope)
+    } catch (cause: unknown) {
+      thrown = cause
+    }
+    expect(thrown instanceof Error ? thrown.name : `not an Error: ${JSON.stringify(thrown)}`).toBe(
+      'SecretUnlockError',
+    )
+  }, 60_000)
+
+  it('binds to the header bytes here too, not merely to the key', async () => {
+    // The same reading `binds the ciphertext to the header bytes` takes of `openSecret`,
+    // applied to the second decrypt path — because two decrypt paths is exactly how an
+    // additional-data construction drifts, and `sealHeaderBytes`' own doc records an
+    // instrument that could not see that drift.
+    const salt = crypto.getRandomValues(new Uint8Array(16))
+    const key = await deriveSealKey(PASSPHRASE, salt, CHEAP_PARAMS)
+    const envelope = sealWithKey(key, secret32(), CHEAP_PARAMS, salt)
+    // `v` does not feed the KDF at all, so a build that authenticated nothing would open
+    // this happily. The version check has to be stepped around, so the altered field is
+    // `aead`... which `parseSealedSecret` pins. `kdf` likewise. What is left that is
+    // authenticated and neither parsed-for nor key-feeding is the nonce, so the nonce is
+    // moved and the ORIGINAL nonce is handed to the cipher directly below.
+    const movedNonce = toBase64Url(crypto.getRandomValues(new Uint8Array(24)))
+    const altered: SealedSecret = { ...envelope, nonce: movedNonce }
+    let thrown: unknown = 'nothing was thrown'
+    try {
+      // Decrypted with the envelope's true nonce and the ALTERED header, so the key and the
+      // nonce are both right and only the additional data differs.
+      xchacha20poly1305(key, fromBase64Url(envelope.nonce), sealHeaderBytes(altered)).decrypt(
+        fromBase64Url(envelope.ciphertext),
+      )
+    } catch (cause: unknown) {
+      thrown = cause
+    }
+    expect(thrown instanceof Error ? thrown.message : 'no error').toContain('invalid tag')
+  }, 60_000)
+
+  it('sealedUnderSameKey says yes only when every field the key was derived from agrees', async () => {
+    const salt = crypto.getRandomValues(new Uint8Array(16))
+    const other = crypto.getRandomValues(new Uint8Array(16))
+    const key = await deriveSealKey(PASSPHRASE, salt, CHEAP_PARAMS)
+    const envelope = sealWithKey(key, secret32(), CHEAP_PARAMS, salt)
+
+    expect(sealedUnderSameKey(envelope, CHEAP_PARAMS, salt)).toBe(true)
+    // A different salt derives a different key, whatever the cost parameters say.
+    expect(sealedUnderSameKey(envelope, CHEAP_PARAMS, other)).toBe(false)
+    // And each cost field on its own, because a predicate that compared four of the five
+    // would be right about every envelope this build writes and wrong about the one case
+    // it exists for.
+    expect(sealedUnderSameKey(envelope, { ...CHEAP_PARAMS, t: CHEAP_PARAMS.t + 1 }, salt)).toBe(false)
+    expect(sealedUnderSameKey(envelope, { ...CHEAP_PARAMS, m: CHEAP_PARAMS.m * 2 }, salt)).toBe(false)
+    expect(sealedUnderSameKey(envelope, { ...CHEAP_PARAMS, p: CHEAP_PARAMS.p + 1 }, salt)).toBe(false)
+    expect(sealedUnderSameKey(envelope, { ...CHEAP_PARAMS, dkLen: 16 }, salt)).toBe(false)
+    expect(sealedUnderSameKey(envelope, { ...CHEAP_PARAMS, version: 0x10 }, salt)).toBe(false)
+  }, 60_000)
 })

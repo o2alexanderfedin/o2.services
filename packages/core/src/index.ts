@@ -32,17 +32,26 @@ export { SHA256_CODE, sha256 } from './hash.ts'
 // re-exported: they are the AEAD's additional-data construction, reachable from the module
 // for the spec that proves the binding, and not a surface a caller has any business
 // building by hand.
+//
+// `SALT_BYTES`, `openWithKey` and `sealedUnderSameKey` joined them on 2026-09-04 for
+// `packages/browser/src/idb-identity-store.ts`, which derives ONE key per start and must
+// both seal and open with it: the salt is its own IndexedDB record (an envelope cannot
+// supply the salt the key that opens the envelope is derived from), and a warm start that
+// went through `openSecret` would derive a 436 ms Argon2id key it already held.
 export {
   DEFAULT_KDF_PARAMS,
+  SALT_BYTES,
   SEAL_VERSION,
   SealedSecretShapeError,
   SealedSecretVersionError,
   SecretUnlockError,
   deriveSealKey,
   openSecret,
+  openWithKey,
   parseSealedSecret,
   sealSecret,
   sealWithKey,
+  sealedUnderSameKey,
 } from './sealed-secret.ts'
 export type { SealKdfParams, SealedSecret } from './sealed-secret.ts'
 

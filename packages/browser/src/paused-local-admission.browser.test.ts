@@ -103,6 +103,10 @@ async function startTab(label: string, paused?: () => boolean): Promise<BrowserN
     blockstoreName: `o2-paused-${label}-${seq++}`,
     trustAnchors: ADMISSION_ANCHORS,
     whenSeedIsGone: 'mints-a-new-identity',
+    // AUTH-06 — this file's subject is local admission under a `paused` thunk, not
+    // persistence: every case takes a fresh store name and never restarts one. The truthful
+    // value for a tab that is thrown away is that it writes no secret at all.
+    identityProtection: { kind: 'writes-no-new-secret' },
     startReporting: 'reports-its-own-start',
     ...(paused === undefined ? {} : { paused }),
   })

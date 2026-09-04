@@ -48,6 +48,17 @@ afterEach(async () => {
 const createWorker = (): Worker => new TaskExecutorWorker()
 
 /**
+ * AUTH-06 — this file's subject is what a rejected `start` leaves behind, not persistence.
+ *
+ * `writes-no-new-secret` is therefore the truthful value rather than the convenient one:
+ * every case here uses a database name nothing has written to and throws it away, so there
+ * is no identity to carry across a restart and nothing that should end up in IndexedDB.
+ * It also keeps these cases free of an Argon2id derivation, which the defaults price at
+ * roughly 436 ms and which would be paid three times over in three engines for nothing.
+ */
+const NO_NEW_SECRET = { kind: 'writes-no-new-secret' } as const
+
+/**
  * Reachable by nobody: a closed loopback port, named with a well-formed peer id.
  *
  * `/ws` rather than `/tcp` alone because a browser can only dial WebSockets, and
@@ -247,7 +258,7 @@ describe('the probes read both states, so an absence below means something', () 
   it('reads a running node as holding a connection, a heartbeat and a listener — and a stopped one as holding none', async () => {
     const name = `o2-unwind-live-${seq++}`
     const readings = await measuringLeaks(async () => {
-      const node = await BrowserNode.start({ relayAddrs: [], createWorker, blockstoreName: name, trustAnchors: UNWIND_ANCHORS, whenSeedIsGone: 'mints-a-new-identity', startReporting: 'reports-its-own-start' })
+      const node = await BrowserNode.start({ relayAddrs: [], createWorker, blockstoreName: name, trustAnchors: UNWIND_ANCHORS, whenSeedIsGone: 'mints-a-new-identity', identityProtection: NO_NEW_SECRET, startReporting: 'reports-its-own-start' })
       started.push(node)
       const whileUp = {
         blocked: await deleteIsBlocked(name),
@@ -272,7 +283,7 @@ describe('the probes read both states, so an absence below means something', () 
     // was taken" — the probe would agree with a `#compose` that never ran.
     const name = `o2-unwind-leaky-${seq++}`
     const { result: node, leaks } = await measuringLeaks(async () => {
-      const live = await BrowserNode.start({ relayAddrs: [], createWorker, blockstoreName: name, trustAnchors: UNWIND_ANCHORS, whenSeedIsGone: 'mints-a-new-identity', startReporting: 'reports-its-own-start' })
+      const live = await BrowserNode.start({ relayAddrs: [], createWorker, blockstoreName: name, trustAnchors: UNWIND_ANCHORS, whenSeedIsGone: 'mints-a-new-identity', identityProtection: NO_NEW_SECRET, startReporting: 'reports-its-own-start' })
       started.push(live)
       return live
     })
@@ -290,7 +301,7 @@ describe('a rejected start leaves nothing behind', () => {
     const name = `o2-unwind-dial-${seq++}`
     const { result: failure, leaks } = await measuringLeaks(
       async () =>
-        await attempt({ relayAddrs: [UNREACHABLE_RELAY], blockstoreName: name, allowPrivateAddrs: true, trustAnchors: UNWIND_ANCHORS, whenSeedIsGone: 'mints-a-new-identity', startReporting: 'reports-its-own-start' }),
+        await attempt({ relayAddrs: [UNREACHABLE_RELAY], blockstoreName: name, allowPrivateAddrs: true, trustAnchors: UNWIND_ANCHORS, whenSeedIsGone: 'mints-a-new-identity', identityProtection: NO_NEW_SECRET, startReporting: 'reports-its-own-start' }),
     )
 
     // Not `toBeInstanceOf(Error)`: measured in all three engines, a WebSocket dial to a
@@ -317,6 +328,7 @@ describe('a rejected start leaves nothing behind', () => {
           allowPrivateAddrs: true,
           trustAnchors: UNWIND_ANCHORS,
           whenSeedIsGone: 'mints-a-new-identity',
+          identityProtection: NO_NEW_SECRET,
           startReporting: 'reports-its-own-start',
         })
         expect(outcome).not.toBeInstanceOf(BrowserNode)
@@ -335,7 +347,7 @@ describe('a rejected start leaves nothing behind', () => {
     // the newest of the three and is therefore the first thing a broken unwind drops.
     const name = `o2-unwind-late-${seq++}`
     const { result: failure, leaks } = await measuringLeaks(
-      async () => await attempt({ relayAddrs: [], blockstoreName: name, maxConcurrentTasks: 0, trustAnchors: UNWIND_ANCHORS, whenSeedIsGone: 'mints-a-new-identity', startReporting: 'reports-its-own-start' }),
+      async () => await attempt({ relayAddrs: [], blockstoreName: name, maxConcurrentTasks: 0, trustAnchors: UNWIND_ANCHORS, whenSeedIsGone: 'mints-a-new-identity', identityProtection: NO_NEW_SECRET, startReporting: 'reports-its-own-start' }),
     )
 
     // The caller is told what it asked about. An unwind that replaced this with its own

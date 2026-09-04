@@ -531,6 +531,13 @@ async function harnessStart(tab: Page, blockstoreName: string): Promise<string> 
           .then((issuer) => (issuer === null ? [] : [issuer])),
         sovereignty: { ownerId: '', canExecuteSovereign: false },
         whenSeedIsGone: 'mints-a-new-identity',
+        // AUTH-06 — the subject of both arms is which issuer this origin's own storage
+        // names, which is read off the stored CERTIFICATE and not off the seed. The
+        // certificate is deliberately not sealed, so it survives a `writes-no-new-secret`
+        // tab exactly as it survived before; the two arms use two different store names and
+        // neither asserts a peer id across a start. See the amended note at the demo→harness
+        // hand-off above for what this changes and what it does not.
+        identityProtection: { kind: 'writes-no-new-secret' },
       }),
     [blockstoreName, KERNEL_TRUST_ANCHOR, seedRelayAddr] as const,
   )
@@ -831,9 +838,17 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
         // a no-op against `node === null` and would leave the start running into a page this
         // case is about to navigate away from. See {@link untilNodeRunning}.
         //
-        // Released before a second node starts on the same identity store. A tab's identity
-        // lives in IndexedDB rather than in the tab, so the harness restart below reloads
-        // THIS node rather than minting a second one.
+        // Released before a second node starts on the same identity store.
+        //
+        // **AMENDED 2026-09-04 (AUTH-06).** This read *"a tab's identity lives in IndexedDB
+        // rather than in the tab, so the harness restart below reloads THIS node rather than
+        // minting a second one."* That is no longer true and was never what this case reads:
+        // a visitor is asked for no passphrase, so a demo tab now writes no seed at all and
+        // the harness start below is a different node. What the arms below actually depend
+        // on is the stored **certificate**, which is public material and deliberately not
+        // sealed — `pinnedFor` reads its `issuer` and nothing here compares a peer id across
+        // a start. `42-04` is where a visitor is asked and where the identity becomes durable
+        // again.
         await untilNodeRunning(tab)
         await tab.evaluate(async () => window.o2.stop())
 

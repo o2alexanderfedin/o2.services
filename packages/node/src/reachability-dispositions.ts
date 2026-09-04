@@ -268,6 +268,16 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   // list of things the demo page hides: CRYPTO-01 requires the `generateKey` call to live in
   // `ed25519-backend.ts`, and its only caller is `@o2/browser`'s `visitorKeyPair`, behind the hop.
   'core/generateSubtleKeyPair',
+  // AUTH-06, 2026-09-04. `browser-node.ts#resolveProtectedSeed` calls it on every start with a
+  // passphrase, to decide whether the key it already derived is the one that opens the envelope
+  // it just read; `BrowserNode.start` is its route in, and `browser/BrowserNode` is four lines
+  // up on this same list. Its sibling `core/openWithKey` is deliberately NOT here — `openSecret`
+  // delegates to it from inside `@o2/core`, so it has a caller the graph traces directly, and a
+  // symbol with an in-package caller is not hidden by this hop.
+  //
+  // Not read off the source: the derived case named it verbatim, *"expected
+  // [ 'core/sealedUnderSameKey' ] to deeply equal []"*.
+  'core/sealedUnderSameKey',
   'core/startReportFromCounts',
   'demo/answerOf',
   'demo/buildPiInput',
@@ -832,8 +842,21 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * entry in that list. The hop-tracing arm reports both flipping, so they are dispositions
  * rather than `OPEN_FINDINGS` rows. Not read off the source: the derived case went red first
  * and named both verbatim.
+ *
+ * **Raised 70 -> 71 on 2026-09-04 (Phase 42, AUTH-06, plan 42-03)**, same rule and exactly one
+ * entry: `core/sealedUnderSameKey`. `browser-node.ts#resolveProtectedSeed` calls it on every
+ * start with a passphrase, and that caller is reached through `BrowserNode.start` — which is
+ * itself on this list, hidden by the same `window.o2` assignment as every other entry. The
+ * hop-tracing arm reports it flipping, so it is a disposition rather than an `OPEN_FINDINGS`
+ * row. Not read off the source: the derived case went red first and named it verbatim,
+ * *"expected [ 'core/sealedUnderSameKey' ] to deeply equal []"*.
+ *
+ * Its sibling `core/openWithKey` arrived in the same change and is deliberately absent: it has
+ * an in-package caller (`openSecret` delegates to it, so `@o2/core` has one decrypt path rather
+ * than two) which the graph traces directly, and a symbol the walk can already reach is not a
+ * disposition of any kind.
  */
-export const DISPOSITION_CEILING = 70
+export const DISPOSITION_CEILING = 71
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {
