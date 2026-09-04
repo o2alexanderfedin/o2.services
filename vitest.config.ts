@@ -330,7 +330,109 @@ const NODE_MEASUREMENT = {
    * waits out a 30 000 ms poll twice, which is the thing it measures. `unitFiles` moves by the
    * same one.
    */
-  files: 236,
+  /**
+   * **236 -> 242 on 2026-09-04, DERIVED and not adjusted — and deriving it found a standing
+   * offset of four that adding to the old value would have carried forward silently.**
+   *
+   * Three routes sharing no code, and the LISTS were diffed rather than the counts:
+   *
+   * | route | what it models | reading |
+   * |---|---|---|
+   * | `npx vitest list --project node --filesOnly` | the runner's own collection | **242** |
+   * | `git ls-files`, filtered by the project's globs | the index | **242** |
+   * | `find packages` for `*.test.ts` under a `src` path, filtered in the shell | the filesystem | **242** |
+   *
+   * `diff` is empty in all three pairwise directions, so this is three identical LISTS and
+   * not three counts that happen to agree. The routes disagree about what they model — one
+   * asks vitest, one asks git, one asks the disk — so an untracked spec would have split
+   * route two from the other two, and none did. The guard's own reimplemented walk printed
+   * 242 in its refusal; that is a fourth reading and it is the one that is not independent,
+   * so it is quoted for corroboration and not counted as a route.
+   *
+   * **The offset, which is why this entry states a derived number and no arithmetic on the
+   * old one.** At `cb8bc0d`, the commit that wrote 236, the node project held **232** files
+   * by the index route — the field was already four above the population the drift assertion
+   * actually reads. Traced across every commit that has ever written this line: the offset
+   * was **0** at `0aa467f` (228) and **4** at `cb8bc0d` (236), and every one of the four
+   * steps that opened it was an `.e2e.` arrival — `admission-slices`, `kill-switch-volunteer`,
+   * `kill-switch-regions`, `kill-switch-propagation`. The 219 -> 228 entry above had already
+   * ruled that *"this phase's three e2e specs do NOT move this field"*; the four entries
+   * written after it moved it anyway. `relative()` in `slow-specs.node.test.ts` filters the
+   * `.e2e.` suffix out of `NODE_PROJECT_FILES`, so an e2e arrival cannot move the number the
+   * assertion compares against, and a field that counts one is describing a different
+   * population from the one being checked. **Their `unitFiles` reasoning stands and their
+   * `files` increment does not** — `unitFiles` is fixed by the identity
+   * `files - excludedInNode` whatever lane a file runs in, which is the 213 -> 214 correction
+   * above, and that identity is satisfied by the derived pair below.
+   *
+   * So the drift the guard refused at 6 was **ten arrivals less a four-file inflation**, and
+   * the same guard passing at 5 the day before was passing on two errors that happened to
+   * partly cancel. That is the failure mode step 4 names: *"a defensible-looking move that
+   * was wrong by five, because five had arrived while it was not counting."*
+   *
+   * **Ten files arrived over `cb8bc0d..HEAD` and none left**, all node lane, none `.e2e.`.
+   * Median accounted span of three runs of one shared 16-file invocation, with what
+   * `--reporter=json` said in the same runs beside it:
+   *
+   * | file | accounted | reported | in the table |
+   * |---|---|---|---|
+   * | `packages/core/src/sealed-secret.test.ts` | **3 576** | 3 298 | **row added** |
+   * | `packages/node/src/platform-geolocation.node.test.ts` | **1 592** | **5** | **row added** |
+   * | `packages/cloudflare/src/turn-credential.test.ts` | 635 | 81 | no — under the cut |
+   * | `packages/cloudflare/src/turn-regions.test.ts` | 521 | 2 | no — under the cut |
+   * | `packages/node/src/turn-mint-payload.node.test.ts` | 148 | 6 | no |
+   * | `packages/browser/src/turn-credentials.test.ts` | 89 | 38 | no |
+   * | `packages/node/src/built-pages.node.test.ts` | 69 | 6 | no |
+   * | `packages/browser/src/ice-configuration.test.ts` | 45 | 5 | no |
+   * | `packages/cloudflare/src/turn-regions-source.node.test.ts` | 33 | 3 | no |
+   * | `packages/browser/src/ice-configuration-library.node.test.ts` | 31 | 2 | no |
+   *
+   * **`platform-geolocation` is this table's own defect caught live, and it is the reason
+   * step 3 is not optional.** `--reporter=json` reads it at **5 ms**; the module lifecycle
+   * reads **1 592**, of which 1 575 is `collectDuration` — the module's import. A factor of
+   * about 320, straddling the 1 000 ms cut, on a file that has no `beforeAll` at all. Had
+   * this pass used the reporter alone, a spec costing more than a second would have stayed
+   * in `test:unit` forever and nothing would have said so. Confirmed by a third instrument
+   * that shares no code with either: solo `/usr/bin/time -p`, `real 2.39 / 2.10 / 2.16` s
+   * against a boot floor of `1.02 / 0.81 / 0.97` s taken in the same window from the
+   * cheapest of the ten — **1.19 s net**, above the cut on the wall clock too.
+   * `sealed-secret` is above it on every instrument and by a wide margin: solo
+   * `real 3.58 / 3.46 / 3.61` s, **2.61 s net of the same floor**, and it is a memory-hard
+   * key derivation, so the cost is the thing it measures.
+   *
+   * **Conditions, recorded because the host was checked and was quiet rather than because it
+   * had to be waited for.** It did have to be waited for: the 1-minute load was 20.84 when
+   * this pass started, and it was polled — never signalled — until three consecutive samples
+   * sat under 6.0. The measured runs then ran at 1-minute load `5.29 / 5.02 / 4.94` before
+   * and `5.18 / 4.94 / 5.42` after, i.e. **0.61 to 0.72 per core** on 8 cores against the
+   * ceiling of 4.00 the conditions banner enforces. `/usr/bin/time -p` over the three shared
+   * runs: `real 4.16 / 5.01 / 4.47`, `user 10.50 / 10.50 / 10.41`, `sys 1.60 / 1.56 / 1.34`,
+   * so `(user+sys)/real` is **2.91 / 2.41 / 2.63**. **What was NOT polled: the peak load
+   * during a run.** Only start and end were sampled, so nothing here may be read as a peak,
+   * and the 2026-08-25 rows' own missing peak is not borrowed to cover it.
+   *
+   * **A comparative reading, because sixteen files are not one hundred and ninety-eight.**
+   * Six files that already carry a row rode in the same invocation, and their medians against
+   * their recorded spans are **0.81, 1.17, 1.23, 1.60, 1.79, 1.96** — `core/enrollment`,
+   * `job/submit`, `one-crypto-implementation`, `requirements-ledger`, `slow-specs`,
+   * `libp2p/identity`. So this window reads high for small files and the two new rows are
+   * upper readings rather than like-for-like with their neighbours. It does not change any
+   * decision the table drives: at the most favourable anchor both new rows still clear the
+   * cut (3 576 x 0.81 = 2 897 and 1 592 x 0.81 = 1 290), and the eight left out clear it in
+   * the other direction at the least favourable one (635 / 0.81 = 784, under 1 000).
+   *
+   * **`tests` and `unitTests` are left at their run's figures**, for the reason the 219 -> 228
+   * entry gives: the count is what the tolerance reads, and inventing a test total nobody
+   * counted is the defect this table exists to prevent. They date to 2026-08-25, as do
+   * `date`, `load`, `wallClockMs` and the cross-check counts, none of which this pass
+   * re-established.
+   *
+   * **This is the NODE half only, and Phase 39 still owes its own re-measurement.** The plan
+   * that owns this file, `39-07`, was written to re-measure Phase 39's specs and has not run;
+   * it is not discharged by this entry. See `aotCrossCheckedFiles` for a second half this
+   * pass measured and deliberately did not retake.
+   */
+  files: 242,
   tests: 2948,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
@@ -355,7 +457,29 @@ const NODE_MEASUREMENT = {
    * floor, to within the millisecond each row is rounded to. A sum that did not cover the
    * listed rows would mean the table and this field came from different events.
    */
-  sumOfFileSpansMs: 2_420_917,
+  /**
+   * **2 420 917 -> 2 427 656 on 2026-09-04, a THIRD contribution stated as such.** The ten
+   * files that arrived after the run above sum to **6 739 ms** by the module-lifecycle
+   * instrument, medians of three runs of one shared 16-file invocation — see
+   * {@link NODE_MEASUREMENT.files} for the per-file figures and the conditions. Two of them
+   * are now listed rows and eight are not, so the listed total moves by 5 168 and this field
+   * by 6 739; the slack over the listed rows goes from **13 092 to 14 663**, and the extra
+   * 1 571 is exactly the eight that stay below the listing floor.
+   *
+   * **The paragraph below states the listed total as 2 269 462 and the slack as 10 942, and
+   * both were stale before this pass touched anything** — summing the rows as the guard does
+   * reads **2 407 825** before this edit and **2 412 993** after. Rows were added between
+   * 2026-08-25 and now without that sentence being re-derived. It is left standing and dated
+   * rather than quietly corrected, because the figure it misstates is prose and the figure
+   * the guard reads is this constant, and saying which is which is the point.
+   *
+   * The field's own definition already says it is a sum over runs rather than a wall clock in
+   * either direction, so a third run does not change its kind — but it does mean 0.28 % of
+   * this number was taken under different weather from the rest, and that is said here rather
+   * than left to be discovered. It moves no consumer: the guard checks only that this figure
+   * covers the rows the table lists.
+   */
+  sumOfFileSpansMs: 2_427_656,
   /**
    * What `--reporter=json` alone said the same two runs summed to: 979 703 ms for the
    * `node` project plus **343 313** ms for the eleven `aot` files as the `aot` run's own
@@ -411,6 +535,26 @@ const NODE_MEASUREMENT = {
    */
   crossCheckedFiles: 206,
   crossCheckDisagreed: 177,
+  /**
+   * **MEASURED AND DELIBERATELY NOT RETAKEN, 2026-09-04 — the `aot` project holds 13 files
+   * and this field says 11.** Two arrived since the split: `tools/aot/cross-host-lift.node.test.ts`
+   * and `tools/aot/cross-host-workflow.node.test.ts`. Both routes agree and the lists were
+   * diffed: `npx vitest list --project aot --filesOnly` reads 13, `git ls-files` over
+   * `tools/**` for `.node.test.ts` reads 13, `diff` empty. Neither carries a span.
+   *
+   * **Why the node half was retaken and this one was not, stated rather than skipped
+   * quietly.** Nothing asserts on an `aot` file count: the drift case in
+   * `slow-specs.node.test.ts` reads `NODE_PROJECT_FILES.length` alone, and the only `aot`
+   * assertions in that file are membership ones — `lift.node.test.ts` is in the `aot` set and
+   * nothing outside `tools/` is. So the red this pass was asked to clear is entirely in the
+   * node half, and retaking this one costs a serial container lane of about 1 182 s that
+   * would answer a question nobody asked.
+   *
+   * **That is a reason, not a defence. This half is owed a retake**, and the absence of a
+   * count assertion over it is why two files could arrive unnoticed where ten in the node
+   * half could not. The figures below describe eleven files measured on 2026-08-25 and
+   * nothing since.
+   */
   aotCrossCheckedFiles: 11,
   aotCrossCheckDisagreed: 6,
   /**
@@ -514,7 +658,20 @@ const NODE_MEASUREMENT = {
    * hour once spread 25.69 / 33.68 / 22.39 s — 1.5x end to end. Any comparison against this
    * number that turns on less than half of it is reading the host's weather.
    */
-  unitFiles: 158,
+  /**
+   * **158 -> 162 on 2026-09-04.** Derived from the identity the guard asserts, not counted:
+   * `files - excludedInNode`, where `files` is the re-derived 242 and the subtrahend is the
+   * spans at or above `SLOW_CUTOFF_MS` that the NODE project holds. That subtrahend moved
+   * from 78 to **80**, because two of the ten arrivals cleared the cut and took a row —
+   * `sealed-secret.test.ts` and `platform-geolocation.node.test.ts`. **The subtrahend was
+   * computed rather than assumed to be unchanged**, which is the check that matters here: a
+   * pass that assumed it would have written 164 and the identity would have refused it.
+   *
+   * **Confirmed behaviourally, not only by the identity.** `O2_UNIT_ONLY=1 npx vitest list
+   * --project node --filesOnly` reads **162** — the runner applying the exclusions for real,
+   * which is a different question from whether two numbers in this file subtract correctly.
+   */
+  unitFiles: 162,
   unitTests: 2317,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
@@ -1089,6 +1246,7 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/node/src/checkpoint-agents.node.test.ts', 4_633],
   ['tools/aot/docker-gate.node.test.ts', 4_330],
   ['packages/node/src/node-records.node.test.ts', 3_823],
+  ['packages/core/src/sealed-secret.test.ts', 3_576],
   ['packages/node/src/reachability-guard.node.test.ts', 3_483],
   ['packages/node/src/execution-deadline.node.test.ts', 3_359],
   ['packages/node/src/egress-refusal.node.test.ts', 3_146],
@@ -1109,6 +1267,7 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/node/src/issuance-rate.node.test.ts', 1_828],
   ['packages/node/src/bench-admission.node.test.ts', 1_684],
   ['packages/node/src/rendezvous-wire.node.test.ts', 1_662],
+  ['packages/node/src/platform-geolocation.node.test.ts', 1_592],
   ['packages/node/src/node-identity.node.test.ts', 1_503],
   ['packages/node/src/start-unwind.node.test.ts', 1_322],
   ['packages/node/src/relayed-job.node.test.ts', 1_317],
