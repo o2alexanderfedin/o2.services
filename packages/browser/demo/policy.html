@@ -42,6 +42,26 @@
       thread. It handles no currency of any kind.
     </div>
 
+    <!--
+      Attribution — owner instruction, 2026-09-04, and it is placed HERE rather than in a
+      footer on purpose. The reader of this page is deciding whether to block a page that uses
+      a stranger's processor, and for that reader *a named person with a public profile stands
+      behind this* is the missing reassurance: an anonymous page burning CPU is categorically
+      worse than a signed one. It is a plain factual statement and nothing else — no
+      endorsement, no credentials, no third-party badge or widget.
+
+      **An `<a href>` is not a request.** `built-bundle.e2e.test.ts`'s P10 asserts the demo
+      page makes no foreign-origin request before consent; a link makes none at any time.
+      Nothing may turn this into a `preconnect`, a `prefetch`, a `dns-prefetch` or an image.
+    -->
+    <div class="box">
+      <strong>Who made this.</strong> Built by
+      <a href="https://linkedin.com/in/alex-fedin" rel="noopener noreferrer" target="_blank"
+        >Alexander Fedin</a
+      >. It is the work of one named author rather than an anonymous project, and the source is
+      public.
+    </div>
+
     <h2>What it computes</h2>
     <p>
       A colouring of the whole numbers 1 to N in two colours, such that no three
@@ -111,15 +131,20 @@
       <li>The results the visitor's machine computes, which are small integers and bit arrays.</li>
       <li>
         A peer key. It is not derived from anything about the device, and it does not
-        persist across origins. Since 2026-09-04 it does <em>not</em> persist across
-        visits either: this page makes a fresh one each visit and writes none to the
-        browser, so two visits are two different nodes and nothing joins them together.
-        The reason it changed is that a key written in the clear is readable by anyone
-        who copies the browser profile, and this page asks its visitors for no
-        passphrase to protect one with. <strong>One carry-over</strong>: a browser that
-        already holds a key from an earlier version of this page keeps it and reuses it,
-        rather than having its node identity deleted out from under it. Clearing this
-        site's data in the browser removes that.
+        persist across origins. <strong>Since 2026-09-04 it persists across visits again,
+        encrypted.</strong> The page now asks a visitor to register with a passphrase of
+        their own choosing before anything runs; the key is stored in that browser sealed
+        under a key derived from the passphrase, and the passphrase is held in page memory
+        for one visit and written nowhere at all — not to this browser, not into a link, and
+        not to any server, because there is none. So a returning visitor who enters the same
+        passphrase is the same node, and a person who copies the browser profile has an
+        encrypted blob rather than an identity. Nobody can recover a forgotten passphrase,
+        including the author: the page offers to start over as a different node instead, and
+        states on that control what starting over costs. Until a visitor registers or logs
+        in, nothing runs and no key is made. <strong>One carry-over</strong>: a browser that
+        already holds a key from an earlier version of this page keeps that same key and
+        seals it in place on registration, rather than having its node identity deleted out
+        from under it. Clearing this site's data in the browser removes all of it.
       </li>
       <li>
         Optionally, and only if the visitor ticks the box: one line recording the
@@ -196,6 +221,12 @@
         It runs no server-side process. It is a static file. The only infrastructure
         it uses is a relay peer, which carries the connection handshake between
         browsers and then drops out of the data path.
+        <strong>This survives the sign-in described above, and it survives because of
+        it.</strong> Stated explicitly so a reader does not assume the claim was overlooked
+        when the page grew a way to log in: the credential is a <em>local passphrase</em>,
+        chosen deliberately over an email-and-password account and over a third-party login
+        precisely so that logging in adds no server, no account database and no other company.
+        Registering here contacts nothing.
       </li>
       <li>It does not run in a hidden frame, a background tab it opened, or a service worker.</li>
       <li>It is not obfuscated or minified beyond ordinary bundling, and its source is public.</li>

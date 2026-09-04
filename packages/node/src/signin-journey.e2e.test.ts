@@ -351,23 +351,25 @@ async function logIn(page: Page, passphrase: string): Promise<void> {
   await page.click('#signin-login')
 }
 
-/** The peer id this tab is running as, or `null` when nothing is running. */
+/**
+ * The peer id this tab is running as, or `null` when nothing is running.
+ *
+ * **Read off `window.o2.addresses()`, not off the `session/peer-id` region**, and the first
+ * draft of this file did the latter and was wrong in a way worth recording. The page writes
+ * that region only after `waitForWebrtcAddr` resolves, several seconds after the node itself
+ * is up — and until then the region holds its *named absence* text, which is a non-empty
+ * string. So a reader that waited for "non-empty" got
+ * `'No peer id: this tab has not joined.'` and compared it against a peer id. A named absence
+ * is what this repository uses instead of a blank, and an instrument that treats it as a
+ * value reads the absence as a reading.
+ */
 async function runningPeerId(page: Page): Promise<string | null> {
-  return page.evaluate(() => {
-    const reading = document.querySelector('[data-region="session/peer-id"]')
-    const text = (reading?.textContent ?? '').trim()
-    return window.o2.activity() === null || text === '' ? null : text
-  })
+  return page.evaluate(() => (window.o2.activity() === null ? null : window.o2.addresses().peerId))
 }
 
 /** Wait until this tab reports a running node, and hand back its peer id. */
 async function waitForRunning(page: Page): Promise<string> {
   await page.waitForFunction(() => window.o2.activity() !== null, null, { timeout: START_MS })
-  await page.waitForFunction(
-    () => (document.querySelector('[data-region="session/peer-id"]')?.textContent ?? '').trim() !== '',
-    null,
-    { timeout: START_MS },
-  )
   const peerId = await runningPeerId(page)
   if (peerId === null) throw new Error('the tab reported a running node with no peer id')
   return peerId

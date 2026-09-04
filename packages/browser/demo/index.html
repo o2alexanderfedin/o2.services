@@ -47,6 +47,102 @@
       <p class="note" id="gate-version"></p>
     </section>
 
+    <!--
+      AUTH-06 — the way in, plan `42-04`, the owner's ruling of 2026-09-04: a visitor who is
+      not logged in sees what this is and an invitation to register or log in; a visitor who
+      is logged in has a node already running.
+
+      ## Why this is AFTER the gate and not in front of it
+
+      The obvious arrangement — a login screen first, consent folded into registration — is
+      the one the owner rejected, and it is also the one the tree refuses.
+      `packages/node/src/artifact-fetch-gate.e2e.test.ts` is BROW-06's guard; its arm A loads
+      this page, **waits for `#gate` to be un-hidden**, and only then reads the gateway
+      server's own log. A screen in front of `#gate` makes that wait time out and takes one of
+      Phase 39's seven conditions of entry with it. So `#gate` keeps its position, its id, its
+      controls and its semantics, and `#signin` is a sibling shown after the gate is answered.
+
+      ## The contract with Phase 38, written here because that plan lands second
+
+      `38-01-PLAN.md` adds `#entry-notice` — an *"open in your own browser"* interstitial for a
+      Telegram in-app WebView — to this same pre-consent region, and declares this file as a
+      plant target. Measured on 2026-09-04: it has not run, so `42-04` lands first.
+
+        * The section is `#signin`, **not** `#entry`. A shared `entry` prefix between
+          `#entry-notice` and an entry screen is a collision a reader makes even where a
+          selector does not.
+        * `#entry-notice` is about **where the page is open**; `#signin` is about **who is
+          using it**. The notice renders ABOVE `#signin`, is dismissible, and never replaces it.
+
+      ## Why this section declares no UI-SPEC region
+
+      The precedent is `#gate` — a whole visible pre-consent screen with a heading, a checkbox
+      and two buttons — which declares none either. Both halves are stated because only the
+      second is a hazard: `demo-regions.e2e.test.ts:380-383` roots its undeclared-text walker
+      at `document.getElementById('main')`, so a section outside `#main` is not walked and its
+      prose may contain digits; but **`:367` runs `document.querySelectorAll` over the
+      catalogue attribute, document-wide**, so declaring one here WOULD be enumerated and would
+      need a matching entry in `demo-regions.ts`. Declaring none is what keeps `UI_SPEC_TALLY`
+      still — and the count of that attribute in this file is asserted unmoved by this plan,
+      which is why its literal spelling is not written out in this comment.
+
+      ## The passphrase never leaves this page
+
+      It is held in one module-scoped variable in `main.ts` for one visit: never
+      `localStorage`, never `sessionStorage`, never IndexedDB, never a URL, never a log, never
+      the funnel reporter's payload. Registering here is **not** enrolling — that authenticates
+      a node to a provider with a key this script cannot read — and neither credential may
+      reach the other.
+    -->
+    <section id="signin" class="blueprint" hidden>
+      <i class="corner tl"></i><i class="corner tr"></i>
+      <i class="corner bl"></i><i class="corner br"></i>
+      <h2 id="signin-headline"></h2>
+      <p class="note" id="signin-why"></p>
+      <!--
+        Attribution — owner instruction, 2026-09-04. A plain factual statement of who made
+        this, on the screen where somebody decides whether to trust it.
+
+        **An `<a href>` is not a request**, so this is safe against
+        `built-bundle.e2e.test.ts`'s P10, which asserts this page makes no foreign-origin
+        request before consent. A later reader will ask, so it is said here: nothing may turn
+        this into a `preconnect`, a `prefetch`, a `dns-prefetch` or an image, and there is no
+        third-party badge or widget on this page. It is a link and nothing else — in
+        particular it authenticates nobody and comes nowhere near the sign-in mechanism.
+      -->
+      <p class="note" id="signin-author">
+        Built by
+        <a href="https://linkedin.com/in/alex-fedin" rel="noopener noreferrer" target="_blank"
+          >Alexander Fedin</a
+        >.
+      </p>
+      <p class="note" id="signin-adopt" hidden></p>
+      <p>
+        <label for="signin-passphrase" id="signin-passphrase-label">Your passphrase</label>
+        <input type="password" id="signin-passphrase" autocomplete="new-password" />
+      </p>
+      <p id="signin-again-row">
+        <label for="signin-passphrase-again">Type it again</label>
+        <input type="password" id="signin-passphrase-again" autocomplete="new-password" />
+      </p>
+      <p class="controls">
+        <button id="signin-register" class="btn btn-primary">Register</button>
+        <button id="signin-login" class="btn btn-primary">Log in</button>
+      </p>
+      <p class="note" id="signin-status"></p>
+      <!--
+        Revealed in the `refused` state and NOWHERE else — T-42-24, and it is the reachability
+        that is the property rather than the wording. A page that offers *start over* to
+        somebody who mistyped once is a page that will lose identities.
+      -->
+      <p class="controls">
+        <button id="signin-startover" class="btn btn-secondary" hidden>
+          Start over with a new identity
+        </button>
+      </p>
+      <p class="note" id="signin-startover-cost" hidden></p>
+    </section>
+
     <section id="main" hidden>
       <!--
         The session header sits OUTSIDE the surfaces, and that is a guard constraint
@@ -1818,6 +1914,16 @@
       // `docs/perf/prime-and-pi-benchmarks.md`, and `demo-bench.e2e.test.ts` reads that
       // document and requires every figure string on screen to occur in it.
       import { format as formatBench } from './surfaces/bench.ts'
+      // AUTH-06 — plan `42-04`. The eight states a visitor can be in, as a pure function,
+      // and the sentence the passphrase field asks them for. The page DERIVES which state it
+      // is in rather than setting a flag in eight places; `signin.ts`'s header carries the
+      // precedence and the reason a later edit that reorders it is the defect the ordering
+      // exists to prevent.
+      import { SIGNIN_PASSPHRASE_HINT, signinState } from '../src/signin.ts'
+      // The three facts the page cannot work out for itself, read off the driver it already
+      // loaded as `<script src="./main.ts">`. One specifier, one module instance — so the
+      // `heldPassphrase` this reports on is the one `requireSignIn` reads.
+      import { signinFacts, startOver } from './main.ts'
 
       const $ = (id) => document.getElementById(id)
       const gateEl = $('gate')
@@ -1826,6 +1932,7 @@
       const stateEl = $('state')
       const joinEl = $('join')
       const explainEl = $('explain')
+      const signinEl = $('signin')
       const reportEl = $('report')
 
       // Before the gate is rendered, and before `window.o2` exists: all three touch the
@@ -1971,9 +2078,27 @@
       // It reads properties. It spends no CPU on the fabric's behalf and makes no
       // request, so it is not something the consent gate needs to cover.
 
-      let revealed = false
+      /**
+       * The two facts about this visit that live nowhere but here — AUTH-06, plan `42-04`.
+       *
+       * Everything else the entry surface needs is read from the driver by `signinFacts()`.
+       * These two are page state by nature: nothing persists a decline, and a refusal is a
+       * thing that happened on this screen rather than a thing in a store.
+       */
       /** The visitor said no. Distinct from "not asked yet", so the gate stays shut. */
       let declined = false
+      /** The last passphrase refusal, as it will be rendered, or `null`. */
+      let refusal = null
+      /** Once-only, because `revealMain` binds `#join` and runs discovery. */
+      let mainRevealed = false
+      /**
+       * What the last reconcile tick saw, so a re-render happens on a CHANGE rather than
+       * every second — `signinFacts()` opens IndexedDB, and a page that opened it once a
+       * second would be a page doing storage work nobody asked for.
+       *
+       * `null` until the first tick, which is distinguishable from both booleans.
+       */
+      let lastConsentGranted = null
 
       const renderBar = (activity) => {
         if (activity === null) {
@@ -2208,14 +2333,18 @@
 
       const reconcile = () => {
         const consent = window.o2.consentState()
-        // Consent is per-origin, so another tab granting or revoking it changes
-        // what this tab may do. Reading it every tick is what makes a revocation
-        // elsewhere close this gate too.
-        if (consent.granted && !revealed) void reveal()
-        if (!consent.granted && revealed && !declined) {
-          revealed = false
-          mainEl.hidden = true
-          gateEl.hidden = false
+        // Consent is per-origin, so another tab granting or revoking it changes what this
+        // tab may do. Reading it every tick is what makes a revocation elsewhere close this
+        // gate too.
+        //
+        // The whole entry surface is re-DERIVED rather than patched: `signinState` decides
+        // what is visible, and a tick that reached in and moved one element would be a ninth
+        // place a flag gets set, which is the thing that module exists to prevent. Gated on a
+        // change because `signinFacts()` opens IndexedDB and a per-second open is storage work
+        // nobody asked for.
+        if (consent.granted !== lastConsentGranted) {
+          lastConsentGranted = consent.granted
+          void renderEntry()
         }
 
         const activity = window.o2.activity()
@@ -2860,10 +2989,24 @@
           'is sent unless you choose it, and you can withdraw.'
       }
 
-      const reveal = async () => {
-        if (revealed) return
-        revealed = true
+      /**
+       * Reveal the workload surfaces, discover a relay, and start the node — AUTH-06.
+       *
+       * Reached from the `unlocked` state and from nowhere else. **Unlock is what reveals
+       * `#main`, not "a node is running"**, and the difference is load-bearing rather than
+       * pedantic: four e2e fixtures serve this page from a static host with no relay, and a
+       * node can never come up there. Gating the surfaces on a running node would make those
+       * pages unreachable behind their own entry screen. So the start is ATTEMPTED below, and
+       * a start that fails paints `#state` `'blocked'` exactly as it does today while the
+       * visitor stays signed in.
+       *
+       * Once-only, because it binds `#join` and runs discovery.
+       */
+      const revealMain = async () => {
+        if (mainRevealed) return
+        mainRevealed = true
         gateEl.hidden = true
+        signinEl.hidden = true
         mainEl.hidden = false
 
         const { source, relayAddrs } = await window.o2.discoverRelays()
@@ -2893,7 +3036,16 @@
 
         await paintEnrolmentOffer()
 
-        joinEl.addEventListener('click', async () => {
+        /**
+         * Start the node — the same act whether the page asked for it or the visitor did.
+         *
+         * Extracted from the `#join` handler so *"started automatically"* is the SAME code
+         * path a press of Start takes, rather than a second one that can drift from it. The
+         * switch stays: `#join`, `#state`, `#bar`, `#stop` and the title glyph are unchanged,
+         * and `42-06` reads them to report whether the visible switch the owner asked for
+         * already exists.
+         */
+        const joinNow = async () => {
           joinEl.disabled = true
           setState('working', 'starting node and reserving on the relay…')
           try {
@@ -2945,12 +3097,250 @@
             // The failure is exactly what BROW-02 wants counted, so ask now.
             await refreshReport()
           }
+        }
+
+        joinEl.addEventListener('click', () => {
+          void joinNow()
         })
+
+        // **This is the whole of "started automatically".** The owner ruled that a logged-in
+        // visitor has a node running without pressing anything further, and this is that,
+        // sited where it can only be reached by somebody who has opened their own envelope —
+        // never on load, and never for a visitor who has not signed in.
+        //
+        // Not attempted when discovery found nothing: `joinNow` would throw the same
+        // `no relay available` `#state` already carries above, and replacing a sentence that
+        // explains what to do with the error behind it is a downgrade. `#join` is left
+        // disabled there for the same reason it always was.
+        if (relayAddrs.length > 0) await joinNow()
+      }
+
+      /**
+       * What this page tells a visitor about itself, on the screen where they decide.
+       *
+       * The copy rules are the plan's, not this file's. It says there is no account, no
+       * server and no email; that the passphrase is what keeps the identity readable only by
+       * its owner; that it is held for this visit and asked for again next time; and — where
+       * enrolment is mentioned — the **unconditional** form, *the provider never sees your
+       * private key*, which is what `packages/core/src/enrollment.ts:44-47` actually
+       * guarantees.
+       *
+       * It must NOT claim that a provider retains nothing — that exact sentence is what this
+       * paragraph forbids, and it is paraphrased here rather than quoted so a plain grep for
+       * it over this file reads clean. It would be true only of a provider run without a
+       * directory: `fabric-node.ts:2503-2512` forks on `options.blockstoreDir` —
+       * undefined keeps nothing durable, otherwise `FsIssuance.open(..., { retainMs })` keeps
+       * issuance timestamps per user key on disk for a window. A visitor cannot check which
+       * configuration they are talking to, and a claim they cannot check must not be made.
+       */
+      const SIGNIN_WHY =
+        'There is no account here. No email, no password database, no server and no other ' +
+        'company: the passphrase you choose never leaves this page. It is what keeps the ' +
+        'identity this browser holds — the name other participants know you by — readable ' +
+        'only by you, so that losing this device does not hand it to whoever finds it. It is ' +
+        'held for this visit only and asked for again next time. If you later choose to join ' +
+        'a provider, that is a separate step and the provider never sees your private key.'
+
+      /**
+       * Render whichever of the eight states this page is in — AUTH-06, plan `42-04`.
+       *
+       * The page **derives** its state and renders the result. It does not set a flag: the
+       * ruling produces eight states, and a page that set a boolean in eight places would get
+       * one of them wrong. `signin.ts` owns the precedence — consent before anything about
+       * identity, and a refusal never overtaken by an unlock — and its header carries the
+       * measurement behind each.
+       */
+      const renderEntry = async () => {
+        const facts = await signinFacts()
+        const state = signinState({
+          consent: facts.consent,
+          declined,
+          stored: facts.stored,
+          unlocked: facts.unlocked,
+          refusal,
+        })
+
+        // The gate, first and alone. BROW-01/BROW-06: nothing about the visitor's identity
+        // is shown, and nothing at all is started, until this is answered.
+        if (state.kind === 'awaiting-consent' || state.kind === 'stale-consent') {
+          gateEl.hidden = false
+          signinEl.hidden = true
+          mainEl.hidden = true
+          return
+        }
+
+        gateEl.hidden = true
+
+        if (state.kind === 'unlocked') {
+          await revealMain()
+          return
+        }
+
+        signinEl.hidden = false
+        mainEl.hidden = true
+
+        // Which SHAPE the form takes. In `declined` there is no act to take, so the shape
+        // follows what is stored rather than what was chosen — the visitor is looking at a
+        // disabled version of the screen they would otherwise have got.
+        const registering =
+          state.kind === 'register' ||
+          state.kind === 'adopt' ||
+          (state.kind === 'declined' && facts.stored !== 'sealed')
+
+        $('signin-headline').textContent =
+          state.kind === 'declined'
+            ? 'Nothing is running'
+            : registering
+              ? 'Choose a passphrase'
+              : 'Welcome back'
+
+        $('signin-why').textContent =
+          state.kind === 'declined'
+            ? 'You did not allow this page to use your processor, so nothing was started and ' +
+              'no connection was made. Reload this page if you change your mind.'
+            : registering
+              ? `${SIGNIN_WHY} ${SIGNIN_PASSPHRASE_HINT}`
+              : SIGNIN_WHY
+
+        // T-42-20's residue, said to the person it applies to. An earlier version of this
+        // page wrote a key here in the clear; registering seals THAT key in place rather
+        // than making a new one, so the visitor keeps the node they already were.
+        $('signin-adopt').hidden = state.kind !== 'adopt'
+        $('signin-adopt').textContent =
+          'This browser already holds an identity from an earlier version of this page, and ' +
+          'it is stored in the clear — anyone who copies this browser profile can read it. ' +
+          'Choosing a passphrase now seals that same key where it is, so you keep the node ' +
+          'you already were and nothing about your name on the fabric changes.'
+
+        $('signin-passphrase-label').textContent = registering
+          ? 'Choose a passphrase'
+          : 'Your passphrase'
+        // A hint for a password manager, and the two values name the two acts. It is set
+        // here rather than fixed in the markup because ONE field serves both modes, and a
+        // login field advertised as `new-password` is a manager offering to generate one.
+        $('signin-passphrase').setAttribute(
+          'autocomplete',
+          registering ? 'new-password' : 'current-password',
+        )
+        $('signin-again-row').hidden = !registering
+        $('signin-register').hidden = !registering
+        $('signin-login').hidden = registering
+
+        const frozen = state.kind === 'declined'
+        $('signin-passphrase').disabled = frozen
+        $('signin-passphrase-again').disabled = frozen
+        $('signin-register').disabled = frozen
+        $('signin-login').disabled = frozen
+
+        $('signin-status').textContent = state.kind === 'refused' ? state.named : ''
+
+        // Revealed HERE AND ONLY HERE. The reachability is the property: see the markup's
+        // own comment, and `signin-journey.e2e.test.ts`'s plant 2.
+        $('signin-startover').hidden = state.kind !== 'refused'
+        $('signin-startover-cost').hidden = state.kind !== 'refused'
+        $('signin-startover-cost').textContent =
+          'Starting over makes you a different node. The identity in this browser is deleted ' +
+          'and cannot be brought back — not by us and not by anyone. There is no server here ' +
+          'and no account, and the only party that has ever seen anything of yours is an ' +
+          'enrolment provider, which saw a signature made with the public half of your key ' +
+          'and never the private half and never your passphrase. So there is nothing anywhere ' +
+          'to recover from and no support channel to ask. If you had joined a provider you ' +
+          'would have to enrol again, and the signed statement they gave your old key would ' +
+          'no longer name you.'
+      }
+
+      /**
+       * Run one entry act with both controls disabled, and say what the wait is.
+       *
+       * The wait is Argon2id, and the sentence says it is the point rather than apologising
+       * for it. **No duration is asserted anywhere** — three readings of these parameters
+       * have spanned 34% across two hosts — so the copy says *about half a second* as a
+       * description for a person and nothing in this repository measures against it.
+       *
+       * Named `runEntryAct` and not `attempt`: this file already has an `attempt` (and an
+       * `attemptAsync`) whose job is *one reading, or the Error it threw*, and a second
+       * function of the same name would shadow it for every line below this one.
+       *
+       * ## Which failures set `refusal`, and why only one of them does
+       *
+       * `refusal` is what puts this page in the `refused` state, and the `refused` state is
+       * the ONLY place `#signin-startover` is reachable from. So it is set for exactly one
+       * thing: **the envelope was present and did not open**, which is
+       * `SealedIdentityUnlockError`. A passphrase under the length floor, two fields that do
+       * not match, a login against an empty database — none of those means the visitor has
+       * lost anything, and offering *start over* to somebody who mistyped once is how a page
+       * loses identities. They are reported in `#signin-status` and leave the state alone.
+       */
+      const runEntryAct = async (act) => {
+        const controls = [$('signin-register'), $('signin-login'), $('signin-startover')]
+        for (const control of controls) control.disabled = true
+        $('signin-status').textContent =
+          'Working out the key from your passphrase. This takes about half a second, and the ' +
+          'wait is deliberate: it is what makes guessing your passphrase expensive for ' +
+          'anyone who ends up with this browser.'
+        let failed = null
+        try {
+          await act()
+          refusal = null
+          $('signin-passphrase').value = ''
+          $('signin-passphrase-again').value = ''
+        } catch (error) {
+          const name = error instanceof Error ? error.name : ''
+          const said = error instanceof Error ? error.message : String(error)
+          if (name === 'SealedIdentityUnlockError') {
+            // The class name is rendered inside the sentence, deliberately: it is the one
+            // word a visitor can search for and the one word a guard can match on, and
+            // hiding it would leave the two describing different things.
+            refusal =
+              'That passphrase did not open the identity stored in this browser ' +
+              '(SealedIdentityUnlockError). Nothing has been changed and nothing has been ' +
+              'lost — your identity is still here, exactly as it was. Try again; it is ' +
+              'case-sensitive.'
+          } else {
+            failed = said
+          }
+        } finally {
+          for (const control of controls) control.disabled = false
+        }
+        await renderEntry()
+        // After the render, because `renderEntry` clears this line for every state that is
+        // not `refused` and would otherwise erase the sentence being reported.
+        if (failed !== null) $('signin-status').textContent = failed
       }
 
       $('allow').addEventListener('click', async () => {
         window.o2.grantConsent({ reporting: $('reporting').checked })
-        await reveal()
+        await renderEntry()
+      })
+
+      $('signin-register').addEventListener('click', async () => {
+        const chosen = $('signin-passphrase').value
+        if (chosen !== $('signin-passphrase-again').value) {
+          // Not a refusal: nothing was tried and nothing exists to have refused. See
+          // `runEntryAct`'s note on which failures reach the `refused` state.
+          $('signin-status').textContent =
+            'The two passphrases are not the same. Type the one you want in both boxes.'
+          return
+        }
+        await runEntryAct(async () => {
+          await window.o2.register(chosen)
+        })
+      })
+
+      $('signin-login').addEventListener('click', async () => {
+        const given = $('signin-passphrase').value
+        await runEntryAct(async () => {
+          await window.o2.unlock(given)
+        })
+      })
+
+      $('signin-startover').addEventListener('click', async () => {
+        await runEntryAct(async () => {
+          await startOver()
+          // Cleared here rather than in `startOver`, because it is page state: the refusal
+          // that revealed this control is about an identity that no longer exists.
+          refusal = null
+        })
       })
 
       /*
@@ -3009,20 +3399,21 @@
         }
       })
 
-      $('decline').addEventListener('click', () => {
-        // Revealing the page without consenting: the visitor sees what they turned
-        // down and can change their mind, but the flags are set so the reconciler
-        // does not immediately put the gate back — "said no" and "not asked yet"
-        // are different states and only the second should re-open it.
-        revealed = true
+      $('decline').addEventListener('click', async () => {
+        // "Said no" and "not asked yet" are different states, and only the second should
+        // re-open the gate — so the flag is set here and `signinState` reads it FIRST,
+        // ahead of every consent branch. Declining writes no consent record, so without
+        // that precedence the very next read would report `never-asked` and put the gate
+        // straight back in front of somebody who had just dismissed it.
+        //
+        // **What changed with `42-04`: the visitor lands on `#signin`, not on `#main`.**
+        // Showing the workload surfaces to somebody who declined was always a little odd —
+        // nothing on them can run — and it is now wrong for a second reason: those surfaces
+        // belong to a signed-in visitor, and this one is not signed in and has not asked to
+        // be. They see the entry screen with both controls disabled and a sentence saying
+        // what happened and how to change their mind.
         declined = true
-        gateEl.hidden = true
-        mainEl.hidden = false
-        setState('idle', 'nothing is running — you did not allow it')
-        explainEl.textContent =
-          'Reload this page if you change your mind. Nothing was started and no ' +
-          'connection was made.'
-        joinEl.disabled = true
+        await renderEntry()
       })
 
       // ---- initial render ------------------------------------------------------
@@ -3039,13 +3430,19 @@
       policy.textContent = ' What this page does, in full.'
       $('gate-version').append(policy)
 
-      if (consent.granted) {
-        // An existing consent for *this* disclosure version. It does not start the
-        // node — starting is still an action.
-        await reveal()
-      } else {
-        gateEl.hidden = false
-      }
+      // **The gate is painted from a SYNCHRONOUS read, before anything touches IndexedDB.**
+      // `renderEntry` awaits `signinFacts()`, which opens the identity database; a page that
+      // waited for that before un-hiding `#gate` would lose BROW-06's arm A, which waits for
+      // the gate to be un-hidden immediately after load and then reads a gateway server's own
+      // log. A visitor who has not consented is shown the gate here and now, and the derived
+      // render below either agrees with that or replaces it.
+      if (!consent.granted) gateEl.hidden = false
+      lastConsentGranted = consent.granted
+
+      // Whatever state this visit is actually in — including a returning visitor with a
+      // stored consent, who now meets the passphrase field rather than the workload
+      // surfaces. It does not start the node: only unlocking does.
+      await renderEntry()
 
       // Pushed on every state change, and polled slowly for the counters.
       window.o2.onChange(reconcile)
