@@ -6,7 +6,8 @@ tags: [auth-06, argon2id, identity-seed, provider-key, migration, passphrase-fil
 requires:
   - "42-01's `sealSecret` / `openSecret` / `parseSealedSecret` on `@o2/core`'s single barrel"
 provides:
-  - "criteria 1, 2, 3 and 4 on the NODE tier, measured across real operating-system processes — 13/13, EXIT=0"
+  - "criteria 1, 2, 3 and 4 on the NODE tier, measured across real operating-system processes — 14/14, EXIT=0"
+  - "the fifth must-have truth read in full: a node with no passphrase writes no secret AND SAYS SO, both stderr lines watched and plant-proofed"
   - "`loadOrCreateSealedSeed`, the seven-cell store that replaced `loadOrCreateSeed`, which is DELETED"
   - "the node tier's provider signing key sealed under the same passphrase as its seed — the higher-value of the two"
   - "an in-place migration that preserves the peer id: same bytes, sealed, verified, then the plaintext unlinked"
@@ -65,7 +66,7 @@ anything.
 
 ## The four criteria, on the node tier, across real processes
 
-`packages/node/src/identity-at-rest.node.test.ts` — **13 passed (13), EXIT=0**, read on the
+`packages/node/src/identity-at-rest.node.test.ts` — **14 passed (14), EXIT=0**, read on the
 line immediately after the command.
 
 | Criterion | The reading |
@@ -78,6 +79,32 @@ line immediately after the command.
 Criterion 4's third start is what makes the second one a reading rather than an appearance: a
 refusal that had quietly rewritten the envelope would still exit non-zero and still leave a
 directory of the right shape.
+
+### The fifth truth, whose second clause almost shipped unmeasured
+
+`must_haves.truths` #5 reads *"A node started with no passphrase writes no secret to the disk
+at all, **and says so**."* The first clause was measured from the start. **The second was
+implemented and read by nothing**, because every spawned agent in every swept file now carries
+a passphrase file, so no lane ever observed the line. By this repository's own standard —
+*unmeasured is not met* — that clause was not met.
+
+It is now one case, `says so on stderr — and names a plaintext seed it adopted without
+deleting it`, and it reads BOTH stderr lines in one spawn by giving the process a directory
+that already holds a pre-AUTH-06 plaintext seed:
+
+- `bin/agent.ts`: *"no identity passphrase was given, so this process writes no identity to
+  … and will be a different node on its next start"*
+- `fabric-node.ts`: *"… holds this node's identity seed in the clear — anyone who copies this
+  directory can speak as this node"*
+
+and in the same case the adopted peer id is asserted to be the one `KNOWN_SEED` implies (an
+upgrade keeps the operator's node), the plaintext file is asserted to **survive**, and no
+envelope is written beside it. That is T-42-13's *reported, never repaired* decision read
+rather than described.
+
+The two lines travel on a different pipe from the announcement, so the case polls with a
+budget (`waitForStderr`) rather than asserting the instant the handshake resolves — which
+would be a race, not a reading. Nothing there asserts on a duration.
 
 ---
 
@@ -196,6 +223,27 @@ than or equal to 1
 ```
 
 `cmp` after restoration: exit **0**. `git status --porcelain` empty after both.
+
+### Plants 3 and 4 — the two stderr lines, one each
+
+A case that reads two lines can be blind to one of them, so each was planted separately.
+
+**Plant 3** — `fabric-node.ts`'s `if (held.unprotected) {` → `if (false) {`. `EXIT=1`:
+
+```
+AssertionError: the agent never said "holds this node's identity seed in the clear":
+expected '(node:44854) ExperimentalWarning: Typ…' to contain 'holds this node\'s identity seed in t…'
+```
+
+**Plant 4** — `bin/agent.ts`'s no-passphrase line rewritten to say something else. `EXIT=1`:
+
+```
+AssertionError: the agent never said "no identity passphrase was given":
+expected '(node:45101) ExperimentalWarning: Typ…' to contain 'no identity passphrase was given'
+```
+
+Both reversed by the surgical inverse; `cmp` exit **0** each; the file re-read 14/14, EXIT=0
+on a quiet host (`load/core 0.53 before, 0.61 after`).
 
 Both plants ran while the host's load average was elevated from the preceding full-lane run
 (banner: `HOST WAS OVERSUBSCRIBED AND n TEST(S) FAILED — load/core 9.00 before, 7.69 after`
@@ -398,7 +446,9 @@ was unavoidable the reading is `pipestatus[1]`.)
 | `purity.node.test.ts` | `0` | 37 passed | quiet — 0.58 / 0.58 |
 | `reachability-guard` after the register edit | `0` | 35 passed | quiet — 0.59 / 0.59 |
 | `reachability` + `reachability-guard` after the barrel restore | `0` | 72 passed | quiet — 3.21 / 2.99 |
-| Task 3, `identity-at-rest` | `0` | **13 passed (13)** | quiet — 0.49 / 0.62 |
+| Task 3, `identity-at-rest` | `0` | 13 passed (13) | quiet — 0.49 / 0.62 |
+| `identity-at-rest` with the fifth truth's case | `0` | **14 passed (14)** | quiet — 0.51 / 0.62 |
+| Plant 3 / Plant 4, node | `1` / `1` | 1 failed each, the case that reads each line | quiet |
 | Node lane, **sweep enumerator** | `1` | 7 failed \| 236 passed (243 files); 11 tests | OVERSUBSCRIBED — 0.59 before, **9.65** after |
 | Node lane, **after the sweep** | `0` | **243 passed (243)**, 3477 passed \| 2 skipped | OVERSUBSCRIBED — 0.48 before, **22.40** after |
 | Plant 1, node | `1` | 2 failed \| 11 passed | OVERSUBSCRIBED — 9.00 / 7.69 |
@@ -573,7 +623,9 @@ is 42-03's, and marking it here would be false.
 
 **T-42-13 — an operator who upgrades and supplies no passphrase keeps a plaintext seed on
 disk.** `loadOrCreateSealedSeed` adopts it, returns `unprotected: true`, and `fabric-node.ts`
-prints one named line to stderr. **It does not delete it, and that is a decision.** Deleting
+prints one named line to stderr — both of which are now READ by a case and plant-proofed, so
+this paragraph describes something measured rather than something implemented.
+**It does not delete it, and that is a decision.** Deleting
 somebody's identity because they did not supply a passphrase is a worse outcome than the
 exposure it would close — the node would come back as a stranger, with every certificate naming
 it orphaned. The exposure is reported to the operator and closed the moment they supply a
@@ -620,10 +672,12 @@ Commits:
 - `a4f6989` `feat(42-02)` the sealed store, the vocabulary, both call sites — FOUND
 - `dc8250b` `feat(42-02)` the flag and the node-lane sweep — FOUND
 - `c91cdcd` `fix(42-02)` the e2e trio and the ROADMAP amendment — FOUND
+- `fa4df30` `docs(42-02)` this summary, and the commit after it carrying the fifth truth's
+  case — FOUND
 
 State:
 
-- Both plants restored by surgical inverse, `cmp` exit `0` each, `git status --porcelain`
+- All FOUR plants restored by surgical inverse, `cmp` exit `0` each, `git status --porcelain`
   empty afterwards — VERIFIED
 - Cheap guards 400/400 at every commit, with no `O2_SKIP_GUARDS` used anywhere on this
   branch — VERIFIED

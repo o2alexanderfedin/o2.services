@@ -9,7 +9,7 @@ import type { Readable, Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openSecret } from '@o2/core'
-import { PASSPHRASE_MIN_LENGTH, SEED_BYTES } from '@o2/libp2p'
+import { PASSPHRASE_MIN_LENGTH, SEED_BYTES, identityFromSeed, peerIdForNodeKey } from '@o2/libp2p'
 import { FsBlockstore } from './fs-blockstore.ts'
 import {
   IDENTITY_FILE,
@@ -226,6 +226,15 @@ interface Agent {
   readonly handshake: Handshake
   readonly child: AgentProcess
   readonly dir: string
+  /**
+   * Everything the process has written to stderr so far.
+   *
+   * A reader rather than a snapshot, because it keeps accumulating after the handshake
+   * resolves — stdout and stderr are two pipes and nothing orders a write on one against a
+   * write on the other at the reading end, so a line the process emitted BEFORE its
+   * announcement can still arrive after it.
+   */
+  readonly stderr: () => string
 }
 
 /** What a process that refused to start left behind. */
@@ -277,16 +286,18 @@ async function spawnAgent(name: string, extraArgs: readonly string[] = []): Prom
   child.stdout.setEncoding('utf8')
   child.stderr.setEncoding('utf8')
 
+  // Hoisted out of the promise so it survives the handshake — see `Agent.stderr`.
+  let stderr = ''
+  child.stderr.on('data', (chunk: string) => {
+    stderr += chunk
+  })
+
   const handshake = await new Promise<Handshake>((resolve, reject) => {
     let stdout = ''
-    let stderr = ''
     const timer = setTimeout(
       () => reject(new Error(`agent ${name} did not announce in time: ${stderr}`)),
       ANNOUNCE_BUDGET_MS,
     )
-    child.stderr.on('data', (chunk: string) => {
-      stderr += chunk
-    })
     child.stdout.on('data', (chunk: string) => {
       stdout += chunk
       const newline = stdout.indexOf('\n')
@@ -304,7 +315,25 @@ async function spawnAgent(name: string, extraArgs: readonly string[] = []): Prom
     })
   })
 
-  return { handshake, child, dir }
+  return { handshake, child, dir, stderr: () => stderr }
+}
+
+/**
+ * Wait until the process has said something, rather than asserting it already has.
+ *
+ * The two lines this file reads are written before the announcement — `bin/agent.ts`
+ * resolves the protection before `FabricNode.start`, and `fabric-node.ts` reports an
+ * unprotected seed during it — but they travel on a different pipe, so an assertion taken
+ * the instant the handshake resolves is a race rather than a reading. A budget, never an
+ * assertion about a duration.
+ */
+async function waitForStderr(agent: Agent, needle: string, budgetMs = 10_000): Promise<void> {
+  const deadline = Date.now() + budgetMs
+  while (Date.now() < deadline) {
+    if (agent.stderr().includes(needle)) return
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  expect(agent.stderr(), `the agent never said ${JSON.stringify(needle)}`).toContain(needle)
 }
 
 /**
@@ -701,6 +730,44 @@ describe('a node given no passphrase writes no secret at all', () => {
     expect(Buffer.from(second.seed).equals(Buffer.from(first.seed))).toBe(false)
     expect(dumpDirectory(dir)).toStrictEqual([])
   }, 60_000)
+
+  /**
+   * **"and says so" — the second half of the phase's fifth truth, which nothing else here
+   * reads.** A node that persists nothing is only the right answer if its operator is told;
+   * a silent default that costs somebody their peer id is the same defect as a silent
+   * re-mint, one step earlier.
+   *
+   * Both lines are read in ONE spawn, because a directory holding a pre-AUTH-06 plaintext
+   * seed reaches both at once: `bin/agent.ts` says the process writes no identity, and
+   * `fabric-node.ts` says the identity already there is readable by anyone who copies the
+   * directory. The plaintext file is asserted to SURVIVE, which is the T-42-13 decision —
+   * reported, never deleted — read rather than described.
+   *
+   * Reddened by deleting either `process.stderr.write` call.
+   */
+  it('says so on stderr — and names a plaintext seed it adopted without deleting it', async () => {
+    const dir = join(workdir, 'told')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, IDENTITY_FILE), KNOWN_SEED, { mode: 0o600 })
+
+    // No `--identity-passphrase-file`, which is the whole configuration under test.
+    const agent = await spawnAgent('told')
+
+    await waitForStderr(agent, 'no identity passphrase was given')
+    await waitForStderr(agent, "holds this node's identity seed in the clear")
+    expect(agent.stderr()).toContain('--identity-passphrase-file')
+
+    // Adopted, not re-minted: the peer id is the one the plaintext seed implies, which is
+    // what makes an upgrade keep the operator's node rather than replace it.
+    expect(agent.handshake.peerId).toBe(peerIdForNodeKey((await identityFromSeed(KNOWN_SEED)).nodeKey))
+
+    await stopAgentNow(agent)
+
+    // Reported, never repaired. The file is still there and no envelope was written beside
+    // it, because this node was given no passphrase to write one with.
+    expect(existsSync(join(dir, IDENTITY_FILE))).toBe(true)
+    expect(existsSync(join(dir, SEALED_IDENTITY_FILE))).toBe(false)
+  }, 120_000)
 })
 
 describe('the envelopes are not counted among the blocks', () => {
