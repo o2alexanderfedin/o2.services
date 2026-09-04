@@ -11,7 +11,11 @@ import { describeAttestation } from '@o2/core'
 import type { PublicKeyHex } from '@o2/core'
 import { KERNEL_RECORD, KERNEL_TRUST_ANCHOR, kernelBytes } from '@o2/demo'
 import type { TabNameRecord } from '@o2/browser'
-import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import {
+  fixtureViteCacheDir,
+  launchFixtureBrowser,
+  plantLegacyIdentitySeed,
+} from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -251,6 +255,19 @@ function kernelTabRecord(): TabNameRecord {
  * `o2-colouring-a` and `-b`. Without it all three tabs would open `o2-blocks` and be one
  * node three times.
  */
+/**
+ * One pre-AUTH-06 seed per store — see {@link openEnrolledTab} and `plantLegacyIdentitySeed`.
+ *
+ * Three distinct values, because the three tabs share one profile and the whole point of the
+ * three store names is that they are three nodes. Exactly 32 bytes each; all-identical bytes
+ * is a valid ed25519 seed and this repository's other fixtures use the same shape.
+ */
+const PLANTED_SEEDS: Readonly<Record<string, Uint8Array>> = {
+  'o2-owner-domain-submitter': new Uint8Array(32).fill(21),
+  'o2-owner-domain-first': new Uint8Array(32).fill(23),
+  'o2-owner-domain-second': new Uint8Array(32).fill(29),
+}
+
 async function openEnrolledTab(name: string, blockstoreName: string): Promise<string> {
   const ctx = context
   if (ctx === undefined) throw new Error('no browser context')
@@ -265,6 +282,24 @@ async function openEnrolledTab(name: string, blockstoreName: string): Promise<st
 
   await page.goto(pageUrl)
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: TAB_BUDGET_MS })
+
+  // AUTH-06, 2026-09-04 — which visitor this tab is, and why the seed is planted.
+  //
+  // The restart below needs one node across two starts, and since AUTH-06 the demo passes
+  // `writes-no-new-secret`: a cold visitor is asked for no passphrase, writes no key, and is a
+  // different node on every visit. `TabApi` carries no parameter for a passphrase and must not
+  // grow one — `demo/main.ts` states the rule — so this tab is instead **a returning visitor
+  // whose browser already held a key from before AUTH-06**, which `BrowserNode` adopts and
+  // deliberately does not delete (threat T-42-20). `plantLegacyIdentitySeed`'s docblock carries
+  // the reasoning and the three ways planting one goes wrong.
+  //
+  // One distinct seed per store, and that is load-bearing here rather than tidy: all three tabs
+  // share this profile, and a shared seed would make three "independent" nodes one node three
+  // times — which is exactly what `blockstoreName` exists to prevent and what this fixture's
+  // placement and quorum readings depend on.
+  const planted = PLANTED_SEEDS[blockstoreName]
+  if (planted === undefined) throw new Error(`no planted seed declared for ${blockstoreName}`)
+  await plantLegacyIdentitySeed(page, blockstoreName, planted)
 
   // BROW-01 has no test-only bypass — this is the real control a visitor presses. Only the
   // first tab of the profile is shown it.

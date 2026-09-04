@@ -337,7 +337,7 @@ async function openTab(engine: string, type: BrowserType): Promise<{ browser: Br
 /** Start the tab's node, with or without an enrolment, and hand back its peer id. */
 async function startTabNode(page: Page, blockstoreName: string, enrol: boolean): Promise<string> {
   return page.evaluate(
-    async ([store, anchor, relay, operatorId, userKey, shouldEnrol]) =>
+    async ([store, anchor, relay, operatorId, userKey, shouldEnrol, passphrase]) =>
       window.o2capability.start({
         // The **only** address this tab is ever given, and it is the door's. A page handed a
         // peer list out of band is not reading admission.
@@ -352,7 +352,7 @@ async function startTabNode(page: Page, blockstoreName: string, enrol: boolean):
         // is now written only when a passphrase says where it may live, so a fixture whose
         // whole subject is *the same node before and after enrolment* has to supply one. It
         // is a fixture constant and names nothing outside this file.
-        identityProtection: { kind: 'passphrase', passphrase: SPEC_PASSPHRASE },
+        identityProtection: { kind: 'passphrase', passphrase: passphrase as string },
         ...(shouldEnrol === true
           ? {
               enrollment: {
@@ -365,7 +365,7 @@ async function startTabNode(page: Page, blockstoreName: string, enrol: boolean):
             }
           : {}),
       }),
-    [blockstoreName, publisher.pub, doorAddr, OPERATOR_ID, [...USER_PRIVATE_KEY], enrol] as const,
+    [blockstoreName, publisher.pub, doorAddr, OPERATOR_ID, [...USER_PRIVATE_KEY], enrol, SPEC_PASSPHRASE] as const,
   )
 }
 

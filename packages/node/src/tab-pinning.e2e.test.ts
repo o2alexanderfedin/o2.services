@@ -147,7 +147,7 @@ async function startTab(options: {
   pin: readonly string[] | 'from-this-origins-enrolment'
 }): Promise<string> {
   return page.evaluate(
-    async ([blockstoreName, anchor, relayAt, providerAt, operatorId, userKey, enrol, pin]) =>
+    async ([blockstoreName, anchor, relayAt, providerAt, operatorId, userKey, enrol, pin, passphrase]) =>
       window.o2capability.start({
         relayAddrs: [relayAt as string],
         blockstoreName: blockstoreName as string,
@@ -167,7 +167,7 @@ async function startTab(options: {
         // checks the stored certificate against **this** tab's own peer id, so a tab that
         // came back as a new node would find its own certificate and refuse it. The seed
         // has to survive the restart for that case to be about pinning at all.
-        identityProtection: { kind: 'passphrase', passphrase: SPEC_PASSPHRASE },
+        identityProtection: { kind: 'passphrase', passphrase: passphrase as string },
         ...(enrol === true
           ? {
               enrollment: {
@@ -187,6 +187,7 @@ async function startTab(options: {
       [...USER_PRIVATE_KEY],
       options.enrol,
       options.pin === 'from-this-origins-enrolment' ? options.pin : [...options.pin],
+      SPEC_PASSPHRASE,
     ] as const,
   )
 }
