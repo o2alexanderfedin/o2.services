@@ -2586,7 +2586,16 @@ The six stages move in order against a real relay and real WebRTC, read out of t
   3. Invites go out in stages, by region and by cohort slice, and each stage's go/no-go **reads the funnel** before the next invite is sent. Staged rollout is **inferred from general release practice and recorded as inferred**: no named volunteer-computing precedent for staged rollout of a compute cohort was found, and this criterion does not pretend otherwise
   4. **`BENCH-06`'s distinct-machine half is measured from the run**: a map/reduce job distributes across nodes on independently-owned devices across several continents, each machine read off its own announced handshake line rather than off the driver, and the distinct-machine count is published beside the curve. **Until the run reports, the half stays descoped and unmeasured — not met — and a same-host figure may not be published in its place**
   5. The kill switch and the stop control are exercised **during** the run and not only before it, and the observed behaviour matches what Phase 36 measured on a quiet fabric — a control that works at three tabs and not at three hundred is a control nobody has
-**Plans**: TBD
+**Plans**: 9 plans in 5 waves — waves 1-3 are agent work with no money and no disclosure; waves 4-5 are the owner-gated tail, separate plans rather than trailing tasks
+- [ ] `39-01-PLAN.md` — the dated go/no-go checklist as a document, and a guard that notices a row losing its evidence (wave 1)
+- [ ] `39-02-PLAN.md` — the funnel's silent-drop defect: probe before targeting, validated on the response BODY rather than its status (wave 1)
+- [ ] `39-03-PLAN.md` — the relay counters, including the 6714-hop-streams-against-zero-relayed-bytes anomaly measured on a local workerd (wave 1)
+- [ ] `39-04-PLAN.md` — the participant path for `BENCH-06`'s distinct-machine half, and the guard that refuses a same-host figure in its place (wave 2)
+- [ ] `39-05-PLAN.md` — the staged-invite runbook and the request-budget reading with a numeric stop rule (wave 2)
+- [ ] `39-06-PLAN.md` — the kill-switch instrument and the band criterion 5 compares the run against (wave 2)
+- [ ] `39-07-PLAN.md` — re-measure the node lane and own `vitest.config.ts`, because `slow-specs` sits at its tolerance boundary (wave 3)
+- [ ] `39-08-PLAN.md` — **owner**: the machine-datum ruling, the release cut, and the pre-invite funnel reading (wave 4)
+- [ ] `39-09-PLAN.md` — **owner**: the run itself, its stages, and the record only the run can write (wave 5)
 
 ### Phase 40: The Numbers Only the Run Can Produce
 **Goal**: As the project owner, I want two figures that did not exist before this milestone published under the discipline the `BENCH-` family already carries — the WebRTC connection-failure rate segmented by country and by network class, and a diurnal churn curve per region — so that the two measurements only a real public run can produce are on the record.
@@ -2630,4 +2639,9 @@ The six stages move in order against a real relay and real WebRTC, read out of t
   3. The correct passphrase yields **the same PeerId across a restart**, measured on both tiers. An identity that is protected but not stable is a new node every launch, which is a worse outcome than the defect being fixed
   4. A **wrong** passphrase produces a refusal that names itself, and **never a freshly minted identity**. A silent re-mint presents as success, burns the user's enrolment quota under the issuance budget, and orphans the certificate the old seed was issued against — so this case is planted and watched failing before it is trusted
   5. The KDF parameters are recorded beside the ciphertext rather than compiled in, so an identity stored today stays openable after the defaults are raised. A hard-coded cost is a stored identity that stops opening on the day somebody tunes it
-**Plans**: TBD
+**Plans**: 5 plans in 4 waves
+- [ ] `42-01-PLAN.md` — the sealed-secret envelope in `@o2/core` (Argon2id + xchacha20poly1305), parameters recorded beside the ciphertext
+- [ ] `42-02-PLAN.md` — the node tier: seed **and provider key** sealed, legacy migration, `--identity-passphrase-file`
+- [ ] `42-03-PLAN.md` — the browser tier: sealed IndexedDB store, required `identityProtection`, one-transaction migration
+- [ ] `42-04-PLAN.md` — where the visitor's passphrase comes from: set at enrolment, unlock on return, named refusal
+- [ ] `42-05-PLAN.md` — the three at-rest shapes weighed, two document corrections, the device-factor measurement, and the owner's ordering ruling
