@@ -338,6 +338,44 @@ async function visible(page: Page, selector: string): Promise<boolean> {
   return page.locator(selector).isVisible()
 }
 
+/**
+ * What happened after a passphrase was submitted: a named refusal, or a node that came up.
+ *
+ * Both arms are polled together **so the failure text can name the peer id the tab came up
+ * as**. See the call site for why that matters and for the recorded first attempt that did
+ * not do it.
+ *
+ * Values crossing back from `page.evaluate` are external data, so the shape is narrowed here
+ * at the boundary rather than asserted.
+ */
+async function readRefusalOrStart(
+  page: Page,
+): Promise<{ readonly refused: string | null; readonly startedAs: string | null }> {
+  const handle = await page.waitForFunction(
+    () => {
+      const said = document.getElementById('signin-status')?.textContent ?? ''
+      if (said.includes('SealedIdentityUnlockError')) return { refused: said, startedAs: null }
+      if (window.o2.activity() !== null) {
+        return { refused: null, startedAs: window.o2.addresses().peerId }
+      }
+      return null
+    },
+    null,
+    { timeout: 60_000 },
+  )
+  const value: unknown = await handle.jsonValue()
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('the page reported neither a refusal nor a start')
+  }
+  const record: Record<string, unknown> = { ...value }
+  const refused = record['refused']
+  const startedAs = record['startedAs']
+  return {
+    refused: typeof refused === 'string' ? refused : null,
+    startedAs: typeof startedAs === 'string' ? startedAs : null,
+  }
+}
+
 /** Fill the register form and press the register control. */
 async function register(page: Page, passphrase: string): Promise<void> {
   await page.fill('#signin-passphrase', passphrase)
@@ -577,4 +615,199 @@ describe('AUTH-06 — the way in: a visitor registers, returns, and is the same 
     await waitVisible(page, '#signin', 30_000)
     await waitVisible(page, '#signin-login')
   }, 180_000)
+})
+
+describe('AUTH-06 — the refusals: a wrong passphrase, and the one way past it', () => {
+  let page: Page
+  let firstPeerId: string
+  let keysBefore: string[]
+
+  it('CRITERION 4 — a wrong passphrase refuses by name, changes nothing, and the right one still opens the original', async () => {
+    page = await visit(await freshContext())
+    await waitVisible(page, '#gate')
+    await page.click('#allow')
+    await waitVisible(page, '#signin')
+    await register(page, SPEC_PASSPHRASE)
+    await waitVisible(page, '#main', 120_000)
+    firstPeerId = await waitForRunning(page)
+
+    await revisit(page)
+    await waitVisible(page, '#signin')
+    keysBefore = await identityKeys(page)
+    expect(keysBefore, 'the fixture never registered, so there is no envelope to refuse').toContain(
+      'node-seed-sealed',
+    )
+
+    await logIn(page, WRONG_PASSPHRASE)
+
+    // The refusal, by name. The surface renders the class name INSIDE a human sentence —
+    // recorded here because the plan asks which of the two the implementation chose, and the
+    // answer is both: the sentence is for the visitor and the name is the one word a guard
+    // can match on and a visitor can search for.
+    //
+    // **The wait races the refusal against the failure, and that is what makes this case's
+    // red readable.** A plain `waitForFunction` on the refusal text fails as a bare
+    // `TimeoutError` — which says the refusal is missing and says NOTHING about what arrived
+    // instead. `42-03` records the same shape: a first plant whose whole message read
+    // `expected 'not an Error: null' to be …`, strengthened until it printed *"the start
+    // SUCCEEDED and this tab came up as 12D3KooWH3DhGu5…, which it must not have"*. So this
+    // resolves on **either** outcome and the assertion below names the one that arrived.
+    const outcome = await readRefusalOrStart(page)
+    expect(
+      outcome.startedAs,
+      `the wrong passphrase did not refuse: the start SUCCEEDED and this tab came up as `
+        + `${String(outcome.startedAs)}, which it must not have — that is the silent re-mint `
+        + 'criterion 4 forbids, arriving from the UI instead of from the store',
+    ).toBeNull()
+    const said = outcome.refused ?? ''
+    expect(said, 'the refusal did not name the mechanism that produced it').toContain(
+      'SealedIdentityUnlockError',
+    )
+    expect(
+      said,
+      'the refusal must tell the visitor that nothing was lost, or they will reach for the '
+        + 'control that destroys their identity',
+    ).toMatch(/nothing has been changed|nothing has been lost|still here/i)
+
+    // *"It complained"* and *"it changed nothing"* are different claims, and only the second
+    // is criterion 4. Three readings of the second, and the third is the one that matters.
+    expect(
+      await page.evaluate(() => window.o2.activity()),
+      'a wrong passphrase started a node — which is the silent re-mint criterion 4 forbids, '
+        + 'arriving from the UI instead of from the store',
+    ).toBeNull()
+    expect(await visible(page, '#main'), 'the workload surfaces opened to a refused passphrase').toBe(false)
+    expect(
+      await identityKeys(page),
+      'the identity database moved under a refused passphrase',
+    ).toEqual(keysBefore)
+
+    // And the reading that separates a refusal from a page that quietly replaced something.
+    await logIn(page, SPEC_PASSPHRASE)
+    await waitVisible(page, '#main', 120_000)
+    const again = await waitForRunning(page)
+    expect(
+      again,
+      'the correct passphrase after a refused one did not open the ORIGINAL identity, so the '
+        + 'refusal changed something after all',
+    ).toBe(firstPeerId)
+  }, 300_000)
+
+  it('T-42-24 — start over is unreachable without the refusal, and states what it costs', async () => {
+    await revisit(page)
+    await waitVisible(page, '#signin')
+
+    // The reachability IS the property. A page that offers *start over* to somebody who
+    // mistyped once is a page that will lose identities.
+    expect(
+      await visible(page, '#signin-startover'),
+      'the control that destroys this visitor’s identity was on screen before anything had '
+        + 'refused to open',
+    ).toBe(false)
+
+    await logIn(page, WRONG_PASSPHRASE)
+    await waitVisible(page, '#signin-startover', 60_000)
+
+    const cost = (await page.locator('#signin-startover-cost').textContent()) ?? ''
+    // Three things the visitor is owed, each asserted separately so a sentence that dropped
+    // one fails naming which. The third is the one this repository can now justify rather
+    // than assert: there is no server and no account, and the only party that ever saw
+    // anything saw a signature over the PUBLIC half.
+    expect(cost, 'the cost sentence must say they become a different node').toMatch(/different node/i)
+    expect(cost, 'the cost sentence must say they would have to enrol again').toMatch(/enrol again/i)
+    expect(
+      cost,
+      'the cost sentence must say WHY nobody can undo it, or the visitor goes looking for a '
+        + 'support channel that does not exist',
+    ).toMatch(/no server|no account|cannot be brought back|nothing anywhere to recover/i)
+
+    await page.click('#signin-startover')
+
+    // Back to register mode: two fields, and an empty store.
+    await waitVisible(page, '#signin-passphrase-again', 60_000)
+    await waitVisible(page, '#signin-register')
+    expect(
+      await identityKeys(page),
+      'starting over left the sealed identity in place, so the visitor was told a cost they '
+        + 'did not pay and is still locked out',
+    ).not.toContain('node-seed-sealed')
+
+    await register(page, SPEC_PASSPHRASE)
+    await waitVisible(page, '#main', 120_000)
+    const replacement = await waitForRunning(page)
+    expect(
+      replacement,
+      'starting over produced the SAME node, so nothing was destroyed and the cost sentence '
+        + 'is false',
+    ).not.toBe(firstPeerId)
+  }, 300_000)
+})
+
+describe('T-42-20 — a visitor upgrading from an older build keeps the node they already were', () => {
+  it('adopts a pre-AUTH-06 plaintext seed, seals it in place, and the plaintext is gone', async () => {
+    const page = await visit(await freshContext())
+    await waitVisible(page, '#gate')
+    await page.click('#allow')
+    await waitVisible(page, '#signin')
+
+    // The tab this fixture opens is the one visitor who held a durable identity before this
+    // plan: somebody whose browser already carried a key from an earlier build, written in
+    // the clear. `42-03` made this the only end-to-end reading of that adopt path; this is
+    // the reading that it reaches the VISITOR's own path.
+    await plantLegacyIdentitySeed(page, DEFAULT_BLOCKSTORE, KNOWN_SEED)
+    await revisit(page)
+    await waitVisible(page, '#signin')
+    await waitVisible(page, '#signin-adopt', 30_000)
+    const notice = (await page.locator('#signin-adopt').textContent()) ?? ''
+    expect(notice, 'the notice must say the key they already have is the one being sealed').toMatch(
+      /already holds|already here|keep the node/i,
+    )
+    // Register mode, not login: there is no envelope yet, only a key in the clear.
+    await waitVisible(page, '#signin-passphrase-again')
+
+    // **The positive control**, and it is the half that makes the absence below mean
+    // anything. `42-03` records the cost of leaving it out twice over: an instrument blinded
+    // by rendering a `Uint8Array` through `String` was watched staying GREEN under a plant,
+    // and an absence sited where the failure cannot occur stayed green through the defect it
+    // was named for. So the search is shown FINDING the needle before it is asked to miss it.
+    const before = await identityDump(page)
+    expect(
+      before.length,
+      'the identity database holds fewer records than the needle being searched for',
+    ).toBeGreaterThanOrEqual(1)
+    expect(searchableBytes(before)).toBeGreaterThanOrEqual(SEED_BYTES)
+    expect(
+      findNeedle(before, KNOWN_SEED),
+      'the search cannot find a seed this fixture planted itself, so it could not have found '
+        + 'one it did not plant either — the instrument is blind and every absence below is worthless',
+    ).toBe('node-seed')
+
+    await register(page, SPEC_PASSPHRASE)
+    await waitVisible(page, '#main', 120_000)
+    const adopted = await waitForRunning(page)
+
+    const implied = (await identityFromSeed(KNOWN_SEED)).peerId
+    expect(
+      adopted,
+      'the tab came up as a different node from the one the planted seed implies, so the '
+        + 'adopt path was not taken and this visitor just lost their identity',
+    ).toBe(implied)
+
+    const after = await identityDump(page)
+    // Soft, so the byte scan below still runs. `visitor-enrolment.e2e.test.ts` records the
+    // identical move for the identical reason, and `42-03`'s plant 2 is where this file's
+    // ancestor learned it: a hard failure here aborts the case before the reading that
+    // actually carries criterion 1 has executed.
+    expect
+      .soft(after.map((record) => record.key), 'the plaintext record survived the migration')
+      .not.toContain('node-seed')
+    expect(after.map((record) => record.key), 'the migration wrote no envelope').toContain(
+      'node-seed-sealed',
+    )
+    expect(
+      findNeedle(after, KNOWN_SEED),
+      'the seed is still readable in this database, in the clear, under the key named here — '
+        + 'which is precisely the exposure AUTH-06 exists to close',
+    ).toBeNull()
+  }, 300_000)
 })
