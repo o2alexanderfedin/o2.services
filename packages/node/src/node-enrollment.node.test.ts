@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { verifyCertificate } from '@o2/core'
 import type { NodeCertificate } from '@o2/core'
 import { SEED_BYTES, identityFromSeed } from '@o2/libp2p'
+import type { IdentityProtection } from '@o2/libp2p'
 import { UNREACHABLE_PROVIDER } from '@o2/net'
 import { FabricNode } from './fabric-node.ts'
 import type { FabricNodeOptions } from './fabric-node.ts'
@@ -55,6 +56,18 @@ afterEach(async () => {
   await rm(workdir, { recursive: true, force: true })
 }, 20_000)
 
+/**
+ * AUTH-06 — stated once, for the whole file, because every claim here rests on an identity
+ * that outlives the process that made it: a certificate names a `nodeKey`, and a node that
+ * minted a fresh one on restart would fail the reuse cases for a reason about identity rather
+ * than about certificates.
+ *
+ * Plan 42-02 made `writes-no-new-secret` the default, so persistence is now asked for. This
+ * is not a weakening: the cases below assert exactly what they did before, about nodes that
+ * have said they want to survive their own restart.
+ */
+const PERSISTS: IdentityProtection = { kind: 'passphrase', passphrase: 'node-enrollment-spec-passphrase' }
+
 const start = async (options: Partial<FabricNodeOptions> = {}): Promise<FabricNode> => {
   const node = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
@@ -62,6 +75,7 @@ const start = async (options: Partial<FabricNodeOptions> = {}): Promise<FabricNo
     listen: ['/ip4/127.0.0.1/tcp/0'],
     trustAnchors: 'runs-unsigned-artifacts',
     rpcTimeoutMs: 10_000,
+    identityProtection: PERSISTS,
     ...options,
   })
   nodes.push(node)

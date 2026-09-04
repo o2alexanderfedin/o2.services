@@ -175,10 +175,28 @@ const seedChildren: ChildProcess[] = []
  * watching fd 0, and `'ignore'` hands them a character device, which opts the leash out.
  * `orphan-leash.node.test.ts` fails any spawn site that does that.
  */
+/**
+ * AUTH-06 — every agent this file spawns is given a passphrase file, and `standUp`'s own
+ * refusal is why.
+ *
+ * Plan 42-02 made `--dir` alone start a node under `writes-no-new-secret`, which writes no
+ * identity to disk. `standUp` restarts the provider on the same directory and throws *"the
+ * provider minted a second issuer key across its restart"* if the key moved — which is
+ * exactly what a node persisting nothing does. Persistence is asked for here; that check is
+ * left as strict as it was.
+ */
+const IDENTITY_PASSPHRASE = 'closed-fabric-spec-identity-passphrase'
+
 async function spawnAgent(name: string, extraArgs: readonly string[]): Promise<Agent> {
-  const child: AgentProcess = spawn(process.execPath, [AGENT, '--dir', join(workdir, name), ...extraArgs], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-  })
+  const passphraseFile = join(workdir, 'identity.passphrase')
+  await writeFile(passphraseFile, `${IDENTITY_PASSPHRASE}\n`, { mode: 0o600 })
+  const child: AgentProcess = spawn(
+    process.execPath,
+    [AGENT, '--dir', join(workdir, name), '--identity-passphrase-file', passphraseFile, ...extraArgs],
+    {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
+  )
   let stderr = ''
   child.stderr.on('data', (chunk: Buffer) => {
     stderr += chunk.toString()

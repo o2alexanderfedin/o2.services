@@ -23,17 +23,24 @@ export { FsBlockstore } from './fs-blockstore.ts'
 // **`loadOrCreateSeed` came OFF this barrel on 2026-09-04 (AUTH-06, plan 42-02) because it
 // was deleted**, not renamed and not deprecated. It wrote 32 raw bytes to `.identity.key`,
 // and leaving any exported route to that behaviour would have contradicted the phase's own
-// claim that no reachable path writes a plaintext secret. `loadOrCreateSealedSeed` replaces
-// it and is deliberately NOT added here: its only callers are `fabric-node.ts` and this
-// package's own specs, both of which import it module-relatively, and a barrel line with no
-// cross-package consumer is a surface nobody asked for — the rule
-// `reachability-guard.node.test.ts` exists to hold.
+// claim that no reachable path writes a plaintext secret.
+//
+// `loadOrCreateSealedSeed` takes its place on this line, and the two `.enc` names take their
+// plaintext siblings' place beside it — the siblings stay, because the migration reads them
+// and because a directory written before this phase still has them. The replacement is on the
+// barrel rather than off it for the reason the deletion is legible at all:
+// `reachability.node.test.ts` holds a per-package floor on this barrel's callable exports, and
+// a package that quietly published one fewer entry point than it did the day before is exactly
+// what that floor exists to notice. The entry point did not go away; it changed shape.
 export {
   CERTIFICATE_FILE,
   IDENTITY_FILE,
   MalformedSeedFileError,
   PROVIDER_FILE,
+  SEALED_IDENTITY_FILE,
+  SEALED_PROVIDER_FILE,
   loadCertificate,
+  loadOrCreateSealedSeed,
   saveCertificate,
 } from './identity-store.ts'
 

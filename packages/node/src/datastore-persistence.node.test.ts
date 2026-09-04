@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { Key } from 'interface-datastore'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FabricNode } from './fabric-node.ts'
+import type { IdentityProtection } from '@o2/libp2p'
 import { FsDatastore } from './fs-datastore.ts'
 
 /**
@@ -49,11 +50,22 @@ afterEach(async () => {
   await rm(workdir, { recursive: true, force: true })
 }, 60_000)
 
+/**
+ * AUTH-06 — stated because this file's restart case asserts the peer id is the same across
+ * one, and plan 42-02 made a node told nothing about protection write no identity at all.
+ *
+ * The assertion it supports is not weakened by this: *"the identity already persisted before
+ * this change"* is still the claim, and it is now a claim about a node that asked to persist.
+ * `writes-no-new-secret` would have been the wrong repair here — the subject IS persistence.
+ */
+const PERSISTS: IdentityProtection = { kind: 'passphrase', passphrase: 'datastore-persistence-passphrase' }
+
 async function start(dir: string): Promise<FabricNode> {
   const node = await FabricNode.start({
     relayAdmission: 'admits-any-peer',
     startReporting: 'reports-its-own-start',
     blockstoreDir: dir,
+    identityProtection: PERSISTS,
     listen: ['/ip4/127.0.0.1/tcp/0'],
     trustAnchors: 'runs-unsigned-artifacts',
     rpcTimeoutMs: 20_000,

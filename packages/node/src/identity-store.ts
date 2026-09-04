@@ -185,7 +185,7 @@ export async function loadOrCreateSealedSeed(
   // 1. A sealed envelope wins over everything else in the directory. Checked first so a
   //    stale plaintext left behind by a half-finished migration can never shadow the
   //    envelope that replaced it.
-  const envelope = await readIfPresent(sealedPath, 'utf8')
+  const envelope = await readTextIfPresent(sealedPath)
   if (envelope !== undefined) {
     if (protection.kind !== 'passphrase') throw new SealedIdentityNeedsPassphraseError(sealedPath)
     return { seed: await openSealedSeed(sealedPath, envelope, protection.passphrase), unprotected: false }
@@ -212,7 +212,7 @@ export async function loadOrCreateSealedSeed(
     // identity. The verification read is not belt-and-braces; it is the thing that makes
     // the unlink safe, which is why it is inlined here rather than hidden in a helper.
     await writeEnvelope(dir, sealedPath, seed, protection.passphrase)
-    const written = await readIfPresent(sealedPath, 'utf8')
+    const written = await readTextIfPresent(sealedPath)
     if (written === undefined) {
       throw new SealedIdentityUnlockError(sealedPath, new Error('the envelope this migration just wrote is not there'))
     }
@@ -281,12 +281,27 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return true
 }
 
-/** The file's contents, or `undefined` when there is no such file. Any other error throws. */
-async function readIfPresent(path: string): Promise<Buffer | undefined>
-async function readIfPresent(path: string, encoding: 'utf8'): Promise<string | undefined>
-async function readIfPresent(path: string, encoding?: 'utf8'): Promise<Buffer | string | undefined> {
+/**
+ * The file's bytes, or `undefined` when there is no such file. Any other error throws.
+ *
+ * Two named helpers rather than one overloaded pair, and the reason is measured:
+ * `reachability.node.test.ts` counts declarations that share a file and a name, and a TypeScript
+ * overload set is three such declarations. The bound moved 17 -> 18 on the overloaded shape.
+ * Two names cost nothing here and are what the call sites read as anyway.
+ */
+async function readIfPresent(path: string): Promise<Buffer | undefined> {
   try {
-    return encoding === undefined ? await readFile(path) : await readFile(path, encoding)
+    return await readFile(path)
+  } catch (cause) {
+    if (isNotFound(cause)) return undefined
+    throw cause
+  }
+}
+
+/** The file's text, or `undefined` when there is no such file. Any other error throws. */
+async function readTextIfPresent(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, 'utf8')
   } catch (cause) {
     if (isNotFound(cause)) return undefined
     throw cause
