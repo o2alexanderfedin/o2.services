@@ -10,6 +10,14 @@ visitor to a web page a potential compute node.
 
 **Live:** <https://o2alexanderfedin.github.io/o2.services/>
 
+Built by [Alexander Fedin](https://linkedin.com/in/alex-fedin).
+
+Sole authorship is deliberate rather than incidental — pull requests are triaged and
+never merged, and any fix is implemented independently of the reported diff, so that
+provenance for the later relicensing track is preserved by one person holding it. See
+`CONTRIBUTING.md`. Saying who that person is makes the claim checkable rather than
+merely stated.
+
 > That page is a real node, but it cannot join anything on its own and it says so.
 > A browser cannot accept incoming connections, so two tabs need a publicly
 > reachable [Circuit Relay v2](https://github.com/libp2p/specs/blob/master/relay/circuit-v2.md)
