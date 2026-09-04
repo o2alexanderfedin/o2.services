@@ -71,15 +71,22 @@
  * they are being asked to join. The guarantee now leads the answer and the exclusions follow
  * it.
  *
- * ## What version 3 deliberately does NOT say
+ * ## What version 3 deliberately does NOT say — SUPERSEDED 2026-09-04, kept because the
+ * ## abstention is part of the record
  *
- * The telemetry line states **what is sent**, which is an engineering fact and is settled. It
- * states no **legal basis** — whether the minimal record rests on consent or on legitimate
- * interest under GDPR is `.planning/REQUIREMENTS.md` § Open questions item 3, which records
- * that the sources consulted disagreed with each other and that it is *"settled by legal
- * review, not engineering judgement"*. An agent choosing between them would be recording a
- * compliance ruling as a code change. When the owner rules, the sentence lands here and the
- * version bumps again — which costs nothing, because no cohort exists before Phase 39.
+ * It read: the telemetry line states **what is sent**, which is an engineering fact and is
+ * settled; it states no ground for sending it, because whether the minimal record rests on the
+ * visitor's permission or on the project's own interest is `.planning/REQUIREMENTS.md`
+ * § Open questions item 3, which records that the sources consulted disagreed with each other
+ * and that it is *"settled by legal review, not engineering judgement"*. An agent choosing
+ * between them would be recording a compliance ruling as a code change. When the owner rules,
+ * the sentence lands here and the version bumps again — which costs nothing, because no cohort
+ * exists before Phase 39.
+ *
+ * **Every word of that held, and the owner ruled on 2026-09-04.** The abstention is recorded
+ * rather than removed because it is what made the ruling a ruling: for eleven days the tree
+ * carried a guard asserting this module named no ground at all, so nothing could drift into
+ * one by an edit. See version 6 below.
  *
  * ## Version 4, 2026-09-02 — the data cost, beside the processor cost
  *
@@ -95,6 +102,33 @@
  * so the only visitors this re-asks are the ones who consented during this phase's own
  * development.
  *
+ * ## Version 6, 2026-09-04 — the ground, ruled by the owner
+ *
+ * `.planning/REQUIREMENTS.md` § Open questions item 3 is settled: **the visitor's permission,
+ * and nothing else.** Version 3's note above promised this sentence would land here when the
+ * ruling came, and this is it.
+ *
+ * **What it changed in the code: nothing.** `funnel-reporter.ts` has armed the counters at
+ * consent since RUN-04, and its own docblock records why — consent-armed collection is the
+ * *intersection* of the two readings, lawful whichever way the ruling went, so a ruling could
+ * only ever widen it. The ruling did not widen it. So this version adds words to a page whose
+ * behaviour is already what the words describe, which is the only order in which a disclosure
+ * can be written honestly.
+ *
+ * **The sentence is NOT the one that was drafted, and the difference matters.** The draft
+ * carried in `35-01-PLAN.md` reads *"this page sends a report only if you turn it on above;
+ * with it off, nothing about you or your visit is sent anywhere"*, and it was written before
+ * versions 4 and 5 existed. It is now **false**: with the optional report off and the work
+ * allowed, the counters described two answers above are sent. Landing it verbatim would have
+ * recreated precisely the defect versions 2 and 5 were each bumped to repair — a disclosure
+ * that its own code contradicts. What the ruling settles is the *ground*, and the ground is
+ * unchanged by the correction; what needed rewriting is which permissions the sentence points
+ * at, and there are two of them rather than one.
+ *
+ * **What this version does NOT claim.** It states the ground this page collects on. It makes no
+ * statement about any other tier, about what a self-hosted node does, or about the enrolment
+ * path — those have their own surfaces and would need their own sentences.
+ *
  * Pure module — no DOM, no storage, no side effects at import.
  */
 
@@ -106,7 +140,7 @@ import { DISCLOSED_DATA_COST_BYTES } from './data-cost.ts'
  * A test asserts that this constant appears in the rendered gate, so a silent
  * edit to the terms fails rather than quietly re-using an old agreement.
  */
-export const DISCLOSURE_VERSION = '5'
+export const DISCLOSURE_VERSION = '6'
 
 /**
  * Why the current version differs from the one before it.
@@ -119,15 +153,23 @@ export const DISCLOSURE_VERSION = '5'
  * same shape, when persistent identity landed and the sentence *"no identifiers beyond a peer
  * key generated in this tab"* went false in both halves with no test noticing for twelve days.
  *
- * So version 5 states the counting plainly, in a line of its own that enumerates the whole
- * record, and re-states the three states a visitor can be in: declined and counted nowhere;
+ * So version 5 stated the counting plainly, in a line of its own that enumerates the whole
+ * record, and re-stated the three states a visitor can be in: declined and counted nowhere;
  * consented and counted coarsely; and the separate start report, which is unchanged.
+ *
+ * **Version 6 is a different kind of bump, and it is honest to say so.** Nothing the page does
+ * changed — the counters were already armed at consent and still are. What version 5 lacked was
+ * a statement of the *ground* it collects on, deliberately, while that was an open question; the
+ * owner ruled on 2026-09-04 and the sentence landed. A returning visitor is re-asked for a
+ * sentence that grants them no less than before, which is the cost of the mechanism working
+ * rather than a sign it misfired.
  */
 export const CONSENT_VERSION_NOTE: string =
-  'this page now counts how far a visit gets — six named steps between opening the page and ' +
-  'running a first task — once you have said yes, and a line of its own lists everything ' +
-  'those counts hold. Version 4 said the page did not count your visit at all, and that had ' +
-  'stopped being true'
+  'this page now says what all of it rests on — your permission, and nothing else. The ' +
+  'counters begin when you allow the work to run, the optional report begins only if you tick ' +
+  'its box, and there is no third footing on which anything is taken from a visitor who does ' +
+  'neither. Version 5 described what is counted and said nothing about why it is allowed to ' +
+  'be, because that was an open question until it was ruled on'
 
 export interface DisclosureLine {
   /** Short label — the question a visitor is actually asking. */
@@ -209,7 +251,12 @@ export const DISCLOSURE: Disclosure = {
         'thing again: with it turned on, the one line described there is offered to the peers ' +
         'your node is already connected to and to nobody else, and turning it off is not a ' +
         'preference this page records and then ignores — your line is not sent when peers are ' +
-        'asked, and your node does not hold it for a peer to ask for either.',
+        'asked, and your node does not hold it for a peer to ask for either. Both of those ' +
+        'rest on your permission, and on nothing else. The counters begin when you allow the ' +
+        'work to run; the optional report begins only if you also tick its box; and a visitor ' +
+        'who does neither is not counted on some other footing instead, because there is no ' +
+        'other footing here. Withdrawing either permission stops what that permission covers ' +
+        '— which is what makes it a permission rather than a notice.',
     },
     {
       question: 'What does this page count about my visit?',

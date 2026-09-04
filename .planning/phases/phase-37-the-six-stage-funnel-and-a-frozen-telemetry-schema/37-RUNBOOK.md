@@ -66,7 +66,13 @@ on the deployed object's `GET /funnel`.
 
 ---
 
-## Step 4 — **UNDER READING B ONLY:** the documented balancing test
+## Step 4 — **UNDER READING B ONLY:** the documented balancing test — **SKIPPED 2026-09-04**
+
+**The ruling came on 2026-09-04 and it is CONSENT (reading A), so this step is skipped by its
+own terms.** It is kept rather than deleted because the condition it names is the record of what
+would have been owed under the other outcome, and because the reason it costs nothing is worth
+having written down: the code already implemented reading A, so the ruling required no change to
+what is collected and no balancing test is owed. Nothing below is live; read it as history.
 
 Skip this step entirely if the ruling on open question 3 is **consent** (reading A), which is
 what the code implements today.
