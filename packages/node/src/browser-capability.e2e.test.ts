@@ -218,6 +218,9 @@ beforeAll(async () => {
         // The subject of this file is the capability chain, not identity persistence —
         // `browser-enrollment.e2e.test.ts` is where that is read.
         whenSeedIsGone: 'mints-a-new-identity',
+        // AUTH-06 — one start, one stop, and the subject is the capability chain rather
+        // than what survives a reload. Nothing here reads an identity twice.
+        identityProtection: { kind: 'writes-no-new-secret' },
       }),
     [submitterAddr, publisher.pub, OWNER_ID, OWNER_KEY],
   )

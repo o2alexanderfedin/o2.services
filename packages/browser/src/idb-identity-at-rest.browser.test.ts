@@ -1,5 +1,6 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { openDB } from 'idb'
+import type { IDBPDatabase } from 'idb'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   DEFAULT_KDF_PARAMS,
@@ -177,14 +178,39 @@ function decodeValue(value: unknown): Uint8Array {
 }
 
 /**
+ * A raw connection for reading, opened **at the same version and with the same upgrade** the
+ * store itself uses.
+ *
+ * **Not `openDB(name)`, and the difference is a measured trap rather than a style choice.**
+ * `openDB` with no version opens an existing database at its current version and otherwise
+ * *creates* one at version 1 with no upgrade callback — so a reader that reached a database
+ * before the store did left behind a version-1 database **with no object store in it**, and
+ * `IdbIdentityStore.open` then found version 1, ran no upgrade, and every later
+ * `transaction('identity')` threw. Observed in chromium, firefox and webkit alike:
+ *
+ *   NotFoundError: IDBDatabase.transaction: 'identity' is not a known object store name
+ *
+ * An instrument that creates the thing it is measuring in a shape nothing else can use is
+ * worse than no instrument. This one creates it in exactly the shape the store does.
+ */
+async function openReader(name: string): Promise<IDBPDatabase> {
+  return openDB(name, 1, {
+    upgrade(database) {
+      if (!database.objectStoreNames.contains(IDENTITY_STORE)) {
+        database.createObjectStore(IDENTITY_STORE)
+      }
+    },
+  })
+}
+
+/**
  * Every key and every decoded value in `name`, plus the decoded base64url fields of any
  * record that is a sealed envelope.
  *
- * Opened without a version and without an upgrade callback, so this reads the database as
- * it stands and cannot create the object store it is asking about.
+ * Opened through {@link openReader}, for the reason that function records.
  */
 async function dumpIdentityDb(name: string): Promise<DumpedRecord[]> {
-  const db = await openDB(name)
+  const db = await openReader(name)
   try {
     if (!db.objectStoreNames.contains(IDENTITY_STORE)) return []
     const keys = await db.getAllKeys(IDENTITY_STORE)
@@ -267,13 +293,7 @@ async function writeLegacyDb(
   name: string,
   records: { readonly seed?: Uint8Array; readonly providerSeed?: Uint8Array },
 ): Promise<void> {
-  const db = await openDB(name, 1, {
-    upgrade(database) {
-      if (!database.objectStoreNames.contains(IDENTITY_STORE)) {
-        database.createObjectStore(IDENTITY_STORE)
-      }
-    },
-  })
+  const db = await openReader(name)
   try {
     if (records.seed !== undefined) await db.put(IDENTITY_STORE, records.seed, SEED_KEY)
     if (records.providerSeed !== undefined) {
@@ -286,7 +306,7 @@ async function writeLegacyDb(
 
 /** The keys a database holds, sorted, for a comparison a new record would break. */
 async function keysOf(name: string): Promise<string[]> {
-  const db = await openDB(name)
+  const db = await openReader(name)
   try {
     if (!db.objectStoreNames.contains(IDENTITY_STORE)) return []
     const keys = await db.getAllKeys(IDENTITY_STORE)
@@ -298,7 +318,7 @@ async function keysOf(name: string): Promise<string[]> {
 
 /** One record, straight out of the database, as whatever it is. */
 async function recordAt(name: string, key: string): Promise<unknown> {
-  const db = await openDB(name)
+  const db = await openReader(name)
   try {
     if (!db.objectStoreNames.contains(IDENTITY_STORE)) return undefined
     return await db.get(IDENTITY_STORE, key)

@@ -84,6 +84,16 @@ const publisher = (() => {
 const USER_PRIVATE_KEY = new Uint8Array(32).fill(63)
 
 const OPERATOR_ID = 'wharf-road-volunteers'
+/**
+ * AUTH-06 — this fixture's identity passphrase.
+ *
+ * A **fixture constant, not a secret**: it names nothing outside this file, and it is
+ * written here rather than generated so that a reader can see the two starts below use the
+ * same one. At or above `PASSPHRASE_MIN_LENGTH` (20), which `assertUsablePassphrase`
+ * enforces before anything is derived from it.
+ */
+const SPEC_PASSPHRASE = 'a-fixture-passphrase-for-a-tab'
+
 
 /** How long a verified set is given to settle. Each verdict is an RPC round trip. */
 const SETTLE_MS = 20_000
@@ -152,6 +162,12 @@ async function startTab(options: {
             : (pin as string[]),
         sovereignty: { ownerId: '', canExecuteSovereign: false },
         whenSeedIsGone: 'mints-a-new-identity',
+        // AUTH-06 — a passphrase, because case 5 is the third start under `o2-pin-provider`
+        // and reads *"the same node as case 3, not a fresh one"*: `resolveCertificate`
+        // checks the stored certificate against **this** tab's own peer id, so a tab that
+        // came back as a new node would find its own certificate and refuse it. The seed
+        // has to survive the restart for that case to be about pinning at all.
+        identityProtection: { kind: 'passphrase', passphrase: SPEC_PASSPHRASE },
         ...(enrol === true
           ? {
               enrollment: {

@@ -1522,8 +1522,33 @@ interface OpenFinding {
  * constructed by `assertUsablePassphrase`, so both callable arrivals are reachable. `@o2/node`'s
  * barrel LOST a line in the same change: `loadOrCreateSeed` was deleted, and it had a call site,
  * so it was never counted here either.
+ *
+ * ## RAISED 118 -> 119 on 2026-09-04 (AUTH-06, plan 42-03) — one symbol, and NOT a finding
+ *
+ * `core/sealedUnderSameKey` is a **`global-object-hop` disposition, not an open finding**, and
+ * the distinction is the whole of why this raise is not the ceiling absorbing unwired work: it
+ * has a real production caller. `browser-node.ts`'s `resolveProtectedSeed` calls it on every
+ * start with a passphrase, to decide whether the key it already derived is the one that opens
+ * the envelope it just read — the alternative being a second 436 ms Argon2id derivation per tab
+ * start. That caller is reached through `BrowserNode.start`, and `browser/BrowserNode` is itself
+ * on {@link GLOBAL_OBJECT_HOP} for exactly the reason this list exists.
+ *
+ * **Not read off the source.** The derived case named it verbatim before this list was touched:
+ * *"these become reachable the moment the window.o2 assignment is traced, so they have a real
+ * production caller and are being counted as unwired — add them to GLOBAL_OBJECT_HOP … expected
+ * [ 'core/sealedUnderSameKey' ] to deeply equal []"*.
+ *
+ * **`core/openWithKey` arrived in the same change and did NOT move this number**, which is the
+ * check on the raise. It has a second caller inside its own package — `openSecret` delegates to
+ * it, so there is one decrypt path rather than two — and that caller is reached from an entry
+ * point directly. A symbol with an in-package caller is not hidden by the hop.
+ *
+ * **This raise does not come back down**, and that is a property of the class rather than an
+ * exemption: a `global-object-hop` entry is hidden by an edge this graph cannot trace, not by
+ * work nobody has done. It comes down if and when the walk learns the `window.o2` assignment,
+ * at which point all of them do.
  */
-const UNREACHABLE_CEILING = 118
+const UNREACHABLE_CEILING = 119
 
 const OPEN_FINDINGS: readonly OpenFinding[] = [
   {

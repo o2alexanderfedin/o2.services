@@ -46,12 +46,17 @@ import {
   SelfRecordIndex,
   SignedNameResolver,
   StartOutcomeLedger,
+  DEFAULT_KDF_PARAMS,
   attestResults,
+  deriveSealKey,
   guardModuleProvenance,
   guardSovereignty,
   isStartBrowserLabel,
   publishCapabilities,
+  openSecret,
+  openWithKey,
   requestEnrollment,
+  sealedUnderSameKey,
   subtleUserSigner,
   encodeCanonical,
   TURN_MINT_PURPOSE,
@@ -71,6 +76,7 @@ import type {
   PublicKeyHex,
   RecordIndex,
   ResultAttestor,
+  SealedSecret,
   SelfRecordIndexOptions,
   StartOutcome,
   StartReport,
@@ -87,6 +93,9 @@ import {
   O2_KAD_PROTOCOL,
   O2_RECORD_NAMESPACE,
   PeerVerifier,
+  SEED_BYTES,
+  SeedLengthError,
+  assertUsablePassphrase,
   audienceKeyOf,
   generateSeed,
   identityFromSeed,
@@ -98,7 +107,7 @@ import {
   providerRecordPolicy,
   topUpRelays,
 } from '@o2/libp2p'
-import type { NodeIdentity, PeerVerdict, SweepOutcome } from '@o2/libp2p'
+import type { IdentityProtection, NodeIdentity, PeerVerdict, SweepOutcome } from '@o2/libp2p'
 import type { KadDHT } from '@libp2p/kad-dht'
 import {
   CountingExecutor,
@@ -125,7 +134,11 @@ import type { HeldPeer } from './dial-plan.ts'
 import { iceConfiguration } from './ice-configuration.ts'
 import { turnCredentialHolder } from './turn-credentials.ts'
 import { IdbBlockstore } from './idb-blockstore.ts'
-import { IdbIdentityStore } from './idb-identity-store.ts'
+import {
+  IdbIdentityStore,
+  SealedIdentityNeedsPassphraseError,
+  SealedIdentityUnlockError,
+} from './idb-identity-store.ts'
 import { IdbIssuance } from './idb-issuance.ts'
 import { IdbSovereignCids } from './idb-sovereign-cids.ts'
 import { installSubtleDigestFallback } from './subtle-digest-fallback.ts'
@@ -438,6 +451,47 @@ export interface BrowserNodeOptions {
    * bootstrap; a caller choosing it is saying the seed is provisioned elsewhere.
    */
   readonly whenSeedIsGone: 'mints-a-new-identity' | 'refuses-to-start-without-its-seed'
+  /**
+   * What this tab will do with the long-lived secrets it persists — AUTH-06.
+   *
+   * **Required, with no `?` and no default**, and the precedent is the field directly above
+   * this one, in that field's own words: *this factory refuses to make this decision for its
+   * caller.* A default here would be a default about **where a secret lives on somebody
+   * else's device**, which is exactly the class of decision that has to be written down by a
+   * person rather than inherited from a library.
+   *
+   * The two arms and what each costs — `identity-protection.ts` carries the long form:
+   *
+   * - **`{ kind: 'passphrase', passphrase }`** — every secret this tab persists is sealed
+   *   under an Argon2id key derived from it, and a database written by an older build is
+   *   migrated in place on the first start that supplies one: same bytes, same peer id. A
+   *   wrong passphrase on a later start throws {@link SealedIdentityUnlockError} and mints
+   *   nothing.
+   * - **`{ kind: 'writes-no-new-secret' }`** — a promise, not an absence. This tab persists
+   *   no new secret at all. It adopts a pre-existing plaintext record if one is there, so a
+   *   visitor who upgrades keeps their peer id and is *told* that the record is readable by
+   *   anyone who copies the profile ({@link BrowserNode.identityIsUnprotected}); otherwise it
+   *   mints a per-session identity that never reaches IndexedDB and is **a different node on
+   *   the next start**.
+   *
+   * ## Why this is required where the Node tier's is optional, and the asymmetry is measured
+   *
+   * `FabricNodeOptions.identityProtection` defaults to `writes-no-new-secret` because
+   * `blockstoreDir:` appears at 169 call sites across roughly thirty files, and a required
+   * field there would have been a sweep nobody could review. `whenSeedIsGone:` appears at 22
+   * sites across 12 files, and every one of them is a place this option goes too. That is
+   * affordable, so it is required — a count, not a preference.
+   *
+   * ## The one combination that cannot hold
+   *
+   * `writes-no-new-secret` together with
+   * `whenSeedIsGone: 'refuses-to-start-without-its-seed'` describes a node that will not
+   * write a secret and will not start without a stored one, which can never start at all
+   * once its storage is evicted — and a tab's storage is evicted silently. It is refused at
+   * `start` by name ({@link ContradictoryIdentityPolicyError}) rather than left to present
+   * as a node that stopped working for no stated reason.
+   */
+  readonly identityProtection: IdentityProtection
   /**
    * Enrol with a provider on the way up, and hold the certificate it signs — AUTH-01.
    *
@@ -802,6 +856,122 @@ function identityStoreName(blockstoreName: string): string {
 }
 
 /**
+ * Thrown when a caller asks for a node that can never start — AUTH-06.
+ *
+ * `writes-no-new-secret` promises this tab persists no new secret. `whenSeedIsGone:
+ * 'refuses-to-start-without-its-seed'` promises it will not run without a stored one.
+ * Together they describe a node that cannot bootstrap and, once IndexedDB is evicted —
+ * which happens silently, under storage pressure, and is the recorded difference between a
+ * tab and a `blockstoreDir` — can never start again.
+ *
+ * Refused at `start` by name rather than left to present as a tab that stopped working,
+ * because the two fields are set in different places by different people and the
+ * contradiction is invisible from either one of them.
+ */
+export class ContradictoryIdentityPolicyError extends Error {
+  constructor() {
+    super(
+      "identityProtection: { kind: 'writes-no-new-secret' } and whenSeedIsGone: "
+        + "'refuses-to-start-without-its-seed' cannot both hold — the first says this tab persists no "
+        + 'new secret and the second says it will not start without a persisted one, so this node could '
+        + 'never bootstrap and, once its storage were evicted, could never start again. Supply a '
+        + "passphrase, or choose 'mints-a-new-identity'.",
+    )
+    this.name = 'ContradictoryIdentityPolicyError'
+  }
+}
+
+/** What {@link resolveProtectedSeed} hands back: the bytes, and whether they are in the clear. */
+interface HeldSeed {
+  readonly seed: Uint8Array<ArrayBuffer>
+  /**
+   * `true` on exactly one path — a pre-AUTH-06 plaintext record adopted by a tab that
+   * supplied no passphrase. It exists so *"this identity is readable by anyone who copies
+   * this profile"* is a value a caller can act on rather than a fact nobody is told.
+   */
+  readonly unprotected: boolean
+}
+
+/**
+ * One derived key per start, for both of this tab's secrets — AUTH-06.
+ *
+ * The salt is read (or created) and the key derived **outside every transaction**, because
+ * Argon2id is asynchronous and costs hundreds of milliseconds, and awaiting it inside an
+ * IndexedDB transaction would commit that transaction out from under the check it exists to
+ * carry. `idb-identity-store.ts`'s `loadOrMintSealedSeed` states the constraint at length
+ * and gives the measured race it is the fix for.
+ *
+ * `null` means the caller promised to write no new secret, so no key exists and none is
+ * needed.
+ */
+interface SealBinding {
+  readonly key: Uint8Array
+  readonly salt: Uint8Array<ArrayBuffer>
+}
+
+/**
+ * Read, migrate or mint one of this tab's two long-lived secrets — AUTH-06.
+ *
+ * Both call sites take the **same** {@link SealBinding}, not a second derivation, so one
+ * database cannot end up with two keys; and the provider signing key is sealed under the
+ * same passphrase as the node seed because it is the higher-value of the two — the trust
+ * root every certificate this tab ever signs verifies against.
+ *
+ * ## The unlock failure throws before `whenSeedIsGone` is reachable, and that is criterion 4
+ *
+ * `whenSeedIsGone` governs the **absent** case only. A record that is present and does not
+ * open is not an absent record, so the mint arm below is unreachable from an unlock failure
+ * — which is the whole of what criterion 4 forbids, because the function this replaced
+ * minted whenever it found nothing and a decrypt failure that fell through would have walked
+ * into a silent re-mint: a working tab, a different peer id, an orphaned certificate, and
+ * nothing anywhere saying so.
+ *
+ * ## The key is derived once, and the envelope decides whether it is the right one
+ *
+ * `openWithKey` is tried only when {@link sealedUnderSameKey} says the envelope's salt and
+ * cost parameters are the ones this key was derived under. Never *try and fall back on
+ * failure*: matching parameters plus a failed open **is** the wrong passphrase, and a
+ * fallback derivation would spend another Argon2id producing the same key and the same
+ * refusal. `openSecret` — which derives from the envelope's own parameters — is the path for
+ * a record written under older ones, which is criterion 5 on this tier.
+ */
+async function resolveProtectedSeed(options: {
+  readonly store: IdbIdentityStore
+  readonly protection: IdentityProtection
+  readonly binding: SealBinding | null
+  readonly legacy: () => Promise<Uint8Array<ArrayBuffer> | null>
+  readonly sealed: (binding: SealBinding, mint: () => Uint8Array<ArrayBuffer>) => Promise<SealedSecret>
+  readonly mint: () => Uint8Array<ArrayBuffer>
+}): Promise<HeldSeed> {
+  const { store, protection, binding } = options
+
+  if (protection.kind !== 'passphrase' || binding === null) {
+    // **Reported, never repaired.** Deleting somebody's identity because they supplied no
+    // passphrase is a worse outcome than the exposure it would close: the tab would come
+    // back as a stranger, with every certificate naming it orphaned.
+    const existing = await options.legacy()
+    if (existing !== null) return { seed: existing, unprotected: true }
+    return { seed: options.mint(), unprotected: false }
+  }
+
+  const envelope = await options.sealed(binding, options.mint)
+  let opened: Uint8Array
+  try {
+    opened = sealedUnderSameKey(envelope, DEFAULT_KDF_PARAMS, binding.salt)
+      ? openWithKey(binding.key, envelope)
+      : await openSecret(envelope, protection.passphrase)
+  } catch (cause: unknown) {
+    throw new SealedIdentityUnlockError(store.name, cause)
+  }
+  // A decrypted blob is external data, whatever produced it — the same rule
+  // `parseSealedSecret` states for a stored envelope, applied to what comes out of one.
+  if (opened.length !== SEED_BYTES) throw new SeedLengthError(opened.length)
+  const seed = new Uint8Array(SEED_BYTES)
+  seed.set(opened)
+  return { seed, unprotected: false }
+}
+
+/**
  * The issuer this origin's node enrolled with, or `null` — AUTH-02's production anchor.
  *
  * ## Why a tab has to ask this *before* it starts
@@ -1108,6 +1278,22 @@ export class BrowserNode {
   /** Where this tab's seed, provider key and certificate live across reloads — AUTH-01. */
   readonly identityStore: IdbIdentityStore
   /**
+   * Whether this tab's identity is readable by anyone who copies this browser profile —
+   * AUTH-06.
+   *
+   * `true` on exactly one path: a pre-AUTH-06 plaintext record adopted by a tab started
+   * with `identityProtection: { kind: 'writes-no-new-secret' }`. It is **reported and never
+   * repaired** — deleting somebody's identity because they supplied no passphrase is a worse
+   * outcome than the exposure it would close, since the tab would come back as a stranger
+   * with every certificate naming it orphaned. The exposure closes the moment a passphrase
+   * is supplied, at which point the same bytes are sealed in place and the peer id does not
+   * move.
+   *
+   * A value rather than only a log line, so a surface above this one can act on it. `start`
+   * additionally says it once, by name, on the console.
+   */
+  readonly identityIsUnprotected: boolean
+  /**
    * This tab's provider-signed certificate, or `null` when it holds none — AUTH-01.
    *
    * `null` is the answer for a node nobody asked to enrol, and it is not a failure. Nor
@@ -1293,6 +1479,7 @@ export class BrowserNode {
     store: ObservingBlockstore<IdbBlockstore>
     sovereignCids: SovereignCids
     identityStore: IdbIdentityStore
+    identityIsUnprotected: boolean
     certificates: CertificateHolder
     executor: GovernedExecutor
     signingExecutor: Executor
@@ -1318,6 +1505,7 @@ export class BrowserNode {
     this.#announcer = parts.announcer
     this.sovereignCids = parts.sovereignCids
     this.identityStore = parts.identityStore
+    this.identityIsUnprotected = parts.identityIsUnprotected
     this.#certificates = parts.certificates
     this.executor = parts.executor
     this.signingExecutor = parts.signingExecutor
@@ -1528,38 +1716,79 @@ export class BrowserNode {
     const identityStore = await IdbIdentityStore.open(identityStoreName(blockstoreName))
     undo.push(() => identityStore.close())
 
-    // AUTH-01 — this tab's own name, and the one decision this factory refuses to make
-    // for its caller. `whenSeedIsGone` carries what each branch costs; all that happens
-    // here is that the branch is taken by a value somebody wrote down.
+    // AUTH-01/AUTH-06 — this tab's own name, and the two decisions this factory refuses to
+    // make for its caller. `whenSeedIsGone` says what an ABSENT seed costs;
+    // `identityProtection` says where a secret may live on this device. All that happens
+    // here is that the branches are taken by values somebody wrote down.
     //
     // A minted seed is persisted **before** anything is derived from it, so a tab that
     // crashes between generating and using one comes back as the node it just became
     // rather than as a third.
     //
-    // **Read and write in ONE transaction — task #49, and it was measured.** This was
-    // `loadSeed()` then, on `null`, `generateSeed()` and `saveSeed()`, with nothing spanning
-    // the two. Four tabs of one profile opening one cold origin together minted four
-    // identities and the last write won, so three of them ran as nodes whose seed was not
-    // the stored one and came back on their next start as somebody else — the silent arrival
-    // at exactly the state `whenSeedIsGone` exists to make loud.
-    // `IdbIdentityStore.loadOrMintSeed` carries the reasoning and the constraint it puts on
-    // `mint`; `idb-identity-store.browser.test.ts` carries the reading and its plant.
+    // **Read, seal and write in ONE transaction — task #49, and it was measured.** This was
+    // a read, then on `null` a mint and a separate write, with nothing spanning the two.
+    // Four tabs of one profile opening one cold origin together minted four identities and
+    // the last write won, so three of them ran as nodes whose seed was not the stored one
+    // and came back on their next start as somebody else — the silent arrival at exactly the
+    // state `whenSeedIsGone` exists to make loud.
+    // `IdbIdentityStore.loadOrMintSealedSeed` carries the reasoning and the constraint it
+    // puts on `mint`; `idb-identity-store.browser.test.ts` carries the reading and its plant.
     //
-    // The refusing branch still reads and never mints, which is the whole of the difference
-    // between the two: nothing about the fix widens what a refusing node will accept.
-    let seed: Uint8Array<ArrayBuffer>
-    if (options.whenSeedIsGone === 'mints-a-new-identity') {
-      seed = await identityStore.loadOrMintSeed(generateSeed)
-    } else {
-      const stored = await identityStore.loadSeed()
-      if (stored === null) {
+    // The refusing branch mints nothing, and it says so **inside** that transaction rather
+    // than through a separate read: `mint` throws, which is how a caller states *"there is
+    // nothing here and I will not create one"* without a second read that could disagree
+    // with the first. Nothing about the fix widens what a refusing node will accept.
+    if (
+      options.identityProtection.kind !== 'passphrase' &&
+      options.whenSeedIsGone === 'refuses-to-start-without-its-seed'
+    ) {
+      throw new ContradictoryIdentityPolicyError()
+    }
+    // Before anything is derived from it, so a passphrase under the floor costs a string
+    // length rather than an Argon2id derivation and its refusal cannot be confused with a
+    // decryption failure.
+    assertUsablePassphrase(options.identityProtection)
+
+    // The expensive half, and it runs **outside every transaction** — one Argon2id
+    // derivation per start, shared by both of this tab's secrets. `resolveProtectedSeed`
+    // carries why that is a correctness requirement rather than an economy.
+    const protection = options.identityProtection
+    let binding: SealBinding | null = null
+    if (protection.kind === 'passphrase') {
+      const salt = await identityStore.loadOrCreateSalt()
+      binding = { salt, key: await deriveSealKey(protection.passphrase, salt, DEFAULT_KDF_PARAMS) }
+    }
+
+    /**
+     * `whenSeedIsGone`, as the callback the transaction consults when it finds nothing.
+     *
+     * A refusal expressed this way is decided by the same read that would have decided the
+     * write. Expressed as a separate `loadSeed()` before the transaction, it would be a
+     * second read that can disagree with the first — which is the shape of the defect this
+     * whole path exists to have removed.
+     */
+    const mintOrRefuse = (): Uint8Array<ArrayBuffer> => {
+      if (options.whenSeedIsGone === 'refuses-to-start-without-its-seed') {
         throw new Error(
           `no seed in ${identityStore.name}: this node was started with 'refuses-to-start-without-its-seed', and starting anyway would give it a different peer id and invalidate any certificate naming the old one`,
         )
       }
-      seed = stored
+      return generateSeed()
     }
-    const identity = await identityFromSeed(seed)
+
+    const held = await resolveProtectedSeed({
+      store: identityStore,
+      protection,
+      binding,
+      legacy: async () => identityStore.legacyPlaintextSeed(),
+      sealed: async (bound, mint) =>
+        identityStore.loadOrMintSealedSeed(bound.key, DEFAULT_KDF_PARAMS, bound.salt, mint),
+      mint: mintOrRefuse,
+    })
+    // `let`, because the provider branch far below resolves the second secret under the
+    // same binding and either of the two can be the one in the clear.
+    let identityIsUnprotected = held.unprotected
+    const identity = await identityFromSeed(held.seed)
 
     // NET-12 — the TURN rung, built here because this is the only place that holds both halves
     // a mint request needs: `identity.seed` signs it, and this tab's certificate names who is
@@ -1894,7 +2123,25 @@ export class BrowserNode {
       // because two tabs raced would invalidate every certificate it had signed. Fixed in
       // the same pass rather than left, because *"the other one has the same shape"* is how
       // a closed defect comes back.
-      const providerPrivateKey = await identityStore.loadOrMintProviderSeed(generateSeed)
+      //
+      // AUTH-06 — sealed under the **same binding** as the node seed, not a second
+      // derivation and not a second passphrase, so one database cannot end up behind two
+      // keys. It is the higher-value of the two secrets: the trust root every certificate
+      // this tab ever signs verifies against.
+      const providerHeld = await resolveProtectedSeed({
+        store: identityStore,
+        protection,
+        binding,
+        legacy: async () => identityStore.legacyPlaintextProviderSeed(),
+        sealed: async (bound, mint) =>
+          identityStore.loadOrMintSealedProviderSeed(bound.key, DEFAULT_KDF_PARAMS, bound.salt, mint),
+        // A provider signing key has no `whenSeedIsGone` of its own: `refuses-to-start-without-its-seed`
+        // is about the identity peers dial, and a tab told to issue certificates that had no
+        // signing key would have nothing to refuse *for*. It mints.
+        mint: generateSeed,
+      })
+      const providerPrivateKey = providerHeld.seed
+      identityIsUnprotected = identityIsUnprotected || providerHeld.unprotected
       // AUTH-04, and this is the line that turns the mechanism on for a tab. Both required
       // issuance options carried a named sentinel for one wave; both now carry the real
       // thing, and they are the **same** two things `fabric-node.ts` passes.
@@ -2300,6 +2547,21 @@ export class BrowserNode {
       announcer.sweepSoon()
     })
 
+    // AUTH-06 — said once, by name, because a fact nobody is told is the defect that
+    // returning it as a value exists to close. `fabric-node.ts` writes the same sentence to
+    // stderr; a tab's stderr is the console, and this is the first `console.` call in
+    // `packages/browser/src` — deliberately, because there is nowhere else a tab can say
+    // something to the person sitting in front of it that is not a UI decision this factory
+    // has no business making.
+    if (identityIsUnprotected) {
+      console.warn(
+        `${identityStore.name} holds this tab's identity in the clear — anyone who copies this browser `
+          + 'profile can speak as this node. It was adopted rather than deleted, because losing it would '
+          + 'make this tab a different node and orphan any certificate naming it. Supply '
+          + 'identityProtection: { kind: \'passphrase\', … } to seal the same bytes in place.',
+      )
+    }
+
     const node = new BrowserNode({
       libp2p,
       transport,
@@ -2313,6 +2575,7 @@ export class BrowserNode {
       announcer,
       sovereignCids,
       identityStore,
+      identityIsUnprotected,
       certificates,
       executor,
       signingExecutor: signing,

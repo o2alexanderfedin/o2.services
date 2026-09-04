@@ -358,6 +358,67 @@ export function parseSealedSecret(value: unknown): SealedSecret | null {
 }
 
 /**
+ * Open a sealed record with an already-derived `key`. **Synchronous, and the counterpart of
+ * {@link sealWithKey}.**
+ *
+ * **There is no arm of this function that returns on a failed decrypt**, and that sentence
+ * is criterion 4's structural requirement rather than a description: the defect it forbids
+ * is a `catch` that returns a plausible-looking zero-filled buffer, which a caller then
+ * adopts as a seed. {@link openSecret} delegates here, so the claim is stated once, at the
+ * one `catch` that decrypts.
+ *
+ * ## The caller's obligation, and it is the whole of why this exists
+ *
+ * This function does **not** check that `key` was derived under the envelope's own cost
+ * parameters — it cannot, because a key is 32 bytes and carries no record of how it was
+ * made. A caller that passes a key derived under different parameters gets
+ * {@link SecretUnlockError}, which is indistinguishable from a wrong passphrase.
+ *
+ * So a caller must compare the envelope's `salt`, `t`, `m`, `p`, `dkLen` and `kdfVersion`
+ * with the ones its key was derived under, and fall back to {@link openSecret} when they
+ * differ — never *try this and fall back on failure*, because matching parameters plus a
+ * failed open **is** the wrong passphrase, and a fallback derivation would produce the same
+ * key and the same refusal several hundred milliseconds later.
+ *
+ * ## Why it is on the barrel at all
+ *
+ * `packages/browser/src/idb-identity-store.ts` derives one key per start and uses it for
+ * both the seal and the open. Without this, a warm start would derive the key twice —
+ * Argon2id measured 436 ms at {@link DEFAULT_KDF_PARAMS} — to reach a value it already had.
+ */
+export function openWithKey(key: Uint8Array, value: unknown): Uint8Array {
+  const envelope = parseSealedSecret(value)
+  if (envelope === null) throw new SealedSecretShapeError()
+  if (envelope.v !== SEAL_VERSION) throw new SealedSecretVersionError(envelope.v)
+  try {
+    return xchacha20poly1305(key, fromBase64Url(envelope.nonce), sealHeaderBytes(envelope)).decrypt(
+      fromBase64Url(envelope.ciphertext),
+    )
+  } catch (thrown: unknown) {
+    throw new SecretUnlockError(thrown)
+  }
+}
+
+/**
+ * Whether `params` and `salt` are the ones `envelope` was sealed under.
+ *
+ * The predicate {@link openWithKey}'s caller owes it. Written here rather than at each call
+ * site because getting it wrong is silent: a caller that compared five of the six fields
+ * would open correctly on every envelope this build writes and refuse an envelope written
+ * by a build whose sixth field differed, reporting it as a wrong passphrase.
+ */
+export function sealedUnderSameKey(envelope: SealedSecret, params: SealKdfParams, salt: Uint8Array): boolean {
+  return (
+    envelope.t === params.t &&
+    envelope.m === params.m &&
+    envelope.p === params.p &&
+    envelope.dkLen === params.dkLen &&
+    envelope.kdfVersion === (params.version ?? ARGON2_VERSION) &&
+    envelope.salt === toBase64Url(salt)
+  )
+}
+
+/**
  * Open a sealed record, or refuse by name. **There is no arm of this function that returns
  * on a failed decrypt.**
  *
@@ -394,13 +455,10 @@ export async function openSecret(value: unknown, passphrase: string): Promise<Ui
     version: envelope.kdfVersion,
   })
 
-  try {
-    return xchacha20poly1305(key, fromBase64Url(envelope.nonce), sealHeaderBytes(envelope)).decrypt(
-      fromBase64Url(envelope.ciphertext),
-    )
-  } catch (thrown: unknown) {
-    throw new SecretUnlockError(thrown)
-  }
+  // One decrypt path, shared with {@link openWithKey}. Two would drift, and the field this
+  // module is most exposed to drift in is the additional-data construction — which is the
+  // one `sealHeaderBytes`' own doc records an instrument being blind to.
+  return openWithKey(key, envelope)
 }
 
 // ─── Refusals ────────────────────────────────────────────────────────────────

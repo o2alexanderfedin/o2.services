@@ -87,6 +87,16 @@ const publisher = (() => {
 const USER_PRIVATE_KEY = new Uint8Array(32).fill(59)
 
 const OPERATOR_ID = 'north-wharf-volunteers'
+/**
+ * AUTH-06 — this fixture's identity passphrase.
+ *
+ * A **fixture constant, not a secret**: it names nothing outside this file, and it is
+ * written here rather than generated so that a reader can see the two starts below use the
+ * same one. At or above `PASSPHRASE_MIN_LENGTH` (20), which `assertUsablePassphrase`
+ * enforces before anything is derived from it.
+ */
+const SPEC_PASSPHRASE = 'a-fixture-passphrase-for-a-tab'
+
 
 /** How long a verified set is given to settle. The verification is an RPC round trip. */
 const SETTLE_MS = 20_000
@@ -115,7 +125,7 @@ async function startTab(options: {
   whenSeedIsGone: 'mints-a-new-identity' | 'refuses-to-start-without-its-seed'
 }): Promise<string> {
   return page.evaluate(
-    async ([blockstoreName, anchor, provider, operatorId, userKey, enrol, policy]) =>
+    async ([blockstoreName, anchor, provider, operatorId, userKey, enrol, policy, passphrase]) =>
       window.o2capability.start({
         // **The provider, not the gate.** `relayAddrs` is dialled *inside* `start`,
         // before `serveAgent` has been called, so a peer met this way asks this node for
@@ -131,6 +141,13 @@ async function startTab(options: {
         trustAnchors: [anchor as string],
         sovereignty: { ownerId: '', canExecuteSovereign: false },
         whenSeedIsGone: policy as 'mints-a-new-identity' | 'refuses-to-start-without-its-seed',
+        // AUTH-06 — a passphrase, because this file's third case reloads the tab and
+        // demands the SAME peer id under `refuses-to-start-without-its-seed`. A seed is
+        // now written only when a passphrase says where it may live, so the reading that
+        // case takes does not exist without one. Also: `writes-no-new-secret` together
+        // with `refuses-to-start-without-its-seed` is refused by name at `start` as a
+        // contradiction, which the fourth case reaches through the same helper.
+        identityProtection: { kind: 'passphrase', passphrase: passphrase as string },
         ...(enrol === true
           ? {
               enrollment: {
@@ -149,6 +166,7 @@ async function startTab(options: {
       [...USER_PRIVATE_KEY],
       options.enrol,
       options.whenSeedIsGone,
+      SPEC_PASSPHRASE,
     ] as const,
   )
 }
@@ -375,7 +393,7 @@ describe('AUTH-01/AUTH-02 — a browser node enrols and is taken on identical te
    */
   it('a tab told to refuse without its seed refuses, naming the store it looked in', async () => {
     const failure = await page.evaluate(
-      async ([anchor, address]) => {
+      async ([anchor, address, pass]) => {
         try {
           await window.o2capability.start({
             relayAddrs: [address as string],
@@ -383,13 +401,19 @@ describe('AUTH-01/AUTH-02 — a browser node enrols and is taken on identical te
             trustAnchors: [anchor as string],
             sovereignty: { ownerId: '', canExecuteSovereign: false },
             whenSeedIsGone: 'refuses-to-start-without-its-seed',
+            // AUTH-06 — the same passphrase the other three cases use. It has to be a
+            // passphrase and not `writes-no-new-secret`: the pair of that arm with
+            // `refuses-to-start-without-its-seed` is a contradiction refused by name at
+            // `start`, and this case is about the OTHER refusal — a store nothing has ever
+            // written to, reached with a passphrase that could have written to it.
+            identityProtection: { kind: 'passphrase', passphrase: pass as string },
           })
           return 'started, which it must not have'
         } catch (cause) {
           return cause instanceof Error ? cause.message : String(cause)
         }
       },
-      [publisher.pub, providerAddr] as const,
+      [publisher.pub, providerAddr, SPEC_PASSPHRASE] as const,
     )
 
     expect(failure).toContain('no seed in o2-enrol-never-written-identity')

@@ -1596,6 +1596,34 @@ const api: TabApi = {
         // is exactly the wrong one for a node whose name other people have pinned — which
         // is why this is a value here and not a default in the factory.
         whenSeedIsGone: 'mints-a-new-identity',
+        // AUTH-06, and this line is the honest state of a visitor who has been asked
+        // nothing — **for now**, and `42-04` is where it changes.
+        //
+        // A cold visitor has supplied no passphrase, so there is no key to seal anything
+        // with, and the only two things this page could do instead are both worse: write
+        // the seed in the clear, which is precisely the exposure AUTH-06 removes, or
+        // demand a passphrase from somebody who came here to look at a page. So this tab
+        // persists **no new secret**, and the cost is stated rather than implied: it comes
+        // back with a **different peer id** on its next visit, so peers holding its old
+        // address must rediscover it, and a certificate stored beside it is refused by its
+        // own identity check.
+        //
+        // Two things this arm still does, and they are why it is not simply "off":
+        //
+        //   - a visitor who already had a plaintext seed from an older build **keeps it**.
+        //     It is adopted, reported once on the console by name, and never deleted —
+        //     deleting somebody's identity because they were not asked for a passphrase is
+        //     a worse outcome than the exposure it would close.
+        //   - the stored **certificate** is untouched, because it is public material and
+        //     deliberately unsealed. `enrolledIssuer` still answers from it, so a returning
+        //     visitor still pins the provider this origin enrolled with.
+        //
+        // **`42-04` asks the visitor at ENROLMENT**, which is the moment the key acquires
+        // value, and this line becomes a passphrase then. Do not anticipate it here, and do
+        // not grow a `TabApi` parameter for it: a page that was found rather than
+        // configured must not be configurable by whatever found it, and a *passphrase* is
+        // the last thing that rule should be relaxed for.
+        identityProtection: { kind: 'writes-no-new-secret' },
         rpcTimeoutMs: 60_000,
         // Conditional spread, so an omitted option is genuinely absent and the factory's
         // own default is what applies — passing `undefined` explicitly would override it.

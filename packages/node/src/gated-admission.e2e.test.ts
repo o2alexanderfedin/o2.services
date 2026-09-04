@@ -119,6 +119,16 @@ const publisher = (() => {
 const USER_PRIVATE_KEY = new Uint8Array(32).fill(63)
 
 const OPERATOR_ID = 'south-quay-volunteers'
+/**
+ * AUTH-06 — this fixture's identity passphrase.
+ *
+ * A **fixture constant, not a secret**: it names nothing outside this file, and it is
+ * written here rather than generated so that a reader can see the two starts below use the
+ * same one. At or above `PASSPHRASE_MIN_LENGTH` (20), which `assertUsablePassphrase`
+ * enforces before anything is derived from it.
+ */
+const SPEC_PASSPHRASE = 'a-fixture-passphrase-for-a-tab'
+
 
 /** The engines the browser-tier standard names, in the order they are launched. */
 const ENGINES: readonly { readonly name: string; readonly type: BrowserType }[] = [
@@ -338,6 +348,11 @@ async function startTabNode(page: Page, blockstoreName: string, enrol: boolean):
         // The seed persists in this origin's IndexedDB under `blockstoreName`, so the restart
         // below reuses it and both arms are the same node. That identity is the transition.
         whenSeedIsGone: 'mints-a-new-identity',
+        // AUTH-06 — and this is the field that keeps the sentence above true. A tab's seed
+        // is now written only when a passphrase says where it may live, so a fixture whose
+        // whole subject is *the same node before and after enrolment* has to supply one. It
+        // is a fixture constant and names nothing outside this file.
+        identityProtection: { kind: 'passphrase', passphrase: SPEC_PASSPHRASE },
         ...(shouldEnrol === true
           ? {
               enrollment: {

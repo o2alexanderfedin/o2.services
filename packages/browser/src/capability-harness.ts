@@ -93,6 +93,23 @@ export interface HarnessStartOptions {
    * against itself".
    */
   readonly whenSeedIsGone: 'mints-a-new-identity' | 'refuses-to-start-without-its-seed'
+  /**
+   * Where this tab's long-lived secrets live — AUTH-06, passed straight through.
+   *
+   * Required, exactly as it is on `BrowserNodeOptions`, and for the same reason: a harness
+   * that defaulted it would be choosing on the driving test's behalf where a secret lives,
+   * and the driving tests differ on that. A spec whose subject is **persistence across a
+   * restart** must supply a passphrase — it is what makes the second start find anything —
+   * and every other spec supplies `writes-no-new-secret`, which is the honest description
+   * of a fixture that starts once and is thrown away.
+   *
+   * Crossing the `page.evaluate` boundary as a plain object of strings, which is what
+   * Playwright's JSON serialisation can carry. **A passphrase in a fixture is a fixture
+   * constant, not a secret**: these values name nothing outside the test that wrote them.
+   */
+  readonly identityProtection:
+    | { readonly kind: 'passphrase'; readonly passphrase: string }
+    | { readonly kind: 'writes-no-new-secret' }
 }
 
 /** The surface the driving test reaches through `page.evaluate`. */
@@ -218,6 +235,7 @@ export function installCapabilityHarness(): void {
           : { trustedIssuers: [...options.trustedIssuers] }),
         sovereignty: options.sovereignty,
         whenSeedIsGone: options.whenSeedIsGone,
+        identityProtection: options.identityProtection,
         // BROW-01, and this harness states the open value rather than growing an option
         // for it. Nothing in the capability fixtures reads a start report, so the row is
         // never looked at either way; what the choice has to be is *truthful*, and a
