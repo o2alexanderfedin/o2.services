@@ -194,13 +194,15 @@ import {
   relayServiceCid,
   topUpRelays,
 } from '@o2/libp2p'
-import type { NodeIdentity, PeerVerdict, RelayAdmission, SweepOutcome } from '@o2/libp2p'
+import type { IdentityProtection, NodeIdentity, PeerVerdict, RelayAdmission, SweepOutcome } from '@o2/libp2p'
 import type { KadDHT } from '@libp2p/kad-dht'
 import {
   IDENTITY_FILE,
   PROVIDER_FILE,
+  SEALED_IDENTITY_FILE,
+  SEALED_PROVIDER_FILE,
   loadCertificate,
-  loadOrCreateSeed,
+  loadOrCreateSealedSeed,
   saveCertificate,
 } from './identity-store.ts'
 import type { ReservationWatcher } from './reservation-watch.ts'
@@ -284,6 +286,24 @@ export interface FabricNodeOptions {
    * different class.
    */
   readonly blockstoreDir?: string
+  /**
+   * AUTH-06 — what this node will do with the long-lived secrets it persists into
+   * {@link blockstoreDir}.
+   *
+   * **Optional, and defaulting to `{ kind: 'writes-no-new-secret' }` — the SAFE arm.** The
+   * optionality is measured rather than preferred: `blockstoreDir:` appears at 169 call
+   * sites across roughly thirty files in this repository, and a required field would mean a
+   * mechanical edit to every one of them. What makes the default acceptable is which arm it
+   * is — a caller who says nothing gets a node that writes **no** secret to the disk, so the
+   * absence of this option can never be the reason a plaintext seed lands on one.
+   *
+   * The cost of saying nothing is stated rather than hidden: such a node is a different node
+   * on its next start. `bin/agent.ts` prints that to stderr once, by name.
+   *
+   * One protection covers both secrets in one directory — the identity seed and the provider
+   * signing key. Two passphrases would be a second thing to lose with nothing gained.
+   */
+  readonly identityProtection?: IdentityProtection
   /**
    * SCHED-03. Read on every request to decide whether this node is **paused** —
    * alive, reachable, unchanged in what it can do, and declining all work right now.
@@ -1925,10 +1945,41 @@ export class FabricNode {
     // already told us it wants to survive a restart. A process given no directory has
     // nowhere to persist and gets a fresh identity per start — a deployment choice, in the
     // framing `blockstoreDir`'s own doc uses, and not a kind of node.
-    const seed =
-      options.blockstoreDir === undefined
-        ? generateSeed()
-        : await loadOrCreateSeed(options.blockstoreDir, IDENTITY_FILE)
+    //
+    // AUTH-06 — and the protection is resolved once, here, for BOTH secrets this directory
+    // holds. `writes-no-new-secret` is the default because a caller who says nothing must
+    // not be the reason a plaintext seed lands on a disk; the cost of that silence — a
+    // different peer id on the next start — is printed by `bin/agent.ts`.
+    const protection: IdentityProtection = options.identityProtection ?? { kind: 'writes-no-new-secret' }
+    let seed: Uint8Array<ArrayBuffer>
+    if (options.blockstoreDir === undefined) {
+      seed = generateSeed()
+    } else {
+      const held = await loadOrCreateSealedSeed(
+        options.blockstoreDir,
+        SEALED_IDENTITY_FILE,
+        IDENTITY_FILE,
+        protection,
+      )
+      // **Told once, by name.** `unprotected` is true on exactly one path — a pre-existing
+      // plaintext seed adopted by a node that supplied no passphrase — and the whole reason
+      // the store returns it as a value rather than swallowing it is that somebody has to
+      // say so. Not repaired here: deleting an identity nobody asked to protect is a worse
+      // outcome than the exposure, and sealing it needs a passphrase this node was not given.
+      //
+      // Straight to `process.stderr` because this file has no logging surface at all —
+      // measured 2026-09-04, a grep for `console.` over it finds nothing and every hit for
+      // `stderr` is a comment about `bin/agent.ts` — and a fact nobody is told is the exact
+      // defect returning it as a value exists to close.
+      if (held.unprotected) {
+        process.stderr.write(
+          `fabric-node: ${options.blockstoreDir}/${IDENTITY_FILE} holds this node's identity seed in the clear `
+            + '— anyone who copies this directory can speak as this node. Start with a passphrase '
+            + '(--identity-passphrase-file) to seal it in place; the peer id does not change.\n',
+        )
+      }
+      seed = held.seed
+    }
     const identity = await identityFromSeed(seed)
 
     const relayAddrs = options.relayAddrs ?? []
@@ -2435,7 +2486,20 @@ export class FabricNode {
             providerPrivateKey:
               options.blockstoreDir === undefined
                 ? generateSeed()
-                : await loadOrCreateSeed(options.blockstoreDir, PROVIDER_FILE),
+                : (
+                    await loadOrCreateSealedSeed(
+                      options.blockstoreDir,
+                      SEALED_PROVIDER_FILE,
+                      PROVIDER_FILE,
+                      // AUTH-06 — the SAME `protection` value the identity seed above was
+                      // resolved under, and the same binding rather than a second read of
+                      // the option, so the two secrets in one directory cannot end up
+                      // behind two different passphrases. A provider signing key is the
+                      // trust root every certificate it ever issued verifies against, so it
+                      // is the higher-value of the two and is sealed on identical terms.
+                      protection,
+                    )
+                  ).seed,
             maxIssuedPerWindow: options.issuesCertificates,
             issuance:
               options.blockstoreDir === undefined

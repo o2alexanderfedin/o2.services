@@ -151,13 +151,19 @@ function findNeedle(files: readonly DumpedFile[], needle: Uint8Array): string | 
  * lost them either. It is sited against the smallest directory any case here builds, which
  * is criterion 2's hand-built control at exactly two 32-byte files, and every sealed
  * directory holds several times it.
+ *
+ * `minFiles` is a parameter and defaults to two because **one case legitimately reads a
+ * directory holding exactly one file**: a migrated directory, after the plaintext has been
+ * unlinked, is the envelope and nothing else. The byte floor is what carries the claim
+ * there, and lowering the file count for that one call is not the same as lowering it for
+ * criterion 1 — whose directories hold a certificate, blocks and two envelopes.
  */
-function expectDumpIsNotEmpty(files: readonly DumpedFile[], where: string): void {
+function expectDumpIsNotEmpty(files: readonly DumpedFile[], where: string, minFiles = 2): void {
   expect(
     files.length,
     `${where}: the dump found ${files.length} files — an absence assertion over a dump this ` +
       'small is passing because the instrument read nothing, not because the bytes are gone',
-  ).toBeGreaterThanOrEqual(2)
+  ).toBeGreaterThanOrEqual(minFiles)
   const total = files.reduce((sum, one) => sum + one.bytes.length, 0)
   expect(total, `${where}: the dump holds ${total} bytes in total`).toBeGreaterThanOrEqual(2 * SEED_BYTES)
 }
@@ -651,8 +657,11 @@ describe('the migration — an operator who upgrades keeps the identity they had
     expect(existsSync(join(dir, IDENTITY_FILE))).toBe(false)
 
     // And the plaintext bytes are gone from the directory, not merely from that one name.
+    // One file: the envelope, and nothing else. The byte floor is what makes this a
+    // reading — an envelope is several hundred bytes and an empty directory is none.
     const files = dumpDirectory(dir)
-    expectDumpIsNotEmpty(files, 'the migrated directory')
+    expectDumpIsNotEmpty(files, 'the migrated directory', 1)
+    expect(files.map((one) => one.path)).toStrictEqual([join(dir, SEALED_IDENTITY_FILE)])
     expect(findNeedle(files, KNOWN_SEED)).toBeNull()
   }, 60_000)
 

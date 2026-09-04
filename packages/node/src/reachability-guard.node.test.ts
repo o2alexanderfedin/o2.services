@@ -1500,8 +1500,30 @@ interface OpenFinding {
  * **This number comes back DOWN by eight when they wire**, and the eight rows come off with it.
  * A raise that is not reversed by the wave that justified it is the ceiling absorbing an
  * arrival nobody classified, which is what the note above this one is about.
+ *
+ * ## LOWERED 126 -> 118 on 2026-09-04 (AUTH-06, plan 42-02) — the reversal, same day
+ *
+ * The sentence directly above is now discharged rather than pending, which is why it is kept.
+ * `packages/node/src/identity-store.ts`'s `loadOrCreateSealedSeed` calls `sealSecret` and
+ * `openSecret`, and `fabric-node.ts` calls it at both identity resolution sites, so the module
+ * is reached from an entry point and the other six symbols are reached through it — `sealSecret`
+ * calls `deriveSealKey` and `sealWithKey`, `openSecret` calls `parseSealedSecret` and constructs
+ * all three refusals. **Eight registered, eight wired, eight rows deleted, and the ceiling back
+ * where it stood before the raise.**
+ *
+ * **Measured, not derived.** Run against the tree before the rows were deleted, the guard named
+ * exactly those eight as stale and read the reported set at 118 against a register of 126.
+ * 126 − 8 also being 118 was refused as the proof.
+ *
+ * **42-02 added barrel exports of its own and this number did not move for them**, which is the
+ * check on this lowering rather than a curiosity. `@o2/libp2p` gained `PASSPHRASE_MIN_LENGTH` (a
+ * constant, never callable), `IdentityProtection` (a type, which by construction has no call
+ * path), `assertUsablePassphrase` — called by `identity-store.ts` — and `WeakPassphraseError`,
+ * constructed by `assertUsablePassphrase`, so both callable arrivals are reachable. `@o2/node`'s
+ * barrel LOST a line in the same change: `loadOrCreateSeed` was deleted, and it had a call site,
+ * so it was never counted here either.
  */
-const UNREACHABLE_CEILING = 126
+const UNREACHABLE_CEILING = 118
 
 const OPEN_FINDINGS: readonly OpenFinding[] = [
   {
@@ -1938,7 +1960,7 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
     reason:
       'The load-or-mint half of the identity, one hop behind `hostedIdentity`. Separate from ' +
       'it because the SEED is what has to survive an eviction and the derivation is pure — ' +
-      'the same split `packages/node/src/identity-store.ts` makes between `loadOrCreateSeed` ' +
+      'the same split `packages/node/src/identity-store.ts` makes between `loadOrCreateSealedSeed` ' +
       'and `identityFromSeed`. Same closing condition.',
   },
   {
@@ -2131,163 +2153,28 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       'and nobody has decided to do that.',
   },
   // ---------------------------------------------------------------------------------------
-  // 2026-09-04 — eight rows, AUTH-06 / Phase 42 plan 42-01, added in the commit that put the
-  // symbols on the barrel. `UNREACHABLE_CEILING` moved 118 -> 126 by exactly these eight; see
-  // the note beside that constant. The shared reason is written out on every row rather than
-  // pointed at, because this register is read one symbol at a time.
+  // 2026-09-04 — EIGHT ROWS LEFT THIS REGISTER THE SAME DAY THEY ARRIVED, AUTH-06 / Phase 42.
+  //
+  // `core/sealSecret`, `core/openSecret`, `core/deriveSealKey`, `core/sealWithKey`,
+  // `core/parseSealedSecret`, `core/SecretUnlockError`, `core/SealedSecretVersionError` and
+  // `core/SealedSecretShapeError` were registered by plan 42-01, which landed the primitive one
+  // wave ahead of its consumers. Plan 42-02 is that consumer: `packages/node/src/identity-store.ts`
+  // calls `sealSecret` and `openSecret` from `loadOrCreateSealedSeed`, which `fabric-node.ts`
+  // calls at both identity resolution sites, so the whole module is reached from an entry point.
+  //
+  // **Wiring, not retirement, and the difference is the one the note at the bottom of this
+  // register insists on.** Nothing was deleted and nothing stopped being advertised; two
+  // symbols acquired production call sites and the other six were already called by them.
+  //
+  // **Measured, not derived.** The guard was run against this tree and named exactly these
+  // eight as stale — `holds no stale open finding` printed all eight and `the reported set and
+  // the two registers are the same set` read 118 against 126 — so the ceiling comes down by
+  // eight to 118, which is the number it stood at before 42-01 raised it. 126 − 8 also being
+  // 118 was refused as the proof, per this register's standing habit.
+  //
+  // 42-03 (the browser tier's `idb-identity-store.ts`) therefore has nothing to remove here:
+  // the six transitively-reached symbols came with the node tier's two.
   // ---------------------------------------------------------------------------------------
-  {
-    key: 'core/sealSecret',
-    declaredIn: 'packages/core/src/sealed-secret.ts',
-    callers: 'none',
-    reason:
-      'The convenience seal — fresh salt, derive, seal. AUTH-06, Phase 42, plan 42-01 — the '
-      + 'sealed-secret primitive, landed one wave ahead of its consumers. Wired by 42-02 (the node tier\'s '
-      + 'seed, `packages/node/src/identity-store.ts`) and 42-03 (the browser tier\'s, '
-      + '`packages/browser/src/idb-identity-store.ts`), neither of which exists yet. It is on the barrel '
-      + 'rather than off it — the choice `packages/core/src/index.ts` made the other way for '
-      + '`cert-lifecycle.ts`\'s facades — because `packages/core/package.json` publishes exactly one '
-      + 'export, `".": "./src/index.ts"`, so the barrel is the ONLY route those two plans can take to '
-      + 'this module; off the barrel is not "unwired later" but "unreachable forever". Read in BOTH lanes '
-      + 'by `packages/core/src/sealed-secret.test.ts`, which runs once under Node and three times under '
-      + 'chromium/firefox/webkit, and proved able to fail by four watched plants recorded in '
-      + '`42-01-SUMMARY.md`. This row and the seven beside it come off when 42-02 and 42-03 wire them, '
-      + 'and `UNREACHABLE_CEILING` comes back down by the same eight.',
-  },
-  {
-    key: 'core/openSecret',
-    declaredIn: 'packages/core/src/sealed-secret.ts',
-    callers: 'none',
-    reason:
-      'The only way out of an envelope. AUTH-06, Phase 42, plan 42-01 — the sealed-secret primitive, '
-      + 'landed one wave ahead of its consumers. Wired by 42-02 (the node tier\'s seed, '
-      + '`packages/node/src/identity-store.ts`) and 42-03 (the browser tier\'s, '
-      + '`packages/browser/src/idb-identity-store.ts`), neither of which exists yet. It is on the barrel '
-      + 'rather than off it — the choice `packages/core/src/index.ts` made the other way for '
-      + '`cert-lifecycle.ts`\'s facades — because `packages/core/package.json` publishes exactly one '
-      + 'export, `".": "./src/index.ts"`, so the barrel is the ONLY route those two plans can take to '
-      + 'this module; off the barrel is not "unwired later" but "unreachable forever". Read in BOTH lanes '
-      + 'by `packages/core/src/sealed-secret.test.ts`, which runs once under Node and three times under '
-      + 'chromium/firefox/webkit, and proved able to fail by four watched plants recorded in '
-      + '`42-01-SUMMARY.md`. This row and the seven beside it come off when 42-02 and 42-03 wire them, '
-      + 'and `UNREACHABLE_CEILING` comes back down by the same eight.',
-  },
-  {
-    key: 'core/deriveSealKey',
-    declaredIn: 'packages/core/src/sealed-secret.ts',
-    callers: 'unreachable-only',
-    reason:
-      'The async Argon2id half, called by `sealSecret` and `openSecret`, both of which are themselves '
-      + 'unreachable. Published separately from `sealWithKey` because a caller holding an IndexedDB '
-      + 'transaction must run this BEFORE opening it. AUTH-06, Phase 42, plan 42-01 — the sealed-secret '
-      + 'primitive, landed one wave ahead of its consumers. Wired by 42-02 (the node tier\'s seed, '
-      + '`packages/node/src/identity-store.ts`) and 42-03 (the browser tier\'s, '
-      + '`packages/browser/src/idb-identity-store.ts`), neither of which exists yet. It is on the barrel '
-      + 'rather than off it — the choice `packages/core/src/index.ts` made the other way for '
-      + '`cert-lifecycle.ts`\'s facades — because `packages/core/package.json` publishes exactly one '
-      + 'export, `".": "./src/index.ts"`, so the barrel is the ONLY route those two plans can take to '
-      + 'this module; off the barrel is not "unwired later" but "unreachable forever". Read in BOTH lanes '
-      + 'by `packages/core/src/sealed-secret.test.ts`, which runs once under Node and three times under '
-      + 'chromium/firefox/webkit, and proved able to fail by four watched plants recorded in '
-      + '`42-01-SUMMARY.md`. This row and the seven beside it come off when 42-02 and 42-03 wire them, '
-      + 'and `UNREACHABLE_CEILING` comes back down by the same eight.',
-  },
-  {
-    key: 'core/sealWithKey',
-    declaredIn: 'packages/core/src/sealed-secret.ts',
-    callers: 'unreachable-only',
-    reason:
-      'The synchronous half, called by `sealSecret`. Published separately for the constraint '
-      + '`IdbIdentityStore.loadOrMintSeed` states in its own doc — awaiting anything outside an IndexedDB '
-      + 'transaction lets that transaction commit — so 42-03 calls this inside one. AUTH-06, Phase 42, '
-      + 'plan 42-01 — the sealed-secret primitive, landed one wave ahead of its consumers. Wired by 42-02 '
-      + '(the node tier\'s seed, `packages/node/src/identity-store.ts`) and 42-03 (the browser tier\'s, '
-      + '`packages/browser/src/idb-identity-store.ts`), neither of which exists yet. It is on the barrel '
-      + 'rather than off it — the choice `packages/core/src/index.ts` made the other way for '
-      + '`cert-lifecycle.ts`\'s facades — because `packages/core/package.json` publishes exactly one '
-      + 'export, `".": "./src/index.ts"`, so the barrel is the ONLY route those two plans can take to '
-      + 'this module; off the barrel is not "unwired later" but "unreachable forever". Read in BOTH lanes '
-      + 'by `packages/core/src/sealed-secret.test.ts`, which runs once under Node and three times under '
-      + 'chromium/firefox/webkit, and proved able to fail by four watched plants recorded in '
-      + '`42-01-SUMMARY.md`. This row and the seven beside it come off when 42-02 and 42-03 wire them, '
-      + 'and `UNREACHABLE_CEILING` comes back down by the same eight.',
-  },
-  {
-    key: 'core/parseSealedSecret',
-    declaredIn: 'packages/core/src/sealed-secret.ts',
-    callers: 'unreachable-only',
-    reason:
-      'The boundary validator, called by `openSecret`. Published because a stored envelope is external '
-      + 'data and a caller inspecting a store must be able to ask "is this one of mine?" without an '
-      + 'exception. AUTH-06, Phase 42, plan 42-01 — the sealed-secret primitive, landed one wave ahead of '
-      + 'its consumers. Wired by 42-02 (the node tier\'s seed, `packages/node/src/identity-store.ts`) and '
-      + '42-03 (the browser tier\'s, `packages/browser/src/idb-identity-store.ts`), neither of which '
-      + 'exists yet. It is on the barrel rather than off it — the choice `packages/core/src/index.ts` '
-      + 'made the other way for `cert-lifecycle.ts`\'s facades — because `packages/core/package.json` '
-      + 'publishes exactly one export, `".": "./src/index.ts"`, so the barrel is the ONLY route those two '
-      + 'plans can take to this module; off the barrel is not "unwired later" but "unreachable forever". '
-      + 'Read in BOTH lanes by `packages/core/src/sealed-secret.test.ts`, which runs once under Node and '
-      + 'three times under chromium/firefox/webkit, and proved able to fail by four watched plants '
-      + 'recorded in `42-01-SUMMARY.md`. This row and the seven beside it come off when 42-02 and 42-03 '
-      + 'wire them, and `UNREACHABLE_CEILING` comes back down by the same eight.',
-  },
-  {
-    key: 'core/SecretUnlockError',
-    declaredIn: 'packages/core/src/sealed-secret.ts',
-    callers: 'unreachable-only',
-    reason:
-      'Constructed by `openSecret`. Published so a caller can branch on a wrong passphrase without '
-      + 'string-matching a message. AUTH-06, Phase 42, plan 42-01 — the sealed-secret primitive, landed '
-      + 'one wave ahead of its consumers. Wired by 42-02 (the node tier\'s seed, '
-      + '`packages/node/src/identity-store.ts`) and 42-03 (the browser tier\'s, '
-      + '`packages/browser/src/idb-identity-store.ts`), neither of which exists yet. It is on the barrel '
-      + 'rather than off it — the choice `packages/core/src/index.ts` made the other way for '
-      + '`cert-lifecycle.ts`\'s facades — because `packages/core/package.json` publishes exactly one '
-      + 'export, `".": "./src/index.ts"`, so the barrel is the ONLY route those two plans can take to '
-      + 'this module; off the barrel is not "unwired later" but "unreachable forever". Read in BOTH lanes '
-      + 'by `packages/core/src/sealed-secret.test.ts`, which runs once under Node and three times under '
-      + 'chromium/firefox/webkit, and proved able to fail by four watched plants recorded in '
-      + '`42-01-SUMMARY.md`. This row and the seven beside it come off when 42-02 and 42-03 wire them, '
-      + 'and `UNREACHABLE_CEILING` comes back down by the same eight.',
-  },
-  {
-    key: 'core/SealedSecretVersionError',
-    declaredIn: 'packages/core/src/sealed-secret.ts',
-    callers: 'unreachable-only',
-    reason:
-      'Constructed by `openSecret`. Published for the same reason, and distinct from '
-      + '`SecretUnlockError` because a record from a future format is not a wrong passphrase. AUTH-06, '
-      + 'Phase 42, plan 42-01 — the sealed-secret primitive, landed one wave ahead of its consumers. '
-      + 'Wired by 42-02 (the node tier\'s seed, `packages/node/src/identity-store.ts`) and 42-03 (the '
-      + 'browser tier\'s, `packages/browser/src/idb-identity-store.ts`), neither of which exists yet. It '
-      + 'is on the barrel rather than off it — the choice `packages/core/src/index.ts` made the other way '
-      + 'for `cert-lifecycle.ts`\'s facades — because `packages/core/package.json` publishes exactly one '
-      + 'export, `".": "./src/index.ts"`, so the barrel is the ONLY route those two plans can take to '
-      + 'this module; off the barrel is not "unwired later" but "unreachable forever". Read in BOTH lanes '
-      + 'by `packages/core/src/sealed-secret.test.ts`, which runs once under Node and three times under '
-      + 'chromium/firefox/webkit, and proved able to fail by four watched plants recorded in '
-      + '`42-01-SUMMARY.md`. This row and the seven beside it come off when 42-02 and 42-03 wire them, '
-      + 'and `UNREACHABLE_CEILING` comes back down by the same eight.',
-  },
-  {
-    key: 'core/SealedSecretShapeError',
-    declaredIn: 'packages/core/src/sealed-secret.ts',
-    callers: 'unreachable-only',
-    reason:
-      'Constructed by `openSecret`. Published for the same reason, and distinct again because a '
-      + 'malformed store is not a wrong passphrase either. AUTH-06, Phase 42, plan 42-01 — the '
-      + 'sealed-secret primitive, landed one wave ahead of its consumers. Wired by 42-02 (the node tier\'s '
-      + 'seed, `packages/node/src/identity-store.ts`) and 42-03 (the browser tier\'s, '
-      + '`packages/browser/src/idb-identity-store.ts`), neither of which exists yet. It is on the barrel '
-      + 'rather than off it — the choice `packages/core/src/index.ts` made the other way for '
-      + '`cert-lifecycle.ts`\'s facades — because `packages/core/package.json` publishes exactly one '
-      + 'export, `".": "./src/index.ts"`, so the barrel is the ONLY route those two plans can take to '
-      + 'this module; off the barrel is not "unwired later" but "unreachable forever". Read in BOTH lanes '
-      + 'by `packages/core/src/sealed-secret.test.ts`, which runs once under Node and three times under '
-      + 'chromium/firefox/webkit, and proved able to fail by four watched plants recorded in '
-      + '`42-01-SUMMARY.md`. This row and the seven beside it come off when 42-02 and 42-03 wire them, '
-      + 'and `UNREACHABLE_CEILING` comes back down by the same eight.',
-  },
   // ---------------------------------------------------------------------------------------
   // THIRTEEN ROWS LEFT THIS REGISTER ON 2026-08-18, and the three routes are not equivalent.
   // Each is named here rather than deleted silently, because a register whose history is

@@ -19,13 +19,21 @@ export { FsBlockstore } from './fs-blockstore.ts'
 // AUTH-01 — the identity seed and the provider-signed certificate, persisted beside the
 // blocks. The certificate goes through the same parser the wire uses, plus the hex-key
 // narrowing that parser cannot make — see `loadCertificate`.
+//
+// **`loadOrCreateSeed` came OFF this barrel on 2026-09-04 (AUTH-06, plan 42-02) because it
+// was deleted**, not renamed and not deprecated. It wrote 32 raw bytes to `.identity.key`,
+// and leaving any exported route to that behaviour would have contradicted the phase's own
+// claim that no reachable path writes a plaintext secret. `loadOrCreateSealedSeed` replaces
+// it and is deliberately NOT added here: its only callers are `fabric-node.ts` and this
+// package's own specs, both of which import it module-relatively, and a barrel line with no
+// cross-package consumer is a surface nobody asked for — the rule
+// `reachability-guard.node.test.ts` exists to hold.
 export {
   CERTIFICATE_FILE,
   IDENTITY_FILE,
   MalformedSeedFileError,
   PROVIDER_FILE,
   loadCertificate,
-  loadOrCreateSeed,
   saveCertificate,
 } from './identity-store.ts'
 
