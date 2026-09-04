@@ -97,6 +97,14 @@ export {
 } from './identity.ts'
 export type { NodeIdentity } from './identity.ts'
 
+// AUTH-06 — what a tier will do with the seed above before it writes one down.
+//
+// Beside `SEED_BYTES` and `generateSeed` for the same reason those are here: `@o2/node` and
+// `@o2/browser` both persist an identity seed, both have to describe the same choice in the
+// same words, and this package is the one they already share for the seed's vocabulary.
+export { PASSPHRASE_MIN_LENGTH, WeakPassphraseError, assertUsablePassphrase } from './identity-protection.ts'
+export type { IdentityProtection } from './identity-protection.ts'
+
 // The fabric's index answered by a Kademlia DHT — SCHED-01, NET-06. Both composition
 // arguments on `DhtRecordIndexOptions` are required, so an instance that answers less
 // than today's fabric is a compile error rather than a review comment.

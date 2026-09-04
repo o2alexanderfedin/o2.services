@@ -10,6 +10,7 @@ import { chromium, firefox, webkit } from 'playwright'
 import type { Browser, BrowserType, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { PublicKeyHex } from '@o2/core'
+import type { IdentityProtection } from '@o2/libp2p'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
@@ -252,11 +253,23 @@ function directWsAddr(node: FabricNode): string {
  * this is an established property rather than an assumption — and the issuer key has to be
  * known *before* the seed is spawned, because it goes on the seed's argv.
  */
+/**
+ * AUTH-06 — stated because the fixture below restarts provider on its own directory and
+ * refuses if the issuer key moved.
+ *
+ * Plan 42-02 made `FabricNodeOptions.identityProtection` default to `writes-no-new-secret`, so
+ * a node told nothing persists no secret and mints a fresh provider key on every start. The
+ * refusal a few lines down would then fire for a reason about identity rather than about the
+ * gate this file measures. Persistence is asked for; the refusal is left as strict as it was.
+ */
+const PERSISTS: IdentityProtection = { kind: 'passphrase', passphrase: 'visitor-enrolment-spec-passphrase' }
+
 async function startProvider(): Promise<void> {
   const minting = await FabricNode.start({
     relayAdmission: new Set<PublicKeyHex>(),
     startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'provider'),
+    identityProtection: PERSISTS,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: TRUST_ANCHORS,
     issuesCertificates: 'issues-without-an-aggregate-budget',
@@ -270,6 +283,7 @@ async function startProvider(): Promise<void> {
     relayAdmission: new Set<PublicKeyHex>([providerIssuer]),
     startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'provider'),
+    identityProtection: PERSISTS,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: TRUST_ANCHORS,
     issuesCertificates: 'issues-without-an-aggregate-budget',

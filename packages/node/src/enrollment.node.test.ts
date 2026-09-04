@@ -149,11 +149,30 @@ const agents: Agent[] = []
 const nodes: FabricNode[] = []
 
 /** Spawn an agent process and wait for its one-line handshake. */
+/**
+ * AUTH-06 — every agent this file spawns is given a passphrase file, and it has to be.
+ *
+ * Plan 42-02 made `--dir` alone start a node under `writes-no-new-secret`, which persists no
+ * identity — so the restart step below would spawn a *different* node and read a second
+ * issuance where the claim is that there is none. Persistence is the subject of that step, so
+ * the repair is to ask for it, never to relax what it asserts.
+ *
+ * Written once in `beforeEach` and passed on every spawn, so a case that restarts an agent
+ * hands the second process the same file as the first — which is exactly what an operator
+ * does.
+ */
+const IDENTITY_PASSPHRASE = 'enrollment-spec-identity-passphrase'
+let passphraseFile: string
+
 async function spawnAgent(name: string, extraArgs: readonly string[] = []): Promise<Agent> {
   const dir = join(workdir, name)
-  const child: AgentProcess = spawn(process.execPath, [AGENT, '--dir', dir, ...extraArgs], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-  })
+  const child: AgentProcess = spawn(
+    process.execPath,
+    [AGENT, '--dir', dir, '--identity-passphrase-file', passphraseFile, ...extraArgs],
+    {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
+  )
 
   const handshake = await new Promise<Handshake>((resolve, reject) => {
     const timer = setTimeout(
@@ -257,6 +276,10 @@ const BURST_USER_SEED = new Uint8Array(SEED_BYTES).fill(0x72)
 
 beforeEach(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-enrol-'))
+  // A trailing newline, because every way an operator produces this file appends one and
+  // `bin/agent.ts` strips exactly one.
+  passphraseFile = join(workdir, 'identity.passphrase')
+  await writeFile(passphraseFile, `${IDENTITY_PASSPHRASE}\n`, { mode: 0o600 })
 })
 
 /**
@@ -298,6 +321,10 @@ describe('AUTH-01 — criterion 1, across two real bin/agent.ts processes', () =
     // Step 2 — "generated on-device" is a claim about a file that was not there a moment
     // ago. Asserted absent first, so a pre-existing key could not satisfy it.
     const aliceDir = join(workdir, 'alice')
+    // AUTH-06 — the ENVELOPE is the file this claim is about now, and the plaintext name is
+    // asserted absent throughout: a node that wrote one would be handing its identity to
+    // anyone who copies this directory.
+    expect(existsSync(join(aliceDir, '.identity.key.enc'))).toBe(false)
     expect(existsSync(join(aliceDir, '.identity.key'))).toBe(false)
 
     const alice = await spawnAgent('alice', [
@@ -309,8 +336,9 @@ describe('AUTH-01 — criterion 1, across two real bin/agent.ts processes', () =
       'harbour-ops',
     ])
 
-    expect(existsSync(join(aliceDir, '.identity.key'))).toBe(true)
-    expect(statSync(join(aliceDir, '.identity.key')).size).toBe(SEED_BYTES)
+    expect(existsSync(join(aliceDir, '.identity.key.enc'))).toBe(true)
+    expect(statSync(join(aliceDir, '.identity.key.enc')).size).toBeGreaterThan(SEED_BYTES)
+    expect(existsSync(join(aliceDir, '.identity.key'))).toBe(false)
 
     // Step 3 — the three files this phase writes beside the blocks are dot-prefixed and
     // none of them is counted as a block. `FsBlockstore.open`'s filter *is* the block
@@ -318,7 +346,7 @@ describe('AUTH-01 — criterion 1, across two real bin/agent.ts processes', () =
     // working filter are different readings: the `readdirSync` assertion is what tells
     // them apart. The `0` itself is what nobody `put` — alice's own controlled starting
     // state, not a prediction about a node under load.
-    expect(readdirSync(aliceDir)).toContain('.identity.key')
+    expect(readdirSync(aliceDir)).toContain('.identity.key.enc')
     expect(readdirSync(aliceDir)).toContain('.certificate.json')
     expect((await FsBlockstore.open(aliceDir)).size).toBe(0)
 
