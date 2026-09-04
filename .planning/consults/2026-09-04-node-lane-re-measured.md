@@ -198,6 +198,12 @@ favourable anchor both new rows still clear the cut (3 576 x 0.81 = 2 897; 1 592
 | `sumOfFileSpansMs` | 2 420 917 | **2 427 656** | plus the ten arrivals' 6 739 ms, stated as a third contribution |
 | `MEASURED_NODE_SPANS` | 132 rows | **134 rows** | two inserted at their descending positions |
 
+**`unitFiles` was confirmed behaviourally as well as by the identity.**
+`O2_UNIT_ONLY=1 npx vitest list --project node --filesOnly` reads **162** — the runner applying
+the exclusions for real, which is a different question from whether two numbers in the config
+subtract correctly. That is a fourth independent reading, and the only one that exercises the
+`SLOW_NODE_SPECS` derivation end to end.
+
 `tests` (2 948) and `unitTests` (2 317) were **left alone**, on the `219 -> 228` entry's own
 reasoning: the count is what the tolerance reads, and inventing a test total nobody counted is
 the defect the table exists to prevent. `date`, `load`, `wallClockMs` and the cross-check

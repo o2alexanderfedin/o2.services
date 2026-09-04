@@ -666,6 +666,10 @@ const NODE_MEASUREMENT = {
    * `sealed-secret.test.ts` and `platform-geolocation.node.test.ts`. **The subtrahend was
    * computed rather than assumed to be unchanged**, which is the check that matters here: a
    * pass that assumed it would have written 164 and the identity would have refused it.
+   *
+   * **Confirmed behaviourally, not only by the identity.** `O2_UNIT_ONLY=1 npx vitest list
+   * --project node --filesOnly` reads **162** — the runner applying the exclusions for real,
+   * which is a different question from whether two numbers in this file subtract correctly.
    */
   unitFiles: 162,
   unitTests: 2317,
