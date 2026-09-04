@@ -779,10 +779,21 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
         // passphrase, and it must have exactly ONE call site — the `identityProtection`
         // field. A second call site anywhere is the whole of this threat.
         const glue = await readFile(join(ROOT, 'packages/browser/demo/main.ts'), 'utf8')
+        // The declaration is excluded by NAME rather than by shape: `function requireSignIn():
+        // string {` contains the substring `requireSignIn()` — `():` opens with it — which the
+        // first draft of this assertion did not see, and it reported two call sites where
+        // there is one. Comment lines are excluded too; a docblock naming the function is not
+        // a route the passphrase can travel.
         const callSites = glue
           .split('\n')
           .map((line, index) => ({ line: line.trim(), number: index + 1 }))
-          .filter((entry) => entry.line.includes('requireSignIn()') && !entry.line.startsWith('*'))
+          .filter(
+            (entry) =>
+              entry.line.includes('requireSignIn()') &&
+              !entry.line.startsWith('*') &&
+              !entry.line.startsWith('//') &&
+              !entry.line.startsWith('function requireSignIn('),
+          )
         expect(
           callSites.map((entry) => `${String(entry.number)}: ${entry.line}`),
           'the held passphrase is obtained at more than one site in demo/main.ts, so this ' +
