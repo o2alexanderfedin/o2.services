@@ -1715,6 +1715,40 @@ Recorded, not answered. Each names what would settle it and which rows move when
    actual recruitment link from a real Telegram message on both iOS and Android before
    recruiting begins — cheap to check, expensive to get wrong at cohort scale. **Changes:**
    `RUN-06`, and `RUN-01`'s gate.
+8. **The consent machinery is THIS DEMO's policy, not a platform mandate — RULED 2026-09-04
+   by the owner, and the tree already implements it.** The ruling: *"компания-владелец
+   приложения, сделанного с использованием платформы O2, вполне может решить (и озвучить
+   решение в лицензионном соглашении) об использовании idle resources девайсов пользователей.
+   Это не обязанность платформы."* A company shipping an application on this platform may
+   decide — and say so in its own licence agreement — to use the idle resources of its users'
+   devices. That is the host's decision, not the platform's obligation.
+   **The code already draws exactly this line, measured 2026-09-04.** `BrowserNodeOptions`
+   carries **no consent field at all**, so an embedding host calling `BrowserNode.start`
+   directly is ungated — the start gate is a page convention. The fetch gate is different and
+   the difference is the right one: `fetchModuleForDispatch` requires `options.consent` to be a
+   `GrantedConsent` **instance**, and `gateway-module.ts:155-156` records that *"nothing outside
+   `consent.ts` can mint one"*. But `grantConsent` and `GrantedConsent` are both exported from
+   `@o2/browser`'s barrel, so a host mints one after **whatever act its own agreement defines**.
+   **So the platform mandates the RECORD, never the POLICY** — it insists the agreement be
+   unforgeable and attributable, and says nothing about what the agreement is.
+   **One document must be re-labelled, and that is this entry's only action item.**
+   `35-01-SUMMARY.md:609-611` records the ungated start path as a hole — *"an embedding host
+   calling `BrowserNode.start` directly is ungated. The *fetch* gate does not have that hole."*
+   Under this ruling it is **not a hole, it is the design**, and the fetch gate is not a policy
+   mandate either. Correct that line with a dated note rather than deleting it; the observation
+   was accurate and only its verdict was wrong.
+   **The precedent the owner cited, stated with its limit rather than borrowed whole.** Windows
+   Update Delivery Optimization has since Windows 10 had PCs share update payloads peer-to-peer,
+   on by default for the local network, disclosed in settings rather than behind a consent gate.
+   It is a real precedent that a major vendor uses idle user resources under its own terms —
+   **and it is a precedent about BANDWIDTH AND DISK, not CPU.** Processor burn is the
+   perceptible one: fan, battery, heat, and the thing cryptojacking made toxic. So it supports
+   the ruling about what a host may decide; it does **not** license this demo to drop its own
+   gate, and `packages/node/src/vocabulary.node.test.ts`'s five banned patterns exist because a
+   reviewer greps a public page rather than reading a licence agreement.
+   **Changes:** how `BROW-01`, `BROW-06` and `BROW-08` are READ — each is a property of the
+   demo page and of the mechanism it uses, never a claim about every application built on this
+   platform. No requirement's verdict moves.
 7. **A provider must store nothing — RULED 2026-09-04 by the owner, and the implementation is
    open.** The ruling, verbatim: *"Провайдер ничего хранить не должен — система
    децентрализованная!"* It is a constraint on the architecture, not a description of it.
