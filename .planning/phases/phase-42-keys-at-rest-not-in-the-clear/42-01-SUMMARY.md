@@ -255,6 +255,14 @@ is `CLAUDE.md` § Measurement's rule visible in one table: an absolute bound wou
 one engine and failed on another, and the property under test is not affected by which engine
 ran it.
 
+**A second reading, taken on the committed tree, is what makes that claim more than a
+one-run coincidence.** Re-running both lanes afterwards gave ratios of 4.85 (Node), 4.80,
+4.85 and 4.77 (the three engines) — while the absolute figures moved by up to **40 %** on the
+same quiet host: one engine read 78.0 / 378.0 ms in the first run and 41.0 / 197.0 ms in the
+second. Two independent runs, eight readings, absolutes spanning 41–134 ms and 197–634 ms,
+and every ratio inside 4.73–4.94 around a work ratio of 4.75. An absolute bound sited on
+either run would have been wrong about the other.
+
 **The warm-up in that case is load-bearing, not ceremony.** Measured before writing the
 assertion: with the cheap arm paying the JIT warm-up the ratio reads **2.54**, against an
 asserted bound of `> 2`. One discarded derivation first and it reads 4.40 / 4.66 / 4.74. The
