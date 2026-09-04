@@ -382,9 +382,15 @@ scoped to a resolved version moving.
 through the pre-commit hook, for every agent, and the guard's own failure message names the
 fix. Reasoning in full above.
 
-**8. Three commits carry `O2_SKIP_GUARDS=1`.** The cheap guards were run in full each time and
-the results are in each commit body. After the register landed, the only remaining red is
-`slow-specs/file-count-drift`: **399 of 400 passed.**
+**8. Every commit on this branch carries `O2_SKIP_GUARDS=1`, necessarily.**
+`slow-specs/file-count-drift` is red for the whole lifetime of this branch by deviation 7's
+reasoning, and the pre-commit hook runs the cheap guards on every commit, so there is no
+commit here that could have been made without the skip. Stated as the invariant rather than
+as a count of commits, because a count drifts — which is this file's own
+`UNREACHABLE_CEILING` lesson, where a number written twice drifted apart across four raises
+and every run in between printed a bound that was not the one being applied. The guards were
+run in full before each commit and the reading recorded in that commit's body. After the
+register landed the only red is the file-count drift: **399 of 400 passed.**
 
 **9. `STATE.md`, `ROADMAP.md` and `REQUIREMENTS.md` were NOT updated.** `STATE.md`'s
 frontmatter is hand-written and the tooling has wiped it twice, and the brief fences it.
