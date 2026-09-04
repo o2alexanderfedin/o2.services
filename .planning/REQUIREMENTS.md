@@ -1715,6 +1715,44 @@ Recorded, not answered. Each names what would settle it and which rows move when
    actual recruitment link from a real Telegram message on both iOS and Android before
    recruiting begins — cheap to check, expensive to get wrong at cohort scale. **Changes:**
    `RUN-06`, and `RUN-01`'s gate.
+7. **A provider must store nothing — RULED 2026-09-04 by the owner, and the implementation is
+   open.** The ruling, verbatim: *"Провайдер ничего хранить не должен — система
+   децентрализованная!"* It is a constraint on the architecture, not a description of it.
+   **What the tree does today, measured 2026-09-04.** `fabric-node.ts:2503-2512` forks on
+   whether the provider was given a directory: without one it passes
+   `'remembers-only-within-this-process'` and keeps **nothing** durable; with one it opens
+   `FsIssuance` and keeps issuance timestamps per user key on disk, retained for a window and
+   compacted. `IssuanceHistory` is required-with-a-named-sentinel rather than optional, and its
+   docblock records why: **Phase 17 measured that a provider remembering only within its own
+   process has its limit defeated outright**, because a second process starts empty and accepts
+   the same user key again immediately.
+   **What the ruling does NOT cost, and this is the part that was nearly got wrong.** The
+   per-user budget `DEFAULT_MAX_PER_WINDOW = 64` is **not** an anti-abuse control and its own
+   docblock says so in terms — *"A reader who takes this for an anti-abuse control will size it
+   back down and reintroduce the refusal it exists to prevent"*. It is sized to avoid refusing
+   an honest owner whose twenty restored tabs each enrol. The control that binds is the
+   **aggregate** `maxIssuedPerWindow`, and only that one is at stake here.
+   **And the hoard is worth an hour, not a month.** `DEFAULT_CERTIFICATE_LIFETIME_MS` is
+   `3_600_000` — one hour, by owner ruling 2026-08-23 — and expiry is *the only revocation this
+   fabric has*. Certificates minted in one window during a provider restart are therefore worth
+   at most an hour, which is a materially different exposure from the thirty-day one the Phase 17
+   measurement was taken against. **An audit line elsewhere in this repository still reads
+   "lifetime 30d → 1h — NOT DONE"; that line is stale and this entry supersedes it.**
+   **THE LARGER FINDING, and it is about decentralisation rather than about storage.** At a
+   one-hour lifetime with `CERTIFICATE_RENEW_AT = 2/3`, **every node must reach a provider every
+   forty minutes or leave the fabric within the hour** — `enrollment.ts` states the consequence
+   itself: *"a node whose issuer is unreachable for more than an hour leaves the fabric. Before
+   this it had thirty days of grace. Renewal begins at two-thirds — forty minutes — so the real
+   margin is the last twenty."* If the goal named in this ruling is decentralisation, **the
+   hourly dependency on a reachable issuer centralises the fabric far more than a rate-limit
+   ledger does**, and it is the thing to look at first. Stated here rather than acted on: it
+   trades against the revocation window, which is the other half of the same 2026-08-23 ruling,
+   and that trade is the owner's.
+   **Settled by:** an owner decision on which of three shapes carries the aggregate limit once
+   nothing is stored — a per-process bound accepted as defeatable across restarts; a cost that
+   is intrinsic rather than accounted; or a record the *fabric* holds rather than a provider,
+   for which `/o2/kad/1.0.0` and `dht-record-index.ts` already exist. **Changes:** `AUTH-04`,
+   and the wiring at `fabric-node.ts:2503-2512`.
 6. **`DEMO-04`'s guard — SETTLED 2026-08-25 by owner ruling; kept here rather than deleted,
    because a question that was open is part of the record.** It read: the guard
    (`packages/node/src/disclosure-gate.node.test.ts`) forbids a deploy workflow in order to
