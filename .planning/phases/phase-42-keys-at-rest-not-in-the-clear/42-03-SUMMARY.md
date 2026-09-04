@@ -436,7 +436,7 @@ here so the phase's owner can overrule the deferral rather than discover it.
 | **e2e lane, full, second run** | `1` | **61 of 62 files green, 315 passed \| 1 failed** — the one is `lease-expiry`, below | quiet — 0.77 / 1.36 |
 | `gated-seed` alone, after a fixture tidy | `0` | 4 passed | quiet — 0.57 / 0.86 |
 | Whole-tree `tsc --noEmit` | `0` | clean at every step after RED | — |
-| Cheap guards, six readings across the branch | `0` | **400 passed (400)** every time, the last of them on the committed tree at `1795d0c` | quiet |
+| Cheap guards, at each of the seven commits, plus six standalone readings | `0` | **400 passed (400)** every time, no `O2_SKIP_GUARDS` anywhere on this branch | quiet |
 
 ### The `aot` lane was not run, and here is the reading that says it could not have moved
 
@@ -819,13 +819,18 @@ State:
 
 - Both plants restored by the surgical inverse of this agent's own edit, `cmp` exit `0` each,
   `git status --porcelain` empty of both planted files afterwards — VERIFIED
-- Cheap guards **400/400**, six readings dated across the branch, the last on the committed
-  tree at `1795d0c` — VERIFIED. Stated precisely, because the earlier wording ("at every
-  commit") claimed more than was read: **this repository installs no `pre-commit` hook**
-  (`ls .git/hooks/` lists only samples), so guards run when an agent runs them, not when a
-  commit is made. What was measured is six manual runs, not five automatic ones. No
-  `O2_SKIP_GUARDS` appears anywhere in `git diff develop..HEAD` outside these two summary
-  lines — VERIFIED
+- Cheap guards **400/400** at every commit, with no `O2_SKIP_GUARDS` used anywhere on this
+  branch — VERIFIED, and verified twice, because the first re-check got it backwards. `ls
+  .git/hooks/pre-commit` reports no such file, and on that reading this line was briefly
+  rewritten to say the repository installs no hook and that guards only run when an agent
+  runs them. **That was false.** `git config --get core.hooksPath` returns `.githooks`, where
+  `pre-commit` is present and executable, and it invokes `scripts/cheap-guards.sh` at `:241`
+  for any non-empty staged set — its only skips are `O2_SKIP_GUARDS=1` (`:128`), a missing
+  `node_modules/.bin/vitest` (`:139`), and an empty stage (`:176`), none of which applied
+  here. The commit that carried the false correction printed `✅ cheap guards passed` in its
+  own output, which is how the error was caught within a minute of being written. Recorded
+  rather than quietly reverted: **`.git/hooks/` is not the hooks path when `core.hooksPath`
+  is set**, and an absence read from the wrong directory is not an absence
 - Whole-tree `tsc --noEmit` `EXIT=0` — VERIFIED
 - `grep -c "saveSeed\|saveProviderSeed\|loadOrMintSeed\b\|loadOrMintProviderSeed"
   packages/browser/src/idb-identity-store.ts` -> `0` — VERIFIED
