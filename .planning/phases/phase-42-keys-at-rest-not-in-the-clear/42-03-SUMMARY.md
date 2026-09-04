@@ -399,6 +399,15 @@ trailing `tail`, no `echo` between. (This shell is zsh, which has no `PIPESTATUS
 measurement of anything — the `[host conditions]` banner is recorded beside each reading so a
 later reader can tell which readings are comparable.
 
+**Stated before the table, because it is a variance and not a footnote: the plan's
+verification asks for four lanes green, and this branch does not deliver that.** `browser` and
+`node` are green. `e2e` exits `1` on its final run — 61 of 62 files green, `315 passed | 1
+failed`, the one being `lease-expiry.e2e.test.ts`, which this branch does not touch and whose
+own docblock at `:108-113` records this exact assertion, message and condition as a known flake
+(cause 3 below; logged to `deferred-items.md`). `aot` was not run at all, against the reading
+below that no file under `tools/` is in this diff. Neither is claimed as green. Both are put
+here so the phase's owner can overrule the deferral rather than discover it.
+
 | Run | EXIT | Result | `[host conditions]` |
 |---|---|---|---|
 | RED, browser lane, the at-rest spec | `1` | 3 files failed, 0 tests — the import does not resolve | quiet — 0.38 before, 0.38 after (8 cores, ceiling 4.00) |
@@ -427,7 +436,35 @@ later reader can tell which readings are comparable.
 | **e2e lane, full, second run** | `1` | **61 of 62 files green, 315 passed \| 1 failed** — the one is `lease-expiry`, below | quiet — 0.77 / 1.36 |
 | `gated-seed` alone, after a fixture tidy | `0` | 4 passed | quiet — 0.57 / 0.86 |
 | Whole-tree `tsc --noEmit` | `0` | clean at every step after RED | — |
-| Cheap guards, at each of the five commits | `0` | **400 passed (400)** every time, no `O2_SKIP_GUARDS` anywhere on this branch | quiet |
+| Cheap guards, six readings across the branch | `0` | **400 passed (400)** every time, the last of them on the committed tree at `1795d0c` | quiet |
+
+### The `aot` lane was not run, and here is the reading that says it could not have moved
+
+The plan's verification names four lanes. Three were run and are in the table above. The
+fourth, `aot`, was **not run**, and the reason is a measurement rather than a judgement about
+what looked unrelated:
+
+```
+$ git diff develop..HEAD --stat -- tools/
+$ git diff develop..HEAD --name-only | grep -c "^tools/"
+0
+```
+
+`vitest.config.ts:1530` gives the `aot` project exactly one include — `tools/**/*.node.test.ts`
+— and this branch changes no file under `tools/`. The lane's whole file set is therefore
+byte-identical to `develop`'s.
+
+The near-miss worth naming: `packages/node/src/aot-tab.e2e.test.ts` **is** in this diff (one of
+the 22 sites) and its name starts with `aot`, but it lives under `packages/*/src/` and ends
+`.e2e.test.ts`, so it matches the `e2e` include at `:1578` and not the `aot` one. It ran, twice,
+inside the two full `e2e` sweeps in the table. Reading the filename instead of the config would
+have put this row in the wrong lane in both directions — claiming `aot` coverage that was never
+taken, and leaving the file looking unrun when it had passed twice.
+
+Cost of the alternative, stated so a reader can overrule it: the `aot` lane is ~20 minutes
+serialised (`fileParallelism: false`, `:1540`) and this repository's own convention note prices
+it at 1181.61 s alone. It was skipped against the reading above, not against the clock — but
+both are true and whoever wants the lane green on this branch can have it for that price.
 
 ### The node lane's file count is unchanged at 243
 
@@ -782,8 +819,13 @@ State:
 
 - Both plants restored by the surgical inverse of this agent's own edit, `cmp` exit `0` each,
   `git status --porcelain` empty of both planted files afterwards — VERIFIED
-- Cheap guards **400/400** at every commit, with no `O2_SKIP_GUARDS` used anywhere on this
-  branch — VERIFIED
+- Cheap guards **400/400**, six readings dated across the branch, the last on the committed
+  tree at `1795d0c` — VERIFIED. Stated precisely, because the earlier wording ("at every
+  commit") claimed more than was read: **this repository installs no `pre-commit` hook**
+  (`ls .git/hooks/` lists only samples), so guards run when an agent runs them, not when a
+  commit is made. What was measured is six manual runs, not five automatic ones. No
+  `O2_SKIP_GUARDS` appears anywhere in `git diff develop..HEAD` outside these two summary
+  lines — VERIFIED
 - Whole-tree `tsc --noEmit` `EXIT=0` — VERIFIED
 - `grep -c "saveSeed\|saveProviderSeed\|loadOrMintSeed\b\|loadOrMintProviderSeed"
   packages/browser/src/idb-identity-store.ts` -> `0` — VERIFIED
