@@ -56,7 +56,9 @@ have seen, because it only appears once a file is repaired.**
 
 - **Tasks:** 3 of 3
 - **Files modified:** 45 (41 in the sweep commit, 4 in the switch commit)
-- **Commits:** `3db368b` (the sweep, 41 files), `483c880` (the switch, the three repairs and the `42-03` correction, 5 files)
+- **Commits:** `3db368b` (the sweep, 41 files), `483c880` (the switch, the three repairs and
+  the `42-03` correction, 5 files), `a625800` + this one (the summary)
+- **The lane:** `e2e` **64 files / 332 tests, all passed**, `EXIT=0`, on a quiet host
 
 ---
 
@@ -126,8 +128,11 @@ finding.**
 
 ### Files that were passing and now fail
 
-**None.** The twenty-six files `42-04` names as passing were re-run in the whole-lane sweep and
-none of them moved. One node-lane test that passed in `42-04`'s run is **skipped** in this
+**None, and this is now measured rather than argued.** The twenty-six files `42-04` names as
+passing were re-run in the whole-lane sweep above and every one of them passed —
+including **`lease-expiry`**, whose documented flake did not fire in either plan's sweep, and
+including `built-bundle`'s two no-foreign-request cases, which the brief singled out and which
+still pass with the attribution link present (it is an `<a href>`, not a request). One node-lane test that passed in `42-04`'s run is **skipped** in this
 plan's — `transport-bounds.node.test.ts`, one case — and it is a *self-declared, load-gated
 skip* in a file this branch does not touch: `if (load >= LOAD_CEILING)` with `LOAD_CEILING = 12`
 and its own sentence *"a contended host inflates them past a threshold sited on a quiet one. The
@@ -390,20 +395,37 @@ Every `EXIT` was read on the line **immediately** after its command — no pipe,
 | **Plant** | `1` | 1 failed \| 8 passed — the stale-consent case red, arm A green | quiet — 1.30 / 1.29, wall 11.63 s |
 | **`browser` lane, alone** | `0` | **408 files, 6741 passed** | quiet — 1.21 / 2.73, wall 166.34 s; `real 169.98 user 282.90 sys 42.18`, `(user+sys)/real` **1.91** |
 | **`node` lane, alone, separate from `aot`** | `0` | **244 files, 3495 passed \| 3 skipped** | **OVERSUBSCRIBED — 2.67 before, 9.68 after.** Nothing failed, so pass/fail stands; every duration in that run is void and none is quoted |
-| **`e2e` lane, whole, alone** | *pending — see below* | *pending* | *pending* |
+| **`e2e` lane, whole, alone** | `0` | **64 files, 332 passed \| 0 failed \| 0 skipped** | quiet — 2.54 / 1.27, wall 1326.14 s; `real 1327.68 user 969.93 sys 223.57`, `(user+sys)/real` **0.90** |
 | Whole-tree `tsc --noEmit` | `0` | clean at every step | — |
 | Cheap guards, at each commit | `0` | 400 passed (400), no `O2_SKIP_GUARDS` anywhere on this branch | quiet |
 
-### The whole-`e2e`-lane run — interrupted once, and the second attempt's conditions
+### The whole-`e2e`-lane run — the verdict, and the arithmetic against `42-04`
 
-The first whole-lane attempt was **killed by a session interruption** after three files
+**`EXIT=0`. 64 files passed (64). 332 tests passed (332). Nothing failed and nothing skipped.**
+Host **quiet** — load/core 2.54 before, 1.27 after, ceiling 4.00 — wall clock 1326.14 s, and
+from `/usr/bin/time -p`: `real 1327.68`, `user 969.93`, `sys 223.57`, so `(user+sys)/real` is
+**0.90**. That ratio is a comparability key rather than a verdict: this lane spawns a Chromium,
+a relay and a Vite server per file and spends most of its wall clock waiting on them, so `real`
+legitimately exceeds CPU time.
+
+The counts reconcile exactly against `42-04`'s sweep, which is the point of quoting them:
+
+| | `42-04` | this plan | why |
+|---|---|---|---|
+| files | 63 (26 passed, **37 failed**) | **64, all passed** | +1: `autostarted-switch.e2e.test.ts` |
+| tests | 324 (156 passed, 121 failed, **47 skipped**) | **332, all passed, 0 skipped** | +7 (`autostarted-switch`) +1 (`demo-regions`' `P1a-signin`) = 332 |
+| wall | 2252.15 s | **1326.14 s** | the 926 s difference is timeouts that no longer happen — a suite failing on `waitForFunction` pays its full budget, and `owner-domain-tabs` alone was spending 180 s of it |
+
+The 47 skips are gone because every one of them was a `beforeAll` that could not get past
+`#main`: a skipped test is a test that did not run, and *"descoped is not satisfied"* applies to
+a skip as much as to a scope cut.
+
+**The first whole-lane attempt was killed by a session interruption** after three files
 (`autostarted-switch` 7 passed, `ported-lift` 4 passed, `code-cache` 13 passed) and produced no
-verdict. It is recorded rather than dropped because a run that was started and did not finish is
-not a run that was not started.
-
-What stands independently of it: **all 36 previously-red files were run individually, each on a
-quiet host, and 33 were green on the first pass with the other three green after the repairs
-above.** The whole-lane run is the verdict on interaction between files, not on any single one.
+verdict. It is recorded rather than dropped, because a run that was started and did not finish is
+not a run that was not started. The second attempt is the one above; it was launched detached so
+an interruption could not kill it again, and it began while another agent's `cpp2rust` build held
+a core — which is why the *before* figure is 2.54 rather than the ~1.0 the per-file runs saw.
 
 ### The `aot` lane was not run, and here is the reading that says it could not have moved
 
