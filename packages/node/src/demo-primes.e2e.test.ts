@@ -19,6 +19,7 @@ import {
 } from '../../browser/demo/surfaces/primes.ts'
 import type { DomRegion } from './demo-region-properties.ts'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -245,21 +246,35 @@ beforeAll(async () => {
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
   // BROW-01 has no test-only bypass: the harness consents by pressing the button.
   await page.click('#allow')
-  await page.waitForSelector('#main', { state: 'visible', timeout: 30_000 })
+
+  // ---- state one: no node has ever existed in this tab ----
+  //
+  // **Taken BEFORE signing in, and that is a strengthening rather than a convenience.**
+  // Until `42-04` this reading sat between a `#join` that had not been pressed and one that
+  // had, and "no node has ever existed" was true because nothing had started one yet. Since
+  // `42-04` unlocking starts the node itself on a page served with a `?relay=`, so the same
+  // reading taken after sign-in would be a RACE against a relay dial — and losing it would
+  // surface as the stopped/initial case below failing for a timing reason that has nothing
+  // to do with what it measures. Sitting at `#signin`, a node is not merely absent but
+  // *unreachable*: `window.o2.start` throws `SignedOutError` before it touches anything.
+  //
+  // `readPrimesPanel` is a `page.evaluate` over the DOM and reads no visibility, and the
+  // page paints all five surfaces at their stopped sentence at boot, so the panel it reads
+  // here is the panel `#nav-primes` would show — the navigation below is unchanged and is
+  // still the visitor's own way in.
+  readings.push(await readPrimesPanel('before any node'))
+
+  // `42-04` moved the door: `#allow` reveals `#signin`, and `#main` is what UNLOCK reveals.
+  await signInDemoTab(page)
   // Navigate the visitor's own way — press the tab, which writes `location.hash`.
   await page.click('#nav-primes')
   await page.waitForSelector('#s-primes', { state: 'visible', timeout: 30_000 })
 
-  // ---- state one: no node has ever existed in this tab ----
-  readings.push(await readPrimesPanel('before any node'))
-
   // ---- state two: a node is running ----
-  await page.waitForFunction(
-    () => document.getElementById('join')?.hasAttribute('disabled') === false,
-    null,
-    { timeout: 60_000 },
-  )
-  await page.click('#join')
+  //
+  // **No `#join` click since `42-04`.** The relay arrives in this page's query string, so
+  // `revealMain` starts the node on unlock and disables the control while it does. The wait
+  // for the `live` tone is unchanged and is what "a node is running" has always meant here.
   await page.waitForFunction(
     () => document.getElementById('state')?.dataset['tone'] === 'live',
     null,

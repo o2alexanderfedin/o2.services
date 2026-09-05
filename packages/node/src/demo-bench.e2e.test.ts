@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { perfReport } from '../../browser/vite.config.ts'
 import { PROVENANCE, SOURCE_DOCUMENT } from '../../browser/demo/surfaces/bench.ts'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 
 /**
  * **P9 — every figure on the Benchmarks surface occurs verbatim in the committed document.**
@@ -135,7 +136,8 @@ beforeAll(async () => {
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
   // BROW-01 has no test-only bypass: the harness consents by pressing the button.
   await page.click('#allow')
-  await page.waitForSelector('#main', { state: 'visible', timeout: 30_000 })
+  // `42-04` moved the door: `#allow` reveals `#signin`, and `#main` is what UNLOCK reveals.
+  await signInDemoTab(page)
   // The visitor's own way in: press the tab, which writes `location.hash`.
   await page.click('#nav-bench')
   await page.waitForSelector('#s-bench', { state: 'visible', timeout: 30_000 })

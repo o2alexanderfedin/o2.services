@@ -13,6 +13,7 @@ import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { fixtureViteCacheDir, launchFixtureBrowser, startCoturn } from './e2e-browser-launch.ts'
 import type { CoturnHarness } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -158,9 +159,11 @@ async function openEnrolledTab(name: string, minterPort: number): Promise<Tab> {
   await page.goto(`${baseUrl}${PAGE}?${query.toString()}`)
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 30_000 })
 
+  // BROW-01 / AUTH-06: a harness consents and signs in for the same reasons a visitor
+  // presses the two controls — see `signInHarnessTab`.
+  await signInHarnessTab(page)
   const peerId = await page.evaluate(
     async ([address, store, userKey, operatorId]) => {
-      window.o2.grantConsent()
       return window.o2.start({
         relayAddrs: [address as string],
         blockstoreName: store as string,

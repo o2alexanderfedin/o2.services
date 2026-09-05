@@ -552,6 +552,29 @@ Four things make that the right repair rather than a convenient one:
 4. **It survives 42-04.** A legacy seed under a future passphrase is migrated in place with the
    same peer id, so both fixtures stay green through the flip.
 
+   > **CORRECTED 2026-09-04 by `42-06`, and only the conclusion is wrong.** Both fixtures went
+   > **red** on `42-04`, and the migration half of the claim above is exactly right: once they
+   > reach the store, the planted seed is adopted in place with the same peer id, which is what
+   > `42-06`'s sweep now reads end to end. What is false is *"so both fixtures stay green"*.
+   > `gated-seed` and `owner-domain-tabs` reach identity resolution through `window.o2.start`,
+   > and `42-04` put `identityProtection: { kind: 'passphrase', passphrase: requireSignIn() }`
+   > inside it — so `SignedOutError` is thrown **before the identity store is touched at all**
+   > and the plant is never consulted. `42-04-SUMMARY.md`'s expected-red list records both files
+   > by name (`gated-seed` 3 of 4, `owner-domain-tabs` 1 of 1).
+   >
+   > The repair is one line each and it is *register first*: `signInHarnessTab(page)` in
+   > `gated-seed`, `signInDemoTab(page)` in `owner-domain-tabs`. Registering opens this
+   > origin's **default** identity database (`o2-blocks-identity`) while the planted seed lives
+   > under the fixture's own `blockstoreName`, so the two never meet and the adoption is
+   > exactly the one predicted here.
+   >
+   > **The class is worth more than the incident.** A claim about what survives a future plan
+   > was made by reasoning about the mechanism the change was *about* — identity storage — and
+   > missed a refusal sited one call earlier, on a path with no identity in it. `42-04` recorded
+   > the same class in the same week from the other side: *"a grep over an option cannot
+   > enumerate the callers that reach it through a page's own API."* Neither a grep nor a
+   > reading of the mechanism can settle a survival claim; only running the fixture can.
+
 `gated-seed` additionally asserts that the first arm's peer id **is** the one the planted seed
 implies, so a mis-plant fails as *the adoption never happened* rather than as a bare id
 mismatch two arms later. `owner-domain-tabs` plants **three distinct** seeds, because its three

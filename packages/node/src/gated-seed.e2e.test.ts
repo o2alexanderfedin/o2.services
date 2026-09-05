@@ -95,6 +95,7 @@ import { identityFromSeed, nodeKeyForPeerId } from '@o2/libp2p'
 import type { IdentityProtection } from '@o2/libp2p'
 import { RpcRecordIndex, encodeRequest, parseResponse } from '@o2/net'
 import { launchFixtureBrowser, plantLegacyIdentitySeed } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 import { SeedServer } from './seed-server.ts'
 
@@ -441,10 +442,13 @@ async function openTab(engine: string, type: BrowserType): Promise<{ browser: Br
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
   // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor clicks
   // the button, and `discoverRelays` is gated behind it because reading `/bootstrap.json` is
-  // a network request.
-  await page.evaluate(() => {
-    window.o2.grantConsent()
-  })
+  // a network request. AUTH-06, `42-06`: it signs in for the same reason too, because
+  // `window.o2.start` refuses with `SignedOutError` until somebody has opened their own
+  // envelope — and it refuses BEFORE the identity store is touched, which is why `42-03`'s
+  // claim that its planted seed survived `42-04` was false. Registering here opens the
+  // DEFAULT identity database; the seed this file plants lives under its own
+  // `blockstoreName`, so `startTabNode` still adopts exactly the seed that was planted.
+  await signInHarnessTab(page)
   return { browser, page }
 }
 

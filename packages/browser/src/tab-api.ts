@@ -657,6 +657,56 @@ export interface TabApi {
   grantConsent(options?: { reporting?: boolean }): TabConsentState
   /** Forget the consent. The gate reappears, and any running node is stopped. */
   revokeConsent(): Promise<TabConsentState>
+  /**
+   * Choose a passphrase, and become a node this browser can be again tomorrow — AUTH-06.
+   *
+   * The owner ruled on 2026-09-04 that *register* means a **local passphrase**: no email, no
+   * account database, no server, no third-party identity provider. So this is not a sign-up.
+   * It mints a seed, seals it under a key derived from the passphrase, and writes the
+   * envelope to this origin's identity database. Nothing leaves the device and there is
+   * nobody to ask for it back.
+   *
+   * ## This is the harness equivalent of the control, not a bypass
+   *
+   * The precedent is `demo/main.ts:16`, about the gate: *"A harness calls
+   * `window.o2.grantConsent()` for the same reason a visitor clicks the button."* This does
+   * exactly what filling the two fields and pressing the button does — the same length check,
+   * the same derivation, the same envelope — and it is here so a test can drive the journey
+   * without typing into a form. It grants nothing the form does not.
+   *
+   * **{@link autoStart} still grows no passphrase parameter, and must not.** `demo/main.ts`
+   * states the rule: *a page that was found rather than configured must not be configurable
+   * by whatever found it*, and a passphrase is the last thing that rule should be relaxed
+   * for. The difference is who supplies the value: here it is the visitor, at the surface
+   * they are looking at; there it would be whatever found the page.
+   *
+   * ## What it does NOT do
+   *
+   * It does not start a node, and it does not need a network. Every act is an IndexedDB act,
+   * so it succeeds on a static host with no relay — which is four of this repository's own
+   * e2e fixtures. The page attempts the start immediately afterwards and paints a failure
+   * into `#state`; a visitor whose envelope opened is signed in either way.
+   *
+   * Rejects with `WeakPassphraseError` below {@link PASSPHRASE_MIN_LENGTH} characters.
+   *
+   * **The passphrase is never persisted, never logged, never put in a URL and never added to
+   * the funnel's payload.** It lives in one module-scoped variable for one visit.
+   */
+  register(passphrase: string): Promise<{ readonly peerId: string }>
+  /**
+   * Enter the passphrase chosen before, and be the same node — AUTH-06, criterion 3.
+   *
+   * {@link register}'s counterpart, and the difference is the only thing that matters about
+   * it: **an empty database is a refusal here, not a registration.** A login that quietly
+   * created an identity would turn a visitor who typed their passphrase into a browser that
+   * had been cleared into a *new* node wearing the same intention — the silent re-mint
+   * criterion 4 forbids, arriving through a door criterion 4 was not looking at.
+   *
+   * A wrong passphrase rejects with `SealedIdentityUnlockError` and **changes nothing**: no
+   * record is written, no record is deleted, and the correct passphrase afterwards still
+   * opens the original identity.
+   */
+  unlock(passphrase: string): Promise<{ readonly peerId: string }>
   /** BROW-04. Null when no node is running. */
   activity(): TabActivity | null
   /**

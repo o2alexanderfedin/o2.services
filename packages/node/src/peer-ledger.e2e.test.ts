@@ -20,6 +20,7 @@ import { publishStartOutcome } from '@o2/net'
 // globals and no libp2p.
 import { browserLabel, identifyBrowser } from '../../browser/src/browser-id.ts'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -277,12 +278,13 @@ async function openTab(options: {
     // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor
     // clicks the button. The reporting flag is the visitor's second choice and is the only
     // difference between the declining tab and the rest.
+    // AUTH-06, `42-06`: signing in is the same kind of act, because `window.o2.start`
+    // refuses with `SignedOutError` until somebody has opened their own envelope. The
+    // reporting answer travels with it, so the declining tab still declines.
+    await signInHarnessTab(page, { reporting: options.reporting === true })
     const joined = await page.evaluate(
-      async ([store, reporting]) => {
-        window.o2.grantConsent(reporting === true ? { reporting: true } : {})
-        return window.o2.autoStart({ blockstoreName: store as string })
-      },
-      [`peer-ledger-${options.name}`, options.reporting] as const,
+      async (store: string) => window.o2.autoStart({ blockstoreName: store }),
+      `peer-ledger-${options.name}`,
     )
 
     const addrs = await page.evaluate(async () => window.o2.waitForWebrtcAddr(90_000))

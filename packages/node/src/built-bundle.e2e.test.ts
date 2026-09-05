@@ -10,6 +10,7 @@ import { chromium } from 'playwright'
 import type { Browser } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -110,9 +111,11 @@ async function consent(page: import('playwright').Page): Promise<void> {
     timeout: 30_000,
   })
   await page.click('#allow')
-  await page.waitForFunction(() => document.getElementById('main')?.hasAttribute('hidden') === false, null, {
-    timeout: 30_000,
-  })
+  // `42-04` moved the door: `#allow` reveals `#signin`, and `#main` is what UNLOCK reveals.
+  // This file runs against the BUILT bundle, so it is also where `#signin` is proved to
+  // survive bundling — the section, its controls and the inline module script's relative
+  // imports all have to resolve off the emitted files for this call to return at all.
+  await signInDemoTab(page)
 }
 
 describe('BROW-01 — nothing runs, and nothing is contacted, before consent', () => {
@@ -271,8 +274,20 @@ describe('BROW-01 — nothing runs, and nothing is contacted, before consent', (
     await page.waitForTimeout(1_000)
 
     expect(requested.filter((url) => url.includes('bootstrap.json'))).toEqual([])
-    expect(await page.isDisabled('#join')).toBe(true)
     expect(await page.evaluate(() => window.o2.activity())).toBeNull()
+    // `#join` is still disabled, and it is still inside a `#main` that was never revealed.
+    expect(await page.isDisabled('#join')).toBe(true)
+    expect(await page.isVisible('#main')).toBe(false)
+    // **And this is where *you cannot start* now lives — `42-04`.** A visitor who declines
+    // lands on `#signin` with the whole entry surface frozen, rather than on a blank page:
+    // the screen says nothing is running and says why, and neither control can be pressed.
+    // Reading a disabled `#join` inside a hidden `#main` is true but says nothing a visitor
+    // could see, so the reading a visitor could see is asserted beside it.
+    expect(await page.isVisible('#signin')).toBe(true)
+    expect(await page.isDisabled('#signin-passphrase')).toBe(true)
+    expect(await page.isDisabled('#signin-register')).toBe(true)
+    expect(await page.isDisabled('#signin-login')).toBe(true)
+    expect(await page.textContent('#signin-headline')).toBe('Nothing is running')
 
     await page.close()
   }, 180_000)
@@ -375,11 +390,11 @@ describe('the built bundle on a static host', () => {
     expect(discovery.source).toBe('query')
     expect(discovery.relayAddrs).toEqual([relayAddr])
 
-    // The button is offered, and pressing it produces a real reservation.
-    await page.waitForFunction(() => document.getElementById('join')?.hasAttribute('disabled') === false, null, {
-      timeout: 30_000,
-    })
-    await page.click('#join')
+    // **Unlocking produces a real reservation — `42-04`.** The press this case used to make
+    // is gone rather than replaced: `revealMain` offers `#join` and then starts the node
+    // itself, because this page was served with a relay in its query string, so the control
+    // is disabled again before a harness could reach it. What the case reads is unchanged —
+    // a `live` tone off the built bundle, and a reservation the relay actually granted.
     await page.waitForFunction(
       () => document.getElementById('state')?.dataset['tone'] === 'live',
       null,

@@ -119,13 +119,21 @@ describe('BROW-09 — the disclosure is on screen before the opt-in control can 
     // And only now is it pressed. What follows is the ordinary path and is asserted so the
     // case cannot pass on a gate that shows everything and does nothing.
     await page.click('#allow')
+    // **What answering the gate reveals is `#signin`, not `#main` — `42-04`.** The ordering
+    // this file is about is unchanged and is if anything longer: the gate is still the first
+    // thing on screen, still answered before anything else is offered, and now what follows
+    // it is an invitation to sign in rather than the workload surfaces themselves. The
+    // assertion above — `#main` is not visible BEFORE consent — is untouched and is still
+    // the one that carries BROW-01.
     await page.waitForFunction(
-      () => document.getElementById('main')?.hasAttribute('hidden') === false,
+      () => document.getElementById('signin')?.hasAttribute('hidden') === false,
       null,
       { timeout: 30_000 },
     )
-    expect(await page.isVisible('#main')).toBe(true)
+    expect(await page.isVisible('#signin')).toBe(true)
     expect(await page.isVisible('#gate')).toBe(false)
+    // And `#main` is STILL not on screen: consent alone does not open the workload surfaces.
+    expect(await page.isVisible('#main')).toBe(false)
 
     await page.close()
   }, 180_000)

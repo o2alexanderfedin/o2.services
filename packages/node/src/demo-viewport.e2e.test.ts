@@ -8,6 +8,7 @@ import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -298,17 +299,10 @@ async function openAt(viewport: (typeof VIEWPORTS)[number]): Promise<Page> {
   // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor
   // clicks the button.
   await page.click('#allow')
-  await page.waitForFunction(
-    () => document.getElementById('main')?.hasAttribute('hidden') === false,
-    null,
-    { timeout: 30_000 },
-  )
-  await page.waitForFunction(
-    () => document.getElementById('join')?.hasAttribute('disabled') === false,
-    null,
-    { timeout: 60_000 },
-  )
-  await page.click('#join')
+  // `42-04` moved the door: `#allow` reveals `#signin`, and `#main` is what UNLOCK reveals.
+  // **No `#join` click afterwards.** The relay arrives in this page's query string, so
+  // `revealMain` starts the node on unlock and disables the control while it does.
+  await signInDemoTab(page)
   // The bar appears because a node EXISTS, not because the join handler finished — it
   // goes on waiting for a WebRTC address afterwards, and BROW-04 does not wait with it.
   await page.waitForSelector('#bar', { state: 'visible', timeout: 120_000 })

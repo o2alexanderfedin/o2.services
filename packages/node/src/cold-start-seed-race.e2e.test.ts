@@ -99,6 +99,20 @@ import { FabricNode } from './fabric-node.ts'
  * consent, so `armTab` no longer clicks `#allow`. That was never part of the subject —
  * `demo/main.ts` writes the consent record, and the seed is minted by `start`.
  *
+ * **And the same is true of the sign-in surface `42-04` added, which is why this file is not
+ * in `42-06`'s sweep.** Thirty-seven e2e files had to learn the demo page's new front door;
+ * this one does not have that door, because it does not use that page. It passes its own
+ * `identityProtection` to `BrowserNode.start` directly — its own passphrase, chosen here —
+ * so it never calls the page's registration control, never sees `#signin`, and was green through
+ * `42-04` while every fixture that drives the demo page was red. A mechanical edit that put
+ * a page-level registration in this file would be editing the wrong subject.
+ *
+ * What the sign-in surface DOES change is how much this file's reading matters. Under
+ * `writes-no-new-secret` a demo tab minted a fresh key every visit, so *"N tabs of one
+ * origin hold ONE identity"* was a property of this harness and of nothing a visitor
+ * touched. Since `42-04` a visitor's tab seals and reuses one, so the property this file
+ * pins is the visitor's property again.
+ *
  * ## What this file does not claim
  *
  * One host, one chromium, one profile. These are N tabs of one browser and not N devices —

@@ -71,6 +71,7 @@ import type { FunnelStage } from '@o2/net'
 // symbol in front of `reachability-guard.node.test.ts` for the benefit of no consumer.
 import { FUNNEL_ARMING } from '../../browser/src/funnel-reporter.ts'
 import { fixtureViteCacheDir } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 
 const CLOUDFLARE_DIR = fileURLToPath(new URL('../../cloudflare', import.meta.url))
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -353,8 +354,10 @@ describe('criterion 2 — one induced failure, one drop counter', () => {
       // about attribution.
       const dead = `/ip4/${HOST}/tcp/${String(DEAD_PORT)}/ws/p2p/${arm.peerId}`
       await visit(arm, dead, async (page) => {
+        // AUTH-06, `42-06`. Signing in enters no funnel stage — `armFunnel` is called from
+        // `api.start` — so what this arm attributes is unchanged.
+        await signInHarnessTab(page)
         await page.evaluate(async ([relay]) => {
-          window.o2.grantConsent()
           try {
             await window.o2.start({ relayAddrs: [relay as string], blockstoreName: 'o2-arm-3' })
           } catch {
@@ -384,8 +387,8 @@ describe('criterion 2 — one induced failure, one drop counter', () => {
 
       const relay = relayAddr(arm)
       await visit(arm, relay, async (page) => {
+        await signInHarnessTab(page)
         await page.evaluate(async ([one]) => {
-          window.o2.grantConsent()
           return window.o2.start({ relayAddrs: [one as string], blockstoreName: 'o2-arm-4' })
         }, [relay])
         // One tab and one relay: no browser-to-browser dial is attempted, so no ICE gathering
@@ -434,11 +437,10 @@ describe('criterion 2 — a third stall stage, which takes two tabs to reach', (
           pages.map(async (page) => {
             await page.goto(pageUrl(arm, relay))
             await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+            await signInHarnessTab(page)
             return page.evaluate(
-              async ([one]) => {
-                window.o2.grantConsent()
-                return window.o2.start({ relayAddrs: [one as string], blockstoreName: 'o2-arm-5' })
-              },
+              async ([one]) =>
+                window.o2.start({ relayAddrs: [one as string], blockstoreName: 'o2-arm-5' }),
               [relay],
             )
           }),
@@ -500,8 +502,8 @@ describe('criterion 2 — a link with no funnel parameter, which is the link tha
 
       const relay = relayAddr(arm)
       await visitUrl(bareLinkUrl(relay), async (page) => {
+        await signInHarnessTab(page)
         await page.evaluate(async ([one]) => {
-          window.o2.grantConsent()
           return window.o2.start({ relayAddrs: [one as string], blockstoreName: 'o2-arm-6' })
         }, [relay])
         await sleep(3_000)

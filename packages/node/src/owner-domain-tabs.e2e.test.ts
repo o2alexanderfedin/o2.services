@@ -16,6 +16,7 @@ import {
   launchFixtureBrowser,
   plantLegacyIdentitySeed,
 } from './e2e-browser-launch.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -304,11 +305,34 @@ async function openEnrolledTab(name: string, blockstoreName: string): Promise<st
   // BROW-01 has no test-only bypass — this is the real control a visitor presses. Only the
   // first tab of the profile is shown it.
   if (await page.isVisible('#gate')) await page.click('#allow')
+  // AUTH-06, `42-06`. `#allow` reveals `#signin`, and `#main` — which holds `#enrol` — is
+  // what UNLOCK reveals. Unlike the gate, the sign-in step is NOT conditional: the
+  // passphrase is held in page memory for one visit, so every page load asks again, and the
+  // second and third tabs of this profile log in against the envelope the first one sealed.
+  await signInDemoTab(page, { timeout: TAB_BUDGET_MS })
+
+  // ---- The node the PAGE started, and why this fixture cannot use it — `42-06`.
+  //
+  // Since `42-04` unlocking reveals `#main` and `revealMain` then starts a node itself, with
+  // `autoStart({})` — the DEFAULT blockstore. All three tabs of this fixture share one
+  // origin, so all three of those would be ONE node under one identity, which is exactly what
+  // `blockstoreName` exists to prevent here and what this file's placement and quorum
+  // readings depend on not happening.
+  //
+  // So the page's own node is allowed to come up, waited for on a FACT rather than a timer —
+  // `#state` settles on `live` or on `blocked`, and both are terminal — and then stopped.
+  // Every start below is this fixture's own, under its own store. Two starts in one tab is
+  // two `BrowserNode`s racing for one reservation, so this is a sequencing requirement rather
+  // than tidiness.
   await page.waitForFunction(
-    () => document.getElementById('main')?.hasAttribute('hidden') === false,
+    () => {
+      const tone = document.getElementById('state')?.dataset['tone']
+      return tone === 'live' || tone === 'blocked'
+    },
     null,
     { timeout: TAB_BUDGET_MS },
   )
+  await page.evaluate(async () => window.o2.stop())
 
   // The origin must have named a provider before there is anything to accept.
   await expect
@@ -371,11 +395,34 @@ async function openEnrolledTab(name: string, blockstoreName: string): Promise<st
   // So the reload stays for what it does honestly represent and claims nothing more.
   await page.reload()
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: TAB_BUDGET_MS })
+  // **A reload signs this tab out, and that is the design rather than a wrinkle** — `42-04`
+  // holds the passphrase in page memory for one visit precisely so that a device left open
+  // does not stay unlocked. The consent record survives in storage, so this reload lands on
+  // `#signin` in its LOGIN shape; `signInDemoTab` reads which shape it is off the page.
+  await signInDemoTab(page, { timeout: TAB_BUDGET_MS })
+
+  // ---- The node the PAGE started, and why this fixture cannot use it — `42-06`.
+  //
+  // Since `42-04` unlocking reveals `#main` and `revealMain` then starts a node itself, with
+  // `autoStart({})` — the DEFAULT blockstore. All three tabs of this fixture share one
+  // origin, so all three of those would be ONE node under one identity, which is exactly what
+  // `blockstoreName` exists to prevent here and what this file's placement and quorum
+  // readings depend on not happening.
+  //
+  // So the page's own node is allowed to come up, waited for on a FACT rather than a timer —
+  // `#state` settles on `live` or on `blocked`, and both are terminal — and then stopped.
+  // Every start below is this fixture's own, under its own store. Two starts in one tab is
+  // two `BrowserNode`s racing for one reservation, so this is a sequencing requirement rather
+  // than tidiness.
   await page.waitForFunction(
-    () => document.getElementById('main')?.hasAttribute('hidden') === false,
+    () => {
+      const tone = document.getElementById('state')?.dataset['tone']
+      return tone === 'live' || tone === 'blocked'
+    },
     null,
     { timeout: TAB_BUDGET_MS },
   )
+  await page.evaluate(async () => window.o2.stop())
 
   const cleared = await page.evaluate(
     async (store) => window.o2.autoStart({ blockstoreName: store }),

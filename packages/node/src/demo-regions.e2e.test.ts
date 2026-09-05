@@ -18,6 +18,7 @@ import type { Region } from '../../browser/src/demo-regions.ts'
 import { ATTESTATION_HOOK, absenceSentences, methodOf, p6, p7, p8 } from './demo-region-properties.ts'
 import type { DomRegion } from './demo-region-properties.ts'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 
 /**
  * The anti-placeholder guard — UI-SPEC section 9's P1, P2, P3, P4, P6, P7 and P8.
@@ -98,6 +99,8 @@ interface PageSnapshot {
   readonly undeclared: readonly UndeclaredText[]
   readonly o2Keys: readonly string[]
   readonly barVisible: boolean
+  /** How many `[data-region]` elements `42-04`'s `#signin` section declares. Must be `0`. */
+  readonly signinRegions: number
   readonly attestationHook: string | null
 }
 
@@ -356,7 +359,11 @@ describe('the page, with the fabric stopped', () => {
     await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 30_000 })
     // BROW-01 has no test-only bypass: a harness consents by pressing the button.
     await page.click('#allow')
-    await page.waitForSelector('#main', { state: 'visible', timeout: 30_000 })
+    // `42-04` moved the door: `#allow` reveals `#signin`, and `#main` is what UNLOCK reveals.
+    // This page is served without a `?relay=`, so `revealMain` finds nothing to dial and
+    // `#state` settles on `blocked` — which is why the wait below is still reachable and
+    // still means what it meant.
+    await signInDemoTab(page)
     await page.waitForFunction(
       () => document.getElementById('state')?.dataset['tone'] === 'blocked',
       null,
@@ -411,6 +418,13 @@ describe('the page, with the fabric stopped', () => {
         undeclared,
         o2Keys: Object.keys(window.o2),
         barVisible: bar !== null && !bar.hidden,
+        // `42-06`. The `regions` query above is DOCUMENT-wide while the undeclared-text
+        // walker is `#main`-rooted, so a `[data-region]` inside `42-04`'s `#signin` section
+        // would enumerate into the catalogue comparison from outside the surface the
+        // catalogue is about. `-1` rather than `0` when the section is missing, so an absent
+        // `#signin` fails the reading instead of satisfying it.
+        signinRegions:
+          document.getElementById('signin')?.querySelectorAll('[data-region]').length ?? -1,
         attestationHook: hook === undefined || hook === null ? null : JSON.stringify(hook),
       }
     }, ATTESTATION_HOOK)
@@ -421,6 +435,18 @@ describe('the page, with the fabric stopped', () => {
     await browser?.close().catch(() => {})
     await server?.close().catch(() => {})
   }, 60_000)
+
+  it('P1a-signin — the entry surface declares no region, so it cannot enumerate into P1a', () => {
+    // `42-04` put a whole section on this page that is NOT one of UI-SPEC's surfaces. It is
+    // outside `#main`, so the undeclared-text walker never sees it — but `regions` above is
+    // a document-wide query, so a `data-region` added there later WOULD arrive in P1a and
+    // P1b as an uncatalogued region of a surface that does not exist. This is the assertion
+    // that keeps that from happening quietly.
+    expect(
+      snapshot.signinRegions,
+      '#signin declares a [data-region], which enumerates into P1a from outside every wired surface',
+    ).toBe(0)
+  })
 
   it('P1a — every [data-region] element on the page is in the catalogue', () => {
     const undeclared = snapshot.regions

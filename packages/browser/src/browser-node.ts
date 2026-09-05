@@ -1048,6 +1048,131 @@ export async function enrolledIssuer(blockstoreName?: string): Promise<PublicKey
  * owner. `enrolledIssuer` has carried that shape since Phase 22 and states why it is right
  * rather than merely tolerable.
  */
+/**
+ * Which invitation this origin's visitor is owed — AUTH-06, plan `42-04`.
+ *
+ * {@link enrolledIssuer}'s shape exactly, reading a different record of the same database:
+ * open the default identity store for this origin, ask it one question, close it. The name
+ * is derived here rather than by the caller for the reason {@link DEFAULT_BLOCKSTORE_NAME}
+ * exists at all — *two copies of a database name is a defect that presents as a node with no
+ * identity rather than as an error.*
+ *
+ * It writes nothing and opens no envelope, so a page may call it before a visitor has typed
+ * anything. That is the whole point: *which field do I show you* precedes the passphrase.
+ */
+export async function storedIdentityKind(
+  blockstoreName?: string,
+): Promise<'none' | 'sealed' | 'legacy-plaintext'> {
+  const store = await IdbIdentityStore.open(
+    identityStoreName(blockstoreName ?? DEFAULT_BLOCKSTORE_NAME),
+  )
+  try {
+    return await store.storedSeedKind()
+  } finally {
+    store.close()
+  }
+}
+
+/**
+ * Destroy this origin's stored identity — T-42-24, the escape hatch behind *start over*.
+ *
+ * {@link storedIdentityKind}'s shape, writing where that one reads. It exists because a
+ * forgotten passphrase is otherwise a permanent lockout: the seal is against an offline
+ * attacker holding a disk image, so a recovery path would be a second way in and would
+ * defeat the thing it is a recovery for. There is no server, no account and no third party
+ * holding anything of this visitor's — the one party that ever saw anything, an enrolment
+ * provider, saw a signature over the **public** half — so there is nothing anywhere to
+ * recover from and nothing here can invent one.
+ *
+ * **The cost is the visitor's to accept, and the surface must say what it is** before this is
+ * reached: they become a different node, they must enrol again, and the certificate the old
+ * key holds is abandoned. The difference between this act and the defect criterion 4 forbids
+ * is not the outcome — both end with a different node — it is **who decided, and whether they
+ * were told**.
+ */
+export async function forgetIdentity(blockstoreName?: string): Promise<void> {
+  const store = await IdbIdentityStore.open(
+    identityStoreName(blockstoreName ?? DEFAULT_BLOCKSTORE_NAME),
+  )
+  try {
+    await store.forgetStoredIdentity()
+  } finally {
+    store.close()
+  }
+}
+
+/**
+ * Open this origin's identity under a passphrase, without starting anything — AUTH-06.
+ *
+ * ## Why the sign-in surface cannot get here through `start`
+ *
+ * Sealing happens inside the node-start path, and a start needs a relay. Four e2e fixtures
+ * serve the demo page from a static host with **no relay at all** — `demo-regions` waits for
+ * `#state`'s tone to become `'blocked'` for exactly that reason — so if registering could
+ * only seal by starting a node, registering would fail on every one of them and the page
+ * would be unreachable behind its own entry screen. Every act below is an IndexedDB act, and
+ * every one of them succeeds offline.
+ *
+ * That is also what makes *"the node starts automatically"* honest rather than a slogan: what
+ * signs a visitor in is **opening their envelope**, and the start is attempted afterwards. A
+ * start that fails is a reported state on a page whose visitor is still signed in.
+ *
+ * ## It reuses {@link resolveProtectedSeed} rather than repeating its decisions
+ *
+ * The `sealedUnderSameKey` / `openWithKey` / `openSecret` order is a correctness property —
+ * *matching parameters plus a failed open **is** the wrong passphrase* — and two copies of it
+ * would drift. So this composes the same function `start` composes, with the same store, and
+ * the only thing it does differently is stop before libp2p exists.
+ *
+ * `whenAbsent` is the difference between the two controls the page renders. **Register**
+ * mints and seals; **log in** refuses, because a login that quietly created an account is a
+ * login that turns a mistyped passphrase into a second identity — which is criterion 4's
+ * failure arriving through a door criterion 4 was not looking at.
+ *
+ * A wrong passphrase throws {@link SealedIdentityUnlockError}. No branch below mints on that
+ * path: a record that is present and does not open is not an absent record.
+ */
+export async function unsealIdentity(options: {
+  readonly passphrase: string
+  readonly blockstoreName?: string
+  readonly whenAbsent: 'mints-and-seals-a-new-identity' | 'refuses-to-mint'
+}): Promise<NodeIdentity> {
+  const protection: IdentityProtection = { kind: 'passphrase', passphrase: options.passphrase }
+  // Before anything is derived, so a short passphrase costs a string length rather than an
+  // Argon2id derivation and its refusal cannot be confused with a decryption failure.
+  assertUsablePassphrase(protection)
+  const store = await IdbIdentityStore.open(
+    identityStoreName(options.blockstoreName ?? DEFAULT_BLOCKSTORE_NAME),
+  )
+  try {
+    const salt = await store.loadOrCreateSalt()
+    const binding: SealBinding = {
+      salt,
+      key: await deriveSealKey(options.passphrase, salt, DEFAULT_KDF_PARAMS),
+    }
+    const held = await resolveProtectedSeed({
+      store,
+      protection,
+      binding,
+      legacy: async () => store.legacyPlaintextSeed(),
+      sealed: async (bound, mint) =>
+        store.loadOrMintSealedSeed(bound.key, DEFAULT_KDF_PARAMS, bound.salt, mint),
+      mint: () => {
+        if (options.whenAbsent === 'refuses-to-mint') {
+          throw new Error(
+            `no identity in ${store.name}: there is nothing here for a passphrase to open, so `
+              + 'this browser has not registered yet',
+          )
+        }
+        return generateSeed()
+      },
+    })
+    return identityFromSeed(held.seed)
+  } finally {
+    store.close()
+  }
+}
+
 export async function enrolledUserKey(blockstoreName?: string): Promise<PublicKeyHex | null> {
   const store = await IdbIdentityStore.open(
     identityStoreName(blockstoreName ?? DEFAULT_BLOCKSTORE_NAME),

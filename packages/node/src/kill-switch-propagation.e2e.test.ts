@@ -67,6 +67,7 @@ import {
   PROPAGATION_WINDOW_MS,
 } from '../../browser/src/propagation-window.ts'
 import { fixtureViteCacheDir } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const CLOUDFLARE_DIR = fileURLToPath(new URL('../../cloudflare', import.meta.url))
@@ -225,9 +226,11 @@ async function measureArm(intervalMs: number): Promise<ArmReading> {
     const page = await context.newPage()
     await page.goto(`${baseUrl}${PAGE}?relay=${encodeURIComponent(address)}`)
     await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+    // BROW-01 / AUTH-06: a harness consents and signs in for the same reasons a visitor
+    // presses the two controls — see `signInHarnessTab`.
+    await signInHarnessTab(page)
     await page.evaluate(
       async ([addr, name, poll]) => {
-        window.o2.grantConsent()
         return window.o2.start({
           relayAddrs: [addr as string],
           blockstoreName: name as string,

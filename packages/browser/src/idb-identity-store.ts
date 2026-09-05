@@ -259,6 +259,40 @@ export class IdbIdentityStore {
   }
 
   /**
+   * What this database holds for a **node identity**, in one read — AUTH-06, plan `42-04`.
+   *
+   * The sign-in surface needs this and nothing else: which of three invitations a visitor is
+   * owed. *Register* when the database is empty, *log in* when it holds an envelope, and the
+   * adopt notice when it still holds a pre-AUTH-06 record in the clear.
+   *
+   * **A reader, and deliberately only a reader.** It opens no envelope, derives no key and
+   * writes nothing, so a page can call it before a visitor has typed anything — which is the
+   * whole point, since the question *"which field do I show you"* precedes the passphrase.
+   * `42-03` records what an instrument that writes costs: a reader that opened IndexedDB
+   * without a version created the database it claimed to measure, and every later
+   * transaction on it threw.
+   *
+   * **Sealed wins over plaintext**, and the order is not cosmetic. A database holding both
+   * is the state a tab that crashed between the migrating `put` and the `delete` would be
+   * in — `loadOrMintSealedSeed`'s one transaction makes that unreachable, and if it ever
+   * happened anyway the envelope is the record that opens, so the visitor is asked to log in
+   * rather than invited to register over an identity they still have.
+   */
+  async storedSeedKind(): Promise<'none' | 'sealed' | 'legacy-plaintext'> {
+    const tx = this.#db.transaction(IDENTITY_STORE, 'readonly')
+    const sealed = await tx.store.get(SEALED_SEED_KEY)
+    const legacy = await tx.store.get(SEED_KEY)
+    await tx.done
+    // Narrowed by what the record IS rather than by its key being occupied: a `Uint8Array`
+    // under the sealed key is not an envelope, and an envelope under the legacy key is not a
+    // plaintext seed. Either would be a key collision, and answering off the key name alone
+    // would send a visitor to the wrong field for it.
+    if (sealed !== undefined && !(sealed instanceof Uint8Array)) return 'sealed'
+    if (legacy instanceof Uint8Array) return 'legacy-plaintext'
+    return 'none'
+  }
+
+  /**
    * This database's Argon2id salt, created once and then read on every later start.
    *
    * Its own small `readwrite` transaction, for the reason {@link loadOrMintSealedSeed}
@@ -387,6 +421,33 @@ export class IdbIdentityStore {
     // cannot be without one — `parseCertificate` refuses one that is.
     if (!('nodeKey' in value)) return null
     return value
+  }
+
+  /**
+   * Delete every long-lived secret this database holds, in one transaction — T-42-24.
+   *
+   * The escape hatch behind *start over*, and the only thing on this page that destroys an
+   * identity on purpose. **One transaction**, for {@link loadOrMintSealedSeed}'s reason
+   * turned around: a partial delete would leave a database holding a salt and a provider key
+   * for a node seed that no longer exists, and the next start would seal a NEW seed under the
+   * OLD salt — a state nothing in this file's seven-cell matrix describes.
+   *
+   * **The certificate is deliberately not deleted**, and the precedent is `declineEnrolment`
+   * in `demo/main.ts`, in its own words: *it names a key that no longer exists here, so
+   * `resolveCertificate`'s own identity check refuses it on the next start, and deleting
+   * somebody else's signed statement is not this page's business.* A provider signed a
+   * statement about a node; that this browser threw the node away does not make the statement
+   * this code's to destroy.
+   *
+   * Both plaintext keys go too. A start-over that left a pre-AUTH-06 record behind would hand
+   * the next start the very identity the visitor just chose to abandon.
+   */
+  async forgetStoredIdentity(): Promise<void> {
+    const tx = this.#db.transaction(IDENTITY_STORE, 'readwrite')
+    for (const key of [SEALED_SEED_KEY, SEED_KEY, SEALED_PROVIDER_KEY, PROVIDER_KEY, SALT_KEY]) {
+      await tx.store.delete(key)
+    }
+    await tx.done
   }
 
   async saveCertificate(certificate: NodeCertificate): Promise<void> {

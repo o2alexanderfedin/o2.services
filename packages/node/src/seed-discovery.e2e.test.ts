@@ -7,6 +7,7 @@ import { chromium } from 'playwright'
 import type { Browser, BrowserContext } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 import { SeedServer, lanAddresses, localHostname, relayAddrForHost } from './seed-server.ts'
 
 /**
@@ -206,10 +207,12 @@ describe('a second device joins knowing only the URL', () => {
       expect(context_.subtle).toBe(false)
 
       // No relay address is passed in. The page asks its own origin.
-      const joined = await page.evaluate(async () => {
-        window.o2.grantConsent()
-        return window.o2.autoStart({ blockstoreName: 'lan-join' })
-      })
+      // BROW-01 / AUTH-06: a harness consents and signs in for the same reasons a visitor
+      // presses the two controls — see `signInHarnessTab`.
+      await signInHarnessTab(page)
+      const joined = await page.evaluate(async () =>
+        window.o2.autoStart({ blockstoreName: 'lan-join' }),
+      )
       expect(joined.relayAddrs[0]).toContain(`/ip4/${lanIp!}/tcp/${seed.wsPort}/ws`)
       expect(joined.relayAddrs[0]).toContain(seed.node.peerId)
 
@@ -246,10 +249,8 @@ describe('a lone visitor has a peer, which was a comment before it was true', ()
     })
     await page.goto(`http://127.0.0.1:${seed.httpPort}/packages/browser/demo/index.html`)
     await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
-    await page.evaluate(async () => {
-      window.o2.grantConsent()
-      return window.o2.autoStart({ blockstoreName: 'lone-visitor' })
-    })
+    await signInHarnessTab(page)
+    await page.evaluate(async () => window.o2.autoStart({ blockstoreName: 'lone-visitor' }))
 
     const found = await page.evaluate(async () => window.o2.connectDiscoveredPeers())
     expect(found.asked).toBe(true)
@@ -298,10 +299,11 @@ describe('two devices on one seed find each other with nobody dialling for them'
     for (const [i, page] of [first, second].entries()) {
       await page.goto(url)
       await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
-      const joined = await page.evaluate(async (store) => {
-        window.o2.grantConsent()
-        return window.o2.autoStart({ blockstoreName: store })
-      }, `rendezvous-${i}`)
+      await signInHarnessTab(page)
+      const joined = await page.evaluate(
+        async (store: string) => window.o2.autoStart({ blockstoreName: store }),
+        `rendezvous-${i}`,
+      )
       await page.evaluate(async () => window.o2.waitForWebrtcAddr(60_000))
       ids.push(joined.peerId)
     }

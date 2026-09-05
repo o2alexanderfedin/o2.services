@@ -55,6 +55,7 @@ import type { FunnelStage } from '@o2/net'
 import { KERNEL_RECORD, kernelBytes } from '@o2/demo'
 import type { TabNameRecord } from '@o2/browser'
 import { fixtureViteCacheDir } from './e2e-browser-launch.ts'
+import { registerHarnessTab, signInHarnessTab } from './e2e-signin.ts'
 
 const CLOUDFLARE_DIR = fileURLToPath(new URL('../../cloudflare', import.meta.url))
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -254,6 +255,11 @@ describe('RUN-04 criterion 1 — the counts are readable while the tab is still 
     ).toBe(1)
     expect(armed.entered['consent'], `criterion 1: stage two did not arrive — ${render(armed)}`).toBe(1)
 
+    // AUTH-06, `42-06`. Signed in HERE and not beside the consent above, because the two
+    // readings taken between them are about what the funnel does with a consent on its own.
+    // Registering enters no funnel stage — `armFunnel` is called from `api.start` — so what
+    // stage three below attributes is unchanged.
+    await registerHarnessTab(page)
     await page.evaluate(
       async ([relay]) =>
         window.o2.start({ relayAddrs: [relay as string], blockstoreName: 'o2-funnel-live' }),
@@ -356,11 +362,12 @@ describe('RUN-04 criterion 1 — the three stages a single tab cannot reach', ()
         pages.map(async (page) => {
           await page.goto(url)
           await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+          // BROW-01 / AUTH-06: a harness consents and signs in for the same reasons a
+          // visitor presses the two controls — see `signInHarnessTab`.
+          await signInHarnessTab(page)
           return page.evaluate(
-            async ([relay]) => {
-              window.o2.grantConsent()
-              return window.o2.start({ relayAddrs: [relay as string], blockstoreName: 'o2-funnel-live-2' })
-            },
+            async ([relay]) =>
+              window.o2.start({ relayAddrs: [relay as string], blockstoreName: 'o2-funnel-live-2' }),
             [address],
           )
         }),

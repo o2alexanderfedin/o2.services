@@ -167,6 +167,14 @@ import {
   utcHourPort,
 } from '../src/funnel-reporter.ts'
 import { onFirstIceGathering } from '../src/ice-observer-install.ts'
+// AUTH-06's visitor half — plan `42-04`, the owner's ruling of 2026-09-04. Relative and
+// **deliberately not through the barrel**, on the rule stated at `IdbCheckpoints` above and
+// for its stated reason: a barrel export whose only caller is inside the `window.o2` literal
+// is an exported-but-statically-unreachable symbol in front of
+// `reachability-guard.node.test.ts`, bought for nothing.
+import { forgetIdentity, storedIdentityKind, unsealIdentity } from '../src/browser-node.ts'
+import { SignedOutError } from '../src/signin.ts'
+import type { SigninInput } from '../src/signin.ts'
 import * as pid from '@libp2p/peer-id'
 // **`import type`, and the distinction matters here rather than being pedantry.** This file's
 // convention is that `CID` is reached through `await import('multiformats/cid')` — see
@@ -211,6 +219,66 @@ let declinedLocally = 0
  * about. Read `undefined` as "the question does not arise".
  */
 let runningWithProvider: string | null | undefined
+
+/**
+ * The visitor's passphrase, for **this visit and nowhere else** — AUTH-06, plan `42-04`.
+ *
+ * Never `localStorage`, never `sessionStorage`, never IndexedDB, never a URL, never a log,
+ * never the funnel reporter's payload. The funnel's schema is frozen and digest-guarded by
+ * `FUNNEL_SCHEMA_DIGEST`, so a field added there would redden `funnel-schema.test.ts`
+ * independently of anybody noticing — but the rule is that it must not be added at all, and
+ * the guard is a second line rather than the line.
+ *
+ * **What that costs, stated rather than discovered:** every fresh visit shows the login field
+ * again. *"Started automatically"* therefore means **no further click after unlock in this
+ * visit** — never a silent start on load, which would be a page that runs a node for somebody
+ * who has not opened their own envelope.
+ *
+ * The alternative was weighed and refused. A device-held wrapping key — a non-extractable
+ * WebCrypto key beside the ciphertext, no prompt on return — genuinely defeats *a copy of the
+ * identity database*: `exportKey` throws, and the database cannot be opened from another
+ * origin. It does **not** defeat an imaged device, because the wrapping key lives in the same
+ * browser profile as the ciphertext and unwraps whatever the image contains. AUTH-06's goal
+ * sentence is *"unreadable without my passphrase, so that losing the device does not also
+ * hand over the identity"*, and a mechanism a lost device hands over does not meet it.
+ */
+let heldPassphrase: string | null = null
+
+/**
+ * The identity resolution behind the two controls — register and log in.
+ *
+ * Both resolve **offline**, through `unsealIdentity`, which is IndexedDB and Argon2id and no
+ * network at all. That is a correctness requirement rather than an economy: sealing otherwise
+ * happens inside the node-start path, and four e2e fixtures serve this page from a static host
+ * with no relay, where a node can never come up. If registering could only seal by starting,
+ * this page would be unreachable behind its own entry screen on every one of them.
+ *
+ * The passphrase is held only after the envelope opened. A refusal leaves `heldPassphrase`
+ * exactly as it was, so a wrong attempt cannot arm the `identityProtection` arm below with a
+ * key that opens nothing.
+ */
+/**
+ * The passphrase this visit is signed in with, or a refusal that names itself.
+ *
+ * `requireConsent()`'s counterpart, one layer over: the gate says what the page may do, this
+ * says who is doing it. Both are re-read at the point of use rather than captured, so a state
+ * that changed since the page rendered is the state that applies.
+ */
+function requireSignIn(): string {
+  const held = heldPassphrase
+  if (held === null) throw new SignedOutError()
+  return held
+}
+
+async function openIdentity(
+  passphrase: string,
+  whenAbsent: 'mints-and-seals-a-new-identity' | 'refuses-to-mint',
+): Promise<{ readonly peerId: string }> {
+  const identity = await unsealIdentity({ passphrase, whenAbsent })
+  heldPassphrase = passphrase
+  notify()
+  return { peerId: identity.peerId }
+}
 
 // **`pageConsentStore` and not `localConsentStore`, and the difference is a refusal a
 // visitor could hit.** `requireConsent()` below does not use the value `grantConsent`
@@ -565,6 +633,68 @@ function stateOf(): TabConsentState {
   return found.ok
     ? { granted: true, version: DISCLOSURE_VERSION, reportingAllowed: found.consent.reportingAllowed }
     : { granted: false, gap: found.gap.kind, version: DISCLOSURE_VERSION, reportingAllowed: false }
+}
+
+/**
+ * Abandon the identity in this browser and become somebody else — T-42-24.
+ *
+ * The one way past a forgotten passphrase, and it is deliberately an **explicit act whose
+ * cost is written on the control that takes it**. `#signin-startover-cost` carries that
+ * sentence, and the surface reveals the control in the `refused` state and nowhere else — a
+ * page that offered *start over* to somebody who mistyped once is a page that will lose
+ * identities.
+ *
+ * The node is stopped first, for `revokeConsent`'s stated reason applied to this decision: a
+ * tab still running as the node it just abandoned is a tab whose surface disagrees with its
+ * own storage.
+ *
+ * **Exported here rather than added to `TabApi`** for `signinFacts`'s reason: `TabApi` grows
+ * exactly two methods in this plan, and a harness driving this journey clicks the control the
+ * visitor clicks.
+ */
+export async function startOver(): Promise<void> {
+  await api.stop()
+  // Cleared BEFORE the delete, not after. A rejection from `forgetIdentity` must not leave
+  // this page holding a passphrase for an identity it has begun destroying.
+  heldPassphrase = null
+  await forgetIdentity()
+  notify()
+}
+
+/**
+ * The three facts the entry surface cannot work out for itself — AUTH-06, plan `42-04`.
+ *
+ * `demo/index.html` composes a `SigninInput` from this plus the two facts it owns — whether
+ * the visitor pressed the control that declines, and the last refusal — and renders whatever
+ * `signinState` returns. The page derives its state; it does not set a flag in eight places.
+ *
+ * **Exported from this module rather than added to `TabApi`**, and the reason is the
+ * contract: `TabApi` grows exactly two methods in this plan, `register` and `unlock`, which
+ * are the harness equivalents of the two controls. This is not a control — it is the page
+ * reading its own driver, the same relationship `index.html` already has with `./nav.ts` and
+ * `./surfaces/*.ts`. An ES module imported twice under one specifier is one instance, so the
+ * `heldPassphrase` this reports on is the one `requireSignIn` reads.
+ *
+ * `consent` carries `readConsent`'s own vocabulary rather than a boolean, because *"you never
+ * asked me"* and *"the terms changed since you asked me"* are different things to tell a
+ * visitor.
+ */
+export async function signinFacts(): Promise<{
+  readonly consent: SigninInput['consent']
+  readonly stored: SigninInput['stored']
+  readonly unlocked: boolean
+}> {
+  const found = readConsent(store, DEMO_ANCHORS)
+  // The identity read is taken **after** the consent read and is reported beside it rather
+  // than gating on it, because `signinState` decides the ordering and this function must not
+  // hold a second opinion about it. It writes nothing: `storedIdentityKind` opens no envelope
+  // and derives no key, which is what lets it run before a visitor has typed anything.
+  const stored = await storedIdentityKind()
+  return {
+    consent: found.ok ? 'granted' : found.gap.kind,
+    stored,
+    unlocked: heldPassphrase !== null,
+  }
 }
 
 /**
@@ -1382,6 +1512,19 @@ const api: TabApi = {
     return stateOf()
   },
 
+  async register(passphrase) {
+    // AUTH-06 — the owner's ruling of 2026-09-04. A visitor chooses a passphrase; their
+    // identity is minted and sealed under it in this browser. No email, no account, no
+    // server, and nobody to ask it back from.
+    return openIdentity(passphrase, 'mints-and-seals-a-new-identity')
+  },
+
+  async unlock(passphrase) {
+    // `refuses-to-mint` is the whole difference from `register`: a login against an empty
+    // database is a refusal, never a quiet registration. See `TabApi.unlock`.
+    return openIdentity(passphrase, 'refuses-to-mint')
+  },
+
   async start(options) {
     // BROW-01 — **the return value is used, and that is the fix.** It is the same
     // `GrantedConsent` the gate rests on, so the node below is built from the record the
@@ -1596,34 +1739,47 @@ const api: TabApi = {
         // is exactly the wrong one for a node whose name other people have pinned — which
         // is why this is a value here and not a default in the factory.
         whenSeedIsGone: 'mints-a-new-identity',
-        // AUTH-06, and this line is the honest state of a visitor who has been asked
-        // nothing — **for now**, and `42-04` is where it changes.
+        // AUTH-06, and this is the visitor's own passphrase — the owner's ruling of
+        // 2026-09-04, built. Plan `42-04`.
         //
-        // A cold visitor has supplied no passphrase, so there is no key to seal anything
-        // with, and the only two things this page could do instead are both worse: write
-        // the seed in the clear, which is precisely the exposure AUTH-06 removes, or
-        // demand a passphrase from somebody who came here to look at a page. So this tab
-        // persists **no new secret**, and the cost is stated rather than implied: it comes
-        // back with a **different peer id** on its next visit, so peers holding its old
-        // address must rediscover it, and a certificate stored beside it is refused by its
-        // own identity check.
+        // **What stood here until this line, paraphrased and deliberately NOT quoted.**
+        // The page passed the arm that promises to write no new secret, because a visitor
+        // was asked for nothing, and the paragraph above it said `42-04` would ask at
+        // enrolment. The ruling superseded that: a visitor is asked on the way in, not at
+        // enrolment, and the two acts are not the same act. The old arm's literal is left
+        // unwritten on purpose — `consent.test.ts` reads THIS FILE'S RAW SOURCE for exactly
+        // one `identityProtection` arm and decides off it which of two disclosure sentences
+        // a visitor is owed, so quoting the retired one would set both arms present and
+        // report a page that had silently chosen a branch.
         //
-        // Two things this arm still does, and they are why it is not simply "off":
+        // **Registering is not enrolling, and a reader who conflates them will undo a real
+        // property.** Two words that both mean *sign up* in English name two unrelated acts:
         //
-        //   - a visitor who already had a plaintext seed from an older build **keeps it**.
-        //     It is adopted, reported once on the console by name, and never deleted —
-        //     deleting somebody's identity because they were not asked for a passphrase is
-        //     a worse outcome than the exposure it would close.
-        //   - the stored **certificate** is untouched, because it is public material and
-        //     deliberately unsealed. `enrolledIssuer` still answers from it, so a returning
-        //     visitor still pins the provider this origin enrolled with.
+        //   - **this line** authenticates a **person** to **their own browser**, with a
+        //     passphrase they chose, which is held in page memory for one visit and lives
+        //     nowhere else. There is nobody to ask it back from.
+        //   - **enrolment** (`#enrol`) authenticates a **node** to a **provider**, with a key
+        //     pair minted in this browser that this script cannot read.
+        //     `packages/core/src/enrollment.ts:44-47` states the property that must not be
+        //     undone: *"The private key never leaves the device… there is no code path here
+        //     that accepts, transports, or stores a private key."*
         //
-        // **`42-04` asks the visitor at ENROLMENT**, which is the moment the key acquires
-        // value, and this line becomes a passphrase then. Do not anticipate it here, and do
-        // not grow a `TabApi` parameter for it: a page that was found rather than
-        // configured must not be configurable by whatever found it, and a *passphrase* is
-        // the last thing that rule should be relaxed for.
-        identityProtection: { kind: 'writes-no-new-secret' },
+        // **Neither credential may reach the other.** This passphrase must never be passed to
+        // anything under `packages/core/src/enrollment.ts`, and the enrolment key must never
+        // be presented as a login. Enrolment stays where it is: a separate and optional act
+        // available to a signed-in visitor.
+        //
+        // **`SignedOutError` and no fallback arm.** Falling through to
+        // `writes-no-new-secret` when nobody has signed in would be the silent re-mint
+        // criterion 4 forbids, arriving from the UI instead of from the store: a working tab,
+        // a peer id nobody expected, an orphaned certificate, and nothing anywhere saying so.
+        //
+        // `autoStart` grows **no** passphrase parameter, for the reason this file already
+        // gives about `trustAnchors` and `enrollment`: a page that was found rather than
+        // configured must not be configurable by whatever found it, and a passphrase is the
+        // last thing that rule should be relaxed for. The value here comes from the visitor,
+        // at the surface they are looking at, and can come from nowhere else.
+        identityProtection: { kind: 'passphrase', passphrase: requireSignIn() },
         rpcTimeoutMs: 60_000,
         // Conditional spread, so an omitted option is genuinely absent and the factory's
         // own default is what applies — passing `undefined` explicitly would override it.

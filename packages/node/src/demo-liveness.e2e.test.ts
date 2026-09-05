@@ -19,6 +19,7 @@ import {
 } from './demo-region-properties.ts'
 import type { DomRegion } from './demo-region-properties.ts'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -197,13 +198,11 @@ async function openTab(name: string): Promise<Tab> {
   // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor clicks
   // the button, and it joins by pressing the button a visitor presses.
   await page.click('#allow')
-  await page.waitForSelector('#main', { state: 'visible', timeout: 30_000 })
-  await page.waitForFunction(
-    () => document.getElementById('join')?.hasAttribute('disabled') === false,
-    null,
-    { timeout: 60_000 },
-  )
-  await page.click('#join')
+  // `42-04` moved the door: `#allow` reveals `#signin`, and `#main` is what UNLOCK reveals.
+  await signInDemoTab(page)
+  // **No `#join` click since `42-04`.** The relay arrives in this page's query string, so
+  // `revealMain` starts the node on unlock and disables the control while it does. The wait
+  // is unchanged; only the press that used to precede it is gone.
   await page.waitForFunction(
     () => document.getElementById('state')?.dataset['tone'] === 'live',
     null,

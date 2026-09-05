@@ -9,6 +9,7 @@ import type { Browser, Page } from 'playwright'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { signInHarnessTab } from '../../node/src/e2e-signin.ts'
 
 /**
  * BROW-08, second half — the socket the operator is billed for closes with the tab.
@@ -272,13 +273,14 @@ describe('BROW-08 — Stop closes the connection the hosted tier is billed for',
     // not dial anything else.
     await page.goto(`${baseUrl}${PAGE}?relay=${encodeURIComponent(address)}`)
     await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+    // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor
+    // clicks the button. AUTH-06, `42-06`: it signs in for the same reason too, because
+    // `window.o2.start` refuses with `SignedOutError` until somebody has opened their own
+    // envelope. `signInHarnessTab` does both, in the order its header explains.
+    await signInHarnessTab(page)
     await page.evaluate(
-      async ([relay]) => {
-        // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor
-        // clicks the button.
-        window.o2.grantConsent()
-        return window.o2.start({ relayAddrs: [relay as string], blockstoreName: 'o2-billed-socket' })
-      },
+      async ([relay]) =>
+        window.o2.start({ relayAddrs: [relay as string], blockstoreName: 'o2-billed-socket' }),
       [address],
     )
 
