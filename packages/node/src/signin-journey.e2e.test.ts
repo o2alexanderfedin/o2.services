@@ -811,3 +811,102 @@ describe('T-42-20 — a visitor upgrading from an older build keeps the node the
     ).toBeNull()
   }, 300_000)
 })
+
+describe('42-07 — a visitor may look around before choosing a passphrase', () => {
+  /**
+   * The owner ruled on 2026-09-05 that a way to look first must exist.
+   *
+   * The barrier it answers is real and stays: `PASSPHRASE_MIN_LENGTH` does not move, because
+   * the attacker is offline holding a disk image and twenty characters is where the KDF's
+   * cost starts to matter. What moves is who pays it before they may see anything. The
+   * cohort is a few hundred testers in one group chat and it is spendable exactly once.
+   *
+   * **The last leg is the reading that carries this case.** Look around → Register →
+   * unlocked reveals `#main` for the SECOND time, and until `42-07` the once-only guard in
+   * `revealMain` returned before the three visibility assignments — so a visitor who looked
+   * around first and then registered would have landed on a blank page, with no error
+   * anywhere and nothing in any log. Nothing reached that path while unlock was the only way
+   * in, which is why it sat there unseen.
+   */
+  it('reveals the surfaces with nothing running, writes nothing, and still registers after', async () => {
+    const page = await visit(await freshContext())
+    await waitVisible(page, '#gate')
+    await page.click('#allow')
+    await waitVisible(page, '#signin')
+
+    // The invitation is still the invitation. The way past it is beside the act, not in
+    // front of it, and it is not offered to somebody who declined — that case is the unit
+    // spec's, because a decline is a state of this page rather than a journey through it.
+    await waitVisible(page, '#signin-lookaround')
+    await page.click('#signin-lookaround')
+
+    await waitVisible(page, '#main', 60_000)
+    await waitHidden(page, '#signin')
+    await waitVisible(page, '#lookaround-notice')
+
+    // `#state` says which thing is missing, and it is polled rather than read once because
+    // it is painted after discovery answers.
+    await page.waitForFunction(
+      () => (document.getElementById('state')?.textContent ?? '').includes('nobody has signed in'),
+      null,
+      { timeout: 60_000 },
+    )
+
+    // The control is DISABLED, not left to throw. `autoStart` without an unlocked identity
+    // raises `SignedOutError` by construction, and that refusal arriving through the page's
+    // blocked path would look like a broken page to precisely this visitor.
+    expect(
+      await page.locator('#join').isDisabled(),
+      'the Start control was pressable with nobody signed in, so the next press raises '
+        + 'SignedOutError and the visitor who came to look sees what reads as a broken page',
+    ).toBe(true)
+
+    // Nothing runs.
+    expect(
+      await page.evaluate(() => window.o2.activity()),
+      'a node came up for a visitor who has not signed in — which is the silent re-mint '
+        + 'AUTH-06 criterion 4 forbids, arriving from the entry surface instead of the store',
+    ).toBeNull()
+
+    // The readings are honest rather than empty: the page paints every surface at its named
+    // stopped sentence at boot, and that is what a look-around visitor is reading.
+    const report = (await page.locator('#fabric-report').textContent()) ?? ''
+    expect(
+      report,
+      'a surface a look-around visitor can read said nothing about being stopped, so either '
+        + 'the stopped sentences are gone or this reader is looking at the wrong element',
+    ).toMatch(/stopped/i)
+
+    // Nothing is written. The positive control for this absence is at the bottom of this
+    // same case: the identical reader is shown FINDING the sealed record once registration
+    // has happened, so a reader that could see nothing at all cannot pass both halves.
+    const looking = await identityDump(page)
+    expect(
+      looking.map((record) => record.key),
+      'looking around wrote a sealed identity for somebody who chose not to register',
+    ).not.toContain('node-seed-sealed')
+
+    // The way back, one press, as the notice beside it promises.
+    await page.click('#lookaround-signin')
+    await waitVisible(page, '#signin', 60_000)
+    await waitHidden(page, '#main')
+
+    // **The plant's case.** `#main` is revealed a second time here.
+    await register(page, SPEC_PASSPHRASE)
+    await waitVisible(page, '#main', 120_000)
+    await waitHidden(page, '#signin')
+    await waitHidden(page, '#lookaround-notice')
+
+    const peerId = await waitForRunning(page)
+    expect(peerId).toMatch(/^12D3Koo/)
+
+    // The positive control the absence above rests on: the same reader, the same page, now
+    // finding what it was earlier asked to miss.
+    const after = await identityDump(page)
+    expect(
+      after.map((record) => record.key),
+      'the reader cannot see a sealed record that demonstrably exists, so its earlier absence '
+        + 'proved nothing at all',
+    ).toContain('node-seed-sealed')
+  }, 300_000)
+})

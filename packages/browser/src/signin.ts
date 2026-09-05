@@ -7,8 +7,8 @@
  * credential is a **local passphrase** — no email, no account database, no server, no
  * third-party identity provider — and that the node starts on unlock with a visible switch.
  *
- * Two states for a visitor is eight states for a page, and a page that sets a boolean in
- * eight places will get one of them wrong. So this module is a **pure function** from a
+ * Two states for a visitor is nine states for a page, and a page that sets a boolean in
+ * nine places will get one of them wrong. So this module is a **pure function** from a
  * record of facts to a state, with no DOM, no storage and no side effect at import, and the
  * page renders whatever it returns. `consent.ts` is the shape being copied: the rules live
  * in a module a Node test can import, and the storage arrives as a value.
@@ -46,7 +46,16 @@
  * 5. `unlocked` — the envelope opened. This reveals the workload surfaces; it does **not**
  *    mean a node is running. Four e2e fixtures serve this page from a static host with no
  *    relay, and a node can never come up there.
- * 6. the three storage-derived modes — `login`, `adopt`, `register`.
+ * 6. `looking-around` — the visitor asked to see the page before choosing a passphrase
+ *    (`42-07`). It sits **below everything above it and above the three below it**, and
+ *    both halves are deliberate. Below, because looking around is a convenience and a
+ *    convenience must never buy anybody past the gate, past their own decline, or past a
+ *    refusal — revealing the surfaces runs `discoverRelays()`, which is a network act, and
+ *    a declining visitor has answered exactly that question. Above, because it is the
+ *    visitor's own choice and the three below it are read from storage: a returning visitor
+ *    who presses *Look around first* and is shown the login field anyway has had their
+ *    choice dropped with nothing anywhere saying so.
+ * 7. the three storage-derived modes — `login`, `adopt`, `register`.
  *
  * ## Where this departs from `42-04-PLAN.md`'s table, and why
  *
@@ -69,7 +78,7 @@ import { PASSPHRASE_MIN_LENGTH } from '@o2/libp2p'
  * What the page is showing, and there is nothing else it may show.
  *
  * A discriminated union rather than a pair of booleans, so a rendering function has to
- * handle every state the machine can produce and a ninth cannot be arrived at by omission.
+ * handle every state the machine can produce and a tenth cannot be arrived at by omission.
  */
 export type SigninState =
   /** `#gate`. `#signin` and `#main` hidden. Nothing has been asked yet. */
@@ -95,6 +104,20 @@ export type SigninState =
   | { readonly kind: 'refused'; readonly named: string }
   /** `#main`. The auto-start is attempted after this, and its failure is a reported state. */
   | { readonly kind: 'unlocked' }
+  /**
+   * `#main`, with **no node started and none startable** — `42-07`.
+   *
+   * The page already paints every surface at its *stopped* sentence before anything runs,
+   * so this state needs no second vocabulary: a visitor looking around reads the same
+   * honest sentences a visitor who pressed Stop reads. What it adds is a notice saying why
+   * nothing is running and a control back to the passphrase field.
+   *
+   * `#join` is **disabled** here rather than left to throw. Starting a node without an
+   * unlocked identity raises {@link SignedOutError} by construction, and a refusal arriving
+   * through the page's blocked path would look like a broken page to precisely the visitor
+   * this state exists for.
+   */
+  | { readonly kind: 'looking-around' }
 
 /**
  * The facts the page can observe, and nothing derived from them.
@@ -114,10 +137,19 @@ export interface SigninInput {
   readonly unlocked: boolean
   /** The last refusal, as the surface will render it, or `null`. */
   readonly refusal: string | null
+  /**
+   * The visitor pressed *Look around first*, in this visit. Not persisted anywhere.
+   *
+   * `declined`'s shape exactly, and for `declined`'s reason: it is an act taken on this
+   * page in this visit, not a fact about the visitor that a later visit should inherit.
+   * Persisting it would also make it a thing stored about somebody who has chosen not to
+   * register, which is the opposite of what this page is.
+   */
+  readonly lookingAround: boolean
 }
 
 /**
- * Which of the eight states this page is in.
+ * Which of the nine states this page is in.
  *
  * Total over its input by construction: every branch returns, and the last one is the
  * default rather than a case, so a new `stored` value would land on `register` — the arm
@@ -140,7 +172,12 @@ export function signinState(input: SigninInput): SigninState {
   // 5. The envelope opened. This is what reveals `#main`; a running node is not.
   if (input.unlocked) return { kind: 'unlocked' }
 
-  // 6. What is in the store decides which invitation the visitor is shown.
+  // 6. The visitor asked to see the page first. Below everything above — a convenience
+  //    never outranks the gate, a decline or a refusal — and above the three below, which
+  //    are read from storage rather than chosen.
+  if (input.lookingAround) return { kind: 'looking-around' }
+
+  // 7. What is in the store decides which invitation the visitor is shown.
   if (input.stored === 'sealed') return { kind: 'login' }
   if (input.stored === 'legacy-plaintext') return { kind: 'adopt' }
   return { kind: 'register' }
