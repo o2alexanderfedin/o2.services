@@ -128,6 +128,13 @@
       <p class="controls">
         <button id="signin-register" class="btn btn-primary">Register</button>
         <button id="signin-login" class="btn btn-primary">Log in</button>
+        <!--
+          `42-07`, owner ruling of 2026-09-05. Secondary, and beside the act rather than
+          above it: the invitation is still to register, and this is the way past it for
+          somebody who has not decided yet. Hidden in `declined`, where both controls beside
+          it are frozen and there is no act to take.
+        -->
+        <button id="signin-lookaround" class="btn btn-secondary">Look around first</button>
       </p>
       <p class="note" id="signin-status"></p>
       <!--
@@ -144,6 +151,34 @@
     </section>
 
     <section id="main" hidden>
+      <!--
+        The look-around notice — `42-07`. Revealed in `looking-around` and nowhere else.
+
+        **No `data-region`, and no digit anywhere in this prose.** Both are guard
+        constraints, and they pull in opposite directions so neither is optional.
+        `demo-regions.e2e.test.ts` roots a text walker at `#main` and collects every text
+        node no ancestor declares, filtering for digits on the Node side over the whole
+        untruncated node — so an undeclared sentence here may carry no figure. And the same
+        file's region walker runs `querySelectorAll` over the catalogue attribute
+        **document-wide**, so declaring one would be enumerated, would need a catalogue row
+        in `demo-regions.ts`, and would move `UI_SPEC_TALLY`. Neither is wanted for a
+        sentence that states no figure. `#gate` is the precedent: a whole visible screen
+        with a heading, a checkbox and two buttons, declaring none.
+
+        It says what is missing rather than what is broken. *"Nothing is running"* on its own
+        is a page that looks faulty; a visitor needs to know that a node is what a passphrase
+        buys, that the readings below are honest rather than empty, and that the way on is
+        one press away.
+      -->
+      <p class="note" id="lookaround-notice" hidden>
+        You are looking around. Nothing has been started on this page and nothing is running,
+        so every reading below says so in its own words — the same sentences this page shows
+        after you press Stop. Running anything needs an identity only you can open, which is
+        what choosing a passphrase gives you, and it is one press away.
+      </p>
+      <p class="controls" id="lookaround-controls" hidden>
+        <button id="lookaround-signin" class="btn btn-primary">Register or log in</button>
+      </p>
       <!--
         The session header sits OUTSIDE the surfaces, and that is a guard constraint
         before it is a design one. `#state`, `#join` and `#explain` are read and
@@ -2089,8 +2124,37 @@
       let declined = false
       /** The last passphrase refusal, as it will be rendered, or `null`. */
       let refusal = null
-      /** Once-only, because `revealMain` binds `#join` and runs discovery. */
+      /**
+       * The visitor pressed *Look around first* — `42-07`. Not persisted anywhere.
+       *
+       * `declined`'s shape and `declined`'s reason: an act taken on this page in this
+       * visit, not a fact about the visitor a later visit should inherit. Persisting it
+       * would also be a thing stored about somebody who has chosen not to register, which
+       * is the opposite of what this page is.
+       */
+      let lookingAround = false
+      /**
+       * Whether `revealMain` has already run the parts that must run once.
+       *
+       * **It guards the side effects, NOT the visibility**, and the distinction is a defect
+       * this flag carried until `42-07`: the early return stood above the three `hidden`
+       * assignments, so a second reveal left `#main` hidden. Nothing reached it twice while
+       * unlock was the only way in. Look around → Register → unlock does, and the visitor
+       * would have landed on a blank page with no error anywhere.
+       */
       let mainRevealed = false
+      /**
+       * Discovery's answer, kept so a later reveal can paint readiness without re-asking.
+       *
+       * `null` until the first reveal, which is distinguishable from "asked and found
+       * nothing" — that is an empty `relayAddrs`.
+       */
+      let discovered = null
+      /**
+       * The start act, hoisted out of `revealMain` so *"started automatically"* stays ONE
+       * code path — see the call site's own comment. `null` until the first reveal.
+       */
+      let startNode = null
       /**
        * What the last reconcile tick saw, so a re-render happens on a CHANGE rather than
        * every second — `signinFacts()` opens IndexedDB, and a page that opened it once a
@@ -2338,7 +2402,7 @@
         // gate too.
         //
         // The whole entry surface is re-DERIVED rather than patched: `signinState` decides
-        // what is visible, and a tick that reached in and moved one element would be a ninth
+        // what is visible, and a tick that reached in and moved one element would be one more
         // place a flag gets set, which is the thing that module exists to prevent. Gated on a
         // change because `signinFacts()` opens IndexedDB and a per-second open is storage work
         // nobody asked for.
@@ -2990,6 +3054,35 @@
       }
 
       /**
+       * What `#state` and `#join` say about **this** render — `42-07`.
+       *
+       * Split out of discovery because whether the Start control may be pressed is a
+       * property of the render and not of the network: the same page is revealed signed
+       * out, and then revealed again by the same visitor a moment later signed in, and
+       * discovery has not changed between the two. Reached on every reveal, so it is
+       * idempotent by construction — it sets both, always, from `start` and `discovered`.
+       *
+       * The signed-out sentence names the missing thing rather than describing a symptom.
+       * *"Nothing is running"* alone would be a page that looks broken; a visitor needs to
+       * know that a node is what a passphrase buys and that the passphrase is one press
+       * away, which the notice beside the control says at length.
+       */
+      const paintReadiness = (start) => {
+        if (!start) {
+          joinEl.disabled = true
+          setState('idle', 'nothing started — nobody has signed in on this page')
+          return
+        }
+        if (discovered !== null && discovered.relayAddrs.length > 0) {
+          setState('idle', `relay found via ${discovered.source} — ready to start`)
+          joinEl.disabled = false
+          return
+        }
+        setState('blocked', 'no relay reachable from this page')
+        joinEl.disabled = true
+      }
+
+      /**
        * Reveal the workload surfaces, discover a relay, and start the node — AUTH-06.
        *
        * Reached from the `unlocked` state and from nowhere else. **Unlock is what reveals
@@ -3000,20 +3093,43 @@
        * a start that fails paints `#state` `'blocked'` exactly as it does today while the
        * visitor stays signed in.
        *
-       * Once-only, because it binds `#join` and runs discovery.
+       * ## Two callers since `42-07`, and `start` is what separates them
+       *
+       * `unlocked` calls it with `start: true` — the visitor opened their own envelope and
+       * the owner ruled that their node comes up without a further press. `looking-around`
+       * calls it with `start: false`: the surfaces are revealed, every one of them at the
+       * *stopped* sentence the page already paints at boot, and `#join` is **disabled**.
+       * Not left to throw — `autoStart` without an unlocked identity raises
+       * `SignedOutError` by construction, and that refusal arriving through the page's
+       * blocked path would look like a broken page to precisely the visitor who came to
+       * look before committing to a passphrase.
+       *
+       * **Visibility is set on every call; only the side effects are once-only.** Binding
+       * `#join` twice would run the start twice per press, and discovery is a network act.
+       * Hiding is not a side effect and must not be guarded with them — see `mainRevealed`.
        */
-      const revealMain = async () => {
-        if (mainRevealed) return
-        mainRevealed = true
+      const revealMain = async (options) => {
         gateEl.hidden = true
         signinEl.hidden = true
         mainEl.hidden = false
 
+        if (mainRevealed) {
+          paintReadiness(options.start)
+          if (options.start && startNode !== null && discovered !== null
+            && discovered.relayAddrs.length > 0) {
+            await startNode()
+          }
+          return
+        }
+        mainRevealed = true
+
         const { source, relayAddrs } = await window.o2.discoverRelays()
+        discovered = { source, relayAddrs }
         if (source === 'none') {
           // Saying so plainly beats a page that merely looks broken. A static host has
           // no seed node to ask, so the relay address has to come from the link.
-          setState('blocked', 'no relay reachable from this page')
+          // `#state` and `#join` are painted by `paintReadiness` below, which is reached on
+          // EVERY reveal — this arm keeps the long explanation, which is discovery's alone.
           // The header keeps the stopped sentences painted at load. The two diagnostic
           // pairs that stood here — `relay source` and `secure context` — are gone: they
           // are not among UI-SPEC section 4.0's five regions, and an undeclared pair sitting
@@ -3028,11 +3144,11 @@
             'run <code>o2 seed</code> on your own machine and open the URL it prints — ' +
             'that page serves its own relay address and needs no configuration.'
         } else {
-          setState('idle', `relay found via ${source} — ready to start`)
           // H3 has a reading now; H2 and H4 keep their stopped sentences until a node is up.
           writeReading('session/relay', relayAddrs[0])
-          joinEl.disabled = false
         }
+
+        paintReadiness(options.start)
 
         await paintEnrolmentOffer()
 
@@ -3103,6 +3219,11 @@
           void joinNow()
         })
 
+        // Hoisted so a LATER reveal can start the node without re-running discovery or
+        // binding `#join` a second time. A visitor who looked around first reaches the
+        // unlocked arm with `mainRevealed` already true, and this is what it calls.
+        startNode = joinNow
+
         // **This is the whole of "started automatically".** The owner ruled that a logged-in
         // visitor has a node running without pressing anything further, and this is that,
         // sited where it can only be reached by somebody who has opened their own envelope —
@@ -3112,7 +3233,7 @@
         // `no relay available` `#state` already carries above, and replacing a sentence that
         // explains what to do with the error behind it is a downgrade. `#join` is left
         // disabled there for the same reason it always was.
-        if (relayAddrs.length > 0) await joinNow()
+        if (options.start && relayAddrs.length > 0) await joinNow()
       }
 
       /**
@@ -3158,7 +3279,15 @@
           stored: facts.stored,
           unlocked: facts.unlocked,
           refusal,
+          lookingAround,
         })
+
+        // Set from the state on EVERY render, including the ones that hide `#main`, so the
+        // notice cannot survive into a state that does not own it. `signin-startover`'s rule
+        // one section down, applied to a second pair of elements: the reachability is the
+        // property, not the wording.
+        $('lookaround-notice').hidden = state.kind !== 'looking-around'
+        $('lookaround-controls').hidden = state.kind !== 'looking-around'
 
         // The gate, first and alone. BROW-01/BROW-06: nothing about the visitor's identity
         // is shown, and nothing at all is started, until this is answered.
@@ -3171,8 +3300,11 @@
 
         gateEl.hidden = true
 
-        if (state.kind === 'unlocked') {
-          await revealMain()
+        // Both states reveal `#main`; `start` is the whole difference between them, and it
+        // is read from the state rather than from a flag so the two cannot drift. See
+        // `revealMain`'s docblock for why a look-around reveal must not attempt a start.
+        if (state.kind === 'unlocked' || state.kind === 'looking-around') {
+          await revealMain({ start: state.kind === 'unlocked' })
           return
         }
 
@@ -3225,6 +3357,12 @@
         $('signin-again-row').hidden = !registering
         $('signin-register').hidden = !registering
         $('signin-login').hidden = registering
+
+        // Hidden in `declined` and nowhere else. That visitor answered No to using their
+        // processor and to making connections, and revealing the surfaces runs
+        // `discoverRelays()` — a network act. Offering it to them would be offering a way
+        // round the answer they just gave.
+        $('signin-lookaround').hidden = state.kind === 'declined'
 
         const frozen = state.kind === 'declined'
         $('signin-passphrase').disabled = frozen
@@ -3397,6 +3535,28 @@
           unenrolEl.disabled = false
           await paintEnrolmentOffer()
         }
+      })
+
+      /**
+       * *Look around first* — `42-07`.
+       *
+       * Clears `refusal` as well as setting the flag, and that is not tidiness. The
+       * precedence puts `refused` above `looking-around` deliberately, so a visitor who
+       * mistyped once and then chose to look around would otherwise be held on the refusal
+       * screen by a string nobody cleared — a control that visibly does nothing. Clearing it
+       * here is safe in the direction that matters: it discards a *report* of a failed
+       * attempt, never an unlock, and nothing downstream reads it as permission.
+       */
+      $('signin-lookaround').addEventListener('click', async () => {
+        lookingAround = true
+        refusal = null
+        await renderEntry()
+      })
+
+      /** The way back. One press, as the notice beside it promises. */
+      $('lookaround-signin').addEventListener('click', async () => {
+        lookingAround = false
+        await renderEntry()
       })
 
       $('decline').addEventListener('click', async () => {
