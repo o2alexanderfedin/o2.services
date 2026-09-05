@@ -42,8 +42,12 @@ decisions:
   - "`owner-domain-tabs` lets the page's node come up and stops it before starting its own — its three tabs need three stores and the page's auto-start uses the default"
   - "the plant reddens the render-level ordering only; `artifact-fetch-gate` arm A stays green and the measured reason is recorded rather than the plant widened"
   - "AUTH-06 is still NOT ticked here — 42-05 is the owner's checkpoint"
+# NOTHING is ticked by this plan. `AUTH-06` is `42-05`'s — the owner's checkpoint — and it
+# stays unticked here deliberately rather than by omission. An explicit empty list, because a
+# missing field reads as forgotten and this plan's whole subject is a claim nobody re-measured.
+requirements-completed: []
 metrics:
-  completed: 2026-09-04
+  completed: 2026-09-05
 ---
 
 # Phase 42 Plan 06: Everything Else Learns the New Way In — Summary
@@ -128,17 +132,34 @@ finding.**
 
 ### Files that were passing and now fail
 
-**None, and this is now measured rather than argued.** The twenty-six files `42-04` names as
-passing were re-run in the whole-lane sweep above and every one of them passed —
-including **`lease-expiry`**, whose documented flake did not fire in either plan's sweep, and
-including `built-bundle`'s two no-foreign-request cases, which the brief singled out and which
-still pass with the attribution link present (it is an `<a href>`, not a request). One node-lane test that passed in `42-04`'s run is **skipped** in this
-plan's — `transport-bounds.node.test.ts`, one case — and it is a *self-declared, load-gated
-skip* in a file this branch does not touch: `if (load >= LOAD_CEILING)` with `LOAD_CEILING = 12`
+**None, and this is measured rather than argued.** The twenty-six files `42-04` names as passing
+were re-run in the whole-lane sweep above and every one of them passed — including
+**`lease-expiry`**, whose documented flake did not fire in either plan's sweep, and including
+`built-bundle`'s two no-foreign-request cases, which the brief singled out and which still pass
+with the attribution link present (it is an `<a href>`, not a request).
+
+**One node-lane test that ran in `42-04`'s sweep did not run in this plan's, and it was chased
+rather than explained away.** `transport-bounds.node.test.ts` reported one case **skipped**. The
+file carries a self-declared load gate — `if (load >= LOAD_CEILING)` with `LOAD_CEILING = 12`,
 and its own sentence *"a contended host inflates them past a threshold sited on a quiet one. The
-counter assertion above is ungated and still ran."* The node lane's banner read
-**OVERSUBSCRIBED — 9.68 after**, which is the condition that fires it. Totals reconcile exactly:
-`42-04` read 3496 passed + 2 skipped = 3498; this plan reads 3495 + 3 = 3498.
+counter assertion above is ungated and still ran."* — and the node lane's banner read
+**OVERSUBSCRIBED, 9.68 after**, which is the condition that fires it. That is a plausible story,
+and a plausible story is not a diagnosis: this repository has a standing rule against attributing
+a failure by plausibility. So the file was **run on its own, on a quiet host**:
+
+```
+$ npx vitest run --project node packages/node/src/transport-bounds.node.test.ts; EXIT=$?
+EXIT=0
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+[host conditions] host was quiet — load/core 0.78 before, 0.66 after (8 cores, ceiling 4.00)
+[host conditions] wall clock 11.62 s
+```
+
+**16 of 16.** The case runs and passes when the host lets it, so the skip is the host and not this
+branch — which touches neither that file nor anything it imports. The totals reconcile either
+way: `42-04` read 3496 passed + 2 skipped = 3498; the contended node lane here read 3495 + 3 =
+3498; and the solo run accounts for the one that moved.
 
 ---
 
@@ -513,6 +534,30 @@ $ npx vitest list --project node --filesOnly | wc -l             → 244   (0 of
 
 `NODE_MEASUREMENT.files` is 242 against 244, drift 2 on a tolerance of 5, and
 `slow-specs.node.test.ts` passed in every cheap-guard run. `vitest.config.ts` was not touched.
+
+---
+
+## TDD gate compliance — task 3, and why the RED is the plant
+
+Task 3 carries `tdd="true"`, and the honest report is that **the RED gate is the plant, not a
+first run of the spec**. `autostarted-switch.e2e.test.ts` passed on its second run and would have
+passed on its first but for a defect of its own (deviation 4 below), because everything it reads
+already existed: `document.title`'s decoration, `#bar` with `#bar-what` and `#bar-stats`, and
+`#stop` were all in the tree and all already `[x]` before this plan opened. The plan says so
+itself — *"there is nothing to build"* — and what is new is the **trigger**, not the surface.
+
+Manufacturing a RED here would have meant deleting a shipped indicator to watch a new spec fail
+and putting it back, which tests the deletion rather than the trigger. What actually establishes
+that the file can fail is the plant: a one-line fail-open in `renderEntry`, **watched red** with
+the failure text recorded verbatim above, restored by the surgical inverse and verified
+`cmp`-clean. The git log therefore shows `test(...)` commits and no `feat(...)` for this plan,
+which is correct rather than a missing gate: **this plan adds no production code at all** —
+`git diff c904204..HEAD --name-only | grep -c '^packages/browser/'` reads **0**, so not one byte
+of the demo, the browser tier or any shipped module moved.
+
+`requirements-ledger.node.test.ts` — the plan asks for it to be run on its own. It is covered
+twice over without a third run: **27 of 27 in the cheap guards at every one of this plan's
+commits**, and again inside the full `node` lane, `EXIT=0`. Its change here is one comment.
 
 ---
 
