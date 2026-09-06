@@ -11,6 +11,25 @@ import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { signInHarnessTab } from '../../node/src/e2e-signin.ts'
 
+
+
+/**
+ * The identity secret this spec's local `wrangler dev` boots with — AUTH-07 criterion 4.
+ *
+ * Since that criterion the hosted object refuses to open its identity without
+ * `O2_IDENTITY_SECRET` and answers `GET /self` with `500`, so every spec that polls `/self`
+ * for readiness has to supply one. There is deliberately no default in production source — a
+ * default is the empty-DEK defect one criterion over — and no value in `wrangler.jsonc`,
+ * which is tracked.
+ *
+ * **Per-spec test data rather than a shared constant**, in the style of this tree's `TEST_KEY`
+ * and `TURN_SECRET`: this spec passes its own `--persist-to`, so its Durable Object store is
+ * its own and the value only has to be self-consistent across its own restarts. The one thing
+ * that IS load bearing is the length — under twenty characters `assertUsablePassphrase`
+ * refuses and every boot below fails with `WeakPassphraseError`.
+ */
+const SECRET = 'local-dev-identity-secret-42'
+
 /**
  * BROW-08, second half — the socket the operator is billed for closes with the tab.
  *
@@ -203,6 +222,10 @@ beforeAll(async () => {
       String(PORT),
       '--local-protocol',
       'http',
+      // AUTH-07 criterion 4 — the object refuses to open its sealed identity without this,
+      // so `/self` would answer 500 and every readiness poll below would time out.
+      '--var',
+      `O2_IDENTITY_SECRET:${SECRET}`,
       // The scope fence's own clause, and also the fix for the false green
       // `hosted-record-store.e2e.test.ts` records: state from an earlier run cannot reach
       // this one, because there is no earlier run in this directory.

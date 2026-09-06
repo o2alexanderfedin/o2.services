@@ -39,7 +39,7 @@
  * adding it afterwards costs a second one.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { FakeDurableObjectAlarms, FakeDurableObjectStorage } from './do-storage.fixture.ts'
 import { BootstrapObject } from './worker.ts'
 import { DoDatastore } from './do-datastore.ts'
@@ -48,6 +48,49 @@ import { readFunnelJournal } from './funnel-journal.ts'
 import type { RelayServiceTotals } from '@o2/libp2p'
 import type { CloudflareWebSocket } from './websocket-connection.ts'
 import type { HostedEnv, HostedObjectStateWithSockets } from './worker.ts'
+
+
+
+
+/**
+ * **Every case in this file derives an Argon2id key, so the default five-second budget is the
+ * wrong one — measured, not anticipated.**
+ *
+ * Since AUTH-07 criterion 4 the hosted identity is an envelope, and opening or sealing it
+ * costs one Argon2id derivation at `DEFAULT_KDF_PARAMS` — 19 MiB and roughly 650 ms
+ * uncontended on this host. A case that builds two nodes pays it twice. That is comfortably
+ * inside five seconds on a quiet machine and NOT inside it on a busy one: a full
+ * `--project node` sweep runs eight workers, several of them deriving at the same time, and
+ * this file lost two cases to `Error: Test timed out in 5000ms.` on a run whose banner
+ * reported the host oversubscribed at load 11.89 across 8 cores.
+ *
+ * **Raising the budget rather than lowering the cost**, because the cost is the feature: a
+ * memory-hard KDF is what prices a guess against an attacker holding this store. A per-case
+ * timeout would have to be repeated on every case and would drift; `vi.setConfig` states it
+ * once for the file.
+ *
+ * The number is a **budget, never an assertion**. Nothing here reads it, no case passes or
+ * fails on how long it took, and this repository asserts cost comparatively — see the
+ * cold-versus-warm ratio in `hosted-seed-at-rest.e2e.test.ts`.
+ */
+vi.setConfig({ testTimeout: 60_000 })
+
+/**
+ * The identity secret this spec's local `wrangler dev` boots with — AUTH-07 criterion 4.
+ *
+ * Since that criterion the hosted object refuses to open its identity without
+ * `O2_IDENTITY_SECRET` and answers `GET /self` with `500`, so every spec that polls `/self`
+ * for readiness has to supply one. There is deliberately no default in production source — a
+ * default is the empty-DEK defect one criterion over — and no value in `wrangler.jsonc`,
+ * which is tracked.
+ *
+ * **Per-spec test data rather than a shared constant**, in the style of this tree's `TEST_KEY`
+ * and `TURN_SECRET`: this spec passes its own `--persist-to`, so its Durable Object store is
+ * its own and the value only has to be self-consistent across its own restarts. The one thing
+ * that IS load bearing is the length — under twenty characters `assertUsablePassphrase`
+ * refuses and every boot below fails with `WeakPassphraseError`.
+ */
+const SECRET = 'local-dev-identity-secret-42'
 
 /**
  * Storage and alarms as the platform carries them — together on `state.storage`.
@@ -72,6 +115,11 @@ function newState(
 /** No namespace and no announce list — `GET /self` reads neither. */
 const ENV: HostedEnv = {
   BOOTSTRAP: undefined as unknown as HostedEnv['BOOTSTRAP'],
+  // AUTH-07 criterion 4 — every object in this file opens a sealed identity, so every one of
+  // them needs the binding that opens it. An env WITHOUT it is a case in its own right, and it
+  // lives in `hosted-seed-sealed.node.test.ts` beside the rest of the fail-closed evidence
+  // rather than being sprinkled through this file's thirty constructions.
+  O2_IDENTITY_SECRET: SECRET,
 }
 
 interface TrafficLegReading {

@@ -1523,6 +1523,18 @@ interface OpenFinding {
  * barrel LOST a line in the same change: `loadOrCreateSeed` was deleted, and it had a call site,
  * so it was never counted here either.
  *
+ * ## RAISED 119 -> 121 on 2026-09-06 (AUTH-07, Phase 43) — two symbols, and NOT a finding
+ *
+ * `core/generateSealableSubtleKeyPair` and `core/importSealedSubtleKeyPair`. Both are called,
+ * and by exactly one caller: `browser/visitorKeyPair`, which is itself on the `window.o2`
+ * register and has been since 2026-08-17. So they are hidden by the same assignment the walk
+ * cannot follow, in the same position as `core/generateSubtleKeyPair` beside them, and they
+ * are disposed there rather than exempted here.
+ *
+ * They exist because a key that must be **sealed** cannot be generated non-extractable —
+ * sealing needs bytes and such a key has none to give — which is the whole of `AUTH-07`'s
+ * finding about this artefact.
+ *
  * ## RAISED 118 -> 119 on 2026-09-04 (AUTH-06, plan 42-03) — one symbol, and NOT a finding
  *
  * `core/sealedUnderSameKey` is a **`global-object-hop` disposition, not an open finding**, and
@@ -1548,7 +1560,7 @@ interface OpenFinding {
  * work nobody has done. It comes down if and when the walk learns the `window.o2` assignment,
  * at which point all of them do.
  */
-const UNREACHABLE_CEILING = 119
+const UNREACHABLE_CEILING = 121
 
 const OPEN_FINDINGS: readonly OpenFinding[] = [
   {

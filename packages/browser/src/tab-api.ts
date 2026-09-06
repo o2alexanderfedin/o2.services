@@ -284,6 +284,25 @@ export interface TabEnrolmentOffer {
    */
   readonly canHoldKey: boolean
   /**
+   * Whether anybody is signed in on this page right now — `AUTH-07` criterion 1.
+   *
+   * **A key must never be minted where there is nothing to encrypt it with**, and enrolling
+   * mints one. `42-07` let a visitor reveal the workload surfaces without unlocking, so the
+   * enrolment control became reachable to somebody holding no passphrase; that was
+   * reproduced on chromium, firefox and webkit before it was fixed.
+   *
+   * It rides on this object rather than arriving as a fourth argument to the page's own
+   * painter, because this object already carries *"what decides what the page renders about
+   * enrolment"* and a fourth thing threaded through four call sites is a fourth thing that
+   * can be forgotten at one of them.
+   *
+   * **This is the courtesy, not the guarantee.** The guarantee is that the accept path
+   * itself refuses — see `demo/main.ts`'s `acceptEnrolment`, which calls `requireSignIn()`
+   * before it touches a key. A surface that only hid the control would still be one console
+   * call away from a key nobody can seal.
+   */
+  readonly signedIn: boolean
+  /**
    * The issuer of the certificate this tab actually **holds**, or absent when it holds none.
    *
    * Separate from {@link accepted}, and the distinction is the one worth reporting: a

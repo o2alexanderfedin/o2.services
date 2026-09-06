@@ -3017,7 +3017,17 @@
         }
 
         offerEl.hidden = false
-        enrolEl.hidden = offer.accepted
+        // The offer BLOCK stays visible to a visitor who is only looking around — what
+        // enrolment is and who this origin names are exactly the things somebody deciding
+        // whether to sign in wants to read. **The control does not**, and `AUTH-07`
+        // criterion 1 is why: its handler mints a visitor key, and a key minted with no
+        // passphrase in existence is a key nothing can ever seal.
+        //
+        // Reproduced before it was fixed, on chromium, firefox and webkit —
+        // `visitor-enrolment.e2e.test.ts`'s criterion-1 case, which reads the store as well
+        // as the control. **The guarantee is `acceptEnrolment`'s own `requireSignIn()`**;
+        // this is the courtesy that keeps a visitor from pressing something that refuses.
+        enrolEl.hidden = offer.accepted || !offer.signedIn
         unenrolEl.hidden = !offer.accepted
 
         // The address, verbatim and undecorated. It is the origin's word for who this tab

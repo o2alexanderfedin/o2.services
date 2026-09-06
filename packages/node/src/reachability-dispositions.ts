@@ -267,7 +267,23 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   // AUTH-01, 2026-08-17. See the visitor-enrolment block above for why a `core/` symbol is on a
   // list of things the demo page hides: CRYPTO-01 requires the `generateKey` call to live in
   // `ed25519-backend.ts`, and its only caller is `@o2/browser`'s `visitorKeyPair`, behind the hop.
-  'core/generateSubtleKeyPair',
+  // AUTH-07, 2026-09-06 — two symbols arriving together, in the same position as the sibling
+  // below and by the same route. `visitorKeyPair` is their only caller and it is already on
+  // this list, so they are hidden by the same `window.o2` assignment and by nothing else.
+  // They exist because a key that must be SEALED cannot be generated non-extractable: sealing
+  // needs bytes and such a key has none to give.
+  //
+  // **Not read off the source — the derived case named both verbatim before this list was
+  // touched**, which is the G14 defence again: *"+ \"core/generateSealableSubtleKeyPair\",
+  // + \"core/importSealedSubtleKeyPair\""*.
+  // `'core/generateSubtleKeyPair'` stood here from 2026-08-17 until 2026-09-06. It has MOVED
+  // to {@link DEFERRED_IN_SOURCE} rather than been deleted, and the derived case is what
+  // moved it: *"these carry a global-object-hop disposition but do NOT become reachable when
+  // the hop is traced, so whatever keeps them unreachable is not that mechanism — the entry
+  // names the wrong cause"*. It was right. The hop no longer reaches it, because
+  // `visitorKeyPair` calls the sealable form instead, and the two below are what it calls.
+  'core/generateSealableSubtleKeyPair',
+  'core/importSealedSubtleKeyPair',
   // AUTH-06, 2026-09-04. `browser-node.ts#resolveProtectedSeed` calls it on every start with a
   // passphrase, to decide whether the key it already derived is the one that opens the envelope
   // it just read; `BrowserNode.start` is its route in, and `browser/BrowserNode` is four lines
@@ -438,6 +454,12 @@ const BENCHMARK_DRIVER_ONLY: readonly string[] = [
  */
 const DEFERRED_IN_SOURCE: readonly string[] = [
   'bench/sweepNodeCount',
+  // AUTH-07, 2026-09-06. Moved here from {@link GLOBAL_OBJECT_HOP} because that cause stopped
+  // being true: `visitorKeyPair` now calls the sealable form, so the hop no longer reaches
+  // this symbol. `ed25519-backend.ts` states the deferral and its remedy at the function —
+  // kept because two browser specs need a non-extractable pair and cannot reach the module
+  // across a package boundary, deleted the day they stop or a production caller appears.
+  'core/generateSubtleKeyPair',
   // Audit finding G7, owner decision 2026-08-08. `discovery.ts`'s docblock now carries the
   // whole argument: a fallback chain needs a genuine second source, and an empty
   // `MemoryRecordIndex` in front of the RPC index would compose the types and demonstrate
@@ -856,7 +878,7 @@ export const DISPOSITIONS: readonly Disposition[] = [
  * than two) which the graph traces directly, and a symbol the walk can already reach is not a
  * disposition of any kind.
  */
-export const DISPOSITION_CEILING = 71
+export const DISPOSITION_CEILING = 73
 
 /** `barrel/symbol` for every disposed entry — the form the guard's verdict list uses. */
 export function disposedKeys(register: readonly Disposition[] = DISPOSITIONS): Set<string> {

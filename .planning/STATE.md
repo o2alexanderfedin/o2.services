@@ -329,7 +329,7 @@ stopped_at: >-
 last_updated: "2026-09-03T04:25:00.000Z"
 last_activity: 2026-08-28 — the hosted tier deployed and released four times, the browser client published and fixed, criterion 2 met in full, Phase 29 closed uncounted on criterion 1 alone
 progress:
-  total_phases: 14
+  total_phases: 15
   completed_phases: 0
   total_plans: 1
   completed_plans: 1

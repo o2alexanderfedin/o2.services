@@ -49,11 +49,7 @@ const dek = this.init.pass != null && this.init.dek?.salt != null
 and `packages/cloudflare/src/hosted-libp2p.ts:343` — so every key the keychain holds is
 encrypted under a password everybody knows.
 
-**And there is a trap inside the trap, which is why this needs a guard and not a fix.** The
-condition is `pass != null` **&&** `dek?.salt != null`. Supplying a passphrase *alone* leaves
-the DEK empty and throws nothing, logs nothing, and changes nothing on disk. A future reader
-who sets `pass` and stops will believe the keychain is protected. It is exactly the class of
-defect this repository already collects: a knob that looks set and is not.
+**CORRECTED 2026-09-06 — the trap as first written was false, and the correction is kept beside it because how it was got wrong is the useful part.** It read: ~~supplying a passphrase *alone* leaves the DEK empty and throws nothing~~. **It does not.** Sixteen lines above the ternary the constructor spreads `dek: { ...DEK_INIT, ...init.dek }`, and `DEK_INIT.salt` is a hardcoded non-null string — *"you should override this value with a crypto secure random number"* (`node_modules/@libp2p/keychain/dist/src/constants.js`). So `dek?.salt != null` is **always** true and the guard reduces to `pass != null`. Measured three ways against a reader that tries the empty DEK: no arguments **opens** the stored key, `pass` alone **refuses**, `pass` + salt **refuses**. **The error was reading one expression without reading the sixteen lines above it that fill in the value it tests** — the same shape as trusting a type instead of running it. **What survives unchanged is the defect**: with no `pass` the DEK is `''`, and this repository supplied none on either tier. **And the salt is still mandatory, for a different defect**: every deployment that leaves that default shares one PBKDF2 salt with every other. The two are pinned separately in the spec for exactly that reason — a case asserting only `DEK !== ''` cannot see the salt half at all.
 
 What is actually in there: on the node tier the keychain exists **only under AutoTLS**
 (`fabric-node.ts:2222` spreads it conditionally), and AutoTLS writes the Let's Encrypt account

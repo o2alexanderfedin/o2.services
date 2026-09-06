@@ -73,6 +73,7 @@ import type {
   StartOutcome,
 } from '@o2/core'
 import { clientVersionFrom, nodeKeyForPeerId, peerIdForNodeKey } from '@o2/libp2p'
+import type { IdentityProtection } from '@o2/libp2p'
 import {
   RemoteExecutor,
   RpcRecordIndex,
@@ -268,6 +269,56 @@ function requireSignIn(): string {
   const held = heldPassphrase
   if (held === null) throw new SignedOutError()
   return held
+}
+
+/**
+ * Whether anybody is signed in — **a boolean, and never the passphrase itself**.
+ *
+ * The distinction is not fastidiousness, it is `T-42-27` written as two functions.
+ * `visitor-enrolment.e2e.test.ts` asserts that {@link requireSignIn}, which *returns the
+ * passphrase*, has exactly **one** call site — the `identityProtection` field — because a
+ * second site anywhere is the whole of that threat: the credential that opens this browser's
+ * identity reaching the path that talks to a provider.
+ *
+ * **That guard caught this pair being written as one function**, on 2026-09-06, when
+ * `acceptEnrolment` was given `requireSignIn()` to answer a question that never needed the
+ * secret. The guard was right and the code moved: enrolment asks *is somebody signed in*, and
+ * gets a yes or a no.
+ */
+function signedIn(): boolean {
+  return heldPassphrase !== null
+}
+
+/**
+ * Refuse unless somebody is signed in, and hand back **nothing** — `AUTH-07` criterion 1.
+ *
+ * {@link SignedOutError} already says what would otherwise happen and why it must not, so the
+ * refusal is shared rather than reworded: one failure a surface can render, whatever asked.
+ */
+function requireSignedIn(): void {
+  if (!signedIn()) throw new SignedOutError()
+}
+
+/**
+ * What this page will do with **any** long-lived secret it persists — one object, one source.
+ *
+ * ## Why this function exists rather than four `requireSignIn()` calls
+ *
+ * `visitor-enrolment.e2e.test.ts` asserts that {@link requireSignIn} — which *returns the
+ * passphrase* — has exactly **one** call site, and `T-42-27` is why: this tab holds a
+ * passphrase it registered with and a certificate a provider signed, and the threat is the
+ * first reaching the second. Each new persister that needed the passphrase would otherwise be
+ * a new site, and the guard would be relaxed once per persister until it said nothing.
+ *
+ * `AUTH-07` added a second persister — the visitor's own key, whose whole PKCS#8 was measured
+ * lying in a Chromium and Firefox profile in the clear. So the passphrase is obtained **here,
+ * once**, into the vocabulary both tiers already speak (`IdentityProtection`), and every
+ * persister takes that object. The guard's property is preserved rather than widened: there
+ * is still exactly one place where the passphrase is obtained, and it is now easier to audit
+ * than four call sites would have been, because the object is named and typed.
+ */
+function identityProtection(): IdentityProtection {
+  return { kind: 'passphrase', passphrase: requireSignIn() }
 }
 
 async function openIdentity(
@@ -693,7 +744,7 @@ export async function signinFacts(): Promise<{
   return {
     consent: found.ok ? 'granted' : found.gap.kind,
     stored,
-    unlocked: heldPassphrase !== null,
+    unlocked: signedIn(),
   }
 }
 
@@ -721,7 +772,7 @@ async function visitorEnrolmentOption(providerAddr: string): Promise<{
   // ordinary unenrolled node rather than throwing, because a stored decision made on an
   // origin that has since lost `crypto.subtle` must not turn into a page that will not load.
   if (!canHoldVisitorKey()) return null
-  const keyPair = await visitorKeyPair()
+  const keyPair = await visitorKeyPair(identityProtection())
   return {
     userPrivateKey: keyPair,
     operatorId: await visitorOperatorId(keyPair),
@@ -767,7 +818,7 @@ async function sovereignChainsFor(
   if (sovereign === undefined) return null
   if (n.certificate === null) return null
   if (!canHoldVisitorKey()) return null
-  const signer = await subtleUserSigner(await visitorKeyPair())
+  const signer = await subtleUserSigner(await visitorKeyPair(identityProtection()))
   return chainsForOwner(signer, { ownerId: sovereign.ownerId, nodeIds, now: () => Date.now() })
 }
 
@@ -785,7 +836,13 @@ async function offerOf(): Promise<TabEnrolmentOffer> {
   // granted it has nothing to offer yet. Reported as "no offer" rather than thrown: the
   // consent gate is the surface that should be speaking at that moment, not this one.
   if (!readConsent(store, DEMO_ANCHORS).ok) {
-    return { offered: false, accepted: false, canHoldKey, appliedToRunningNode: true }
+    return {
+      offered: false,
+      accepted: false,
+      canHoldKey,
+      signedIn: signedIn(),
+      appliedToRunningNode: true,
+    }
   }
   const { enrollmentProvider } = await api.discoverRelays()
   const found = readEnrolment(store, enrollmentProvider)
@@ -805,6 +862,9 @@ async function offerOf(): Promise<TabEnrolmentOffer> {
     accepted,
     ...(found.ok ? {} : { gap: found.gap.kind }),
     canHoldKey,
+    // Read here rather than captured anywhere: `requireSignIn`'s own rule — the state that
+    // changed since the page rendered is the state that applies.
+    signedIn: signedIn(),
     ...(heldIssuer === null ? {} : { heldIssuer }),
     // `undefined` means no node is running, and then the question does not arise — a
     // decision cannot be out of step with a node that does not exist.
@@ -1779,7 +1839,7 @@ const api: TabApi = {
         // configured must not be configurable by whatever found it, and a passphrase is the
         // last thing that rule should be relaxed for. The value here comes from the visitor,
         // at the surface they are looking at, and can come from nowhere else.
-        identityProtection: { kind: 'passphrase', passphrase: requireSignIn() },
+        identityProtection: identityProtection(),
         rpcTimeoutMs: 60_000,
         // Conditional spread, so an omitted option is genuinely absent and the factory's
         // own default is what applies — passing `undefined` explicitly would override it.
@@ -1945,6 +2005,28 @@ const api: TabApi = {
     // The network read below and everything after it is gated, like every other path here.
     requireConsent()
 
+    // **AUTH-07 criterion 1, and it is the guarantee rather than the courtesy.** Enrolling
+    // mints a visitor key, and a key minted where no passphrase exists is a key nothing can
+    // ever seal — the owner's rule broken at its weakest point, not by forgetting to encrypt
+    // something but by creating something there is nothing to encrypt it with.
+    //
+    // **This line is the fix and hiding the control is not.** `42-07` made `#main` reachable
+    // without unlocking, and `#enrol`'s visibility consulted only `offer.accepted`; that was
+    // reproduced on all three engines. A surface that merely hid the control would still be
+    // one `window.o2.acceptEnrolment()` away from the same key, and the reproduction case
+    // reads the STORE as well as the control for exactly that reason.
+    //
+    // It sits above the origin and browser refusals below deliberately: those are facts
+    // about the origin, this is a fact about who is asking, and a visitor who is not signed
+    // in should be told that rather than told their origin is unsuitable.
+    //
+    // **`requireSignedIn()` and NOT `requireSignIn()`, and the difference is `T-42-27`.** The
+    // second returns the passphrase, and this file's guard asserts it has exactly one call
+    // site — the `identityProtection` field — because the credential that opens this
+    // browser's identity must not travel the path that talks to a provider. This line was
+    // written as `requireSignIn()` first and that guard reddened it, correctly.
+    requireSignedIn()
+
     // Refusals by name, in the order a visitor would hit them, because somebody who pressed
     // a button is owed the reason it did not work rather than a page that quietly does
     // nothing. Each of these is a fact about this origin or this browser, not about them.
@@ -1972,7 +2054,7 @@ const api: TabApi = {
     // Minted here rather than lazily at the next `start`, so a visitor who accepts on an
     // origin whose storage or crypto is about to refuse finds out now, while the surface is
     // still about enrolment, and not as a start failure later.
-    await visitorKeyPair()
+    await visitorKeyPair(identityProtection())
 
     notify()
     return offerOf()
