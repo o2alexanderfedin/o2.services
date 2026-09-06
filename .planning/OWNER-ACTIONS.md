@@ -175,7 +175,7 @@ built from source and glog carries a `__wasi__` branch. That is a compiler, not 
 | **Act** | `wrangler secret put O2_IDENTITY_SECRET` on the Worker, **before its next deploy**, and keep the value in a password manager |
 | **Cost** | None. A Worker secret is free and creates no resource |
 | **Why not an agent** | It is a credential on the owner's account, and it is the only thing that will ever open this object's identity. An agent that generated it would be the one place it had existed in plaintext |
-| **Unblocks** | Nothing waits on it. What it prevents is the deployed bootstrap node going dark on the next deploy |
+| **Unblocks** | Nothing waits on it, and **the priority is LOW** — see *what losing the secret actually costs*. What it prevents is the deployed bootstrap node going dark on the next deploy |
 
 The seed at `/identity/seed` is no longer written in the clear. It is an Argon2id +
 XChaCha20-Poly1305 envelope at `/identity/sealed-seed`, and this secret is what opens it. The
@@ -257,16 +257,46 @@ draft of this row said "the node goes dark" for both paths and that is only true
   binding brings it back unchanged.
 
 Either way nothing is lost. That is the point of refusing: the alternative is a node that
-quietly comes up as somebody else, and a published PeerId answering under a new one is **not**
-recoverable by setting the secret afterwards. Going dark is.
+quietly comes up as somebody else. Setting the secret afterwards does not undo that — the new
+identity is already the one the object holds — whereas going dark is undone by setting it. The
+cost of the bad outcome is one `deploy-pages.sh`, not a dead fabric; refusing is still right,
+because a silent identity change is the kind of thing nobody notices for a week.
 
-### One permanent consequence
+### What losing the secret actually costs — CORRECTED 2026-09-06, and it is much less than this row first said
 
-**Once a deploy has migrated the object, losing this secret loses the identity permanently.**
-The plaintext seed is deleted after the envelope is proved readable, so from that moment the
-secret is the only thing that opens it. There is no recovery path, by construction — that is
-what "the seed is not in the object's storage" means. **Store it in a password manager before
-deploying**, not after.
+The earlier wording read *"losing this secret loses the identity permanently … there is no
+recovery path, by construction"*. **Every word of that is true about the key and it gave a
+false impression of the consequence**, which is what a row like this is for. The owner asked
+the obvious question — *why do we care about this node's identity when we have its URL and can
+redeploy it?* — and the answer, measured rather than defended, is: **we barely do.**
+
+**The PeerId is nowhere in shipped code.** `scripts/deploy-pages.sh:159` asks the live relay
+for it at build time and writes the finished multiaddr into `bootstrap.json` beside the
+published page. The page reads that file on load. So a changed PeerId does not brick anything
+— it makes the *already published* page point at an identity that no longer answers, and
+**redeploying the CLIENT fixes it**:
+
+```
+scripts/deploy-pages.sh          # re-asks the relay, rewrites bootstrap.json
+```
+
+Note *client*, not relay. The relay is fine; the stale address is on GitHub Pages.
+
+**Why it fails at all, since the host name has not changed.** libp2p dials a multiaddr, not a
+URL: `/dns4/<host>/tcp/443/tls/ws/p2p/<PeerId>`. The tail is a checked claim about who is
+there — in the Noise handshake the node presents its public key and the dialler compares the
+hash. So the page reaches the right host, TLS and WebSocket come up, and the handshake is
+refused because the peer proved a different identity. Not *knocked at the wrong door*: right
+door, different person. That check is also why nobody can put themselves in the middle.
+
+**So the honest priority for this row is LOW.** This is a public relay. Its key signs nothing
+of value and the node is replaceable by one command. The two exposures that mattered —
+a visitor's own key, which is a person's identity on the fabric, and the libp2p keychain's
+Let's Encrypt private key encrypted under an empty password — are closed already. This tier
+came along because the rule the owner stated says *nowhere*, not *wherever it is expensive*.
+
+**Still store the secret in a password manager before deploying.** Losing it costs one
+`deploy-pages.sh` and a stale window, which is cheap and avoidable rather than free.
 
 ### What to say back
 
