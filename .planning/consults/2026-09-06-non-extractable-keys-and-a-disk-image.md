@@ -133,8 +133,13 @@ Every engine was reopened in a **fresh browser process** on the same profile. On
 the 8-byte sample `01 02 03 04 05 06 07 08` to the **identical**
 `fdfedf2baf94ef0fcffaeece41dbf24ad5ed0a645c09f1cc554382a5fe4257ee`.
 
-So on WebKit the material demonstrably *is* persisted under that directory. "Not found" there
-is a statement about the scan, not about whether anything was stored.
+So on WebKit something sufficient to reconstruct a working key persisted under that directory.
+**That is the measured claim, and it is deliberately weaker than "the material is in that
+directory."** These instruments cannot separate *ciphertext of the material sitting in the
+directory* from *an opaque handle in the directory whose counterpart sits in a machine-scoped
+store* — an origin-keyed machine entry would survive a same-machine copy just as well. What is
+settled is that "not found" is a statement about the scan, not a statement that nothing was
+stored.
 
 ### Chromium: encryption at rest was switched on, and it does not cover this
 
