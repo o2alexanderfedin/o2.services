@@ -432,7 +432,56 @@ const NODE_MEASUREMENT = {
    * it is not discharged by this entry. See `aotCrossCheckedFiles` for a second half this
    * pass measured and deliberately did not retake.
    */
-  files: 242,
+  /**
+   * **242 -> 248 on 2026-09-06 (Phase 43, AUTH-07 criterion 5), DERIVED and not adjusted.**
+   *
+   * Two routes sharing no code, both run on the tree as this entry was written, and the
+   * LISTS were diffed rather than the counts: a filesystem walk applying the node project's
+   * own globs and suffix filter reads **248**, `git ls-files` filtered by the same predicate
+   * reads **248**, and the pairwise difference is empty in both directions.
+   *
+   * **Six arrivals, and one of them cannot be named — which is the reason this is derived.**
+   * Five are identifiable: `packages/node/src/stored-value-guard.node.test.ts` (this phase's
+   * criterion 5), plus `packages/browser/src/signin.test.ts`,
+   * `packages/cloudflare/src/hosted-keychain-dek.node.test.ts`,
+   * `packages/cloudflare/src/hosted-seed-sealed.node.test.ts` and
+   * `packages/node/src/keychain-dek.node.test.ts` from criteria 2-4. The sixth arrived
+   * between the 2026-09-04 reading and this one and no list survives to name it — exactly
+   * the standing offset the 236 -> 242 entry above records finding, and the reason adding to
+   * the old value is forbidden here.
+   *
+   * **The move was forced rather than chosen.** `FILE_COUNT_TOLERANCE` is 5 and the tree had
+   * already consumed all five before criterion 5's file arrived; the sixth turned
+   * `slow-specs.node.test.ts` red. That is the tolerance doing its job, and the fix is a
+   * count, not a raise.
+   *
+   * **THE SPAN TABLE IS NOT MOVED, AND THREE OF THE ARRIVALS ARE ABOVE THE CUT — stated
+   * here rather than left to be discovered.** All five were measured in ONE invocation so
+   * host load cancels instead of being assumed away, host quiet at load/core 0.89:
+   *
+   * | file | span | vs the 1 000 ms cut |
+   * |---|---|---|
+   * | `stored-value-guard.node.test.ts` | 355 ms | under |
+   * | `signin.test.ts` | 5 ms | under |
+   * | `hosted-keychain-dek.node.test.ts` | 2 559 ms | **over** |
+   * | `keychain-dek.node.test.ts` | 5 234 ms | **over** |
+   * | `hosted-seed-sealed.node.test.ts` | 6 394 ms | **over** |
+   *
+   * The three that are over are slow by construction — they drive Argon2id, which is
+   * deliberately memory-hard, and a keychain whose KDF they exercise three ways. Putting a
+   * span here for them would put them on `SLOW_NODE_SPECS`, which takes them OUT of the
+   * `O2_UNIT_ONLY` lane CI narrows to — the precise hole `scripts/cheap-guards.sh` was
+   * written to close, where three guards were correct and unreached for a day. That is a
+   * decision about coverage with a cost on both sides and it is not criterion 5's to take,
+   * so the measurements are recorded here and the table is left alone. `unitFiles` therefore
+   * moves by the full six: `excludedInNode` is unchanged, and the identity is
+   * `files - excludedInNode`.
+   *
+   * `tests` is left at its run's figure, for the reason the 219 -> 228 entry gives: the
+   * count is what the tolerance reads, and inventing a test total nobody counted is the
+   * defect this table exists to prevent.
+   */
+  files: 248,
   tests: 2948,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
@@ -671,7 +720,14 @@ const NODE_MEASUREMENT = {
    * --project node --filesOnly` reads **162** — the runner applying the exclusions for real,
    * which is a different question from whether two numbers in this file subtract correctly.
    */
-  unitFiles: 162,
+  /**
+   * **162 -> 168 on 2026-09-06 (Phase 43)**, by the identity rather than by a second count:
+   * `unitFiles === files - excludedInNode`, `files` moved 242 -> 248, and `excludedInNode` is
+   * unchanged because none of the six arrivals is on `SLOW_NODE_SPECS` — see the note on
+   * `files`, which records that three of them are nonetheless above the cut and why the span
+   * table was deliberately not moved for them.
+   */
+  unitFiles: 168,
   unitTests: 2317,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
