@@ -261,6 +261,10 @@ directory.** There is nothing in it worth keeping.
 
 **`@o2/core` is now a declared dependency of `@o2/cloudflare`.** It resolved transitively
 before (through `@o2/libp2p`) and was undeclared; the envelope is the first direct use.
+`package-lock.json` carries the workspace entry too — `npm install --package-lock-only`
+produced a **one-line** diff and nothing else moved. Nothing local could have caught its
+absence: `tsc` and `vitest` both resolve through the root symlink that already existed, so only
+a clean `npm ci` would have failed.
 
 **Two files outside the identity change were rewritten rather than worked around**, both mine:
 
@@ -340,8 +344,25 @@ conditions — `HostedIdentitySecretMissingError` (nothing lost, set the secret)
 back), and a `peerId` that differs from the one captured before the deploy (stop and report).
 
 It states plainly that the secret must be set **before** the next deploy of this Worker, and
-what happens if it is not: the node refuses to start and answers `500` by name, rather than
-quietly becoming someone else. And it states the permanent consequence, which is the one an
-owner must read before deploying rather than after: **once the migration has deleted the
-plaintext, losing the secret loses the identity.** There is no recovery path by construction —
-that is what "the seed is not in the object's storage" means.
+what happens if it is not — **and that answer has two arms, which a first draft of the row got
+wrong by giving only one.** I wrote "the node goes dark" for both paths and then read
+`scripts/deploy-hosted.sh`:
+
+- **Through the script, the deploy rolls itself back.** Its read-back is
+  `curl -sS --fail … /self`; `--fail` turns a `500` into no body, the injected version never
+  appears in the answer, and after six attempts over ~30 s it calls
+  `roll_back "THE DEPLOYED NODE DOES NOT REPORT THE VERSION THAT WAS DEPLOYED"` and runs
+  `wrangler rollback`. The old build returns, the plaintext seed is untouched, and the node
+  keeps answering on its published PeerId. A failed deploy, loudly, rather than a lost node.
+- **Through a bare `wrangler deploy`, the node goes dark** until the binding is set. Its stored
+  identity is intact and setting the secret brings it back unchanged.
+
+Worth recording beside that: **the script already guards the outcome this whole phase exists to
+prevent.** It captures the PeerId before the deploy and compares it after
+(`BEFORE_ID` / `AFTER_ID`), rolling back on a mismatch — so on the scripted path, stop
+condition 3 is automated. That guard predates this phase and was written for the same reason.
+
+And the row states the permanent consequence, which is the one an owner must read before
+deploying rather than after: **once a deploy has migrated the object, losing the secret loses
+the identity.** There is no recovery path by construction — that is what "the seed is not in
+the object's storage" means.

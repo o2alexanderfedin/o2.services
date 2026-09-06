@@ -216,8 +216,8 @@ it will ever be printed.
 npx wrangler secret list
 ```
 
-`O2_IDENTITY_SECRET` must appear, with type `secret_text`. If it does not, stop: deploying now
-takes the node dark.
+`O2_IDENTITY_SECRET` must appear, with type `secret_text`. If it does not, stop — see *"what
+happens if it is not set"* below, which depends on **how** the deploy is run.
 
 **Step 4 — deploy, then read the identity back.**
 
@@ -235,19 +235,34 @@ This must print **the same string as step 1**.
 - **`/self` answers `500` with `SealedHostedIdentityUnlockError`** — a secret is bound and it
   is not the one this envelope was sealed under. **Do not redeploy and do not rotate.** Put the
   original value back; the identity is intact behind it.
-- **`/self` answers `200` with a `peerId` that is NOT the one captured before the deploy** —
-  stop and report it. That is the one outcome the whole design exists to prevent, and it means
-  something is wrong that no further deploy will fix.
+- **`/self` answers `200` with a `peerId` that is NOT the one captured in step 1** — stop and
+  report it. That is the one outcome the whole design exists to prevent, and it means something
+  is wrong that no further deploy will fix. `deploy-hosted.sh` already refuses this case and
+  rolls back on it; a deploy run any other way does not.
 
-### Two warnings, and the second is permanent
+### What happens if the secret is not set — and it depends on how you deploy
 
-**The secret must be set before the next deploy of this Worker.** With it unset the object
-refuses to open its identity and `GET /self` answers `500` by name — deliberately, because the
-alternative is a node that quietly comes up as somebody else. The published PeerId is in
-bootstrap lists and multiaddrs, and a node answering under a new one is not recoverable by
-setting the secret afterwards. Going dark is.
+**Read from `scripts/deploy-hosted.sh` on 2026-09-06 rather than assumed**, because an earlier
+draft of this row said "the node goes dark" for both paths and that is only true of one:
 
-**Once the deploy has migrated the object, losing this secret loses the identity permanently.**
+- **Through `scripts/deploy-hosted.sh` — the deploy rolls itself back.** Its read-back is
+  `curl -sS --fail … /self`, and `--fail` makes a `500` produce no body, so the version it
+  injected never appears in the answer. After six attempts over about thirty seconds it calls
+  `roll_back "THE DEPLOYED NODE DOES NOT REPORT THE VERSION THAT WAS DEPLOYED"` and runs
+  `wrangler rollback` to the version captured before the deploy. **The old build comes back,
+  the plaintext seed is untouched, and the node keeps answering on its published PeerId.** The
+  script then exits non-zero, so this is loud. It is a failed deploy, not a lost node.
+- **Through a bare `wrangler deploy` — the node goes dark** until the secret is set. It answers
+  `500` on `/self` and nothing else works. Its stored identity is still intact and setting the
+  binding brings it back unchanged.
+
+Either way nothing is lost. That is the point of refusing: the alternative is a node that
+quietly comes up as somebody else, and a published PeerId answering under a new one is **not**
+recoverable by setting the secret afterwards. Going dark is.
+
+### One permanent consequence
+
+**Once a deploy has migrated the object, losing this secret loses the identity permanently.**
 The plaintext seed is deleted after the envelope is proved readable, so from that moment the
 secret is the only thing that opens it. There is no recovery path, by construction — that is
 what "the seed is not in the object's storage" means. **Store it in a password manager before
