@@ -664,6 +664,158 @@ describe('a --admit-issuer seed states its door and its way through it', () => {
   }, 60_000)
 })
 
+/**
+ * Whether this origin's visitor-key database holds a key pair — read from the page, in the
+ * page's own vocabulary, without going near `visitorKeyPair()`.
+ *
+ * **It must not call the minting function to find out whether minting happened.** That would
+ * mint one, and the case below would then pass on its own instrument. `indexedDB.databases()`
+ * is not used either: it is absent in some engines and returns stale entries in others, so
+ * the database is opened at its known version with `onupgradeneeded` refused — an open that
+ * would have had to CREATE the store is reported as "nothing is here" rather than creating it.
+ */
+async function visitorKeyIsStored(page: Page): Promise<boolean> {
+  return page.evaluate(async () => {
+    return await new Promise<boolean>((resolve) => {
+      const request = indexedDB.open('o2-visitor')
+      request.onupgradeneeded = () => {
+        // The database did not exist, or has no store. Abort rather than create it.
+        request.transaction?.abort()
+        resolve(false)
+      }
+      request.onerror = () => resolve(false)
+      request.onsuccess = () => {
+        const db = request.result
+        if (!db.objectStoreNames.contains('visitor')) {
+          db.close()
+          resolve(false)
+          return
+        }
+        const read = db.transaction('visitor').objectStore('visitor').get('user-key-pair')
+        read.onsuccess = () => {
+          const value: unknown = read.result
+          db.close()
+          resolve(
+            typeof value === 'object'
+            && value !== null
+            && 'privateKey' in value
+            && (value as { privateKey: unknown }).privateKey instanceof CryptoKey,
+          )
+        }
+        read.onerror = () => {
+          db.close()
+          resolve(false)
+        }
+      }
+    })
+  })
+}
+
+describe.each(ENGINES)(
+  'AUTH-07 criterion 1 — a visitor who has not signed in cannot cause a key to be minted, in $name',
+  ({ name, type }) => {
+    /**
+     * **The defect this reproduces was introduced by `42-07` and found by reading, not by a
+     * test — so it is made to HAPPEN here before anything is changed to prevent it.**
+     *
+     * `42-07` let a visitor reveal `#main` without unlocking, so they could look at the page
+     * before choosing a passphrase. `#enrol`'s visibility is `enrolEl.hidden = offer.accepted`
+     * and nothing about it consults sign-in, so on an origin that advertises an enrolment
+     * provider — which is exactly what this file's fixture is — the control whose handler
+     * calls `visitorKeyPair()` is reachable with **no passphrase in existence to seal the
+     * result under**.
+     *
+     * That is the owner's rule broken at its weakest point: not a key we forgot to encrypt,
+     * but a key minted where there is nothing to encrypt it with.
+     *
+     * **Why this file and not `signin-journey.e2e.test.ts`.** That file's fixture serves an
+     * origin naming no provider, so `#enrol-offer` stays hidden and the control is
+     * unreachable there for a reason that has nothing to do with sign-in. A case sited there
+     * would have passed while the defect stood — which is how it stood.
+     */
+    it('does not reach the control that mints a key while merely looking around', async () => {
+      let browser: Browser | undefined
+      let page: Page | undefined
+      try {
+        browser = await launchFixtureBrowser(type)
+        page = await browser.newPage()
+        page.on('pageerror', (error) => {
+          process.stderr.write(`[${name}] page error: ${error.message}\n`)
+        })
+        await page.goto(pageUrl)
+        await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+
+        await page.locator('#allow').click()
+        await page.waitForSelector('#signin', { state: 'visible', timeout: 60_000 })
+
+        // **The positive control for the absence below, and it runs first.** Nothing has been
+        // minted yet, and the reader says so — so a reader that always answered `false` is
+        // not what makes the later assertion pass.
+        expect(
+          await visitorKeyIsStored(page),
+          'a key was already stored before the visitor did anything, so this reader cannot '
+            + 'distinguish minted from not-minted and the case below proves nothing',
+        ).toBe(false)
+
+        // The way in that `42-07` added. Not a test-only bypass: the page's own control.
+        await page.locator('#signin-lookaround').click()
+        await page.waitForSelector('#main', { state: 'visible', timeout: 60_000 })
+        await page.waitForSelector('#lookaround-notice', { state: 'visible', timeout: 30_000 })
+
+        // The origin really does advertise a provider, or the refusal below would be a
+        // refusal about the fixture rather than about sign-in.
+        const offer = await page.evaluate(async () => window.o2.enrolmentOffer())
+        expect(
+          offer.offered,
+          'this fixture must advertise an enrolment provider, or an unreachable #enrol proves '
+            + 'nothing about sign-in',
+        ).toBe(true)
+
+        // **The reading.** The control that mints a key must not be operable by somebody who
+        // holds no passphrase. Visibility and enabledness are both read, because either one
+        // alone leaves a way through.
+        const reachable =
+          (await page.locator('#enrol').isVisible()) && (await page.locator('#enrol').isEnabled())
+        expect(
+          reachable,
+          'a visitor who is only looking around can operate #enrol, whose handler calls '
+            + 'visitorKeyPair() — so a private key is minted with no passphrase anywhere to '
+            + 'seal it under, which is the owner\'s rule broken at its weakest point',
+        ).toBe(false)
+
+        // **The GUARANTEE, read separately from the courtesy, because a hidden control and a
+        // refusing act are different claims and only the second is a property of the system.**
+        // A surface that only hid the control would still be one console call from the same
+        // key — so the act the control would have called is called directly.
+        const refusal = await page.evaluate(async () => {
+          try {
+            await window.o2.acceptEnrolment()
+            return 'DID NOT REFUSE'
+          } catch (error) {
+            return error instanceof Error ? error.name : String(error)
+          }
+        })
+        expect(
+          refusal,
+          'acceptEnrolment did not refuse a visitor holding no passphrase — so hiding #enrol '
+            + 'is the whole of the protection, and the protection is one console call wide',
+        ).toBe('SignedOutError')
+
+        // And the property both of them stand for, read at the store rather than at either:
+        // whatever the surface does and whatever the act does, nothing may have been written.
+        expect(
+          await visitorKeyIsStored(page),
+          'a visitor key exists after a look-around visit, so something minted one without a '
+            + 'passphrase',
+        ).toBe(false)
+      } finally {
+        await page?.close().catch(() => {})
+        await browser?.close().catch(() => {})
+      }
+    }, 120_000)
+  },
+)
+
 describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ name, type }) => {
   it(
     'is offered the provider, accepts it, holds a certificate, and is admitted',

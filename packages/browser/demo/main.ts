@@ -270,6 +270,34 @@ function requireSignIn(): string {
   return held
 }
 
+/**
+ * Whether anybody is signed in — **a boolean, and never the passphrase itself**.
+ *
+ * The distinction is not fastidiousness, it is `T-42-27` written as two functions.
+ * `visitor-enrolment.e2e.test.ts` asserts that {@link requireSignIn}, which *returns the
+ * passphrase*, has exactly **one** call site — the `identityProtection` field — because a
+ * second site anywhere is the whole of that threat: the credential that opens this browser's
+ * identity reaching the path that talks to a provider.
+ *
+ * **That guard caught this pair being written as one function**, on 2026-09-06, when
+ * `acceptEnrolment` was given `requireSignIn()` to answer a question that never needed the
+ * secret. The guard was right and the code moved: enrolment asks *is somebody signed in*, and
+ * gets a yes or a no.
+ */
+function signedIn(): boolean {
+  return heldPassphrase !== null
+}
+
+/**
+ * Refuse unless somebody is signed in, and hand back **nothing** — `AUTH-07` criterion 1.
+ *
+ * {@link SignedOutError} already says what would otherwise happen and why it must not, so the
+ * refusal is shared rather than reworded: one failure a surface can render, whatever asked.
+ */
+function requireSignedIn(): void {
+  if (!signedIn()) throw new SignedOutError()
+}
+
 async function openIdentity(
   passphrase: string,
   whenAbsent: 'mints-and-seals-a-new-identity' | 'refuses-to-mint',
@@ -785,7 +813,13 @@ async function offerOf(): Promise<TabEnrolmentOffer> {
   // granted it has nothing to offer yet. Reported as "no offer" rather than thrown: the
   // consent gate is the surface that should be speaking at that moment, not this one.
   if (!readConsent(store, DEMO_ANCHORS).ok) {
-    return { offered: false, accepted: false, canHoldKey, appliedToRunningNode: true }
+    return {
+      offered: false,
+      accepted: false,
+      canHoldKey,
+      signedIn: signedIn(),
+      appliedToRunningNode: true,
+    }
   }
   const { enrollmentProvider } = await api.discoverRelays()
   const found = readEnrolment(store, enrollmentProvider)
@@ -805,6 +839,9 @@ async function offerOf(): Promise<TabEnrolmentOffer> {
     accepted,
     ...(found.ok ? {} : { gap: found.gap.kind }),
     canHoldKey,
+    // Read here rather than captured anywhere: `requireSignIn`'s own rule — the state that
+    // changed since the page rendered is the state that applies.
+    signedIn: signedIn(),
     ...(heldIssuer === null ? {} : { heldIssuer }),
     // `undefined` means no node is running, and then the question does not arise — a
     // decision cannot be out of step with a node that does not exist.
@@ -1944,6 +1981,28 @@ const api: TabApi = {
   async acceptEnrolment() {
     // The network read below and everything after it is gated, like every other path here.
     requireConsent()
+
+    // **AUTH-07 criterion 1, and it is the guarantee rather than the courtesy.** Enrolling
+    // mints a visitor key, and a key minted where no passphrase exists is a key nothing can
+    // ever seal — the owner's rule broken at its weakest point, not by forgetting to encrypt
+    // something but by creating something there is nothing to encrypt it with.
+    //
+    // **This line is the fix and hiding the control is not.** `42-07` made `#main` reachable
+    // without unlocking, and `#enrol`'s visibility consulted only `offer.accepted`; that was
+    // reproduced on all three engines. A surface that merely hid the control would still be
+    // one `window.o2.acceptEnrolment()` away from the same key, and the reproduction case
+    // reads the STORE as well as the control for exactly that reason.
+    //
+    // It sits above the origin and browser refusals below deliberately: those are facts
+    // about the origin, this is a fact about who is asking, and a visitor who is not signed
+    // in should be told that rather than told their origin is unsuitable.
+    //
+    // **`requireSignedIn()` and NOT `requireSignIn()`, and the difference is `T-42-27`.** The
+    // second returns the passphrase, and this file's guard asserts it has exactly one call
+    // site — the `identityProtection` field — because the credential that opens this
+    // browser's identity must not travel the path that talks to a provider. This line was
+    // written as `requireSignIn()` first and that guard reddened it, correctly.
+    requireSignedIn()
 
     // Refusals by name, in the order a visitor would hit them, because somebody who pressed
     // a button is owed the reason it did not work rather than a page that quietly does
