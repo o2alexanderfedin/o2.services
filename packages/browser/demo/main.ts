@@ -744,7 +744,7 @@ export async function signinFacts(): Promise<{
   return {
     consent: found.ok ? 'granted' : found.gap.kind,
     stored,
-    unlocked: heldPassphrase !== null,
+    unlocked: signedIn(),
   }
 }
 

@@ -15,6 +15,7 @@ import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { E2E_PASSPHRASE, signInDemoTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
+import { stripComments } from './strip-comments.ts'
 
 /**
  * A **visitor** enrols — AUTH-01, AUTH-02, AUTH-04.
@@ -951,11 +952,53 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
           'the held passphrase is obtained at more than one site in demo/main.ts, so this ' +
             'assertion can no longer say where it goes',
         ).toHaveLength(1)
+        // **AMENDED 2026-09-06 (`AUTH-07`), and amended by TIGHTENING rather than by moving a
+        // literal.** This read `.toBe("identityProtection: { kind: 'passphrase', passphrase:
+        // requireSignIn() },")` and went red when a second persister arrived — the visitor's
+        // own key, whose whole PKCS#8 had been measured lying in a Chromium profile in the
+        // clear. The property it guards did not change: the passphrase is still obtained at
+        // exactly one site. What changed is that the site is now the body of a named function
+        // whose only job is to build the object both persisters take.
+        //
+        // Matching one literal would have to be relaxed once per persister until it said
+        // nothing, so it is replaced by two readings that are **strictly stronger than the
+        // one they retire**: where the passphrase is obtained, and — new — every place the
+        // raw binding can be read at all.
         expect(
           callSites[0]?.line,
-          'the one call to requireSignIn() is no longer the identityProtection field — the ' +
-            'passphrase now reaches somewhere else, and T-42-27 is about exactly that',
-        ).toBe("identityProtection: { kind: 'passphrase', passphrase: requireSignIn() },")
+          'the one call to requireSignIn() is not the identityProtection factory — the '
+            + 'passphrase now reaches somewhere else, and T-42-27 is about exactly that',
+        ).toBe("return { kind: 'passphrase', passphrase: requireSignIn() }")
+
+        // The factory exists and is what that line belongs to. Without this the assertion
+        // above would pass on any function that happened to return the same object literal.
+        expect(
+          glue,
+          'the one call site is not inside a function named identityProtection, so what it '
+            + 'hands the passphrase to is no longer the shared protection object',
+        ).toContain('function identityProtection(): IdentityProtection {')
+
+        // **The new half, and it bounds the blast radius rather than one call.** The raw
+        // string binding may be touched in five places and no others: its declaration, the
+        // two accessors, the unlock that sets it, and the sign-out that clears it. A sixth
+        // is a new route the passphrase can travel, whatever it is called — which is what
+        // this whole case is about and what a single-literal match could never have seen.
+        const rawReads = stripComments(glue)
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line.includes('heldPassphrase'))
+        expect(
+          rawReads,
+          'the raw passphrase binding is touched somewhere new in demo/main.ts — every read '
+            + 'of it must go through requireSignIn() or signedIn(), or T-42-27 cannot say '
+            + 'where the passphrase goes',
+        ).toEqual([
+          'let heldPassphrase: string | null = null',
+          'const held = heldPassphrase',
+          'return heldPassphrase !== null',
+          'heldPassphrase = passphrase',
+          'heldPassphrase = null',
+        ])
 
         // Form two: what this origin actually wrote. Every value in every object store of
         // every database this tab holds, searched for the passphrase — with the positive
