@@ -244,8 +244,21 @@ This is the plant that matters most for point 4 of the brief: *"an entry that sa
 material' about a secret is worse than no guard at all"*. The sealing claim is the one
 classification a machine can check, and it can go red.
 
+**Re-run against the final file, and it had to be.** The first red was taken before the reads
+were hoisted (§8), and that pass rewrote the very lines this plant exercises —
+`trackedSources(by)[0]` plus a fresh read became `TRACKED.includes(by)` plus the memoised
+`sourceOf(by)`. A red taken on code that no longer exists vouches for nothing, which is the
+same reason plant A was re-run. Re-planted against `HEAD`, watched red with the identical text
+above, reversed by the same one-identifier flip, `cmp`-clean, 29/29 green afterwards.
+
+**Plant B was not re-run, and here is why that is not an omission.** It reddens
+`walk() toEqual declared()` — the *same* assertion plant A's re-run exercised live against the
+final file, in the other direction of a symmetric compare. Plant A proved that assertion still
+sees an extra line after the rewrite; plant B's direction is the missing line, and nothing in
+the hoisting pass touched either side of it. Stated rather than left implicit.
+
 **No plant stayed green.** Nothing is being reported here as covered that was not watched
-failing.
+failing, and every red quoted here was taken against the code that shipped.
 
 ---
 
