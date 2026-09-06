@@ -1852,8 +1852,29 @@ Recorded, not answered. Each names what would settle it and which rows move when
    **What would settle it**: costing that trade, then a phase. **Which rows move**: a new id,
    and nothing existing — `AUTH-06` neither covers this nor should be stretched to.
 
-11. **The visitor's owner key is on disk in the clear too — RULED 2026-09-06 by the owner:
-   *"надо шифровать"*. What is not ruled is the shape, and there are two.**
+11. **The visitor's owner key is on disk in the clear too — and the owner has since widened
+   the ruling into a RULE, 2026-09-06: *"Ключ в открытом виде не должен быть записан нигде.
+   Или иначе: сохраненный где бы то ни было ключ должен быть зашифрован всегда."***
+
+   **The proposal answering it is
+   `.planning/consults/2026-09-06-every-stored-key-is-ciphertext.md`**, and it found a third
+   exposure nobody had looked for: `@libp2p/keychain` derives its encryption key as the
+   **empty string** unless BOTH `pass` and `dek.salt` are supplied
+   (`node_modules/@libp2p/keychain/dist/src/keychain.js:101-103`), and this repository
+   constructs it with no arguments on both tiers that use it — `fabric-node.ts:2225` under
+   AutoTLS, `hosted-libp2p.ts:343` unconditionally. So the Let's Encrypt private key and
+   whatever else it holds are encrypted under a password everybody knows. **Supplying `pass`
+   alone does not fix it and reports nothing** — the `&&` is the trap.
+
+   It also found that `42-07` left `#enrol` reachable while looking around
+   (`demo/index.html:3020` gates it on `offer.accepted` and on nothing about sign-in), so on
+   an origin that offers enrolment a visitor with no passphrase can reach the control that
+   mints this key. **Read from source, not yet reproduced.**
+
+   The original entry below is kept because the shape question it states is still the shape
+   question, and its answer is still recommended.
+
+   **The visitor's owner key.** What is not ruled is the shape, and there are two.
 
    **The finding.** `packages/browser/src/visitor-key.ts` holds an Ed25519 `CryptoKeyPair`
    generated `extractable: false` and stored as a handle in IndexedDB. `AUTH-06` excluded it
