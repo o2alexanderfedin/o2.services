@@ -1869,21 +1869,38 @@ Recorded, not answered. Each names what would settle it and which rows move when
    *generated* non-extractable, because a passphrase seal needs bytes and a non-extractable
    key has none to give. Two shapes, and they are not the same trade:
 
-   - **(i) Seal the raw bytes.** Generate the pair extractable (or outside WebCrypto), seal
-     the private half with the envelope `AUTH-06` already ships, import non-extractable on
-     unlock. Simple, reuses `packages/core/src/sealed-secret.ts` whole, and matches what both
-     other tiers do. **Cost:** the bytes exist in page memory at generation, so §3.9's
-     *"the private half never crosses the app boundary"* becomes *"crosses it once, at
-     mint"*.
-   - **(ii) `wrapKey` / `unwrapKey`.** Generate extractable, immediately wrap under a
-     passphrase-derived AES key, store only the wrapper, and `unwrapKey` into a
-     **non-extractable** handle on unlock. Keeps the at-rest seal *and* the in-memory
-     property. **Cost:** a second crypto vocabulary beside the one this repository already
-     ships, and `subtle` is asynchronous — `42-03` records that awaiting anything outside an
-     IndexedDB transaction lets that transaction commit, which is the measured four-tab race.
-     `visitor-key.ts` already cannot use the one-transaction shape for this reason and uses
-     compare-and-set instead, so the constraint is survivable here, but it must be designed
-     rather than assumed.
+   **First, what the two shapes do NOT differ on, because the obvious comparison is wrong and
+   was written down wrongly here before it was checked.** `wrapKey` refuses a key that is not
+   extractable, so **both** shapes must generate the pair `extractable: true` and both have
+   the private bytes reachable from the page at mint. §3.9's *"never crosses the app
+   boundary"* becomes *"crosses it once, at mint"* under either. And both end with a
+   **non-extractable** handle after unlock, because (i) imports with `extractable: false`.
+   The difference is narrower than it first looks and sits at exactly one place: **on unlock,
+   (i) materialises the raw bytes in page memory for the length of an `importKey` call and
+   (ii) does not.**
+
+   - **(i) Seal the raw bytes.** Generate extractable, seal the private half with the
+     envelope `AUTH-06` already ships, import `extractable: false` on unlock. Reuses
+     `packages/core/src/sealed-secret.ts` whole — Argon2id and XChaCha20-Poly1305, already
+     measured on both other tiers — so the fabric has **one** at-rest vocabulary rather than
+     two. **Cost:** the unsealed bytes are a JS value for the duration of one call, on every
+     unlock rather than once.
+   - **(ii) `wrapKey` / `unwrapKey`.** Generate extractable, wrap immediately under an AES key
+     derived from the passphrase, store only the wrapper, `unwrapKey` into a non-extractable
+     handle. **Cost:** a second at-rest format and a second vocabulary beside the shipped one,
+     and the KDF still cannot be WebCrypto's — `crypto.subtle` has **no Argon2id**, measured
+     in this milestone; only PBKDF2 and HKDF exist. So (ii) is *Argon2id in JS anyway*, then
+     `importKey` the result as AES, then wrap — the memory-hard half is identical and only
+     the AEAD moves. It also runs entirely on `subtle`, which is asynchronous, and `42-03`
+     records that awaiting anything outside an IndexedDB transaction lets that transaction
+     commit — the measured four-tab race. `visitor-key.ts` already cannot use the
+     one-transaction shape and uses compare-and-set, so the constraint is survivable, but it
+     must be designed rather than assumed.
+
+   **On the readings above, (i) is the cheaper answer to the same threat**: the same
+   memory-hard KDF either way, one format instead of two, and the property (ii) buys is the
+   lifetime of one `importKey` call against an attacker who is by assumption holding a disk
+   rather than running in the page.
 
    **A third thing that is not a shape and must be decided anyway:** the visitor key is minted
    for a visitor who has **not** necessarily registered — it predates the passphrase in the
