@@ -7,6 +7,31 @@ not this phase's, and what a reader would need to close it.
 
 ## `lease-expiry.e2e.test.ts` is intermittent in a full `e2e` sweep — found 42-03, not caused by it
 
+> **CLOSED 2026-09-05.** Fixed in `b12f884`, and the entry below was **right about where and
+> wrong about why**, which is worth keeping rather than deleting.
+>
+> Right: the margin between `BURN_MS` and the holder's queue depth is exactly where it broke,
+> and "not 42-03's" held — it reproduced 2 of 3 on `develop` with nothing from this phase in
+> the tree.
+>
+> Wrong: this entry reads the docblock's known flake as *a count chosen against one host*, so
+> the fix it points at is re-siting a constant. The actual cause is dated and external to this
+> file altogether. `WorkerExecutor` posted to ONE worker when that spec was written on
+> 2026-08-18; commit `095fce3` on 2026-08-28 made it a pool sized by the host's cores. **The
+> margin is a wall-clock window and a pool divides it by the thread count** — twelve shards on
+> eight threads is two waves, about a tenth of a second — while sixteen compute threads on
+> eight cores also leave the polling process no core to fork `ps` on. The silenced executor
+> held **1290, 1350 and 1440 ms** of CPU when it was signalled, against a `BURN_MS` of 60.
+>
+> Flip-tested: `hostCoreCount` forced to 1, fixture untouched, 3 of 3 green against 2 of 6.
+> Fixed by raising the cube's cost rather than the queue's length — 7 of 7. Two other levers
+> were tried and each broke a different documented bound; all of it is in
+> `.planning/debug/2026-09-05-the-worker-pool-took-the-lease-fixtures-trigger-margin.md`.
+>
+> **The lesson the entry below could not have reached**: a change that makes a component N
+> times more parallel divides every wall-clock margin in the tree by N, including margins in
+> fixtures that name neither the component nor a duration.
+
 **What was observed.** Two full `e2e` lane runs on 2026-09-04, both with a quiet
 `[host conditions]` banner:
 

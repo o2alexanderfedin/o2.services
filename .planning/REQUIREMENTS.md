@@ -1787,6 +1787,42 @@ Recorded, not answered. Each names what would settle it and which rows move when
    is intrinsic rather than accounted; or a record the *fabric* holds rather than a provider,
    for which `/o2/kad/1.0.0` and `dht-record-index.ts` already exist. **Changes:** `AUTH-04`,
    and the wiring at `fabric-node.ts:2503-2512`.
+9. **How does anybody get their identity back? — RAISED 2026-09-06 by the owner, who holds
+   ideas and has deferred the discussion. No agent designs this.**
+
+   **What is true today, measured rather than asserted.** There is no recovery of any kind and
+   the page says so in those words: *"There is nothing anywhere to recover from and no support
+   channel to ask."* Two separate ways to lose an identity exist and only one of them is loud.
+   A forgotten passphrase refuses by name — `signin-journey.e2e.test.ts`'s criterion-4 case
+   reads that refusal — and the visitor's only way on is *Start over with a new identity*,
+   which deletes it. **An evicted IndexedDB is silent**: `demo/main.ts:1741` passes
+   `whenSeedIsGone: 'mints-a-new-identity'`, so a browser that reclaims storage under pressure
+   hands the visitor a working page and a different node under the same name, with nothing
+   anywhere saying so. The other arm of that union —
+   `'refuses-to-start-without-its-seed'` — exists and is exercised only in
+   `idb-identity-store.browser.test.ts:359`.
+
+   **What the owner pointed at, and it is the reason this is a question rather than a wish.**
+   Shape **(c)** of `AUTH-06`'s weighing — derive the seed from the passphrase and store no
+   seed at all — was rejected, and its third rejection reason reads *the passphrase alone
+   reconstructs the node from any machine on earth*. That is written as a cost, and **it is
+   also the only recovery story any of the three shapes has**: it is the same sentence read
+   from the other side. Under the shape actually shipped, (a), the secret is a random seed
+   sealed under the passphrase, so the passphrase without the disk is worth nothing — which
+   is exactly the property that defeats an imaged device, and exactly the property that makes
+   recovery impossible. **The two are one property, not two**, and any design here must say
+   which side of it that design lands on rather than claiming both.
+
+   **What would settle it.** An owner ruling on that trade, then a requirement of its own —
+   recovery is nowhere in `AUTH-06`'s wording and cannot be read into it. **Which rows move**:
+   a new id, plus `AUTH-06`'s row if the ruling changes the at-rest shape, plus `demo/main.ts`'s
+   `whenSeedIsGone` choice and the *Start over* copy, both of which state the current answer
+   to a visitor and would then be stating a different one. `42-05` already carries an
+   instruction to record (c)'s two forgone benefits — recovery from the passphrase alone after
+   an eviction, and criterion 1 satisfied by *absence* rather than by ciphertext — **as a
+   candidate future requirement rather than as a discarded idea**; this item is that
+   instruction with the owner's own flag on it.
+
 6. **`DEMO-04`'s guard — SETTLED 2026-08-25 by owner ruling; kept here rather than deleted,
    because a question that was open is part of the record.** It read: the guard
    (`packages/node/src/disclosure-gate.node.test.ts`) forbids a deploy workflow in order to
