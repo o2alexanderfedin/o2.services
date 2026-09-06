@@ -575,7 +575,13 @@ export {
   // holding its own `generateKey` call — the one production file permitted to perform
   // WebCrypto Ed25519 operations is `ed25519-backend.ts`, so the call lives there and
   // crosses the barrel rather than being duplicated at its caller.
+  generateSealableSubtleKeyPair,
+  // **No production caller since 2026-09-06 and retained deliberately** — `AUTH-07` moved its
+  // only one, `browser/visitorKeyPair`, to the sealable form. The deferral and its remedy are
+  // stated at the function itself; removing this line would take a non-extractable generator
+  // away from two browser specs that cannot reach the module across a package boundary.
   generateSubtleKeyPair,
+  importSealedSubtleKeyPair,
   getAsyncVerifier,
   getSyncVerifier,
   initEd25519,

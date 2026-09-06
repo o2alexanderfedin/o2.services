@@ -286,7 +286,12 @@ describe('the cold-start mint race', () => {
     const name = freshName('visitor')
     try {
       const pairs = await Promise.all(
-        Array.from({ length: RACERS }, async () => visitorKeyPair(name)),
+        // `AUTH-07`: the key is sealed now, so the racers share a passphrase as well as a
+        // database name. One person, one passphrase, one key — and the race is unchanged,
+        // because sealing happens before the transaction exactly as minting did.
+        Array.from({ length: RACERS }, async () =>
+          visitorKeyPair({ kind: 'passphrase', passphrase: 'correct horse battery staple' }, name),
+        ),
       )
       const raw = await Promise.all(
         pairs.map(async (pair) => crypto.subtle.exportKey('raw', pair.publicKey)),
@@ -295,7 +300,21 @@ describe('the cold-start mint race', () => {
     } finally {
       await forgetVisitorKey(name).catch(() => {})
     }
-  })
+    // **A budget of its own since `AUTH-07`, and it is an absolute, so what it is sited
+    // against is recorded beside it.** Sealing this key made each racer pay Argon2id, and a
+    // loser pays it twice — once to seal what it minted and once to open the winner's
+    // envelope, whose salt is its own so no derived key can be reused across the two. Four
+    // racers is up to seven passes.
+    //
+    // That cost is the point rather than an overhead: the memory-hard KDF is what prices a
+    // guess against somebody holding this disk. What had to move is the budget, which was
+    // written for a race that did no crypto at all.
+    //
+    // Measured 2026-09-06 on a quiet host, this file alone: **webkit 1578 ms, chromium
+    // 3227 ms, firefox 5189 ms**. Under a full three-engine lane firefox exceeded the old
+    // 15 000 ms — contention costs it more than 3x — so this is sited at roughly eleven times
+    // the quiet single-engine firefox reading, and it is the slowest engine that decides it.
+  }, 90_000)
 })
 
 describe('the migration, at the store level', () => {

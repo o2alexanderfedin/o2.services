@@ -73,6 +73,7 @@ import type {
   StartOutcome,
 } from '@o2/core'
 import { clientVersionFrom, nodeKeyForPeerId, peerIdForNodeKey } from '@o2/libp2p'
+import type { IdentityProtection } from '@o2/libp2p'
 import {
   RemoteExecutor,
   RpcRecordIndex,
@@ -296,6 +297,28 @@ function signedIn(): boolean {
  */
 function requireSignedIn(): void {
   if (!signedIn()) throw new SignedOutError()
+}
+
+/**
+ * What this page will do with **any** long-lived secret it persists — one object, one source.
+ *
+ * ## Why this function exists rather than four `requireSignIn()` calls
+ *
+ * `visitor-enrolment.e2e.test.ts` asserts that {@link requireSignIn} — which *returns the
+ * passphrase* — has exactly **one** call site, and `T-42-27` is why: this tab holds a
+ * passphrase it registered with and a certificate a provider signed, and the threat is the
+ * first reaching the second. Each new persister that needed the passphrase would otherwise be
+ * a new site, and the guard would be relaxed once per persister until it said nothing.
+ *
+ * `AUTH-07` added a second persister — the visitor's own key, whose whole PKCS#8 was measured
+ * lying in a Chromium and Firefox profile in the clear. So the passphrase is obtained **here,
+ * once**, into the vocabulary both tiers already speak (`IdentityProtection`), and every
+ * persister takes that object. The guard's property is preserved rather than widened: there
+ * is still exactly one place where the passphrase is obtained, and it is now easier to audit
+ * than four call sites would have been, because the object is named and typed.
+ */
+function identityProtection(): IdentityProtection {
+  return { kind: 'passphrase', passphrase: requireSignIn() }
 }
 
 async function openIdentity(
@@ -749,7 +772,7 @@ async function visitorEnrolmentOption(providerAddr: string): Promise<{
   // ordinary unenrolled node rather than throwing, because a stored decision made on an
   // origin that has since lost `crypto.subtle` must not turn into a page that will not load.
   if (!canHoldVisitorKey()) return null
-  const keyPair = await visitorKeyPair()
+  const keyPair = await visitorKeyPair(identityProtection())
   return {
     userPrivateKey: keyPair,
     operatorId: await visitorOperatorId(keyPair),
@@ -795,7 +818,7 @@ async function sovereignChainsFor(
   if (sovereign === undefined) return null
   if (n.certificate === null) return null
   if (!canHoldVisitorKey()) return null
-  const signer = await subtleUserSigner(await visitorKeyPair())
+  const signer = await subtleUserSigner(await visitorKeyPair(identityProtection()))
   return chainsForOwner(signer, { ownerId: sovereign.ownerId, nodeIds, now: () => Date.now() })
 }
 
@@ -1816,7 +1839,7 @@ const api: TabApi = {
         // configured must not be configurable by whatever found it, and a passphrase is the
         // last thing that rule should be relaxed for. The value here comes from the visitor,
         // at the surface they are looking at, and can come from nowhere else.
-        identityProtection: { kind: 'passphrase', passphrase: requireSignIn() },
+        identityProtection: identityProtection(),
         rpcTimeoutMs: 60_000,
         // Conditional spread, so an omitted option is genuinely absent and the factory's
         // own default is what applies — passing `undefined` explicitly would override it.
@@ -2031,7 +2054,7 @@ const api: TabApi = {
     // Minted here rather than lazily at the next `start`, so a visitor who accepts on an
     // origin whose storage or crypto is about to refuse finds out now, while the surface is
     // still about enrolment, and not as a start failure later.
-    await visitorKeyPair()
+    await visitorKeyPair(identityProtection())
 
     notify()
     return offerOf()

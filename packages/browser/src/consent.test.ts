@@ -352,14 +352,55 @@ describe('the disclosure says what a visitor needs to decide', () => {
     // The second half, and the one that decides which sentence is true: what this page
     // passes. Exactly one of the two arms must be present, so a page that passed both — or
     // neither — is a finding rather than a silently-chosen branch.
-    const keepsNoKey = page.includes("identityProtection: { kind: 'writes-no-new-secret' }")
-    const keepsAKey = page.includes("identityProtection: { kind: 'passphrase'")
+    //
+    // **It resolves ONE level of indirection, and that is not generosity — it is the fix for
+    // a blindness this case actually had.** `AUTH-07` moved the arm behind a named helper,
+    // because the passphrase must be obtained at exactly one site (`T-42-27`) and a second
+    // persister would otherwise have been a second site. The page still passes the same arm;
+    // this case simply stopped being able to see it, and reported *neither* — which reads as
+    // a finding about the page when it is a fact about the reader. Caught 2026-09-06 by this
+    // case going red on a change that did not touch what it is about.
+    //
+    // So the value handed to `identityProtection:` is read first, and if it names a function
+    // in this same file, that function's body is what the arms are looked for in. Anything
+    // else — a second level of indirection, a value from another module — leaves both arms
+    // false and the count assertion below says so rather than guessing.
+    const passed = /identityProtection:\s*([A-Za-z0-9_]+)\(\)/.exec(page)
+    const source =
+      passed === null
+        ? page
+        : (new RegExp(String.raw`function ${passed[1] ?? ''}\(\)[^{]*\{([\s\S]*?)\n\}`).exec(
+            page,
+          )?.[1] ?? '')
+    const keepsNoKey =
+      source.includes("kind: 'writes-no-new-secret'")
+      || page.includes("identityProtection: { kind: 'writes-no-new-secret' }")
+    const keepsAKey =
+      source.includes("kind: 'passphrase'") || page.includes("identityProtection: { kind: 'passphrase'")
     expect(
       [keepsNoKey, keepsAKey].filter(Boolean).length,
       'demo/main.ts must pass exactly one identityProtection arm to BrowserNode.start — this '
         + 'case reads which sentence the disclosure owes a visitor off that one value',
     ).toBe(1)
 
+    // **WHICH HALF OF THIS CASE ACTUALLY CARRIES THE CLAIM, measured 2026-09-06 and recorded
+    // rather than quietly relied upon.** The count assertion above is load-bearing: it was
+    // watched going red when `AUTH-07` moved the arm behind a helper and this reader could no
+    // longer see it. **The branch below is NOT currently discriminating.** Planted — the
+    // helper switched to return `writes-no-new-secret`, everything else untouched — and this
+    // file stayed GREEN, 72 of 72.
+    //
+    // The reason, measured against today's `DISCLOSURE`: the prose satisfies the positive
+    // pattern of BOTH arms. `stored|storage|kept` matches, `again|reused|…` matches, and so
+    // does `fresh|new one|not kept|does not keep|is not stored` — the last one on sentences
+    // about the **passphrase** not being stored rather than about the node key. Only the
+    // forbidden pattern is false. So a page that switched arms would still pass this branch.
+    //
+    // **Not tightened here, and the reason is that a wrong tightening is worse than a named
+    // gap.** What each arm owes a visitor is a disclosure question (`BROW-09`'s family), not a
+    // wiring one, and the patterns would have to be scoped to the line that is about the node
+    // key rather than to the whole prose. Left as a gap with its measurement attached, so
+    // whoever tightens it starts from a reading instead of from a suspicion.
     const prose = DISCLOSURE.lines
       .flatMap((line) => [line.question, line.answer])
       .join(' ')
