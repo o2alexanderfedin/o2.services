@@ -165,3 +165,95 @@ it is the cheapest row on this page.
 
 `AOTW-06` stays gated regardless: `26-GATE.md`'s **NO-GO** stands until a `wasm32-wasi` LLVM is
 built from source and glog carries a `__wasi__` branch. That is a compiler, not a feature.
+
+---
+
+## 8. The hosted node's identity secret — Phase 43, criterion 4
+
+| | |
+|---|---|
+| **Act** | `wrangler secret put O2_IDENTITY_SECRET` on the Worker, **before its next deploy**, and keep the value in a password manager |
+| **Cost** | None. A Worker secret is free and creates no resource |
+| **Why not an agent** | It is a credential on the owner's account, and it is the only thing that will ever open this object's identity. An agent that generated it would be the one place it had existed in plaintext |
+| **Unblocks** | Nothing waits on it. What it prevents is the deployed bootstrap node going dark on the next deploy |
+
+The seed at `/identity/seed` is no longer written in the clear. It is an Argon2id +
+XChaCha20-Poly1305 envelope at `/identity/sealed-seed`, and this secret is what opens it. The
+object at `o2-bootstrap.af-4a0.workers.dev` still holds the old plaintext row; the first boot
+of the new build **migrates it in place — same 32 bytes, same PeerId** — and deletes the
+plaintext only after re-reading the envelope and opening it.
+
+**Say plainly what this buys, because it is smaller than it sounds.** A Durable Object cannot
+keep a secret from its own operator. This does not hide the seed from the Cloudflare account
+holder and nothing claims it does. What moves is *who has to be compromised*: before, anyone
+who could read the object's storage; after, whoever holds the account. Two different
+compromise domains, and moving between them is the whole gain.
+
+### The commands, in the order they must be run
+
+**Step 1 — capture the PeerId the deployed node answers with today.** Everything below is
+checked against this string, so it has to be taken before anything changes.
+
+```
+curl -s https://o2-bootstrap.af-4a0.workers.dev/self | jq -r .peerId
+```
+
+**Step 2 — generate the secret and set it. Save the printed value in a password manager before
+going any further.**
+
+```
+cd packages/cloudflare
+openssl rand -hex 32 | tee /dev/tty | npx wrangler secret put O2_IDENTITY_SECRET
+```
+
+`openssl rand -hex 32` gives 64 characters, comfortably over the twenty-character floor the
+code enforces. `tee /dev/tty` prints it once so it can be saved — and this is the only moment
+it will ever be printed.
+
+**Step 3 — confirm the binding exists before deploying.**
+
+```
+npx wrangler secret list
+```
+
+`O2_IDENTITY_SECRET` must appear, with type `secret_text`. If it does not, stop: deploying now
+takes the node dark.
+
+**Step 4 — deploy, then read the identity back.**
+
+```
+curl -s https://o2-bootstrap.af-4a0.workers.dev/self | jq -r .peerId
+```
+
+This must print **the same string as step 1**.
+
+### What means stop
+
+- **`/self` answers `500` with a body containing `HostedIdentitySecretMissingError`** — the
+  secret is not bound to the deployed Worker. Nothing is lost and nothing was created: set it
+  and the node comes back on its own identity. This is the designed failure.
+- **`/self` answers `500` with `SealedHostedIdentityUnlockError`** — a secret is bound and it
+  is not the one this envelope was sealed under. **Do not redeploy and do not rotate.** Put the
+  original value back; the identity is intact behind it.
+- **`/self` answers `200` with a `peerId` that is NOT the one captured before the deploy** —
+  stop and report it. That is the one outcome the whole design exists to prevent, and it means
+  something is wrong that no further deploy will fix.
+
+### Two warnings, and the second is permanent
+
+**The secret must be set before the next deploy of this Worker.** With it unset the object
+refuses to open its identity and `GET /self` answers `500` by name — deliberately, because the
+alternative is a node that quietly comes up as somebody else. The published PeerId is in
+bootstrap lists and multiaddrs, and a node answering under a new one is not recoverable by
+setting the secret afterwards. Going dark is.
+
+**Once the deploy has migrated the object, losing this secret loses the identity permanently.**
+The plaintext seed is deleted after the envelope is proved readable, so from that moment the
+secret is the only thing that opens it. There is no recovery path, by construction — that is
+what "the seed is not in the object's storage" means. **Store it in a password manager before
+deploying**, not after.
+
+### What to say back
+
+That the secret is set, and the `peerId` from `/self` — which must match the one captured
+before the deploy.
