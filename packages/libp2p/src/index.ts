@@ -208,3 +208,11 @@ export type {
   SweepOutcome,
   WithholdingPredicate,
 } from './dht-provider-announcer.ts'
+
+// AUTH-07 criterion 3 — the DEK `@libp2p/keychain` writes stored private keys under. Both
+// tiers that construct a keychain derive it from their identity seed through this, because
+// a keychain built with no arguments encrypts under the empty string. See the module header
+// for the two corrections its own phase proposal needed.
+export { KEYCHAIN_PASS_INFO, KEYCHAIN_SALT_INFO, keychainProtectionFor } from './keychain-protection.ts'
+export type { KeychainProtection } from './keychain-protection.ts'
+export { KEYCHAIN_DEK_HASH, KEYCHAIN_DEK_ITERATIONS, KEYCHAIN_DEK_KEY_LENGTH } from './keychain-protection.ts'

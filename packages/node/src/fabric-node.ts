@@ -86,6 +86,7 @@ import { http } from '@libp2p/http'
 import { identify, identifyPush } from '@libp2p/identify'
 import { kadDHT, passthroughMapper } from '@libp2p/kad-dht'
 import { keychain } from '@libp2p/keychain'
+import { defaultLogger } from '@libp2p/logger'
 import { ping } from '@libp2p/ping'
 import { tcp } from '@libp2p/tcp'
 import { webSockets } from '@libp2p/websockets'
@@ -192,9 +193,10 @@ import {
   providerRecordPolicy,
   reservedPeerIds,
   relayServiceCid,
+  keychainProtectionFor,
   topUpRelays,
 } from '@o2/libp2p'
-import type { IdentityProtection, NodeIdentity, PeerVerdict, RelayAdmission, SweepOutcome } from '@o2/libp2p'
+import type { IdentityProtection, KeychainProtection, NodeIdentity, PeerVerdict, RelayAdmission, SweepOutcome } from '@o2/libp2p'
 import type { KadDHT } from '@libp2p/kad-dht'
 import {
   IDENTITY_FILE,
@@ -1534,6 +1536,71 @@ function ownStartLedger(
   return held
 }
 
+/**
+ * AUTH-07 criterion 3 — drop keychain entries this node cannot read, so a node whose
+ * datastore predates the real DEK still starts.
+ *
+ * **What the sweep can actually know is "unreadable", and not why.** Two causes produce it:
+ * an entry written before this DEK existed (the empty password), and an entry written by a
+ * *different identity* sharing this datastore — because the DEK follows the seed. The second
+ * is not hypothetical: it fires in `auto-tls.node.test.ts` whenever two starts share a store
+ * without sharing an identity. The message says both rather than asserting the first.
+ *
+ * ## Why this is needed at all, measured rather than anticipated
+ *
+ * Every key written while `keychain()` took no arguments was encrypted under the empty
+ * string. Once {@link keychainProtectionFor} supplies a real DEK those entries are
+ * undecryptable, and `@ipshipyard/libp2p-auto-tls` does **not** shrug that off: its
+ * `loadOrCreateKey` catches `exportKey` and rethrows anything whose `name` is not
+ * `NotFoundError` (`dist/src/utils.js:13-26`). Measured 2026-09-06 by seeding a store with
+ * an entry written under the empty DEK and calling the library's own function against a
+ * real-DEK keychain: it threw `OperationError: The operation failed for an
+ * operation-specific reason`. **A node with a pre-existing AutoTLS datastore would fail to
+ * start**, and no test over a fresh directory could ever see it.
+ *
+ * ## Why entries are destroyed rather than migrated
+ *
+ * Re-encrypting them under the new DEK was considered and rejected. An entry written under
+ * the empty DEK has been sitting on disk as plaintext-equivalent key material; under the
+ * rule this phase serves that key is burned, and the honest treatment is destruction. The
+ * two things actually in here are AutoTLS's ACME account key and its certificate key, both
+ * of which `loadOrCreateKey` **recreates by design** on `NotFoundError` — so removal hands
+ * the library its own documented path rather than a workaround. The cost is one new ACME
+ * account and one certificate reissue, once, on upgrade. Migrating would also mean keeping
+ * an empty-DEK keychain constructor in production source forever, which is the exact
+ * artefact this criterion exists to delete.
+ *
+ * ## The scope is the keychain and nothing else
+ *
+ * `listKeys()` reads the plaintext `/info/<name>` records and needs no DEK — measured — so
+ * the sweep can see names it cannot decrypt, and `removeKey()` clears both `/info/` and
+ * `/pkcs8/` without one. Nothing outside those namespaces is touched.
+ *
+ * **Matched on the error `name`, never on its message.** Two different texts were observed
+ * for the same defect depending on the stored key type: `OperationError` for AutoTLS's RSA
+ * keys, and `Encrypted key was not a libp2p-key or a PEM file` for an Ed25519 entry. A
+ * message match would have caught one of them.
+ */
+async function sweepUnreadableKeychain(
+  datastore: Datastore,
+  protection: KeychainProtection,
+): Promise<readonly string[]> {
+  const chain = keychain(protection)({ datastore, logger: defaultLogger() })
+  const removed: string[] = []
+  for (const info of await chain.listKeys()) {
+    try {
+      await chain.exportKey(info.name)
+    } catch (error) {
+      // `NotFoundError` means the entry is already gone — nothing to sweep, and racing
+      // another reader is not a reason to report a removal that did not happen.
+      if (error instanceof Error && error.name === 'NotFoundError') continue
+      await chain.removeKey(info.name)
+      removed.push(info.name)
+    }
+  }
+  return removed
+}
+
 export class FabricNode {
   readonly libp2p: Libp2p
   readonly transport: Libp2pTransport
@@ -2069,6 +2136,40 @@ export class FabricNode {
         ? undefined
         : new FsDatastore(nodePathJoin(options.blockstoreDir, '.datastore')))
 
+    // AUTH-07 criterion 3 — the DEK the keychain writes its stored private keys under.
+    //
+    // Derived from the identity seed rather than from `protection.passphrase`, and the
+    // reasoning is in `keychain-protection.ts`: handing the operator's passphrase to
+    // PBKDF2-10 000 beside the same passphrase's Argon2id envelope would make the cheap
+    // target an oracle for the expensive one, and the `writes-no-new-secret` arm carries no
+    // passphrase at all, so that route would rebuild the empty DEK on exactly the
+    // deployment least likely to notice. The seed exists on every path.
+    //
+    // Derived unconditionally even though the keychain is only spread under AutoTLS, so the
+    // value is in hand for the sweep below and so a future service that wants a keychain
+    // cannot acquire one without it.
+    const keychainProtection = await keychainProtectionFor(identity.seed)
+
+    // Entries written while the DEK was the empty string cannot be read under the real one,
+    // and AutoTLS rethrows that rather than recreating the key — so without this a node with
+    // a pre-existing datastore would fail to start. See `sweepUnreadableKeychain`.
+    if (libp2pDatastore !== undefined) {
+      const swept = await sweepUnreadableKeychain(libp2pDatastore, keychainProtection)
+      if (swept.length > 0) {
+        // Straight to `process.stderr`, in the same voice and for the same reason as the
+        // unprotected-seed warning above: this file has no logging surface, and a key this
+        // node destroyed is a fact somebody has to be told rather than a silent repair.
+        process.stderr.write(
+          `fabric-node: removed ${swept.length} libp2p keychain entr${swept.length === 1 ? 'y' : 'ies'} `
+            + `(${swept.join(', ')}) that this node cannot read. A keychain entry is readable only under `
+            + "the DEK derived from this node's identity seed, so either it was written before that DEK "
+            + 'existed — under the empty password — or it was written by a node with a different '
+            + 'identity sharing this datastore. They are recreated on demand; AutoTLS will register a '
+            + 'new ACME account and order a new certificate once.\n',
+        )
+      }
+    }
+
     const libp2p = await createLibp2p({
       // AUTH-01. Without this line libp2p mints a fresh ephemeral key on every start, so
       // a node has no identity that outlives its process and no certificate could refer
@@ -2222,7 +2323,14 @@ export class FabricNode {
         ...(options.autoTls === undefined
           ? {}
           : {
-              keychain: keychain(),
+              // AUTH-07 criterion 3 — **both** `pass` and `dek.salt`, never bare
+              // `keychain()`. With no arguments the derived encryption key is the empty
+              // string, so the ACME account key and the certificate key AutoTLS writes here
+              // would be encrypted under a password everybody knows. `pass` alone is not
+              // enough either, though not for the reason the phase proposal gives: it does
+              // produce a real DEK, but over `DEK_INIT`'s hardcoded global salt, which every
+              // libp2p deployment on earth shares.
+              keychain: keychain(keychainProtection),
               http: http(),
               // **The cast is over an optionality TypeScript cannot see through, and it
               // widens nothing.** `AutoTLSComponents` declares `keychain` and `http` as

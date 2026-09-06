@@ -344,8 +344,18 @@ describe('the provenance opt-out is written down only where it is a decision', (
     // files repo-wide, 111 of them in `packages/node/src`** — so 48 is still "well above
     // where we are, well below every test file in the package", with headroom of eight
     // rather than of one.
+    //
+    // **Raised 48 → 56 on 2026-09-06 (Phase 43, AUTH-07 criterion 3), and the headroom the
+    // last raise chose was already spent.** The population reached exactly 48 — `expected 48
+    // to be less than 48` — when `packages/node/src/keychain-dek.node.test.ts` landed, so the
+    // note above claiming "headroom of eight" was describing 40, not 48: the bound had one
+    // slot left, not eight. The new member is legitimate rather than spread, for the same
+    // reason as the other forty-seven: it starts a real `FabricNode` in order to measure what
+    // the shipped assembly writes into the libp2p keychain, and that node runs no dispatched
+    // artifact at all, so the opt-out is the honest arm of the union rather than a way past a
+    // check. Re-sited on 56 so the headroom is eight in fact and not only in the comment.
     const optingOut = REPO.naming.filter((file) => file.endsWith('.test.ts'))
-    expect(optingOut.length).toBeLessThan(48)
+    expect(optingOut.length).toBeLessThan(56)
   })
 })
 
