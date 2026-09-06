@@ -45,7 +45,7 @@
  * plant wants a spec that runs in seconds.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Key } from 'interface-datastore'
 import { SEED_BYTES, WeakPassphraseError, identityFromSeed } from '@o2/libp2p'
 import { openSecret, sealSecret } from '@o2/core'
@@ -70,6 +70,30 @@ import type { HostedEnv, HostedObjectStateWithSockets } from './worker.ts'
 import type { CloudflareWebSocket } from './websocket-connection.ts'
 
 
+
+
+/**
+ * **Every case in this file derives an Argon2id key, so the default five-second budget is the
+ * wrong one — measured, not anticipated.**
+ *
+ * Since AUTH-07 criterion 4 the hosted identity is an envelope, and opening or sealing it
+ * costs one Argon2id derivation at `DEFAULT_KDF_PARAMS` — 19 MiB and roughly 650 ms
+ * uncontended on this host. A case that builds two nodes pays it twice. That is comfortably
+ * inside five seconds on a quiet machine and NOT inside it on a busy one: a full
+ * `--project node` sweep runs eight workers, several of them deriving at the same time, and
+ * this file lost two cases to `Error: Test timed out in 5000ms.` on a run whose banner
+ * reported the host oversubscribed at load 11.89 across 8 cores.
+ *
+ * **Raising the budget rather than lowering the cost**, because the cost is the feature: a
+ * memory-hard KDF is what prices a guess against an attacker holding this store. A per-case
+ * timeout would have to be repeated on every case and would drift; `vi.setConfig` states it
+ * once for the file.
+ *
+ * The number is a **budget, never an assertion**. Nothing here reads it, no case passes or
+ * fails on how long it took, and this repository asserts cost comparatively — see the
+ * cold-versus-warm ratio in `hosted-seed-at-rest.e2e.test.ts`.
+ */
+vi.setConfig({ testTimeout: 60_000 })
 
 /**
  * The identity secret this spec's local `wrangler dev` boots with — AUTH-07 criterion 4.
