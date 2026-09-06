@@ -1,7 +1,9 @@
 # Phase 43, criterion 4 — the hosted tier's seed is sealed under a platform secret
 
 **Date:** 2026-09-06 · **Requirement:** AUTH-07 · **Branch:** `feature/43-every-stored-key-is-ciphertext`
-**Commits:** `18f6020` (the change), `cdae273` (a budget the change made necessary)
+**Commits:** `18f6020` (the change), `cdae273` (a budget the change made necessary),
+`5c7e468` (this record and `OWNER-ACTIONS.md` row 8), `9d4f94c` (the lock entry, and row 8's
+failure description corrected against `deploy-hosted.sh`)
 
 The criterion, verbatim:
 
