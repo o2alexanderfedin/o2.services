@@ -54,6 +54,25 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { Libp2pTransport } from '@o2/libp2p'
 import { RpcEndpoint, encodeRequest, findReservedPeers, parseResponse } from '@o2/net'
 
+
+
+/**
+ * The identity secret this spec's local `wrangler dev` boots with — AUTH-07 criterion 4.
+ *
+ * Since that criterion the hosted object refuses to open its identity without
+ * `O2_IDENTITY_SECRET` and answers `GET /self` with `500`, so every spec that polls `/self`
+ * for readiness has to supply one. There is deliberately no default in production source — a
+ * default is the empty-DEK defect one criterion over — and no value in `wrangler.jsonc`,
+ * which is tracked.
+ *
+ * **Per-spec test data rather than a shared constant**, in the style of this tree's `TEST_KEY`
+ * and `TURN_SECRET`: this spec passes its own `--persist-to`, so its Durable Object store is
+ * its own and the value only has to be self-consistent across its own restarts. The one thing
+ * that IS load bearing is the length — under twenty characters `assertUsablePassphrase`
+ * refuses and every boot below fails with `WeakPassphraseError`.
+ */
+const SECRET = 'local-dev-identity-secret-42'
+
 const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url))
 const PORT = 8794
 const HOST = '127.0.0.1'
@@ -72,7 +91,7 @@ afterAll(() => {
 async function startWorker(): Promise<void> {
   worker = spawn(
     'npx',
-    ['wrangler', 'dev', '--port', String(PORT), '--local-protocol', 'http', '--persist-to', PERSIST_DIR],
+    ['wrangler', 'dev', '--port', String(PORT), '--local-protocol', 'http', '--var', `O2_IDENTITY_SECRET:${SECRET}`, '--persist-to', PERSIST_DIR],
     {
       cwd: PACKAGE_DIR,
       // `CLOUDFLARE_API_TOKEN` is blanked so a path reaching for Cloudflare fails here

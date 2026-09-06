@@ -33,6 +33,25 @@ import {
 } from './hosted-libp2p.ts'
 import type { HostedFabric } from './hosted-libp2p.ts'
 
+
+
+/**
+ * The identity secret this spec's local `wrangler dev` boots with — AUTH-07 criterion 4.
+ *
+ * Since that criterion the hosted object refuses to open its identity without
+ * `O2_IDENTITY_SECRET` and answers `GET /self` with `500`, so every spec that polls `/self`
+ * for readiness has to supply one. There is deliberately no default in production source — a
+ * default is the empty-DEK defect one criterion over — and no value in `wrangler.jsonc`,
+ * which is tracked.
+ *
+ * **Per-spec test data rather than a shared constant**, in the style of this tree's `TEST_KEY`
+ * and `TURN_SECRET`: this spec passes its own `--persist-to`, so its Durable Object store is
+ * its own and the value only has to be self-consistent across its own restarts. The one thing
+ * that IS load bearing is the length — under twenty characters `assertUsablePassphrase`
+ * refuses and every boot below fails with `WeakPassphraseError`.
+ */
+const SECRET = 'local-dev-identity-secret-42'
+
 const ANNOUNCE = ['/dns4/bootstrap.example/tcp/443/tls/ws']
 
 let running: HostedFabric | undefined
@@ -113,7 +132,7 @@ describe('steps 6 and 7 are one deliverable — proven as a value, not as a rule
     const storage = new FakeDurableObjectStorage()
     const alarms = new FakeDurableObjectAlarms()
 
-    running = await createHostedFabric({ storage, alarms, announce: ANNOUNCE })
+    running = await createHostedFabric({ storage, alarms, identitySecret: SECRET, announce: ANNOUNCE })
 
     expect(await alarms.getAlarm()).not.toBeNull()
     expect(alarms.setCalls.length).toBe(1)
@@ -136,7 +155,7 @@ describe('steps 6 and 7 are one deliverable — proven as a value, not as a rule
     const storage = new FakeDurableObjectStorage()
     const alarms = new FakeDurableObjectAlarms()
 
-    running = await createHostedFabric({ storage, alarms, announce: ANNOUNCE })
+    running = await createHostedFabric({ storage, alarms, identitySecret: SECRET, announce: ANNOUNCE })
 
     await expect(
       running.datastore.put(new Key('/o2/abcdef'), new Uint8Array([1])),
@@ -147,12 +166,12 @@ describe('steps 6 and 7 are one deliverable — proven as a value, not as a rule
     const storage = new FakeDurableObjectStorage()
     const alarms = new FakeDurableObjectAlarms()
 
-    running = await createHostedFabric({ storage, alarms, announce: ANNOUNCE })
+    running = await createHostedFabric({ storage, alarms, identitySecret: SECRET, announce: ANNOUNCE })
     const first = running.identity.peerId
 
     // A second assembly over the SAME storage — no memo is shared between them, so an equal
     // answer is the store's and not an instance's.
-    const second = await createHostedFabric({ storage, alarms, announce: ANNOUNCE })
+    const second = await createHostedFabric({ storage, alarms, identitySecret: SECRET, announce: ANNOUNCE })
     try {
       expect(second.identity.peerId).toBe(first)
       expect(running.libp2p.peerId.toString()).toBe(first)
@@ -343,7 +362,7 @@ describe('HOST-14 — `/o2/<nodeKey>` value records expire, and the sweep walks 
     // One clock for the whole assembly, moved by hand — the sweep reads the same `now` the
     // rest of the node does, which is what makes "the clock is the only variable" true.
     let clock = issuedAt
-    running = await createHostedFabric({ storage, alarms, announce: ANNOUNCE, now: () => clock })
+    running = await createHostedFabric({ storage, alarms, identitySecret: SECRET, announce: ANNOUNCE, now: () => clock })
 
     const { key, value } = nodeRecordBytes(new Uint8Array(32).fill(14), issuedAt, expiresAt)
 
@@ -366,7 +385,7 @@ describe('HOST-14 — `/o2/<nodeKey>` value records expire, and the sweep walks 
     const storage = new FakeDurableObjectStorage()
     const alarms = new FakeDurableObjectAlarms()
     let clock = 1_000
-    running = await createHostedFabric({ storage, alarms, announce: ANNOUNCE, now: () => clock })
+    running = await createHostedFabric({ storage, alarms, identitySecret: SECRET, announce: ANNOUNCE, now: () => clock })
 
     const { key, value } = nodeRecordBytes(new Uint8Array(32).fill(14), 1_000, 2_000)
     await putThroughDht(running.libp2p.services['dht'], key, value)

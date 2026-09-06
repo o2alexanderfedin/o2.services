@@ -395,6 +395,16 @@ export async function createHostedLibp2p(init: HostedLibp2pInit): Promise<Libp2p
 export interface HostedFabricInit {
   readonly storage: DurableObjectStorage
   readonly alarms: DurableObjectAlarms
+  /**
+   * The platform secret this object's identity seed is sealed under — AUTH-07 criterion 4.
+   *
+   * **Required and nullable rather than optional, and the difference is the whole point.** An
+   * optional field is one a caller can forget, and forgetting it here would compile cleanly
+   * and then refuse at run time on a deployed object. Required means every construction site
+   * in this repository had to state what it was passing, which is how the change was made
+   * reviewable at all. `undefined` is a value this tier refuses by name — it never mints.
+   */
+  readonly identitySecret: string | undefined
   /** Announced addresses; only {@link createHostedFabric} reads it. */
   readonly announce?: readonly string[]
   readonly now?: () => number
@@ -421,10 +431,24 @@ export interface HostedFabricInit {
  * schedule repairs itself on any path that reaches this function.
  */
 export async function hostedExpirySweep(init: HostedFabricInit): Promise<ExpirySweep> {
-  const sweptStore = new DoDatastore(init.storage)
-  const identity = await hostedIdentity(sweptStore)
+  return await armSweepFor(init, await hostedIdentity(new DoDatastore(init.storage), init.identitySecret))
+}
+
+/**
+ * The sweep, given an identity already in hand — AUTH-07's cost, paid once.
+ *
+ * Split out of {@link hostedExpirySweep} because {@link createHostedFabric} used to call that
+ * function and then call `hostedIdentity` again, which was free when reading the seed was two
+ * storage reads and is **not** free now that it is an Argon2id derivation (~400 ms, measured
+ * on workerd — `43-HOSTED.md`). One assembly, one derivation.
+ *
+ * The exported surface above is unchanged, because the alarm handler legitimately arrives with
+ * nothing in hand: Cloudflare evicts the object that armed an alarm and constructs a fresh one
+ * to handle it.
+ */
+async function armSweepFor(init: HostedFabricInit, identity: NodeIdentity): Promise<ExpirySweep> {
   return armExpirySweep({
-    datastore: sweptStore,
+    datastore: new DoDatastore(init.storage),
     alarms: init.alarms,
     selfPeerId: identity.peerId,
     ...(init.now === undefined ? {} : { now: init.now }),
@@ -472,8 +496,8 @@ export interface HostedFabric {
  * but a value that cannot be obtained the other way round.
  */
 export async function createHostedFabric(init: HostedFabricInit): Promise<HostedFabric> {
-  const sweep = await hostedExpirySweep(init)
-  const identity = await hostedIdentity(new DoDatastore(init.storage))
+  const identity = await hostedIdentity(new DoDatastore(init.storage), init.identitySecret)
+  const sweep = await armSweepFor(init, identity)
   // The admitting store, and it admits because a sweep exists — not because a flag says so.
   // Bound to a name so that the one handed to libp2p and the one reported back are the same
   // object; two constructions would let the report be true of a store nothing writes through.

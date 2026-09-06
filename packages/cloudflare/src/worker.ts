@@ -99,6 +99,7 @@ import {
 } from './hibernatable-socket.ts'
 import { RelayServiceLog, TrafficSplitCounter } from '@o2/libp2p'
 import { announcedAddresses, createHostedFabric, hostedExpirySweep } from './hosted-libp2p.ts'
+import { hostedIdentityRefusal } from './hosted-identity.ts'
 import { readRelayServiceJournal, writeRelayServiceJournal } from './relay-service-journal.ts'
 import {
   ADMISSION_KEY_HEADER,
@@ -122,6 +123,7 @@ import { parseFunnelReport } from '@o2/net'
 import type { FunnelPopulation, FunnelTotals } from '@o2/net'
 import type { HibernationCapableState } from './hibernatable-socket.ts'
 import type { HostedFabric } from './hosted-libp2p.ts'
+import type { NodeIdentity } from '@o2/libp2p'
 import type { CloudflareWebSocket } from './websocket-connection.ts'
 import type { DurableObjectAlarms, DurableObjectStorage } from './durable-object-storage.d.ts'
 
@@ -208,6 +210,26 @@ export interface HostedEnv {
    * toward the fabric continuing to work rather than toward anyone being able to stop it.
    */
   readonly O2_ADMISSION_KEY?: string
+  /**
+   * The secret this object's identity seed is sealed under, from
+   * `wrangler secret put O2_IDENTITY_SECRET` — AUTH-07 criterion 4.
+   *
+   * **A secret and never a `var`**, on `O2_ADMISSION_KEY`'s stated reason and more sharply:
+   * `wrangler.jsonc` is tracked, so a value there is a value in the history, and this
+   * particular value is the one that opens this object's identity.
+   *
+   * **What it does and does not buy, said here because this is where an operator meets it.** A
+   * Durable Object cannot keep a secret from its own operator; what this moves is the
+   * compromise domain, from *whoever can read this object's storage* to *whoever holds the
+   * Cloudflare account*. `hosted-identity.ts`'s header states the limit in the proposal's own
+   * words, and nothing here claims more.
+   *
+   * Optional in the type because a binding that was never set is exactly the case the design
+   * is about — and absence **refuses by name and mints nothing**, rather than quietly giving
+   * this object a new PeerId. See `HostedIdentitySecretMissingError`, and
+   * `.planning/OWNER-ACTIONS.md` row 8 for the act that sets it.
+   */
+  readonly O2_IDENTITY_SECRET?: string
   /**
    * The TURN shared secret, from `wrangler secret put O2_TURN_SECRET` — NET-12.
    *
@@ -411,7 +433,7 @@ export class BootstrapObject {
   constructor(state: HostedObjectStateWithSockets, env: HostedEnv) {
     this.#state = state
     this.#env = env
-    this.#node = new HostedNode(state.storage)
+    this.#node = new HostedNode(state.storage, env.O2_IDENTITY_SECRET)
   }
 
   /**
@@ -427,6 +449,7 @@ export class BootstrapObject {
       createHostedFabric({
         storage: this.#state.storage,
         alarms: this.#state.storage,
+        identitySecret: this.#env.O2_IDENTITY_SECRET,
         announce: announcedAddresses(this.#env.ANNOUNCE_MULTIADDRS),
         traffic: this.#traffic,
         relayLog,
@@ -671,6 +694,7 @@ export class BootstrapObject {
     const sweep = await hostedExpirySweep({
       storage: this.#state.storage,
       alarms: this.#state.storage,
+      identitySecret: this.#env.O2_IDENTITY_SECRET,
     })
     await sweep.run()
   }
@@ -878,7 +902,30 @@ export class BootstrapObject {
     if (path !== '/self') {
       return new Response('not found', { status: 404 })
     }
-    const identity = await this.#node.identity()
+    // **AUTH-07 criterion 4 — a deployment that cannot open its own identity says so.**
+    //
+    // Before this phase the seed was 32 raw bytes in storage and the only way this could fail
+    // was a corrupt store. It is now an envelope opened under a platform secret, so the two
+    // new ways to fail are *the secret was never set* and *the secret is not the one this
+    // envelope was sealed under* — both configuration, both invisible from outside unless this
+    // route reports them. The precedent is `turn-not-configured` two methods down: a
+    // deployment that is not configured should say so, not look broken.
+    //
+    // **The alternative it refuses is the one that must never ship**: minting a fresh seed and
+    // answering with a new PeerId. This object's name is published in bootstrap lists, so a
+    // 500 that names the fault is recoverable by setting a binding, and a new PeerId is not
+    // recoverable at all.
+    //
+    // Only the declared refusals are caught. Anything else rethrows, because an operator told
+    // to check a binding they already set will check it twice before looking anywhere else.
+    let identity: NodeIdentity
+    try {
+      identity = await this.#node.identity()
+    } catch (cause) {
+      const refusal = hostedIdentityRefusal(cause)
+      if (refusal === null) throw cause
+      return new Response(refusal, { status: 500 })
+    }
     // Restored before it is reported, so the answer is this NODE's history and not this
     // instance's. That difference is the whole of why the log exists.
     const relayLog = await this.#relayLogOnce()

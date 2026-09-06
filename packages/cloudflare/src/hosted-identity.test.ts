@@ -24,16 +24,40 @@
 import { describe, expect, it } from 'vitest'
 import { Key } from 'interface-datastore'
 import { SEED_BYTES } from '@o2/libp2p'
+import { openSecret } from '@o2/core'
 import { DoDatastore, REFUSED_NAMESPACE } from './do-datastore.ts'
 import { FakeDurableObjectStorage } from './do-storage.fixture.ts'
-import { HOSTED_IDENTITY_KEY, MalformedStoredSeedError } from './hosted-identity.ts'
 import {
+  HOSTED_IDENTITY_KEY,
+  MalformedStoredSeedError,
+  SEALED_HOSTED_IDENTITY_KEY,
+} from './hosted-identity.ts'
+import {
+
   HOSTED_OBJECT_NAME,
   HOSTED_OBJECT_NAMES,
   HostedNode,
   UnknownHostedObjectNameError,
   stubFor,
 } from './hosted-object.ts'
+
+
+/**
+ * The identity secret this spec's local `wrangler dev` boots with — AUTH-07 criterion 4.
+ *
+ * Since that criterion the hosted object refuses to open its identity without
+ * `O2_IDENTITY_SECRET` and answers `GET /self` with `500`, so every spec that polls `/self`
+ * for readiness has to supply one. There is deliberately no default in production source — a
+ * default is the empty-DEK defect one criterion over — and no value in `wrangler.jsonc`,
+ * which is tracked.
+ *
+ * **Per-spec test data rather than a shared constant**, in the style of this tree's `TEST_KEY`
+ * and `TURN_SECRET`: this spec passes its own `--persist-to`, so its Durable Object store is
+ * its own and the value only has to be self-consistent across its own restarts. The one thing
+ * that IS load bearing is the length — under twenty characters `assertUsablePassphrase`
+ * refuses and every boot below fails with `WeakPassphraseError`.
+ */
+const SECRET = 'local-dev-identity-secret-42'
 
 /**
  * **`HOST-01` is named in the title below as of 2026-08-28, and the name is narrower than the
@@ -50,11 +74,11 @@ describe('HOST-01, criterion 2 — the identity survives a fresh instantiation o
   it('gives one PeerId across two nodes built over the same storage, and a different one over different storage', async () => {
     const storage = new FakeDurableObjectStorage()
 
-    const first = await new HostedNode(storage).identity()
+    const first = await new HostedNode(storage, SECRET).identity()
     // A second object, not a second call: `HostedNode.identity` memoises, so asking the same
     // instance twice would assert the memo. Eviction and redeploy both destroy the instance
     // and keep the storage, and this is that.
-    const second = await new HostedNode(storage).identity()
+    const second = await new HostedNode(storage, SECRET).identity()
 
     expect(second.peerId).toBe(first.peerId)
     expect(second.nodeKey).toBe(first.nodeKey)
@@ -65,37 +89,50 @@ describe('HOST-01, criterion 2 — the identity survives a fresh instantiation o
     // **Anti-vacuity, and it is not optional.** Without it every assertion above is satisfied
     // by an identity derived from a constant — a fixture that always minted the same seed, or
     // a derivation that ignored its input, would pass the three lines above and fail nothing.
-    const elsewhere = await new HostedNode(new FakeDurableObjectStorage()).identity()
+    const elsewhere = await new HostedNode(new FakeDurableObjectStorage(), SECRET).identity()
     expect(elsewhere.peerId).not.toBe(first.peerId)
   })
 
   it('reads the seed back from the store rather than from anything the first node kept', async () => {
     const storage = new FakeDurableObjectStorage()
-    const minted = await new HostedNode(storage).identity()
+    const minted = await new HostedNode(storage, SECRET).identity()
 
     // Asked of a store built independently of either node, so the bytes are read out of the
     // platform surface and not out of a field. This is what makes "it persisted" a statement
     // about storage rather than about JavaScript.
+    //
+    // **REWRITTEN FOR AUTH-07 criterion 4, and the previous three lines are worth naming.**
+    // They were `has(HOSTED_IDENTITY_KEY)` and `get(HOSTED_IDENTITY_KEY)` equalling the seed —
+    // an assertion that the raw 32 bytes were sitting in this store, which is now exactly the
+    // thing that must not be true. The claim they carried survives unchanged: the identity is
+    // recoverable from the store alone. What changed is that the store is no longer sufficient
+    // by itself, and this reads the envelope with the secret to say so.
     const store = new DoDatastore(storage)
-    expect(await store.has(HOSTED_IDENTITY_KEY)).toBe(true)
-    expect([...(await store.get(HOSTED_IDENTITY_KEY))]).toEqual([...minted.seed])
+    expect(await store.has(SEALED_HOSTED_IDENTITY_KEY)).toBe(true)
+    const envelope: unknown = JSON.parse(new TextDecoder().decode(await store.get(SEALED_HOSTED_IDENTITY_KEY)))
+    expect([...(await openSecret(envelope, SECRET))]).toEqual([...minted.seed])
     expect(minted.seed.length).toBe(SEED_BYTES)
   })
 
   it('refuses a stored seed of the wrong length instead of minting a second identity', async () => {
     const storage = new FakeDurableObjectStorage()
-    const first = await new HostedNode(storage).identity()
 
-    // One byte short. The dangerous behaviour is not throwing — it is SILENTLY minting a new
-    // identity, which drops the node out of every peer's verified set and out of every
-    // bootstrap list naming it, with nothing reporting why.
+    // One byte short, and written before anything has sealed anything — a store left by a
+    // pre-AUTH-07 build whose plaintext was truncated. The dangerous behaviour is not throwing
+    // — it is SILENTLY minting a new identity, which drops the node out of every peer's
+    // verified set and out of every bootstrap list naming it, with nothing reporting why.
     await new DoDatastore(storage).put(HOSTED_IDENTITY_KEY, new Uint8Array(SEED_BYTES - 1))
 
-    await expect(new HostedNode(storage).identity()).rejects.toThrow(MalformedStoredSeedError)
-    // And the store still holds what was put there — the refusal did not overwrite it, which
-    // is what makes the failure recoverable by a human rather than by a redeploy.
+    await expect(new HostedNode(storage, SECRET).identity()).rejects.toThrow(MalformedStoredSeedError)
+    // And the store still holds what was put there — the refusal did not overwrite it, nor
+    // seal it, nor delete it, which is what makes the failure recoverable by a human rather
+    // than by a redeploy.
     expect((await new DoDatastore(storage).get(HOSTED_IDENTITY_KEY)).length).toBe(SEED_BYTES - 1)
-    expect(first.seed.length).toBe(SEED_BYTES)
+    // **The load-bearing half**: the refusal did not walk on into the mint arm behind it. A
+    // sealed envelope here would mean a new identity had been created over a store that
+    // already held one, which is the failure this case exists for and is invisible from the
+    // rejection alone.
+    expect(await new DoDatastore(storage).has(SEALED_HOSTED_IDENTITY_KEY)).toBe(false)
   })
 
   it('keeps the identity key out of both namespaces the store refuses', () => {
@@ -104,6 +141,10 @@ describe('HOST-01, criterion 2 — the identity survives a fresh instantiation o
     // prefix would make a deployed object unable to mint an identity at all — a failure that
     // arrives at first boot in production and nowhere earlier.
     expect(DoDatastore.refusedPrefixFor(HOSTED_IDENTITY_KEY)).toBeUndefined()
+    // The sealed key too, and asked separately rather than inferred from the prefix they
+    // share: `refusedPrefixFor` normalises before it classifies, so "it starts with the same
+    // seven characters" is not the question it answers.
+    expect(DoDatastore.refusedPrefixFor(SEALED_HOSTED_IDENTITY_KEY)).toBeUndefined()
     // Anti-vacuity: the classifier does refuse something, so `undefined` above is a verdict
     // and not a function that always returns it.
     expect(DoDatastore.refusedPrefixFor(new Key(`${REFUSED_NAMESPACE.fabricKeyspace}x`))).toBe(
@@ -116,7 +157,7 @@ describe('HOST-01, criterion 2 — the identity survives a fresh instantiation o
     // is the composition: the store a `HostedNode` actually built refuses too, so the
     // unbounded-accumulation window is shut on the path a deployed object uses rather than
     // only on one a spec constructs.
-    const node = new HostedNode(new FakeDurableObjectStorage())
+    const node = new HostedNode(new FakeDurableObjectStorage(), SECRET)
     await expect(
       node.store.put(new Key(`${REFUSED_NAMESPACE.dhtDatastore}record/abc`), new Uint8Array(1)),
     ).rejects.toThrow()
