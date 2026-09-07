@@ -69,6 +69,22 @@ const UNREACHABLE_RELAY =
   '/ip4/127.0.0.1/tcp/49999/ws/p2p/12D3KooWHPSVMPEezVCXvka2ahwT26JGL8EBr61LpGEU3ujHQM9Q'
 
 /**
+ * A second address reachable by nobody, on a different closed port.
+ *
+ * Added 2026-09-06 with the *"at least one"* rule. Since that change a tab starts when
+ * ANY relay answers, so the singular fixture above no longer says what the plural case
+ * does: one dead relay out of one is the smallest all-failed list, and a reader could
+ * fairly ask whether the rejection is about *emptiness* rather than about *failure*. Two
+ * dead relays out of two answers that, and it is the shape a redundancy list actually has
+ * when the whole thing is down.
+ *
+ * A different port from {@link UNREACHABLE_RELAY} and a different peer id, so a tab that
+ * somehow reached one could not be mistaken for a tab that reached the other.
+ */
+const SECOND_UNREACHABLE_RELAY =
+  '/ip4/127.0.0.1/tcp/49998/ws/p2p/12D3KooWEyPEtJuucojNEs9ENvM96uUMkqPPFDrWdHx78m7JLXBm'
+
+/**
  * Whether a connection to `name` is still open — i.e. `store.close()` never ran.
  *
  * Reads whether the delete *stays* blocked rather than whether `blocked` ever fired,
@@ -304,13 +320,70 @@ describe('a rejected start leaves nothing behind', () => {
         await attempt({ relayAddrs: [UNREACHABLE_RELAY], blockstoreName: name, allowPrivateAddrs: true, trustAnchors: UNWIND_ANCHORS, whenSeedIsGone: 'mints-a-new-identity', identityProtection: NO_NEW_SECRET, startReporting: 'reports-its-own-start' }),
     )
 
-    // Not `toBeInstanceOf(Error)`: measured in all three engines, a WebSocket dial to a
-    // closed port rejects `libp2p.dial` with the raw error `Event`, not an `Error`. The
-    // Node twin can assert the stronger thing; a tab cannot, and saying so is the point.
+    // **Amended 2026-09-06, and the amendment is the more interesting half of this
+    // change.** This read *"Not `toBeInstanceOf(Error)`: measured in all three engines, a
+    // WebSocket dial to a closed port rejects `libp2p.dial` with the raw error `Event`,
+    // not an `Error` — the Node twin can assert the stronger thing; a tab cannot"*. The
+    // measurement was right and is still right: `String(cause)` on what libp2p rejects
+    // with is `[object Event]`, re-measured in Chromium through
+    // `packages/node/src/any-one-relay-is-enough.e2e.test.ts` on the same day.
+    //
+    // What changed is who throws. `#compose` no longer lets a dial rejection propagate;
+    // it collects every outcome and, when NONE succeeded, throws an `Error` of its own
+    // naming each address and each reason. So a tab CAN now assert the stronger thing,
+    // and it does below — not because libp2p started reporting better, but because the
+    // tier stopped forwarding a bare platform event as its own explanation.
     expect(failure).not.toBeInstanceOf(BrowserNode)
     expect(failure).toBeDefined()
     // The two releases `#compose` pushed, read from outside: the store was closed and
     // libp2p was stopped. A `start` whose catch never ran passes neither.
+    expect(await deleteIsBlocked(name)).toBe(false)
+    expect(leaks.intervals).toBe(0)
+  }, 60_000)
+
+  it('rejects when EVERY relay dial fails, naming each address, and still leaves nothing behind', async () => {
+    // NET-05, the plural form of the case above, and the half of the *"at least one"* rule
+    // that this lane can hold. Its twin —
+    // `packages/node/src/any-one-relay-is-enough.e2e.test.ts` — reads the other half, that
+    // a tab starts when ONE of two relays answers, and it lives in `e2e` because a live
+    // relay needs a Node process and the `browser` project cannot start one. That split is
+    // deliberate and is recorded on both sides.
+    //
+    // **This case is what stops the fix going too far.** A `#compose` that simply caught
+    // every dial and carried on would pass the e2e twin outright, and this is the only
+    // instrument that would see it: a tab binds no socket, so a tab that reached no relay
+    // is reachable by nobody, and handing a visitor one is handing them a node that
+    // silently does nothing.
+    const name = `o2-unwind-all-dead-${seq++}`
+    const { result: failure, leaks } = await measuringLeaks(
+      async () =>
+        await attempt({
+          relayAddrs: [UNREACHABLE_RELAY, SECOND_UNREACHABLE_RELAY],
+          blockstoreName: name,
+          allowPrivateAddrs: true,
+          trustAnchors: UNWIND_ANCHORS,
+          whenSeedIsGone: 'mints-a-new-identity',
+          identityProtection: NO_NEW_SECRET,
+          startReporting: 'reports-its-own-start',
+        }),
+    )
+
+    expect(failure).not.toBeInstanceOf(BrowserNode)
+    // The stronger assertion the amendment above explains: this rejection is composed by
+    // `#compose` rather than forwarded from the platform, so it is an `Error` in all three
+    // engines and its message is a thing a page can show a visitor.
+    expect(failure).toBeInstanceOf(Error)
+    const message = failure instanceof Error ? failure.message : ''
+    // **Both** addresses, not merely one. `start` rejected before any node exists, so
+    // there is no `BrowserNode.relayFailures` for a caller to read — this message is the
+    // only place the addresses can be, and a message naming just the first would send a
+    // visitor to check one relay out of two.
+    expect(message).toContain(UNREACHABLE_RELAY)
+    expect(message).toContain(SECOND_UNREACHABLE_RELAY)
+
+    // And the property this file exists for, unchanged: the store was closed and libp2p
+    // was stopped. A rejection that leaked either would be a worse defect than the one
+    // this change fixes.
     expect(await deleteIsBlocked(name)).toBe(false)
     expect(leaks.intervals).toBe(0)
   }, 60_000)

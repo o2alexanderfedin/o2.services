@@ -1344,6 +1344,30 @@ function ownStartLedger(
   return held
 }
 
+/**
+ * A relay this tab was told to use and could not reach — the browser tier's half of NET-05.
+ *
+ * **A deliberate twin of `fabric-node.ts`'s `RelayDialFailure` (declared there at the top
+ * of its options block), field for field and word for word, and it is duplicated rather
+ * than imported on purpose.** `purity.node.test.ts` lists `browser` under `DUAL_TARGET`,
+ * so this package may not import from `@o2/node`; the alternative would be a third
+ * package holding two fields. What matters is that the two tiers describe the same thing
+ * the same way, so a caller holding one kind of node does not have to learn a second
+ * vocabulary to ask the same question — see {@link BrowserNode.relayFailures}.
+ *
+ * Distinct from a reservation *refusal*, exactly as it is on the other tier: there the
+ * dial succeeded and the relay declined to hold a slot, here the relay was never reached
+ * at all. The two demand opposite responses — wait and retry this one, versus try a
+ * different one — and collapsing them into "no circuit address appeared" is precisely the
+ * ambiguity NET-05 exists to remove.
+ */
+export interface RelayDialFailure {
+  /** The address as configured, so a page can show which line was wrong. */
+  readonly address: string
+  /** libp2p's own words. Never synthesised here. */
+  readonly reason: string
+}
+
 export class BrowserNode {
   readonly libp2p: Libp2p
   readonly transport: Libp2pTransport
@@ -1617,6 +1641,7 @@ export class BrowserNode {
     counter: CountingExecutor
     startLedger: StartOutcomeLedger
     verifier: PeerVerifier
+    relayFailures: readonly RelayDialFailure[]
   }) {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
@@ -1643,10 +1668,32 @@ export class BrowserNode {
     this.#counter = parts.counter
     this.#startLedger = parts.startLedger
     this.#verifier = parts.verifier
+    this.#relayFailures = parts.relayFailures
   }
 
   /** AUTH-02 — per-peer verdicts. See {@link BrowserNodeOptions.trustedIssuers}. */
   readonly #verifier: PeerVerifier
+
+  readonly #relayFailures: readonly RelayDialFailure[]
+
+  /**
+   * Relays this tab was told to use and could not reach — NET-05, the browser tier.
+   *
+   * `[]` for a tab given no `relayAddrs`, and `[]` for one that reached every relay it was
+   * given. A non-empty list is the difference between *"no circuit address appeared
+   * because the relay was full"* and *"because it was never there"*, which are the two
+   * readings NET-05 exists to keep apart.
+   *
+   * Mirrors `FabricNode.relayFailures` — same name, same element type, same wording
+   * — because a test or a page that measures the two tiers against each other should not
+   * have to know which one it is holding. The one thing that differs is what a *complete*
+   * failure means: a node with entries here started anyway on **both** tiers, but on this
+   * one at least one other relay must have answered, because a tab that reached none does
+   * not start at all. See the dial site for why.
+   */
+  get relayFailures(): readonly RelayDialFailure[] {
+    return this.#relayFailures
+  }
 
   /**
    * The connected peers this tab will fetch a block from — AUTH-02.
@@ -2060,27 +2107,82 @@ export class BrowserNode {
     //
     // The peer ids are collected because a certificate has to name the relays a node is
     // reachable through when it is not reachable cold — `relayIds` below. Same collection
-    // `fabric-node.ts` makes at its own dial loop.
+    // `fabric-node.ts` makes at its own dial loop, and — since 2026-09-06 on this tier —
+    // it holds only the relays that actually answered. A certificate naming a relay this
+    // tab never reached would be a claim about who was *meant* to be reached rather than
+    // about who was, and a signed statement is the worst possible place for the second
+    // kind of fact. That is `fabric-node.ts`'s own sentence, and it now applies here too.
     //
-    // **The absent `catch` is the decision, not an omission, and the two tiers diverge
-    // here on purpose.** A failed dial propagates, `start` rejects, and `#compose`'s
-    // unwind closes the store and stops libp2p. `fabric-node.ts` does the opposite under
-    // NET-05: it catches, records the address and reason on `FabricNode.relayFailures`,
-    // and keeps the node running. Both are right for their platform. That process binds a
-    // real listening port, so a relay it could not enter costs it circuit reachability and
-    // nothing else; a tab binds no socket, so a tab with no reservation cannot be reached
-    // by anyone, and starting it would hand the visitor a node that silently does nothing
-    // — the ambiguity NET-05 removed on the other tier, reintroduced on this one. Each
-    // side is measured as its own disposition: `start-unwind.browser.test.ts` — *"closes
-    // the blockstore and stops libp2p when a relay dial fails"* — holds this one in all
-    // three engines, and `reservation-exhaustion.node.test.ts` case C holds the other
-    // cross-process through `bin/agent.ts`. **Do not add a `catch` here to match that
-    // file.** W-2 of `18-VERIFICATION.md` is that the divergence was recorded on neither
-    // side, which is what makes it read as drift.
+    // **The rule is "at least one" — not "all", and not "none".** Until 2026-09-06 this
+    // was a serial `await` with no `catch`, so one unreachable address rejected `start`.
+    // A list of N relays was therefore not N spares but N points of failure in series:
+    // handing a tab three relays for redundancy made it three times likelier to fail to
+    // start, which is backwards. Measured on the unfixed tree before it was changed —
+    // `packages/node/src/any-one-relay-is-enough.e2e.test.ts` is the reading, and its
+    // header records what the failure looked like.
+    //
+    // **What the old code was right about is kept exactly: a tab that reached NO relay
+    // still refuses to start.** A tab binds no socket, so a tab holding no reservation
+    // cannot be reached by anyone, and starting it would hand the visitor a node that
+    // silently does nothing. That case throws below, `#compose`'s unwind closes the store
+    // and stops libp2p, and `start-unwind.browser.test.ts` holds it in all three engines.
+    // `relayAddrs: []` is deliberately **not** that case — a tab that was asked to dial
+    // nothing has not failed to dial anything — and it starts, as several specs rely on.
+    //
+    // **How the two tiers now differ, said here because W-2 of `18-VERIFICATION.md` is
+    // that a divergence recorded on neither side reads as drift.** They now AGREE about
+    // everything except the all-failed case: both catch a failed dial, both report it as a
+    // `RelayDialFailure` with the same two fields and the same words, and both keep
+    // running when at least one relay answered. They part only when none did —
+    // `fabric-node.ts` starts anyway under NET-05, because that process binds a real
+    // listening port and stays useful to anyone who can reach it directly, while this tier
+    // rejects, because a tab that reached nothing is reachable by nobody. So the surviving
+    // divergence is narrower than it was: it used to be *all-or-nothing versus
+    // best-effort*, and it is now *what to do when best-effort got nothing*.
+    // `reservation-exhaustion.node.test.ts` case C holds that side cross-process through
+    // `bin/agent.ts`; the two cases named above hold this one.
+    //
+    // **Dialled concurrently rather than in series**, because nothing here depends on the
+    // order of attempt and three sequential dials to three continents are three round
+    // trips where one would do. `Promise.allSettled` is what makes that safe: it settles
+    // every dial, so no rejection can escape as an unhandled rejection, and it preserves
+    // input order, so `relayPeerIds` is the configured list filtered to the relays that
+    // answered rather than a race result that reorders between runs.
+    const dialled = await Promise.allSettled(
+      options.relayAddrs.map(async (address) => libp2p.dial(multiaddr(address))),
+    )
     const relayPeerIds: string[] = []
-    for (const address of options.relayAddrs) {
-      const connection = await libp2p.dial(multiaddr(address))
-      relayPeerIds.push(connection.remotePeer.toString())
+    const relayFailures: RelayDialFailure[] = []
+    options.relayAddrs.forEach((address, index) => {
+      const outcome = dialled[index]
+      if (outcome === undefined) return
+      if (outcome.status === 'fulfilled') {
+        relayPeerIds.push(outcome.value.remotePeer.toString())
+        return
+      }
+      const cause: unknown = outcome.reason
+      relayFailures.push({ address, reason: cause instanceof Error ? cause.message : String(cause) })
+    })
+    if (options.relayAddrs.length > 0 && relayPeerIds.length === 0) {
+      // The address is carried in the thrown text as well as in `relayFailures`, and that
+      // is not redundancy. `start` rejected before this node exists, so there is no
+      // `BrowserNode` for a caller to read `relayFailures` off — the message is the only
+      // place the addresses can be. And the reason alone would not name them, which is two
+      // readings rather than one and they were taken by different instruments. That a
+      // browser WebSocket dial to a closed port rejects with a **raw `Event`** rather than
+      // an `Error` is `start-unwind.browser.test.ts`'s prior measurement, taken in all
+      // three engines. That `String()` of that Event is **`[object Event]`** — so libp2p's
+      // own words carry no address — was measured on 2026-09-06 in **Chromium only**,
+      // through `packages/node/src/any-one-relay-is-enough.e2e.test.ts`. Neither reading
+      // is claimed wider than it was taken.
+      const firstRejection = dialled.find(
+        (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+      )
+      throw new Error(
+        'no relay could be reached, so this tab would be addressable by nobody: ' +
+          relayFailures.map((failure) => `${failure.address} — ${failure.reason}`).join('; '),
+        firstRejection === undefined ? {} : { cause: firstRejection.reason },
+      )
     }
 
     // NET-08: the first `Libp2pTransportOptions` this factory has ever passed — the
@@ -2713,6 +2815,7 @@ export class BrowserNode {
       counter,
       startLedger,
       verifier,
+      relayFailures,
     })
     serveAgent({
       rpc,
