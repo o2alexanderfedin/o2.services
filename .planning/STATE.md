@@ -361,11 +361,46 @@ stopped_at: >-
   comparative reading is what settles it: the control arm fails too, so the cause is outside
   these commits. No duration from any of those runs may be quoted, and a quiet-host reading is
   still owed.
-last_updated: "2026-09-06T06:35:00.000Z"
+  PHASE 39 WAVE 1 IS EXECUTED AND MERGED, 2026-09-07 — three plans, and the phase's own gate now
+  says NO-GO in writing. `39-GO-NO-GO.md` is dated and guarded: all seven conditions `RUN-01`
+  names read GO, each citing a file a reader can open plus both ledger lines it was transcribed
+  from, while SEVEN PRECONDITIONS sit in a separate table at NO-GO — explicitly not part of
+  `RUN-01`'s gate, so the document neither widened the requirement nor narrowed it. THE TREE IS
+  GREEN WITH THOSE NO-GO ROWS IN PLACE, which is the property that lets a gate exist before the
+  run instead of being written after it. `RUN-01` moved `Not started` -> `Partial` and entered
+  the re-read register: the record half landed, and *no invite is sent until they all hold* is a
+  clause that can be violated but not completed in advance.
+  THE FUNNEL'S SILENT DROP IS FIXED AT ITS CAUSE. `probeFunnelTarget` asks the derived origin
+  whether it is a collector before sending anything there and validates the BODY rather than the
+  status — a 200 from a static host is exactly the shape that installs a port to nowhere. The
+  defect arm was watched failing FIRST, before the wiring moved. Criterion 2 is STILL OPEN: it
+  asks for the funnel reporting live with a timestamp preceding the invite, and no mechanism
+  satisfies a clause about when something was seen. One cost recorded rather than smoothed over —
+  the probe is not awaited, so a visit that consents, starts and closes inside one round trip now
+  loses its first two stages and its terminal stall.
+  THE RELAY-COUNTER ANOMALY IS EXPLAINED AND IS NOT A DEFECT. 6 714 inbound hop streams against
+  zero relayed seconds and zero relayed bytes: measured on a local workerd with a control arm in
+  the same run, `outboundStopStreams` reaching 1 proves a relayed connection was actually
+  DELIVERED, `relayService.bytes` moved 21 849 over 8 192 bytes of payload, and `traffic.relayed`
+  stayed 0/0 at all four sample points. **A relay has no relayed traffic of its own** — every
+  connection it holds is a direct inbound leg. Phase 32's standing sentence held under
+  measurement. WHAT THIS FORECLOSES IS THE IMPORTANT HALF: neither counter can supply criterion
+  4's distinct-machine count, because both count STREAMS and neither can tell a RESERVE from a
+  CONNECT. `BENCH-06` stays descoped and unmeasured.
+  A MONEY HAZARD WAS FOUND AND CLOSED BEFORE THE FIRST RUN: `wrangler.jsonc` announces the
+  DEPLOYED host, so a local relay left at that value hands its client a circuit address pointing
+  at production. Three reservations, all local, zero requests to the deployed object.
+  AND ONE CORRECTION TO MY OWN WORK, CAUGHT BY A GUARD RATHER THAN BY ME. `RUN-01`'s re-read
+  entry was written with an EMPTY witness list and a paragraph calling it *a measured zero*. The
+  scan had not been run; it was inferred from the shape of the requirement, which is the one
+  thing that field exists to prevent. Four titles in `go-no-go-checklist.node.test.ts` name
+  `RUN-01`. Recorded at the entry rather than fixed silently.
+last_updated: "2026-09-07T08:05:00.000Z"
 last_activity: >-
-  2026-09-06 — Phase 38 waves 1 and 2 merged. The embedded-browser detector, the hidden-span
-  instrument, and the recruitment copy in the tree where both guards already read it. RUN-06
-  moved Not started to Partial. Criteria 1 and 2 wait on two real phones.
+  2026-09-07 — Phase 38 waves 1 and 2 and Phase 39 wave 1 merged. The embedded-browser detector,
+  the hidden-span instrument, the recruitment copy in the tree, the dated go/no-go checklist with
+  its guard, probe-before-targeting for the funnel, and the relay-counter reading. RUN-06 and
+  RUN-01 both moved to Partial. What remains on both is an owner act, not a mechanism.
 progress:
   total_phases: 15
   completed_phases: 0
