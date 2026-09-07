@@ -868,6 +868,13 @@ export interface FabricNodeOptions {
  * never reached at all. The two demand opposite responses — wait and retry this one,
  * versus try a different one — and collapsing them into "no circuit address appeared"
  * is precisely the ambiguity NET-05 exists to remove.
+ *
+ * **Twinned in `packages/browser/src/browser-node.ts` since 2026-09-06**, field for field
+ * and word for word. Duplicated rather than shared because `purity.node.test.ts` lists
+ * `browser` under `DUAL_TARGET`, so that package may not import from here, and a third
+ * package holding two fields would be worse than the copy. Change one, change the other:
+ * the point of the duplication is that a caller holding either kind of node asks the same
+ * question with the same words.
  */
 export interface RelayDialFailure {
   /** The address as configured, so an operator can see which line was wrong. */
@@ -2454,20 +2461,38 @@ export class FabricNode {
     // circuit. Which relays failed, and why, is reported rather than inferred from an
     // empty `circuitAddrs` — the exact ambiguity NET-05 exists to remove.
     //
-    // **The browser tier does the opposite, and that divergence is deliberate.**
-    // `browser-node.ts`'s dial loop has no `catch`: the failure propagates, `start`
-    // rejects, and the tab unwinds. The reason is the platform, not an oversight — this
-    // process binds a real listening port and remains useful to anyone who can reach it
-    // directly, while a tab binds nothing, so a tab holding no reservation cannot be
-    // reached at all and starting it would produce a node nobody can dial with no named
-    // reason why. Each side is measured as its own disposition:
+    // **AMENDED 2026-09-06 — the two tiers now differ far less than this paragraph used
+    // to say, and the difference that remains is a narrower one.** It read: *"The browser
+    // tier does the opposite, and that divergence is deliberate. `browser-node.ts`'s dial
+    // loop has no `catch`: the failure propagates, `start` rejects, and the tab unwinds…
+    // Do not make them agree."* That was true until `browser-node.ts` adopted the *"at
+    // least one"* rule, and it is false now.
+    //
+    // What the two tiers now share: both catch a failed dial, both report it as a
+    // `RelayDialFailure` — this very type, same two fields, same words — and both keep
+    // running when at least one relay answered. The browser tier's `catch` was added
+    // because the absent one made a list of N relays into N points of failure in series,
+    // which is the opposite of what a redundancy list is for.
+    //
+    // What they still do NOT share, and the reason is still the platform rather than an
+    // oversight: **what to do when NO relay answered.** This process starts anyway,
+    // because it binds a real listening port and remains useful to anyone who can reach
+    // it directly. A tab rejects, because it binds nothing, so a tab holding no
+    // reservation cannot be reached at all and starting it would produce a node nobody
+    // can dial with no named reason why. So the divergence used to be *all-or-nothing
+    // versus best-effort* and is now *what best-effort does when it got nothing*.
+    //
+    // Each side is still measured as its own disposition:
     // `reservation-exhaustion.node.test.ts` case C drives this one cross-process through
     // `bin/agent.ts` and reads `relay … unreachable:` off stderr with `exitCode` null;
-    // `start-unwind.browser.test.ts` — *"closes the blockstore and stops libp2p when a
-    // relay dial fails"* — reads the other in all three engines. **Do not make them
-    // agree.** W-2 of `18-VERIFICATION.md` is that this paragraph used to describe the
-    // change without recording that the two tiers now differ, which is a trap for
-    // whoever reads the other file first.
+    // `start-unwind.browser.test.ts` reads the other in all three engines — now in two
+    // cases, one relay dead out of one and two dead out of two — and
+    // `any-one-relay-is-enough.e2e.test.ts` reads the half that is newly shared, a tab
+    // starting on one live relay out of two. **Do not make the remaining difference go
+    // away by inspection of one file.** W-2 of `18-VERIFICATION.md` is that a divergence
+    // recorded on neither side reads as drift, which is why this paragraph is amended in
+    // place rather than deleted, and why `browser-node.ts`'s dial site carries the twin
+    // of it.
     const relayPeerIds: string[] = []
     const relayFailures: RelayDialFailure[] = []
     for (const address of relayAddrs) {

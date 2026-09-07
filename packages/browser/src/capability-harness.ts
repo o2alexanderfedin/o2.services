@@ -192,7 +192,30 @@ export interface CapabilityHarness {
    * because that is all any assertion here needs and a certificate carries a signature
    * that would be compared as a string across a JSON boundary for no benefit.
    */
-  certificate(): { nodeKey: string; issuer: string; userKey: string; expiresAt: number } | null
+  certificate(): {
+    nodeKey: string
+    issuer: string
+    userKey: string
+    expiresAt: number
+    /**
+     * The relays this certificate says the tab is reachable through — NET-05.
+     *
+     * Added 2026-09-06 because it is the only place `BrowserNode.#compose`'s collected
+     * peer-id list is observable from outside the node. A list that named a relay the tab
+     * never reached would be a lie downstream — a peer would dial a circuit through a
+     * relay holding no reservation for it — so the reading has to be *exactly* the relays
+     * that answered, which is what `any-one-relay-is-enough.e2e.test.ts` asserts.
+     */
+    relayIds: string[]
+  } | null
+  /**
+   * Relays this tab was told to use and could not reach — NET-05, read off the node.
+   *
+   * The whole point of the field: a tab that started on two relays with one dead must be
+   * able to say *which* one was dead and why, rather than leaving a page to infer it from
+   * a circuit address that never appeared.
+   */
+  relayFailures(): { address: string; reason: string }[]
   /**
    * What `demo/main.ts` would pin if a visitor started a node on this origin right now.
    *
@@ -307,6 +330,7 @@ export function installCapabilityHarness(): void {
       issuer: string
       userKey: string
       expiresAt: number
+      relayIds: string[]
     } | null {
       const held = running().certificate
       if (held === null) return null
@@ -315,7 +339,14 @@ export function installCapabilityHarness(): void {
         issuer: held.issuer,
         userKey: held.userKey,
         expiresAt: held.expiresAt,
+        relayIds: [...held.relayIds],
       }
+    },
+    relayFailures(): { address: string; reason: string }[] {
+      return running().relayFailures.map((failure) => ({
+        address: failure.address,
+        reason: failure.reason,
+      }))
     },
     async enrolledIssuer(blockstoreName: string): Promise<string | null> {
       return enrolledIssuer(blockstoreName)
