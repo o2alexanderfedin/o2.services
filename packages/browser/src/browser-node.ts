@@ -2167,9 +2167,14 @@ export class BrowserNode {
       // The address is carried in the thrown text as well as in `relayFailures`, and that
       // is not redundancy. `start` rejected before this node exists, so there is no
       // `BrowserNode` for a caller to read `relayFailures` off — the message is the only
-      // place the addresses can be. And the reason alone would not name them: measured in
-      // all three engines, a browser WebSocket dial to a closed port rejects with a raw
-      // `Event`, so libp2p's own words for it are `[object Event]`.
+      // place the addresses can be. And the reason alone would not name them, which is two
+      // readings rather than one and they were taken by different instruments. That a
+      // browser WebSocket dial to a closed port rejects with a **raw `Event`** rather than
+      // an `Error` is `start-unwind.browser.test.ts`'s prior measurement, taken in all
+      // three engines. That `String()` of that Event is **`[object Event]`** — so libp2p's
+      // own words carry no address — was measured on 2026-09-06 in **Chromium only**,
+      // through `packages/node/src/any-one-relay-is-enough.e2e.test.ts`. Neither reading
+      // is claimed wider than it was taken.
       const firstRejection = dialled.find(
         (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
       )
