@@ -103,6 +103,7 @@ import { hostedIdentityRefusal } from './hosted-identity.ts'
 import { readRelayServiceJournal, writeRelayServiceJournal } from './relay-service-journal.ts'
 import {
   ADMISSION_KEY_HEADER,
+  describeKillSwitch,
   authoriseWrite,
   narrowRegion,
   parseDirective,
@@ -963,6 +964,19 @@ export class BootstrapObject {
       // region label. A missing field would make "nobody has been told to stop" and "this
       // object does not know about halts" the same reading.
       admission: await readDirective(this.#node.store, this.#regionOnce()),
+      // **Whether the halt above can be written at all** — a FIELD, on `admission`'s own stated
+      // reasoning and for a reason that is stronger than any of theirs: this one was missing,
+      // and its absence was measured on a node that had already relayed 143 connections for
+      // real people. `region: null` was there to be read and meant nothing to a reader who did
+      // not know `refuseMisaddressed`; the operator key's absence was not on this route at all.
+      // A reader now learns in one field whether this object can be stopped, and if not, why.
+      //
+      // Composed by `describeKillSwitch`, which SIMULATES both gates rather than restating
+      // them — see its docblock. This line is a call and holds no rule of its own.
+      killSwitch: describeKillSwitch({
+        region: this.#regionOnce(),
+        operatorKey: this.#env.O2_ADMISSION_KEY,
+      }),
     }, { headers: SELF_CORS_HEADERS })
   }
 
@@ -1062,9 +1076,16 @@ const FUNNEL_POPULATION_PENDING_RULING: FunnelPopulation = 'opted-in-only'
  * What `GET /self` answers so a page on another origin can read it.
  *
  * **Origin `*`, and the body is why that costs nothing.** `/self` carries `peerId`, `nodeKey`,
- * `instance`, `version`, `traffic`, `relayService` and `admission` — every one of which a node
- * that announces itself already publishes, and none of which is a secret this header would be
- * protecting. The tab that needs it is on another origin *by construction*: the client is a
+ * `instance`, `version`, `traffic`, `relayService`, `admission` and `killSwitch` — every one of
+ * which a node that announces itself already publishes, and none of which is a secret this
+ * header would be protecting.
+ *
+ * `killSwitch` joined on 2026-09-07 and is the one that owes an argument, since it reports
+ * whether this object can be halted. It adds nothing a stranger cannot already have: `region`
+ * has been in `admission` since RUN-02, and whether an operator key is configured is the
+ * literal text of the `401` this object hands anybody who posts to `/admission` — measured
+ * against production the same day. What moves is not the information but who sees it: the
+ * person who can fix it now reads it on the route they already read. The tab that needs it is on another origin *by construction*: the client is a
  * static page and the object is a Worker, and they cannot share one.
  *
  * Only `GET` and `OPTIONS`, and no `Access-Control-Allow-Headers` for the admission key —

@@ -293,3 +293,81 @@ export function narrowRegion(label: string | undefined): HostedObjectName | null
   const known = HOSTED_OBJECT_NAMES.find((name) => name === label)
   return known ?? null
 }
+
+/** What {@link describeKillSwitch} answers. */
+export interface KillSwitchState {
+  /** Would a correctly-addressed halt from the operator be accepted right now? */
+  readonly operable: boolean
+  /** Why, in one sentence an operator can act on without reading this file. */
+  readonly reason: string
+}
+
+/**
+ * Whether this object can be stopped at all — RUN-02's precondition, reported rather than
+ * inferred.
+ *
+ * ## The hole this exists to close, measured rather than imagined
+ *
+ * On 2026-09-07 the deployed object answered `region: null` and, on a refused `POST /admission`,
+ * *"this object has no operator key configured"*. **Both halves of the kill switch were absent
+ * on a node that had already relayed 143 connections for real people**, and nothing anywhere
+ * said so: `/self` reported a `region` field a reader had to know the meaning of, and the key's
+ * absence was visible only to somebody who sent a write and read the refusal. A control that is
+ * inoperative and looks fine is worse than one that is missing, because nobody goes looking.
+ *
+ * ## It SIMULATES the gate; it does not restate it
+ *
+ * The two conditions are not re-implemented here. This runs {@link authoriseWrite} and
+ * {@link refuseMisaddressed} — the same functions `#writeAdmission` runs — against the most
+ * favourable input an operator could ever supply: their own key, presented, on a directive
+ * addressed to this object's own region. If that write would be refused, no write can succeed,
+ * and the refusal it would get is the reason reported. A restatement could drift from the gate;
+ * a simulation of it cannot, and any future condition added to either function is reported here
+ * the day it is added with no edit to this file.
+ *
+ * ## BOTH refusals, never the first
+ *
+ * The production reading had two faults one probe apart. A reason naming only the first sends
+ * an operator round the loop twice — fix the key, redeploy, discover the region — which on a
+ * tier where a deploy is an owner act is a day, not a minute.
+ *
+ * ## It leaks nothing that is not already public
+ *
+ * `region` has been a field on `/self` since RUN-02, and whether an operator key is configured
+ * is already the literal text of the `401` this object hands any stranger who posts to
+ * `/admission` — measured against production on 2026-09-07, quoted above. This field moves no
+ * information across the boundary; it moves it to where the person who can act on it looks.
+ */
+export function describeKillSwitch(configuration: {
+  readonly region: HostedObjectName | null
+  readonly operatorKey: string | undefined
+}): KillSwitchState {
+  const { region, operatorKey } = configuration
+  const faults: string[] = []
+
+  // The operator presenting their OWN key is the best case that exists. `authoriseWrite`
+  // refuses it only when there is no key to present.
+  const authorisation = authoriseWrite({
+    configuredKey: operatorKey,
+    presentedKey: operatorKey ?? null,
+  })
+  if (!authorisation.allowed) faults.push(authorisation.reason)
+
+  // A directive addressed to this object's own region is the best case that exists.
+  // `refuseMisaddressed` refuses it only when there is no region to address.
+  const misaddressed = refuseMisaddressed({ ...ADMITTING, region }, region)
+  if (misaddressed !== null) faults.push(misaddressed.reason)
+
+  if (faults.length === 0) {
+    return {
+      operable: true,
+      reason:
+        `a halt addressed to ${JSON.stringify(region)} and presenting this object's operator ` +
+        `key would be accepted`,
+    }
+  }
+  return {
+    operable: false,
+    reason: `this object cannot be halted by anyone: ${faults.join('; and ')}`,
+  }
+}
