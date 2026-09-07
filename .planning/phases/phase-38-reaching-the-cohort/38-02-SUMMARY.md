@@ -187,7 +187,7 @@ to be true // Object.is equality
 ### Plant 2 — `classifyHiddenGap` answers one verdict unconditionally
 
 The body of the function was replaced by `return 'kept-running'`. **Both** specs reddened, which
-is what the plan required and what the derived opening verdict is what made possible.
+is what the plan required and what the derived opening verdict made possible.
 
 The unit spec lost 8 of 13, including every case that names a boundary:
 
@@ -278,8 +278,8 @@ The thirty-fourth is `packages/node/src/bin/check-copy.ts`, from Plan 38-03. It 
 two commits, and the thirty-fifth was this plan's own `hidden-gap.ts` for the window between the
 module landing and `demo/main.ts` importing it; the reading above is from the commit that closed
 that window, taken with the module no longer in the list. Every other cheap guard passes, 400 of
-401 tests. Three commits therefore carry `O2_SKIP_GUARDS=1`, each with the count and the
-attribution in its own message. The skip is recorded here as a deviation rather than absorbed: a
+401 tests. **Every commit this plan makes carries `O2_SKIP_GUARDS=1`**, each with the count and
+the attribution in its own message — including this summary's own, and the amendment to it. The skip is recorded here as a deviation rather than absorbed: a
 guard was bypassed and the tree is red on it right now.
 
 `npx tsc --noEmit` is clean tree-wide at every point in this plan, including the TS2345 in
