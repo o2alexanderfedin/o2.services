@@ -603,3 +603,31 @@ pre, .text-view {
    and dimmer than the copy above it: it is provenance for anyone who wants it, not the
    message. `--color-neutral-700` on this ground is the same treatment `.citation` gets. */
 #entry-notice-signals { font-family: var(--font-mono); font-size: 13px; color: var(--color-neutral-700); }
+
+/*
+  RUN-06 / criterion 2 — the collapsed notice.
+
+  `#entry-notice-dismiss` adds this class rather than hiding the section, because the
+  observation criterion 2 needs is taken AFTER the visitor has chosen to stay. The offer goes;
+  the two lines that carry evidence — which signals fired, and what happened to the script
+  while the page was hidden — stay on screen as one quiet line.
+
+  `display: none` on the four elements the offer is made of, and on nothing else. In
+  particular NOT on `#entry-notice` itself: `#bar` above records what an id rule that sets
+  `display` costs — it outranks the browser's own `[hidden]`, so the attribute reads correct
+  while the element is on screen. Every selector here is gated on `.collapsed`, and none of the
+  elements it hides uses the `hidden` attribute for anything, so the two mechanisms never meet.
+  `#entry-notice-copy` is inside `.controls` and goes with it, which is why its own `[hidden]`
+  is untouched.
+
+  The padding is the one thing that changes about the box. A collapsed notice keeping the full
+  pre-consent padding of `#gate` would leave a band of empty surface above the gate with one
+  line of small type floating in it.
+*/
+#entry-notice.collapsed { padding: var(--space-3) var(--space-6); }
+#entry-notice.collapsed > h2,
+#entry-notice.collapsed > #entry-notice-why,
+#entry-notice.collapsed > #entry-notice-how,
+#entry-notice.collapsed > .controls { display: none; }
+/* Provenance in the same register as the signal names it now sits beside — see above. */
+#entry-notice-liveness { font-family: var(--font-mono); font-size: 13px; color: var(--color-neutral-700); }
