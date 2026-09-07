@@ -978,8 +978,23 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * on **two continents** (the cohort): an experiment nobody can run here, not code nobody wired.
  * Thirteen witnesses, every one of them measured by running the scan rather than typed. Raised
  * by the one entry that arrived.
+ *
+ * **Raised 4 -> 5 on 2026-09-06, in the commit that moved `RUN-06` to `Partial`** (Phase 38,
+ * plans 38-01 and 38-02). The row entered this register because moving it was the honest edit and
+ * `Partial` is what pulls a row into this file's population at all: `Not started` sits outside
+ * {@link UNREACHED_VERDICTS} entirely, so the row was unread AND unlisted while it said the
+ * detection did not exist. It says that no longer -- `detectEmbeddedWebView` fires on a
+ * host-injected object with a stock desktop user-agent, `demo/main.ts` calls it before the gate
+ * is painted, and `hidden-gap.ts` is driven from the same page -- so there is no *"nothing calls
+ * X"* sentence for this file to read, and typing one would be false. What holds the row open is
+ * its own verification clause: opening the REAL recruitment link from a REAL Telegram message on
+ * BOTH iOS and Android. That is an experiment nobody has run, not code nobody wired, and it is
+ * `38-04` -- an owner act. **One witness, measured by running the scan**: exactly one case in the
+ * tree title-names `RUN-06`, and that is deliberate rather than thin. The string-only arm is
+ * titled without it, so a green obtainable by setting a header can never be read as this row's
+ * evidence.
  */
-const REREAD_REGISTER_CEILING = 4
+const REREAD_REGISTER_CEILING = 5
 
 /**
  * ## The rule this list encodes
@@ -1755,6 +1770,12 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'tools/aot/cross-host-workflow.node.test.ts',
       'tools/aot/cross-machine.node.test.ts',
     ],
+  },
+  {
+    id: 'RUN-06',
+    because: 'experiment-not-run',
+    reread: '2026-09-06',
+    witnesses: ['packages/node/src/embedded-webview.e2e.test.ts'],
   },
   // `AOT-04` was here until 2026-08-18 and is **REMOVED**, by the second of the two exits
   // the rule allows: its row is `Done`, so it leaves the population and the set equality

@@ -2569,10 +2569,39 @@ The six stages move in order against a real relay and real WebRTC, read out of t
   4. Public recruitment copy and project copy do **not** promise permanent open licensing. The settled position is open source with monetization for commercial use added later, and three dated precedents — Terraform→OpenTofu, Redis→Valkey, Elastic→OpenSearch — show the shape of the backlash when the copy and the later licensing disagree
   5. The copy carries no payment framing and no cryptocurrency framing, and is read against the five patterns `packages/node/src/vocabulary.node.test.ts` enforces. That guard scans tracked files, so recruitment copy that lives outside the tree is checked by hand against the same five patterns before it is sent — an unchecked message is the one a reviewer greps
 **Plans**: 4 plans in 3 waves
-- [ ] `38-01-PLAN.md` — detect the embedded browser on a host-injected bridge object rather than a user-agent string, and offer the "open in your own browser" notice (wave 1)
-- [ ] `38-02-PLAN.md` — the hidden-gap instrument: say in words whether the script kept running, was slowed down or was stopped while the page was hidden, and keep it on screen after the notice is dismissed (wave 2)
-- [ ] `38-03-PLAN.md` — recruitment copy into the tree so both guards reach it, the five patterns into one shared module, and one command for copy that never reaches the tree (wave 1)
+- [x] `38-01-PLAN.md` — detect the embedded browser on a host-injected bridge object rather than a user-agent string, and offer the "open in your own browser" notice (wave 1)
+- [x] `38-02-PLAN.md` — the hidden-gap instrument: say in words whether the script kept running, was slowed down or was stopped while the page was hidden, and keep it on screen after the notice is dismissed (wave 2)
+- [x] `38-03-PLAN.md` — recruitment copy into the tree so both guards reach it, the five patterns into one shared module, and one command for copy that never reaches the tree (wave 1)
 - [ ] `38-04-PLAN.md` — the owner script for two real phones, the checkpoint, and the ledger moved by exactly what they reported (wave 3, blocking checkpoint)
+
+**Status 2026-09-06 — criteria 3, 4 and 5 MET; criteria 1 and 2 have their mechanism and NOT
+their reading, and the phase's checkbox stays off for that reason.** Waves 1 and 2 are merged.
+
+Criterion 1's agent half holds and holds in the direction that matters. `detectEmbeddedWebView`
+fires on a **host-injected bridge object with a stock desktop user-agent** — the arrangement a
+user-agent check cannot pass — and that case is the **only** one in the tree titled `RUN-06`. The
+string-only arm is titled without it on purpose, so `acceptance-traceability.node.test.ts` cannot
+read a spoofed header as this criterion's evidence. Criterion 2's instrument exists: the page says
+in words whether the script kept running, was slowed down or was stopped while it was hidden —
+the observable `38-DEVICE-OBSERVATIONS.md` had named as missing in its own words. **Neither
+criterion is claimed.** Both say *the real link from a real Telegram message on both iOS and
+Android*, and that is `38-04`, an owner act. `RUN-06` moved `Not started` → **`Partial`** and
+entered the re-read register, which is what a `Partial` costs here.
+
+Criteria 3, 4 and 5 are met and two of them were already met before this phase: `DEMO-05` and
+`DEMO-06` closed on 2026-08-30. What this phase added is that criterion 5 is no longer a promise
+to check copy by hand. The recruitment message is a **tracked file**, so both guards already scan
+it; the five banned patterns live in one module a guard and a command share; and copy that never
+enters the tree is checked by that same command with an exit code. Its positive control is the
+one that matters — a text carrying all five is reported as **five**, not as one.
+
+**Two measurements that foreclose things, recorded rather than left to be rediscovered.**
+`navigator.standalone` is `undefined` in stock desktop Chromium and Firefox as well as in a
+WKWebView, so that signal is gated on an iOS-shaped user-agent and a desktop browser spoofing an
+iPhone string reads engine-corroborated on what is really a string — the `RUN-06` case does not
+rest on it. And **headless Chromium cannot background a page for itself**: no `visibilitychange`
+fired, the interval kept its full rate. The engine-suspension reading does not exist in this
+harness at all, on any budget, which is why criterion 2 needs two phones and not a longer timeout.
 
 ### Phase 39: The Public Run
 **Goal**: As the project owner, I want the first invite to go out only after seven conditions hold on a dated checklist with named evidence for each, and invites to go out in stages by region and by cohort slice with the funnel read between them, so that the fabric's headline claim is finally measured on hundreds of independently-owned devices rather than asserted.

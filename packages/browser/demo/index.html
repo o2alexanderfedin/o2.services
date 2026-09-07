@@ -27,6 +27,85 @@
     </header>
 
     <!--
+      RUN-06. Shown only when this page finds it is running inside a host application's own
+      embedded browser — a messaging client that opens links in a view it controls rather
+      than handing them to the browser the visitor chose.
+
+      **It is an offer and never a wall.** It does not hide `#gate`, does not disable
+      `#allow`, and changes no ordering `disclosure-before-optin.e2e.test.ts` asserts. A
+      visitor who dismisses it keeps the page exactly as it was. That is threat T-38-05's
+      mitigation and it is the reason the dismiss control is the one button that is never
+      hidden.
+
+      ## Three properties this section holds, and the precedent each rests on
+
+      It sits **outside `#main`**, carries **no `data-region`**, and contains **no digit**.
+      Together those keep it outside the region catalogue's jurisdiction, so `demo-regions.ts`
+      and UI-SPEC's tally do not move for it. Checked rather than assumed:
+
+      - `#gate` above is a whole visible pre-consent screen with a heading, a checkbox and two
+        buttons, and it carries zero `data-region` attributes. Visible surface is not, by
+        itself, a catalogue obligation.
+      - `demo-regions.e2e.test.ts`'s P2 roots its `TreeWalker` at `#main`, so nothing outside
+        `#main` is walked for undeclared digits — the same reason `#bar` at the foot of this
+        file states for itself.
+      - `demo-regions.ts`'s own first line: the catalogue is *"every figure the demo page may
+        put on screen"*. This notice carries no figure.
+
+      All three are asserted in `embedded-webview.e2e.test.ts`, so the decision is a check
+      rather than a paragraph. **If a digit or a `data-region` ever has to appear in here,
+      `demo-regions.ts` (`REGIONS` and `UI_SPEC_TALLY`) and UI-SPEC sections 4 and 12 move in
+      the same commit as the markup** — a half-landed figure is what `WIRED_SURFACES` exists
+      to prevent.
+
+      ## Why `#entry-notice-how` does not render the address of this page
+
+      A URL is digits, and it is also the one string on this screen that identifies where a
+      volunteer is. T-38-02: the notice renders signal **names** from the declared table and
+      nothing read off the visitor. `#entry-notice-copy` is the exception and it is behind a
+      deliberate tap and behind `navigator.clipboard?.writeText` existing at all — it stays
+      hidden when it does not.
+    -->
+    <section id="entry-notice" hidden>
+      <h2 id="entry-notice-headline">This page is open inside another app</h2>
+      <p id="entry-notice-why">
+        The app you came from is showing this page in a browser of its own. That browser is
+        not the one you chose, and pages here need to keep a little storage and to open a
+        direct connection to another device — both of which an app’s built-in browser often
+        limits without saying so.
+      </p>
+      <p id="entry-notice-how">
+        Open the menu in the app you came from and choose to open this page in your browser.
+        Everything works the same once you are there.
+      </p>
+      <p id="entry-notice-signals"></p>
+      <!--
+        Criterion 2's readout — whether the engine kept going while this page was hidden.
+
+        `38-DEVICE-OBSERVATIONS.md` records, from a real device, that the page could not
+        answer that: the indicator says disconnected whether the engine was suspended or the
+        network went away, and nothing on screen told the two apart. This line does, in one
+        of four fixed sentences from `hidden-gap.ts`.
+
+        **Words only, and that is a rule rather than a preference — T-38-06.** No timing
+        figure, no interval count and no clock value is ever written here. A millisecond
+        number on a photographed screen is a fingerprint of the device it was photographed
+        on, and it would also put a digit in a section that stays digit-free so that it
+        stays outside the region catalogue's jurisdiction — see the comment above.
+
+        **It stays when the offer goes.** Dismissing the notice adds `collapsed` rather than
+        hiding the section, because the observation criterion 2 needs is taken *after* the
+        visitor has chosen to stay: a readout that disappeared with the offer would be gone
+        at exactly the moment it is wanted.
+      -->
+      <p id="entry-notice-liveness"></p>
+      <p class="controls">
+        <button id="entry-notice-copy" class="btn" hidden>Copy the address of this page</button>
+        <button id="entry-notice-dismiss" class="btn btn-secondary">Stay here</button>
+      </p>
+    </section>
+
+    <!--
       BROW-01. The gate is the first thing rendered and the only thing that starts
       anything. Relay discovery is behind it too: reading `/bootstrap.json` is a
       network request, and the decision here was that no third party learns a

@@ -880,6 +880,20 @@ const REGISTER: readonly StoreEntry[] = [
     ],
   },
   {
+    file: 'packages/node/src/bin/check-copy.ts',
+    media: ['filesystem'],
+    persists: 0,
+    named: 0,
+    secretShaped: 0,
+    holds: [
+      {
+        value: 'nothing \u2014 it reads the copy it is asked to check, from a path or from stdin',
+        kind: 'not-a-secret',
+        why: 'a reader, exactly as `commit-scope.ts` is: it is in the register because it reaches the medium and a reader must be able to see that it does not write. It is the send-time checker for recruitment copy that never enters the tree, so writing anything would be the defect',
+      },
+    ],
+  },
+  {
     file: 'packages/node/src/certificate-cache.ts',
     media: [],
     persists: 1,
@@ -1068,8 +1082,21 @@ const REGISTER: readonly StoreEntry[] = [
  * set cannot see: somebody adding an entry to the register **and** the site to match it in one
  * change, which is exactly how a store gets added without anybody deciding it should be. A
  * raise is a decision that has to be written down.
+ *
+ * 2026-09-06: 50 -> 51, raised by exactly one and named, and the decision rests on WHICH of the
+ * two numbers below moved. `packages/node/src/bin/check-copy.ts` is `38-03`'s send-time checker
+ * for recruitment copy that never enters the tree. It reaches the filesystem, so the walk finds
+ * it and the register must describe it — but it declares `persists: 0`, so
+ * {@link PERSIST_SITE_CEILING} is **unmoved at the same commit**. That pairing is the whole
+ * reading: a reader arrived, not a store. `commit-scope.ts` is on this register for the same
+ * reason and with the same two numbers.
+ *
+ * The register growing while the persist total holds still is the case this ceiling should
+ * accept; the two moving together is the one it exists to stop. Closing condition, checkable:
+ * nothing, because a reader on the filesystem is a permanent member — this entry records why the
+ * count moved, not a debt to be paid off.
  */
-const STORE_CEILING = 50
+const STORE_CEILING = 51
 const PERSIST_SITE_CEILING = 73
 
 /** The register, rendered the same way the walk is, so one `toEqual` compares both. */

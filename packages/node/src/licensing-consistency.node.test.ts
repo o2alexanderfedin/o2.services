@@ -55,6 +55,19 @@ const README = read('README.md')
 const COMMERCIAL = read('LICENSE-COMMERCIAL.md')
 const CONTRIBUTING = read('CONTRIBUTING.md')
 const PROJECT = read('.planning/PROJECT.md')
+/**
+ * The recruitment copy, added to this corpus on 2026-09-06.
+ *
+ * DEMO-06 is about *public recruitment copy* as much as about project copy, and until
+ * this file existed there was no recruitment copy in the repository for any rule to run
+ * over. Phase 38's criterion 4 names both halves in one sentence; the project half was
+ * discharged by the five documents above, and this is the other one.
+ *
+ * It is a **document**, not a note about a document: the message the owner will paste
+ * into Telegram is in it verbatim, so the rule below scans the words that will actually
+ * be sent rather than a description of them.
+ */
+const TELEGRAM = read('docs/recruitment/telegram-invite.md')
 
 /**
  * The prose files, as data. Every rule below runs over this list rather than over a
@@ -67,6 +80,7 @@ const PROSE: readonly (readonly [string, string])[] = [
   ['LICENSE-COMMERCIAL.md', COMMERCIAL],
   ['CONTRIBUTING.md', CONTRIBUTING],
   ['.planning/PROJECT.md', PROJECT],
+  ['docs/recruitment/telegram-invite.md', TELEGRAM],
 ]
 
 describe('the installed LICENSE is the AGPL, unmodified', () => {
@@ -116,7 +130,10 @@ describe('DEMO-06 — no document promises terms the licence does not carry', ()
 
   it('has a live corpus, so the rules below are not passing over an empty set', () => {
     // Anti-vacuity: a mis-typed path returning '' would make every rule below pass.
-    expect(PROSE.length).toBe(5)
+    // **Six since 2026-09-06**, raised rather than relaxed: `docs/recruitment/telegram-invite.md`
+    // joined the corpus and the floor moved with it. A floor that stayed at five while the
+    // list grew would keep passing over a corpus that had lost a document.
+    expect(PROSE.length).toBe(6)
     for (const [name, text] of PROSE) expect(text.length, name).toBeGreaterThan(500)
   })
 
@@ -157,6 +174,25 @@ describe('DEMO-06 — no document promises terms the licence does not carry', ()
     for (const [name, text] of PROSE) {
       expect(/\b(always|forever|permanently) (be )?(free|open source)\b/i.test(flatten(text)), name).toBe(false)
     }
+  })
+
+  it('keeps the three precedents beside the recruitment copy, not only in a planning file', () => {
+    // The rule above says what the copy may not promise. This says why, in the document
+    // itself — because the reason is what stops a later editor from "improving" the
+    // licensing sentence into the one all three of these projects shipped.
+    //
+    // Named individually rather than counted: a count is satisfied by writing one of them
+    // three times, and the claim is that all three shapes are on the page. The forks are
+    // the anchor rather than the original projects, because "Redis" appears in a licence
+    // discussion for many reasons and "Valkey" appears for exactly one.
+    for (const fork of ['OpenTofu', 'Valkey', 'OpenSearch']) {
+      expect(flatten(TELEGRAM), `the recruitment copy does not name ${fork}`).toContain(fork)
+    }
+    // The position the copy has to state, in the two words LICENSING.md states it in. A
+    // document naming three cautionary tales and then saying nothing about its own posture
+    // would be a warning with no answer attached.
+    expect(flatten(TELEGRAM)).toMatch(/cannot be withdrawn/i)
+    expect(flatten(TELEGRAM)).toMatch(/additive/i)
   })
 })
 

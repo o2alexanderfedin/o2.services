@@ -155,6 +155,12 @@ import { IdbCheckpoints } from '../src/idb-checkpoints.ts'
 import { fetchModuleForDispatch } from '../src/gateway-module.ts'
 // BROW-07's carrier. Relative for the same reason, stated in that module's own header.
 import { ComputingIndicator, documentTitlePort } from '../src/computing-indicator.ts'
+// RUN-06's detector. Relative and not through the barrel, on the same module's stated rule.
+import { detectEmbeddedWebView, readEmbeddedWebViewProbe } from '../src/embedded-webview.ts'
+// Criterion 2's instrument. Relative for the same reason, stated in that module's own header.
+import { HIDDEN_GAP_SENTENCES, HiddenGapWatcher } from '../src/hidden-gap.ts'
+import type { HiddenGapVerdict } from '../src/hidden-gap.ts'
+import type { VisibilitySource } from '../src/visibility-governor.ts'
 import { KillSwitch, switchEndpointFor } from '../src/kill-switch.ts'
 // RUN-04's two halves. Relative and **deliberately not through the barrel**, on
 // `computing-indicator.ts`'s stated rule and for its stated reason: a barrel export whose only
@@ -184,6 +190,197 @@ import * as pid from '@libp2p/peer-id'
 // graph. A type-only import is erased before anything runs, emits no edge, and is the only way
 // to annotate a binding the dynamic import produces.
 import type { CID } from 'multiformats/cid'
+
+/**
+ * RUN-06 — offer to hand this page to the visitor's own browser, and do it first.
+ *
+ * ## Why this runs at module scope rather than from the page's own driver
+ *
+ * The gate is painted by the inline module script at the foot of `index.html`, and that
+ * script waits for `window.o2` — which this file assigns as its last statement. So anything
+ * written here runs before the gate is on screen, which is where a notice about *which
+ * browser you are in* belongs: it is a fact about the arrival, not about the session, and a
+ * visitor who is about to be asked for consent should already be able to see that the page
+ * thinks they are somewhere awkward.
+ *
+ * ## It is an offer and never a wall — T-38-05
+ *
+ * It does not hide `#gate`, does not disable `#allow`, and does not change any ordering
+ * `disclosure-before-optin.e2e.test.ts` asserts. The dismiss control hides the section and
+ * nothing else; there is deliberately no state written anywhere, because a visitor who
+ * dismissed it on one visit and is still inside the same host application should be told
+ * again rather than silently left where they were.
+ *
+ * ## What is rendered, and what is not — T-38-02
+ *
+ * The **names** of the signals that fired, out of the declared `CANDIDATE_SIGNALS` table.
+ * Never `navigator.userAgent`, never `location.href`: both put host-identifying strings on a
+ * screen a volunteer may photograph, and the address of this page also puts digits inside a
+ * section that stays digit-free so it stays outside the region catalogue's jurisdiction.
+ *
+ * The address can still be *copied*, which is a different act: it goes to the clipboard on an
+ * explicit tap and never to the screen. That control stays hidden unless
+ * `navigator.clipboard.writeText` is really a function — the DOM types say `navigator.clipboard`
+ * is always there and on an insecure origin it is not, so the check is a runtime one and the
+ * optional chain is load-bearing rather than defensive style.
+ */
+/**
+ * The search parameter that forces the readout on, and why the value is a word.
+ *
+ * **This mode exists for the device where the detector is wrong.** Plan 38-04 opens the real
+ * recruitment link from a real Telegram message on two real phones, and the case that matters
+ * most is a phone on which **none** of the five declared candidate signals fires. Without a way
+ * to force the section on, the owner can only report *nothing appeared* — which does not say
+ * which candidates were wrong, and `embedded-webview.ts`'s own rule is that a row firing on
+ * neither device should be deleted rather than kept as a guess.
+ *
+ * The value is `on` rather than a digit. A digit in a URL is harmless, because the URL is never
+ * rendered — T-38-02 — but the section this parameter opens is digit-free by rule, and a habit
+ * is what eventually puts one there.
+ *
+ * T-38-07, accepted: a crafted link can force the readout to show. It reveals which of five
+ * **declared** signals fired in the visitor's own browser, which that browser already knows. No
+ * state changes, nothing is stored, nothing is sent.
+ */
+const ENTRY_DIAGNOSTICS_PARAM = 'entry-diagnostics'
+const ENTRY_DIAGNOSTICS_VALUE = 'on'
+
+/**
+ * The headline the forced state carries instead of the real one.
+ *
+ * A reader must never be able to mistake *this page was opened with a parameter* for *this page
+ * noticed something*. The forced notice therefore says why it is showing, in its own words, in
+ * the largest text in the section — and it replaces the real headline only when there was
+ * nothing to detect. When a signal did fire, the detection stands on its own and the ordinary
+ * headline is the true one.
+ */
+const DIAGNOSTICS_HEADLINE = 'Shown because this page was opened with diagnostics on'
+
+/**
+ * What `#entry-notice-signals` says when nothing fired.
+ *
+ * An empty line and a broken readout are indistinguishable on a photographed screen, and on the
+ * device this mode exists for they are the two readings that must be told apart.
+ */
+const NOTHING_NOTICED =
+  'What this page noticed: nothing — none of the signals it looks for is present here'
+
+function offerOwnBrowser(): void {
+  const verdict = detectEmbeddedWebView(readEmbeddedWebViewProbe(window))
+  // Published for every visit, embedded or not — T-38-04. A harness that could only read the
+  // verdict when the notice appeared could not tell "not embedded" from "detection never ran".
+  window.__o2EntryVerdict = verdict
+
+  const notice = document.getElementById('entry-notice')
+  if (notice === null) return
+
+  const forced =
+    new URLSearchParams(location.search).get(ENTRY_DIAGNOSTICS_PARAM) === ENTRY_DIAGNOSTICS_VALUE
+
+  // **Collapse, do not hide** — and this is the point of the control rather than a nicety.
+  // The observation criterion 2 needs is taken AFTER the visitor has chosen to stay, because
+  // that is when the page is left alone long enough to be backgrounded. A dismiss that hid the
+  // section would take the signal names and the hidden-span readout away at exactly the moment
+  // they are wanted. The offer goes; the evidence stays; the element is never removed.
+  //
+  // `classList` rather than `hidden`, deliberately: `[hidden]` is what decides whether the
+  // section is on screen at all, and a control that set it would leave the page with two
+  // different reasons for the same attribute and no way to tell them apart.
+  const dismiss = document.getElementById('entry-notice-dismiss')
+  dismiss?.addEventListener('click', () => {
+    notice.classList.add('collapsed')
+  })
+
+  const copy = document.getElementById('entry-notice-copy')
+  if (copy !== null && typeof navigator.clipboard?.writeText === 'function') {
+    copy.hidden = false
+    copy.addEventListener('click', () => {
+      void navigator.clipboard.writeText(location.href).then(
+        () => {
+          // Words only. A confirmation carrying the address it copied would put the address
+          // on screen by the back door, which is the one thing this section does not do.
+          copy.textContent = 'Copied — now paste it into your own browser'
+        },
+        () => {
+          copy.textContent = 'This app would not let the page copy it — use its own menu instead'
+        },
+      )
+    })
+  }
+
+  const signals = document.getElementById('entry-notice-signals')
+  if (signals !== null) {
+    // `textContent`, and the names come from the declared table rather than from the probe,
+    // so nothing a host application chose to call itself can reach this element.
+    signals.textContent =
+      verdict.fired.length === 0
+        ? NOTHING_NOTICED
+        : `What this page noticed: ${verdict.fired.map((signal) => signal.name).join(' · ')}`
+  }
+
+  // Only when the section is showing BECAUSE of the parameter. A page that detected something
+  // and also carries the parameter is showing the notice for the real reason, and overwriting
+  // its headline would hide a true detection behind a diagnostic.
+  if (forced && !verdict.embedded) {
+    const headline = document.getElementById('entry-notice-headline')
+    if (headline !== null) headline.textContent = DIAGNOSTICS_HEADLINE
+  }
+
+  notice.hidden = !(verdict.embedded || forced)
+}
+
+/**
+ * Criterion 2's instrument, started before anything else and left running.
+ *
+ * ## Why it starts unconditionally
+ *
+ * Whether the notice is showing is a fact about *where* this page was opened; whether the
+ * engine survives being hidden is a fact about *what happens next*, and a visitor can
+ * background the page before the gate is even read. So the watcher starts for every visit,
+ * embedded or not, and the readout is written once immediately — before any hide has happened
+ * the screen says so, rather than leaving an empty line that a reader cannot distinguish from
+ * a broken one.
+ *
+ * ## One watcher, one interval — T-38-08
+ *
+ * *"It must not be per-notice or per-visibility-change, or a page cycled between foreground
+ * and background accumulates timers."* This function is called exactly once at module scope and
+ * `HiddenGapWatcher.start()` is idempotent besides.
+ *
+ * ## Why `pagehide` releases it only when the page is NOT being kept
+ *
+ * The threat register asks for the interval to be released on `pagehide`. Taken literally that
+ * would break the instrument on the one device it was built for: on a phone, backgrounding the
+ * browser fires `pagehide` with `persisted: true` while the page is kept in the back/forward
+ * cache — the page is coming back, and stopping the interval there would leave the counter at
+ * zero across the span and make the watcher *manufacture* the suspended-engine verdict it
+ * exists to detect. So the release is gated on `persisted === false`, which is the teardown the
+ * register is actually about. A page that is genuinely kept keeps its watcher; a page that is
+ * going away takes its timer with it.
+ */
+function watchHiddenGap(): void {
+  const liveness = document.getElementById('entry-notice-liveness')
+  const show = (verdict: HiddenGapVerdict): void => {
+    if (liveness !== null) liveness.textContent = HIDDEN_GAP_SENTENCES[verdict]
+  }
+
+  const watcher = new HiddenGapWatcher({
+    // The same cast `visibility-governor.ts` makes at the same seam and for its reason:
+    // `Document` carries a far wider `addEventListener` than `VisibilitySource` names, and the
+    // narrow shape is what makes the instrument drivable from a spec with no tab.
+    visibility: document as unknown as VisibilitySource,
+    onVerdict: show,
+  })
+  watcher.start()
+  show(watcher.verdict())
+
+  window.addEventListener('pagehide', (event) => {
+    if (!event.persisted) watcher.stop()
+  })
+}
+
+offerOwnBrowser()
+watchHiddenGap()
 
 /**
  * The anchor set this demo consents under.
