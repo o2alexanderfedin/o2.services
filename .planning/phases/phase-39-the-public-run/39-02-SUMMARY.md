@@ -280,6 +280,8 @@ its own `docs` commit.
 | commit | what |
 |---|---|
 | `21dfc99` | `feat(39-02)` — the probe, its 11 cases, the wiring, and the two behavioural arms |
+| `c271aa3` | `docs(39-02)` — this summary |
+| `4135004` | `docs(39-02)` — comments only, no behaviour: the two sites that said *"loses nothing at all"* now carry the round-trip residue below, and so does this file |
 
 ## What this plan does not know
 
