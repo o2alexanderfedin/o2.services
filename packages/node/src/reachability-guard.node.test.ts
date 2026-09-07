@@ -2734,7 +2734,30 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
 // Closing condition, checkable and with no forecast attached: this entry leaves when
 // `e2e-browser-launch.ts` does — that is, when the graph learns to walk spec files, which
 // nobody has scheduled either.
-const ORPHAN_MODULE_CEILING = 33
+//
+// 2026-09-06: 33 -> 34, raised by exactly one and named. `packages/node/src/bin/check-copy.ts`
+// is `38-03`'s send-time checker for recruitment copy that never reaches the tree: a command
+// run as `node --experimental-strip-types`, imported by nothing. Its mechanism is one this
+// list has already accepted three times -- `commit-scope.ts`, `strip-comments.ts` and
+// `mutation-guard.mutate.ts` are all runnable modules deliberately outside {@link ENTRY_POINTS}.
+//
+// **Adding it to `ENTRY_POINTS` was refused by the plan that created it, with its reason**, and
+// the refusal is quoted rather than paraphrased -- `38-03-PLAN.md:292-296`: *"That list is the
+// reachability guard's set of roots, and adding a root changes verdicts across the whole barrel
+// ... If the reachability guard reddens anyway, that is a finding to record and report, not a
+// reason to widen the list."* A root added to make one number smaller would shrink what
+// `unreachableExports` can see, which is this instrument's whole jurisdiction.
+//
+// **The membership swapped while the count was being read, and that is why the entry names the
+// command and not the module.** `banned-vocabulary.ts` landed first and was the thirty-fourth
+// for the window before `check-copy.ts` imported it; the importer is production, so the module
+// left the list and the command took its place. Measured at 34 with `banned-vocabulary.ts`
+// absent from the enumeration -- an earlier reading of 35 was taken with two agents mid-edit and
+// is not the tree.
+//
+// Closing condition, checkable and with no forecast attached: this entry leaves if
+// {@link ENTRY_POINTS} ever admits `packages/node/src/bin/check-copy.ts`.
+const ORPHAN_MODULE_CEILING = 34
 
 /**
  * A production module that reaches **no barrel at all**, named by path.
