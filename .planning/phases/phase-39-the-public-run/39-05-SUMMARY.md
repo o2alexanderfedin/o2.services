@@ -249,6 +249,32 @@ names — which is exactly what `packages/node/src/commit-scope.ts` says it is f
 no skip was needed the second time. It also confirms the first skip was not a way around the
 guard: the `feat` commit really did contain one of the 256.
 
+## A concurrency defect this plan committed, reported rather than quietly repaired
+
+**The third commit of this plan swept a concurrent agent's staged file into itself.** `8202ef5`
+reads `2 files changed` and the second is
+`.planning/phases/phase-39-the-public-run/39-04-SUMMARY.md` — twelve lines the 39-04 agent had
+staged, in the window between this plan's `git add` and its `git commit`.
+
+**The cause is exactly the one `CLAUDE.md` writes down, and the rule was followed only halfway.**
+The command was `git add <path> && git commit -m "…"`, with no `-- <paths>`. That constrains what
+*this* agent stages and says nothing about what is *already* staged, which is the distinction the
+convention states in its own words: *"Never `git add -A`" is necessary but **not** sufficient.*
+The first two commits of this plan happened to be clean — `06ed801` was checked at `git show
+--stat` and lists exactly three files, `5f79e1c` reads `1 file changed` — so the defect was
+invisible until the run where the other agent happened to be mid-stage.
+
+**Nothing was lost and nothing was reverted.** The other agent's twelve lines are intact on disk
+and are committed; `git status --porcelain` is empty. The damage is **attribution only**: their
+self-check paragraph sits in a commit whose message is about this plan.
+
+**It was not repaired by rewriting history, and that is a decision rather than an omission.** A
+`git reset --soft` would rewrite the tip of a branch a concurrent agent is committing to, which is
+the higher-risk act of the two — and this repository's convention is that an agent never reverts
+or rewrites what another agent wrote. Their file is also outside this plan's writable set, so
+editing it to add a note would be a second violation on top of the first. The record carries it
+instead, which is what the record is for.
+
 ## Threat register
 
 | id | disposition | how it stands after this plan |
