@@ -2617,15 +2617,59 @@ harness at all, on any budget, which is why criterion 2 needs two phones and not
   4. **`BENCH-06`'s distinct-machine half is measured from the run**: a map/reduce job distributes across nodes on independently-owned devices across several continents, each machine read off its own announced handshake line rather than off the driver, and the distinct-machine count is published beside the curve. **Until the run reports, the half stays descoped and unmeasured — not met — and a same-host figure may not be published in its place**
   5. The kill switch and the stop control are exercised **during** the run and not only before it, and the observed behaviour matches what Phase 36 measured on a quiet fabric — a control that works at three tabs and not at three hundred is a control nobody has
 **Plans**: 9 plans in 5 waves — waves 1-3 are agent work with no money and no disclosure; waves 4-5 are the owner-gated tail, separate plans rather than trailing tasks
-- [ ] `39-01-PLAN.md` — the dated go/no-go checklist as a document, and a guard that notices a row losing its evidence (wave 1)
-- [ ] `39-02-PLAN.md` — the funnel's silent-drop defect: probe before targeting, validated on the response BODY rather than its status (wave 1)
-- [ ] `39-03-PLAN.md` — the relay counters, including the 6714-hop-streams-against-zero-relayed-bytes anomaly measured on a local workerd (wave 1)
+- [x] `39-01-PLAN.md` — the dated go/no-go checklist as a document, and a guard that notices a row losing its evidence (wave 1)
+- [x] `39-02-PLAN.md` — the funnel's silent-drop defect: probe before targeting, validated on the response BODY rather than its status (wave 1)
+- [x] `39-03-PLAN.md` — the relay counters, including the 6714-hop-streams-against-zero-relayed-bytes anomaly measured on a local workerd (wave 1)
 - [ ] `39-04-PLAN.md` — the participant path for `BENCH-06`'s distinct-machine half, and the guard that refuses a same-host figure in its place (wave 2)
 - [ ] `39-05-PLAN.md` — the staged-invite runbook and the request-budget reading with a numeric stop rule (wave 2)
 - [ ] `39-06-PLAN.md` — the kill-switch instrument and the band criterion 5 compares the run against (wave 2)
 - [ ] `39-07-PLAN.md` — re-measure the node lane and own `vitest.config.ts`, because `slow-specs` sits at its tolerance boundary (wave 3)
 - [ ] `39-08-PLAN.md` — **owner**: the machine-datum ruling, the release cut, and the pre-invite funnel reading (wave 4)
 - [ ] `39-09-PLAN.md` — **owner**: the run itself, its stages, and the record only the run can write (wave 5)
+
+**Status 2026-09-07 — wave 1 executed and merged. Criterion 1's DOCUMENT exists and says NO-GO;
+criterion 2's DEFECT is closed and criterion 2 is not; criterion 4 gained a reading that
+FORECLOSES two candidate answers rather than supplying one.**
+
+**Criterion 1.** `39-GO-NO-GO.md` is dated and guarded. All seven conditions `RUN-01` names read
+`GO`, each citing a file a reader can open plus both ledger lines it was transcribed from — and
+`go-no-go-checklist.node.test.ts` reddens on a `GO` row naming no evidence, on a citation that
+stops resolving, and on a row naming a requirement whose ledger box is unticked. Its four floors
+are literals, so a parser finding zero rows cannot satisfy it. **Seven PRECONDITIONS sit in their
+own table at `NO-GO`, explicitly not part of `RUN-01`'s gate**, and the tree is green with them
+there — which is the property that lets this document exist before the run rather than be written
+after it. `RUN-01` moved `Not started` → **`Partial`**: the record half landed, and *no invite is
+sent until they all hold* is a clause that can be violated but not completed in advance.
+
+**Criterion 2.** The funnel's silent drop is fixed at its cause. `probeFunnelTarget` asks the
+derived origin whether it is a collector before any report is sent there and validates the
+**body**, not the status — a `200` from a static host or a captive portal is exactly the shape
+that installs a port to nowhere. The defect arm was watched failing FIRST, before the wiring
+changed, at *"the page posted 2 report(s) to a collector that answered 400 on every path"*. An
+explicit `?funnel=` still wins, unchanged, and the fix fails closed to the old inert behaviour.
+**The criterion is still open**: it asks for the funnel *reporting live with a timestamp preceding
+the invite*, and no mechanism satisfies a clause about when something was seen. **One cost is
+recorded rather than smoothed over** — the probe is not awaited, so a visit that consents, starts
+and closes inside one round trip now takes its first two stages and its terminal stall with it,
+where the unconditional target delivered them. `BENCH-08`'s denominator therefore carries two
+qualifiers, not one.
+
+**Criterion 4, and this is the result that matters most.** The `6714`-hop-streams-against-zero
+anomaly is **explained and is not a defect**, measured on a local `workerd` with a control arm in
+the same run. `outboundStopStreams` reaching 1 proves the relay actually delivered a relayed
+connection; over that step `relayService.bytes` moved 21 849 against 8 192 bytes of payload while
+`traffic.relayed` stayed `0/0` at all four sample points. **A relay has no relayed traffic of its
+own** — every connection it holds is a direct inbound leg, which is what `classifyConnection`
+answers. Phase 32's standing sentence held under measurement: `traffic.direct.bytes` moved 30 187
+over the same step, the same forwarded payload counted a second time, and the two must not be
+reconciled by subtraction. **What the reading forecloses is the important half**: neither counter
+can supply criterion 4's distinct-machine count, because both count STREAMS and neither can tell a
+RESERVE from a CONNECT. `BENCH-06`'s distinct-machine half stays descoped and unmeasured.
+
+**A money hazard was found and closed before the first run**: `wrangler.jsonc` announces the
+DEPLOYED host, so a local relay left at that value hands its reserving client a circuit address
+pointing at production. Three reservations were made, all local, and zero requests reached the
+deployed object.
 
 ### Phase 40: The Numbers Only the Run Can Produce
 **Goal**: As the project owner, I want two figures that did not exist before this milestone published under the discipline the `BENCH-` family already carries — the WebRTC connection-failure rate segmented by country and by network class, and a diurnal churn curve per region — so that the two measurements only a real public run can produce are on the record.

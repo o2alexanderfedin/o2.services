@@ -169,7 +169,9 @@ import { KillSwitch, switchEndpointFor } from '../src/kill-switch.ts'
 import {
   FunnelReporter,
   beaconSendPort,
+  fetchProbePort,
   funnelEndpointFrom,
+  probeFunnelTarget,
   readNetworkClass,
   utcHourPort,
 } from '../src/funnel-reporter.ts'
@@ -714,6 +716,33 @@ funnel.enter('page-load')
 function armFunnel(): void {
   funnel.arm()
   funnel.enter('consent')
+}
+
+/**
+ * What this page's reporter is doing, for a fixture that has to read it — RUN-07.
+ *
+ * **Exported here rather than added to `TabApi`** for `signinFacts`'s reason, and reached the
+ * same way `signinFacts` is: as a module export of this file, which `index.html` already
+ * imports and a fixture reaches by importing the same URL the page loaded. `TabApi` is the
+ * surface a visitor's page and an embedding host are handed, and a funnel diagnostic belongs on
+ * neither.
+ *
+ * ## Why it answers TWO fields when the question is about one
+ *
+ * `active` is the reading — whether a send port was installed, which after the probe below is
+ * the difference between a funnel that collects and one that silently drops. `furthest` is
+ * there so a reader can tell that reading apart from a **fresh module instance**: anything that
+ * loads this file a second time re-runs `funnel.enter('page-load')` on a reporter nobody armed,
+ * and would answer `active: false` for a reason that has nothing to do with a collector. A
+ * caller that has consented and sees `furthest` still at `'page-load'` is holding the wrong
+ * object, and an `active: false` taken from it is an artefact rather than a measurement.
+ *
+ * **Nothing in this page consumes it.** That is the one way it differs from `signinFacts`, and
+ * it is stated rather than hidden: it exists so that "the funnel is inert" is observable at all,
+ * which is the property `RUN-07`'s staged go/no-go rests on.
+ */
+export function funnelFacts(): { readonly active: boolean; readonly furthest: string | null } {
+  return { active: funnel.active, furthest: funnel.furthest }
 }
 
 /** Set once stage six has been reported, so the poll loop stops asking. */
@@ -1809,8 +1838,42 @@ const api: TabApi = {
     // which is a drop-off the funnel exists to measure.
     //
     // `funnel.target` is once-only, so a page that named `?funnel=` keeps what it named.
+    //
+    // **AMENDED — RUN-07. The derived branch is PROBED and the configured branch is not.**
+    // The derivation is right about the deployed Worker, which serves the collector on the
+    // same host as the relay, and wrong about any self-hosted seed, which serves libp2p
+    // WebSocket on that port and answers 400. The beacon fails immediately, so nothing hangs
+    // and nothing is logged: the funnel looks configured and collects nothing, which is a
+    // criterion-2 failure that presents as a criterion-2 pass. `probeFunnelTarget` asks the
+    // origin whether it is a collector — reading its BODY, not its status — and a refusal
+    // leaves the reporter exactly as inert as it was before the derivation existed.
+    //
+    // The two sources are told apart by asking `funnelEndpointFrom` WITHOUT the relay list:
+    // a non-null answer there is an explicit `?funnel=`, which somebody named on purpose and
+    // which is not this page's to second-guess. No second precedence rule is introduced —
+    // `funnelEndpointFrom` states one and `target`'s first-install-wins enforces it again.
+    //
+    // **Not awaited, deliberately.** The reporter's held buffer keeps every report with the
+    // hour it happened — the 2026-09-03 repair — so a target installed a round trip later
+    // loses nothing for a visit that outlives the probe; but a start that WAITED on a network
+    // round trip would move the stage-three timing this funnel exists to measure.
+    //
+    // **It is not free, and the cost falls on the shortest visits.** Until the probe answers
+    // there is no send port, so a tab that closes inside that window takes stages one and two
+    // AND its terminal stall with it — where the unconditional target above delivered them.
+    // The window is one round trip against a healthy collector and `FUNNEL_PROBE_TIMEOUT_MS`
+    // against a hanging one. Nothing is lost against a collector that refuses, because nothing
+    // was ever collected there; the residue is on the working path and it is stated rather than
+    // absorbed, because plan 39-04 reads these counts.
     const funnelEndpoint = funnelEndpointFrom(location.search, options.relayAddrs ?? [])
-    if (funnelEndpoint !== null) funnel.target(beaconSendPort(funnelEndpoint))
+    const funnelWasConfigured = funnelEndpointFrom(location.search) !== null
+    if (funnelEndpoint !== null && funnelWasConfigured) {
+      funnel.target(beaconSendPort(funnelEndpoint))
+    } else if (funnelEndpoint !== null) {
+      void probeFunnelTarget(funnelEndpoint, fetchProbePort()).then((confirmed) => {
+        if (confirmed !== null) funnel.target(beaconSendPort(confirmed))
+      })
+    }
     // RUN-04 stage four. The observer itself was installed at the top of this file's import
     // graph — see the side-effect import — and this only registers where its answer goes.
     // Gathering that already happened is not lost: `onFirstIceGathering` fires immediately.

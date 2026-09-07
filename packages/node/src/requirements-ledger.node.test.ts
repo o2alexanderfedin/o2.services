@@ -993,8 +993,27 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * tree title-names `RUN-06`, and that is deliberate rather than thin. The string-only arm is
  * titled without it, so a green obtainable by setting a header can never be read as this row's
  * evidence.
+ *
+ * **Raised 5 -> 6 on 2026-09-07, in the commit that moved `RUN-01` to `Partial`** (Phase 39,
+ * plan 39-01). The row's mechanism is a DOCUMENT and a guard over it, so it names files rather
+ * than exported symbols and there is no *"nothing calls X"* sentence for this file to read. What
+ * holds it open is the other half of its own conjunction — *no recruitment invite is sent until*
+ * the seven conditions hold — a clause that can be violated but not completed in advance, and
+ * which becomes demonstrable only when an invite goes out. An experiment nobody has run.
+ *
+ * **One witness, and it was written down empty first — this file caught that and was right.**
+ * The entry originally carried `witnesses: []` with a paragraph calling it *a measured zero*.
+ * The scan had not been run; it was inferred from the shape of the requirement, which is exactly
+ * what the `witnesses` field exists to make impossible. The guard answered by name:
+ * *"RUN-01 was last re-read on 2026-09-07, and packages/node/src/go-no-go-checklist.node.test.ts
+ * now names it in a test title"*. Four titles in that file name `RUN-01`.
+ *
+ * **What the witness does and does not attest is the part to carry into the re-read.** That spec
+ * guards the DOCUMENT's form — that every row reads GO or NO-GO, that a GO row names evidence,
+ * that a citation still resolves, that a row naming an unticked ledger box reddens. It does not
+ * and cannot attest the gate's observance, which is the half of `RUN-01`'s sentence still open.
  */
-const REREAD_REGISTER_CEILING = 5
+const REREAD_REGISTER_CEILING = 6
 
 /**
  * ## The rule this list encodes
@@ -1776,6 +1795,12 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     because: 'experiment-not-run',
     reread: '2026-09-06',
     witnesses: ['packages/node/src/embedded-webview.e2e.test.ts'],
+  },
+  {
+    id: 'RUN-01',
+    because: 'experiment-not-run',
+    reread: '2026-09-07',
+    witnesses: ['packages/node/src/go-no-go-checklist.node.test.ts'],
   },
   // `AOT-04` was here until 2026-08-18 and is **REMOVED**, by the second of the two exits
   // the rule allows: its row is `Done`, so it leaves the population and the set equality
