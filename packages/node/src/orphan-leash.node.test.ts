@@ -468,7 +468,22 @@ describe('every bin either arms the leash or says why not', () => {
    * `armOrphanLeash`, which it now does. The row went green by the code changing, which is
    * the only way a guard's green is worth anything.
    */
-  const EXEMPT: readonly { readonly bin: string; readonly why: string }[] = []
+  const EXEMPT: readonly { readonly bin: string; readonly why: string }[] = [
+    {
+      bin: 'check-copy.ts',
+      why:
+        'it READS STDIN FOR CONTENT, which is the one thing the leash assumes no caller does — ' +
+        "`orphan-leash.ts`'s own docblock says *\"Nothing here reads stdin for content; the pipe " +
+        'carries no data, only the fact that it is still open"*. `check-copy.ts -` takes the copy ' +
+        'to check on fd 0, so `some-command | check-copy.ts -` is a FIFO and WOULD arm the leash, ' +
+        'and the two readers would then fight over one descriptor: whichever won, either the copy ' +
+        'would be silently truncated or the EOF that ends the read would be taken for a dead ' +
+        'parent. Arming it here breaks the mode it exists to serve. And there is nothing to leash: ' +
+        'the command opens no socket, spawns nothing, and exits when the read ends, so it cannot ' +
+        'outlive anything. Closing condition, checkable: this entry leaves if `check-copy.ts` ever ' +
+        'stops reading stdin, or if the leash learns to arm on a descriptor it does not consume.',
+    },
+  ]
 
   it('arms it in every binary that outlives its own startup', async () => {
     const bins = (await readdir(BIN_DIR)).filter((name) => name.endsWith('.ts')).sort()
