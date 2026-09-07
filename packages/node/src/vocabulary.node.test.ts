@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { BANNED } from './banned-vocabulary.ts'
 import { blocking, commitScope, pathFormProblems, trackedPaths } from './commit-scope.ts'
 
 /**
@@ -49,49 +50,19 @@ const SCOPE = commitScope()
 /** This file's own path, which is where a dead line exemption is deleted. */
 const SELF = 'packages/node/src/vocabulary.node.test.ts'
 
-interface Banned {
-  readonly term: string
-  readonly pattern: RegExp
-  readonly why: string
-}
-
 /**
- * The banned vocabulary.
+ * The banned vocabulary lives in `./banned-vocabulary.ts` and is imported above.
  *
- * Inflections are included because a grep for "miner" finds "miners" and a reviewer
- * scanning for reward language finds "earned" as readily as "earn". What is
- * deliberately *not* here is the pronoun "mine" — "a claim of mine" is English, and
- * banning it would fire on two existing phase retrospectives while catching nothing
- * a reviewer would react to. `\b` anchors keep "determining", "examining",
- * "learning", and "accredited" out.
+ * It moved out of this file on 2026-09-06 and nothing about it changed — same five
+ * rows, same patterns, same `why` strings, same order. The reason for the move is
+ * the half of Phase 38's criterion 5 this guard cannot reach: it scans what
+ * `git ls-files` reports, and a recruitment message typed into a chat window is
+ * never tracked. `bin/check-copy.ts` reads that message and imports the same array,
+ * so the send-time check and this one cannot come to disagree.
+ *
+ * The evidence for the rule, and the rule itself, stay here — see this file's
+ * header. What moved is the data, not the argument.
  */
-const BANNED: readonly Banned[] = [
-  {
-    term: 'mining',
-    pattern: /\b(?:crypto[\s-]?)?min(?:ing|er|ers)\b/gi,
-    why: 'the single word every cryptojacking blocklist is keyed on',
-  },
-  {
-    term: 'hashrate',
-    pattern: /\bhash[\s-]?rates?\b/gi,
-    why: 'has no meaning outside proof-of-work and reads as proof-of-work on sight',
-  },
-  {
-    term: 'earn',
-    pattern: /\bearn(?:s|ed|ing|ings)?\b/gi,
-    why: 'frames volunteered compute as paid work — the claim Coinhive made and could not keep',
-  },
-  {
-    term: 'credits',
-    pattern: /\bcredits?\b/gi,
-    why: 'a currency word, and the fabric settles nothing; BOINC-style points also invite result-forging',
-  },
-  {
-    term: 'tokens',
-    pattern: /\b(?:data)?tokens?\b/gi,
-    why: 'reads as cryptocurrency to a reviewer who does not stop to check the sense',
-  },
-]
 
 interface PathExemption {
   /** Repo-relative path. A trailing `/` exempts the whole tree beneath it. */
@@ -136,6 +107,15 @@ const EXEMPT_PATHS: readonly PathExemption[] = [
   },
   {
     path: 'packages/node/src/vocabulary.node.test.ts',
+    reason:
+      'the rule cannot be written down without naming what it bans; a reviewer who greps and lands here finds the prohibition, not a violation',
+  },
+  // The module the five rows moved into, on the entry above's reason and not a new one.
+  // It is a separate entry rather than a `packages/node/src/` tree exemption for this
+  // file's own stated bias: a tree exemption would also cover whatever a future module
+  // in that directory says, and everything else under it is held to the rule.
+  {
+    path: 'packages/node/src/banned-vocabulary.ts',
     reason:
       'the rule cannot be written down without naming what it bans; a reviewer who greps and lands here finds the prohibition, not a violation',
   },
@@ -517,7 +497,7 @@ describe('the repository scan is looking at the repository', () => {
 
   it('did not exempt the repository out from under itself', () => {
     const exempt = REPO.scanned.filter((file) => exemptPathFor(file) !== undefined)
-    // Five paths are exempt; if that ever covers a large share of the repository,
+    // Six paths are exempt; if that ever covers a large share of the repository,
     // the rule has stopped meaning anything.
     expect(exempt.length).toBeLessThan(REPO.scanned.length / 4)
   })
@@ -682,6 +662,23 @@ describe('the checker can fail — proved by mutation, not assumed', () => {
       expect(found.map((v) => v.term)).toContain(term)
     })
   }
+
+  it('has five rows, each of which matches its own term', () => {
+    // The array has two importers now — this guard and `bin/check-copy.ts` — and a row
+    // whose `term` and `pattern` had drifted apart would mislead both at once: the
+    // command names the term in its output, and this suite names it in a test title,
+    // while the pattern that actually decides is the one nobody read.
+    //
+    // `String#match` and not `RegExp#test`: these patterns are `/g`, so a `test` moves
+    // `lastIndex` and hands the next caller a different regex than it was given.
+    const drifted = BANNED.filter(({ term, pattern }) => !(term.match(pattern) ?? []).includes(term))
+    expect(drifted.map(({ term }) => term)).toEqual([])
+    // The literal, not `BANNED.length` — an assertion that reuses the value it tests
+    // moves with it and proves nothing. Without this line a sixth row that fails to
+    // match its own term would leave `drifted` non-empty, but a sixth row that matched
+    // would land unremarked, and the count is half of what "the five patterns" means.
+    expect(BANNED.length).toBe(5)
+  })
 
   it('flags every inflection, not only the dictionary form', () => {
     const found = scan(
