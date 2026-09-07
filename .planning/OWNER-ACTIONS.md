@@ -309,8 +309,8 @@ before the deploy.
 
 | | |
 |---|---|
-| **Act** | Read `region` off the deployed node's `/self` and, if it is `null`, deploy with `O2_REGION` set |
-| **Cost** | The read: none, one request. The redeploy, if needed: none beyond what `36-RUNBOOK.md` act 2 already costs |
+| **Act** | Set `O2_ADMISSION_KEY`, then redeploy, then read `killSwitch` back off `/self` — see the 2026-09-07 amendment below, which replaces the single act this row was written for |
+| **Cost** | The secret: none. The redeploy: none beyond what `36-RUNBOOK.md` act 2 already costs. The read: one request |
 | **Why not an agent** | The read is safe but the fix is a deploy, and deployment is a separately-triggered gate by this project's own `DEMO-04` ruling |
 | **Unblocks** | Phase 39 criterion 5, and the kill switch itself — which is the control the run is supposed to be able to fall back on |
 
@@ -345,6 +345,86 @@ is worthless if the switch cannot be thrown at all — and this is a control on 
 way to stop. Full working, with the six-step observation script and its five stop arms:
 `.planning/phases/phase-39-the-public-run/39-KILL-SWITCH-DURING-RUN.md`.
 
+### AMENDED 2026-09-07 — the reading was taken, and it is WORSE than this row expected
+
+The `curl` above was run against the deployed object. **`"region":null`** — the stop arm holds,
+and the fabric has no kill switch.
+
+Then a second reading nobody had asked for. A `POST /admission` carrying no key, which writes
+nothing and is refused before anything is parsed, answered:
+
+```
+401 this object has no operator key configured, so it has no operator — every write to the
+    admission directive is refused, including this one
+```
+
+**Both halves are absent, not one.** Setting `O2_REGION` alone would have left the switch just as
+dead, and the owner would have found that out on the second attempt. This row asked one question
+and the answer needed two.
+
+Measured the same hour, from the same object: `outboundStopStreams: 143` — the relay had already
+carried 143 real connections for real people while unable to be stopped by anyone.
+
+#### What was changed in the tree, so this cannot recur
+
+The cause was not a forgotten flag; it was that **`deploy-hosted.sh` verified exactly what it
+injected** — the version, and a PeerId that is stable by construction. The kill switch was
+neither injected nor read back, so no deploy ever noticed. Three changes, all landed:
+
+1. The region label is **derived from `worker.ts`'s `SERVED_BY`** — the same constant that decides
+   which object receives the traffic — and injected on every deploy. There is no `--region` flag,
+   because a flag is a thing that can be forgotten and forgetting it is the defect.
+2. `O2_ADMISSION_KEY` and `O2_IDENTITY_SECRET` are **required before the deploy spends a request**.
+   Missing either refuses the deploy and prints the command that fixes it.
+3. `GET /self` carries a **`killSwitch` field** — `{ operable, reason }` — and the deploy reads it
+   back off the node afterwards. A node that cannot be stopped fails the run, which in CI also
+   stops `publish-client`: no client goes in front of visitors while the node behind it cannot be
+   halted.
+
+`describeKillSwitch` does not restate the two conditions; it **runs** `authoriseWrite` and
+`refuseMisaddressed` — the same functions the write path runs — against the best input an operator
+could supply. A restatement could drift from the gate; this cannot.
+
+### What to run, in this order
+
+**Act A — the operator key.** Nothing else on this list can be done first: without it the deploy
+below refuses.
+
+```
+cd packages/cloudflare && npx wrangler secret put O2_ADMISSION_KEY
+```
+
+Paste a value from a password manager, ~32 random characters. **Store it before pressing enter** —
+it is the only thing that can ever stop this fabric, and Cloudflare will not show it to you again.
+
+`O2_IDENTITY_SECRET` is already set: the deployed object answers `/self` with a PeerId, which an
+object without that secret cannot do (it refuses to mint and answers 500). The deploy checks both
+anyway.
+
+**Act B — the deploy that carries the region.**
+
+```
+scripts/deploy-hosted.sh --live
+```
+
+It now injects `O2_REGION:bootstrap-us`, refuses if act A was skipped, and reads the switch back.
+A green run ends with `✅ the kill switch is ARMED`.
+
+**Act C — read it back yourself, from a different machine than the one that deployed.**
+
+```
+curl -s https://o2-bootstrap.af-4a0.workers.dev/self | grep -o '"killSwitch":{[^}]*}'
+```
+
+### What it means
+
+| reading | verdict |
+|---|---|
+| `"operable":true` | The switch exists. Criterion 5's exercise can proceed, and so can invitations |
+| `"operable":false` | **STOP.** `reason` names which half is still missing. Do not invite anyone |
+| no `killSwitch` field at all | The old build is still serving — act B did not land |
+
 ### What to say back
 
-The `region` value verbatim, and if it was `null`, that act 2 has landed.
+The `killSwitch` object verbatim. If `operable` is `false`, its `reason` says what to fix and
+nothing else on the Phase 39 list should start.

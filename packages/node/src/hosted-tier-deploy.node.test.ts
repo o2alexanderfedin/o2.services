@@ -25,8 +25,8 @@
  * output directory are both asserted instead of only the absence of a throw.
  */
 
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -394,5 +394,147 @@ describe('one version, and the deployed node can be asked for it', () => {
     // A sentinel rather than an omitted field: a missing key reads as an older node to anything
     // parsing the answer, while this string cannot be mistaken for a release number.
     expect(worker).toContain("const UNVERSIONED = 'unversioned'")
+  })
+})
+
+/**
+ * RUN-02's precondition, checked where it was actually lost — the deploy.
+ *
+ * ## What was measured, because this file's rules each cost something
+ *
+ * On 2026-09-07 `https://o2-bootstrap.af-4a0.workers.dev/self` answered `"region": null`, and
+ * `POST /admission` answered `401 this object has no operator key configured`. **Both halves of
+ * the kill switch were absent on a node that had already relayed 143 connections for real
+ * people**, and had been since the first deploy.
+ *
+ * The cause is one line of reasoning: `deploy-hosted.sh` verified **exactly what it injected** —
+ * the version, and a PeerId that is stable by construction. `O2_REGION` was a `--var` nobody
+ * passed and `O2_ADMISSION_KEY` a secret nobody set, so neither was injected, so neither was
+ * checked, so nothing anywhere noticed. That is the shape this block guards against returning.
+ *
+ * ## Executed, not matched
+ *
+ * Three of these cases RUN the script against a scratch repository built for the case, so the
+ * refusal is observed rather than inferred from the presence of a string. The scratch repository
+ * is what makes a negative case possible at all: the real tree's `SERVED_BY` is correct, and
+ * planting a wrong one into it would be an edit to a file a concurrent agent may be holding.
+ *
+ * Every run is given an EMPTY `CLOUDFLARE_API_TOKEN` and `--dry-run`. The refusals fire long
+ * before the credential is read today; the blanking is so that they still cannot deploy if that
+ * ordering is ever edited.
+ */
+describe('RUN-02 — the deploy cannot produce a node nobody can stop', () => {
+  const SCRIPT = join(ROOT, 'scripts/deploy-hosted.sh')
+  const DEPLOY = readFileSync(SCRIPT, 'utf8')
+
+  interface Run {
+    readonly status: number | null
+    readonly output: string
+  }
+
+  /** Run the deploy script somewhere, with no credential and nothing that could deploy. */
+  function runDeploy(cwd: string, args: readonly string[]): Run {
+    const result = spawnSync('bash', [SCRIPT, ...args], {
+      cwd,
+      encoding: 'utf8',
+      env: { ...process.env, CLOUDFLARE_API_TOKEN: '', WRANGLER_SEND_METRICS: 'false', CI: '1' },
+    })
+    return { status: result.status, output: `${result.stdout}${result.stderr}` }
+  }
+
+  /**
+   * A scratch repository the script can read, with `SERVED_BY` set to whatever the case needs.
+   *
+   * Only the four files the script reads before it would deploy: the root manifest for the
+   * version, `wrangler.jsonc` for the name, and the two sources the region is derived and
+   * narrowed against.
+   */
+  function scratchRepo(servedBy: string | null): string {
+    const dir = mkdtempSync(join(tmpdir(), 'o2-deploy-scratch-'))
+    execFileSync('git', ['init', '--quiet'], { cwd: dir })
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ version: '9.9.9-scratch' }))
+    mkdirSync(join(dir, 'packages/cloudflare/src'), { recursive: true })
+    writeFileSync(
+      join(dir, 'packages/cloudflare/wrangler.jsonc'),
+      '{ "name": "o2-bootstrap-scratch" }\n',
+    )
+    writeFileSync(
+      join(dir, 'packages/cloudflare/src/hosted-object.ts'),
+      "export const HOSTED_OBJECT_NAME = {\n  us: 'bootstrap-us',\n  eu: 'bootstrap-eu',\n  sam: 'bootstrap-sam',\n} as const\n",
+    )
+    writeFileSync(
+      join(dir, 'packages/cloudflare/src/worker.ts'),
+      servedBy === null ? '// no SERVED_BY here\n' : `const SERVED_BY: HostedObjectName = '${servedBy}'\n`,
+    )
+    scratchDirs.push(dir)
+    return dir
+  }
+
+  const scratchDirs: string[] = []
+  afterAll(() => {
+    for (const dir of scratchDirs) rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('derives the region from SERVED_BY rather than from a flag anybody has to remember', () => {
+    // The happy path, against the REAL tree. `--skip-tests` bypasses the gate only; the
+    // derivation runs before it and is what this reads.
+    const run = runDeploy(ROOT, ['--dry-run', '--skip-tests'])
+    expect(run.status).toBe(0)
+    // A literal, not a value read out of `worker.ts` by the test — an assertion that computed
+    // its own expectation the same way the script does would agree with any answer.
+    expect(run.output).toContain('region bootstrap-us')
+    expect(run.output).toContain('nothing was deployed')
+  })
+
+  it('REFUSES when SERVED_BY names a region outside the closed set', () => {
+    const run = runDeploy(scratchRepo('bootstrap-antarctica'), ['--dry-run', '--skip-tests'])
+    expect(run.status).not.toBe(0)
+    expect(run.output).toContain('bootstrap-antarctica')
+    expect(run.output).toContain('not one of the declared object names')
+  })
+
+  it('REFUSES when SERVED_BY cannot be read at all', () => {
+    const run = runDeploy(scratchRepo(null), ['--dry-run', '--skip-tests'])
+    expect(run.status).not.toBe(0)
+    expect(run.output).toContain('could not read SERVED_BY')
+  })
+
+  it('accepts the scratch repository when SERVED_BY is a declared name — so the refusals are not the fixture', () => {
+    // The positive control. Without it, both refusals above could be a broken scratch repo
+    // rather than a working check, and an absence would be indistinguishable from a fault.
+    const run = runDeploy(scratchRepo('bootstrap-eu'), ['--dry-run', '--skip-tests'])
+    expect(run.status).toBe(0)
+    expect(run.output).toContain('region bootstrap-eu')
+  })
+
+  it('injects the region on the live deploy, not only on the rehearsal', () => {
+    // Two call sites, and the rehearsal being right while the real one is not is exactly the
+    // drift the script's own header says two copies of a procedure produce.
+    const injections = DEPLOY.match(/--var "O2_REGION:\$REGION"/g) ?? []
+    expect(injections.length).toBe(2)
+  })
+
+  it('requires both operating secrets BEFORE spending a request', () => {
+    expect(DEPLOY).toContain('wrangler secret list')
+    expect(DEPLOY).toContain('O2_ADMISSION_KEY')
+    // Without this one the read-back would roll a good deploy back while the real fault was a
+    // binding: an object with no identity secret answers `GET /self` with 500.
+    expect(DEPLOY).toContain('O2_IDENTITY_SECRET')
+  })
+
+  it('reads the switch back off the deployed node and fails the run when it is not armed', () => {
+    // The property, measured on the node, rather than the flags this script passed it.
+    expect(DEPLOY).toContain('"operable":true')
+    expect(DEPLOY).toContain('THE DEPLOYED NODE CANNOT BE STOPPED BY ANYBODY')
+    // And it does NOT roll back for it. A rollback reverts a good build to one carrying the
+    // same bindings, so it would arm nothing while destroying the deploy.
+    const start = DEPLOY.indexOf('THE DEPLOYED NODE CANNOT BE STOPPED BY ANYBODY')
+    expect(start).toBeGreaterThan(0)
+    // Bounded at the `esac` that closes the branch. An unbounded slice runs on into the PeerId
+    // comparison, which rolls back for its own good reason — the first draft of this assertion
+    // did exactly that and failed, which is the only reason anyone knows it is looking at the
+    // branch rather than at the rest of the file.
+    const unarmed = DEPLOY.slice(start, DEPLOY.indexOf('esac', start))
+    expect(unarmed).not.toContain('roll_back')
   })
 })

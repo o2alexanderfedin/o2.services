@@ -19,6 +19,7 @@ import {
   ADMISSION_DIRECTIVE_KEY,
   ADMISSION_KEY_HEADER,
   authoriseWrite,
+  describeKillSwitch,
   narrowRegion,
   parseDirective,
   readDirective,
@@ -81,6 +82,31 @@ describe('RUN-02 — what an object reports about its own admission state', () =
     const s = store()
     await s.put(ADMISSION_DIRECTIVE_KEY, new TextEncoder().encode('{not json'))
     expect((await readDirective(s, 'bootstrap-us')).halted).toBe(false)
+  })
+
+  it('refuses each malformed FIELD, one branch at a time', () => {
+    // One case per refusal rather than one blanket case, because `parseDirective` reads a body
+    // an unauthenticated caller sent: a field-shaped value that slipped through would be a
+    // directive assembled from a stranger's input. Each object below is well-formed apart from
+    // the single named field.
+    const wellFormed = { region: 'bootstrap-us', halted: true, versions: 'all', since: null, note: '' }
+    expect(parseDirective(wellFormed)).not.toBe(null)
+    expect(parseDirective({ ...wellFormed, region: 7 }), 'a numeric region').toBe(null)
+    expect(parseDirective({ ...wellFormed, since: 'yesterday' }), 'a since that is not a number').toBe(null)
+    expect(parseDirective({ ...wellFormed, since: Number.NaN }), 'a since that is not finite').toBe(null)
+    expect(parseDirective({ ...wellFormed, note: 12 }), 'a note that is not a string').toBe(null)
+    expect(parseDirective({ ...wellFormed, versions: [1, 2] }), 'versions that are not strings').toBe(null)
+  })
+
+  it('accepts a version LIST and copies it, so the stored value is not the caller\'s array', () => {
+    // The half of `versions` that is not `'all'` — RUN-02 asks for a slice by client version,
+    // and until this case that branch had never been read. The copy matters: the parsed
+    // directive is written to storage, and sharing the array with a body a stranger sent
+    // would let the caller keep a handle on what was banked.
+    const sent = ['2.0.0-rc.11', '2.0.0-rc.12']
+    const parsed = parseDirective({ region: 'bootstrap-us', halted: true, versions: sent, since: null, note: '' })
+    expect(parsed?.versions).toEqual(['2.0.0-rc.11', '2.0.0-rc.12'])
+    expect(parsed?.versions).not.toBe(sent)
   })
 
   it('refuses a body that is not a directive rather than filling in defaults', () => {
@@ -168,5 +194,79 @@ describe('RUN-02 — a write addressed to a region this object does not serve', 
     expect(narrowRegion('bootstrap-eu')).toBe('bootstrap-eu')
     expect(narrowRegion('bootstrap-antarctica')).toBe(null)
     expect(narrowRegion(undefined)).toBe(null)
+  })
+})
+
+/**
+ * The reading that was missing on 2026-09-07, when the deployed object had neither half.
+ *
+ * Every expected fragment below is written as a LITERAL rather than read off the value under
+ * test — `refuseMisaddressed`'s cases above state the rule and this file follows it: an
+ * assertion that quotes the reason it is checking passes whatever the reason says.
+ */
+describe('RUN-02 — whether this object can be halted AT ALL', () => {
+  it('is operable when both halves are configured, and names the region it would accept', () => {
+    const state = describeKillSwitch({ region: 'bootstrap-us', operatorKey: OPERATOR_KEY })
+    expect(state.operable).toBe(true)
+    expect(state.reason).toContain('"bootstrap-us"')
+  })
+
+  it('is INOPERABLE with no operator key, and says which half is missing', () => {
+    const state = describeKillSwitch({ region: 'bootstrap-us', operatorKey: undefined })
+    expect(state.operable).toBe(false)
+    expect(state.reason).toContain('no operator key configured')
+    // The region is fine, so the reason must NOT accuse it. A reason that named both faults
+    // when only one exists would send an operator to change something that was already right.
+    expect(state.reason).not.toContain('serves no region')
+  })
+
+  it('treats an empty key as no key, exactly as `authoriseWrite` does', () => {
+    // An empty `--var` is what a shell expansion of an unset variable produces, so this is the
+    // realistic misconfiguration rather than a contrived one.
+    expect(describeKillSwitch({ region: 'bootstrap-us', operatorKey: '' }).operable).toBe(false)
+  })
+
+  it('is INOPERABLE with no region, and says which half is missing', () => {
+    const state = describeKillSwitch({ region: null, operatorKey: OPERATOR_KEY })
+    expect(state.operable).toBe(false)
+    expect(state.reason).toContain('serves no region')
+    expect(state.reason).not.toContain('no operator key configured')
+  })
+
+  it('names BOTH faults when both are missing — the production reading, and the reason it matters', () => {
+    // Measured against `https://o2-bootstrap.af-4a0.workers.dev` on 2026-09-07: `/self`
+    // answered `"region": null` and `POST /admission` answered 401 *"this object has no
+    // operator key configured"*. A reason naming only the first would have sent the owner
+    // round the deploy loop twice.
+    const state = describeKillSwitch({ region: null, operatorKey: undefined })
+    expect(state.operable).toBe(false)
+    expect(state.reason).toContain('no operator key configured')
+    expect(state.reason).toContain('serves no region')
+  })
+
+  it('agrees with the gate it simulates, case for case', () => {
+    // The anti-vacuity leg. `operable` claims *a real write would be accepted*, and this is
+    // the only case that checks the claim against the real thing rather than against itself:
+    // for each configuration, the simulation's verdict is compared with running the two
+    // functions `#writeAdmission` actually runs.
+    const configurations = [
+      { region: 'bootstrap-us', operatorKey: OPERATOR_KEY },
+      { region: 'bootstrap-us', operatorKey: undefined },
+      { region: null, operatorKey: OPERATOR_KEY },
+      { region: null, operatorKey: undefined },
+    ] as const
+    for (const configuration of configurations) {
+      const gateAccepts =
+        authoriseWrite({
+          configuredKey: configuration.operatorKey,
+          presentedKey: OPERATOR_KEY,
+        }).allowed &&
+        refuseMisaddressed({ ...ADMITTING, region: configuration.region }, configuration.region) ===
+          null
+      expect(
+        describeKillSwitch(configuration).operable,
+        `describeKillSwitch disagrees with the gate for ${JSON.stringify(configuration)}`,
+      ).toBe(gateAccepts)
+    }
   })
 })
