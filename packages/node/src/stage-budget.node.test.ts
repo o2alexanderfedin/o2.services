@@ -31,18 +31,16 @@
  * reservations × 165 requests = 2475. 50 + 350 + 2475 = 2875.
  */
 import { describe, expect, it } from 'vitest'
-// @ts-expect-error TS7016 — `tools/run/stage-budget.mjs` is plain ESM, which this plan requires
-// so the arithmetic imports without a platform, and this repository's `tsconfig.json` sets no
-// `allowJs`. So `tsc` RESOLVES the module and then refuses to read it for types. The tree's own
-// answer to this is a sibling declaration file — `packages/demo/scripts/compile-kernel.d.mts`
-// beside `compile-kernel.mjs`, imported the same way by three specs — and a fourth file is
-// outside this plan's writable set, so the suppression stands here instead and is reported.
-// It is **self-retiring**: add `tools/run/stage-budget.d.mts` and this directive becomes an
-// "Unused '@ts-expect-error'" error of its own, exactly as `agent-contract.test.ts` relies on.
-// What it costs is stated rather than hidden: every binding below is `any` to `tsc`, so the
-// module's shape is checked by this file at RUNTIME — each of the eight is called or read in a
-// case — and not by the compiler. The RED run proved that check is live: before the module
-// existed, all fifteen cases failed at `Cannot find module`.
+// **The file-level `@ts-expect-error TS7016` that stood here is RETIRED, 2026-09-07, by the
+// mechanism it was written to end.** `tools/run/stage-budget.d.mts` now sits beside the module
+// on `packages/demo/scripts/compile-kernel.d.mts`'s precedent, so `tsc` reads the shape instead
+// of refusing the file, the directive became an "Unused '@ts-expect-error'" error of its own,
+// and it was deleted rather than kept. What it cost while it stood is worth recording: every
+// binding below was `any`, so the module's shape was checked here at RUNTIME and not by the
+// compiler.
+//
+// The declaration then found something the suppression had been hiding — see the absent-input
+// case below, where the type now forbids what the runtime must still refuse.
 import * as stageBudget from '../../../tools/run/stage-budget.mjs'
 
 const {
@@ -106,24 +104,40 @@ describe('estimateStageRequests — the number a stage must be able to state bef
     expect(estimateStageRequests({ ...FIFTY_AT_A_THIRD, joinRate: 0 })).toBe(400)
   })
 
+  /**
+   * **Each omission below is `@ts-expect-error`, and the directives are the point rather than
+   * noise.** `tools/run/stage-budget.d.mts` makes every field required, so TypeScript now
+   * refuses these calls at compile time — and the runtime refusal is still wanted, because the
+   * module's caller of record is `39-RUNBOOK.md`, which the owner follows by hand in plain
+   * JavaScript where no compiler is watching. Two different callers, two different guards.
+   *
+   * A directive here also cannot rot into decoration: if a field ever stopped being required,
+   * its directive would become an unused-directive error and this case would say so.
+   */
   it('throws when any input is absent — one assertion per field', () => {
     const { invites, joinRate, requestsPerReservation, probesPerVisit, funnelPostsPerVisit } =
       FIFTY_AT_A_THIRD
     expect(() =>
+      // @ts-expect-error TS2741 — `invites` omitted ON PURPOSE
       estimateStageRequests({ joinRate, requestsPerReservation, probesPerVisit, funnelPostsPerVisit }),
     ).toThrow(/invites/)
     expect(() =>
+      // @ts-expect-error TS2741 — `joinRate` omitted ON PURPOSE
       estimateStageRequests({ invites, requestsPerReservation, probesPerVisit, funnelPostsPerVisit }),
     ).toThrow(/joinRate/)
     expect(() =>
+      // @ts-expect-error TS2741 — `requestsPerReservation` omitted ON PURPOSE
       estimateStageRequests({ invites, joinRate, probesPerVisit, funnelPostsPerVisit }),
     ).toThrow(/requestsPerReservation/)
     expect(() =>
+      // @ts-expect-error TS2741 — `probesPerVisit` omitted ON PURPOSE
       estimateStageRequests({ invites, joinRate, requestsPerReservation, funnelPostsPerVisit }),
     ).toThrow(/probesPerVisit/)
     expect(() =>
+      // @ts-expect-error TS2741 — `funnelPostsPerVisit` omitted ON PURPOSE
       estimateStageRequests({ invites, joinRate, requestsPerReservation, probesPerVisit }),
     ).toThrow(/funnelPostsPerVisit/)
+    // @ts-expect-error TS2345 — no argument at all, the same reason as the five above
     expect(() => estimateStageRequests(undefined)).toThrow(/stage-budget/)
   })
 
@@ -134,7 +148,9 @@ describe('estimateStageRequests — the number a stage must be able to state bef
     expect(() =>
       estimateStageRequests({ ...FIFTY_AT_A_THIRD, invites: Number.POSITIVE_INFINITY }),
     ).toThrow(/invites/)
+    // @ts-expect-error TS2322 — a STRING where a number is required, on purpose
     expect(() => estimateStageRequests({ ...FIFTY_AT_A_THIRD, joinRate: '0.3' })).toThrow(/joinRate/)
+    // @ts-expect-error TS2322 — a NULL where a number is required, on purpose
     expect(() => estimateStageRequests({ ...FIFTY_AT_A_THIRD, probesPerVisit: null })).toThrow(
       /probesPerVisit/,
     )
@@ -197,9 +213,11 @@ describe('stageVerdict — go or stop, with a named reason on both', () => {
   it('throws when any of its own inputs is absent or is not a finite number', () => {
     const { estimate, ...withoutEstimate } = THE_INCIDENT_READING
     expect(estimate).toBe(2875)
+    // @ts-expect-error TS2741 — `estimate` omitted on purpose
     expect(() => stageVerdict(withoutEstimate)).toThrow(/estimate/)
     expect(() => stageVerdict({ ...THE_INCIDENT_READING, included: Number.NaN })).toThrow(/included/)
     expect(() => stageVerdict({ ...THE_INCIDENT_READING, tolerance: 0 })).toThrow(/tolerance/)
+    // @ts-expect-error TS2345 — no argument at all, on purpose
     expect(() => stageVerdict(undefined)).toThrow(/stage-budget/)
   })
 })
