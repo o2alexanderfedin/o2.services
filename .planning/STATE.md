@@ -395,12 +395,44 @@ stopped_at: >-
   scan had not been run; it was inferred from the shape of the requirement, which is the one
   thing that field exists to prevent. Four titles in `go-no-go-checklist.node.test.ts` name
   `RUN-01`. Recorded at the entry rather than fixed silently.
-last_updated: "2026-09-07T08:05:00.000Z"
+  PHASE 39 WAVES 2 AND 3 EXECUTED AND MERGED, 2026-09-07. Every plan an agent can run in this
+  phase is done; what remains is four owner acts. A stage now states its expected Durable Object
+  cost BEFORE it is sent and is REFUSED if it cannot — throwing rather than defaulting, which is
+  the shape the 2026-09-03 incident argues for, since a spending alert is a control on money and
+  that was a control on requests. The participant count says what it is in words -- *"N distinct
+  peers -- machine count not measured; peers are tabs, and two tabs on one device are two peers"*
+  -- with a guard that reddens on any published machine claim carrying no named source, whose
+  positive control is shown catching a fixture FIRST because the plant that blinded it left the
+  absence case perfectly green. `RUN-07` moved `Not started` to `Partial`.
+  THE MOST URGENT THING THIS PHASE FOUND IS NOT IN ANY OF ITS CRITERIA. `refuseMisaddressed`
+  refuses EVERY write to an object whose own region is `null` -- any key, correctly addressed or
+  not -- and the deployed `/self` reported `region: null` on 2026-09-04. Measured rather than
+  inferred: a local `workerd` in that configuration refused a correctly-keyed halt twice, body
+  containing `serves no region`, object unmoved. IF THAT STILL HOLDS THERE IS NO KILL SWITCH,
+  while every document says there is one. One request settles it and it is `OWNER-ACTIONS.md`
+  row 9, now the most urgent row on that list.
+  AND A COST FIGURE THIS MILESTONE LEANS ON IS THE WRONG SHAPE, NOT THE WRONG VALUE.
+  `REQUESTS_PER_RESERVATION = 165` is a quotient of one day's DO requests over one run's
+  reservations. Read out of the source: `51 + 164 x minutes` -- 51 to establish, then 164 A
+  MINUTE while the socket is open, dominated by `ConnectionMonitor` opening a fresh
+  `/ipfs/ping/1.0.0` stream every 10 s in BOTH directions, and doubled again because
+  `websocket-to-conn.ts` sends one WebSocket frame per constituent buffer. So 165 is about one
+  peer-minute, a peer that connects and never reserves costs the same, and the driver is
+  CONNECTIONS HELD rather than invitations sent. The obvious lever is not one: reservation TTL is
+  worth 0.07%, `connectionMonitor.pingInterval` -- set nowhere in this repository -- is worth 95%.
+  The constant was documented rather than changed.
+  THE RE-READ REGISTER TOOK THREE RAISES IN ONE SESSION AND THE REPETITION IS THE FINDING.
+  `RUN-06`, `RUN-01` and `RUN-07` all moved to `Partial` and all three are requirements whose
+  remaining half is an ACT only the owner can perform. A phase that builds records and instruments
+  for irreversible acts produces `Partial` rows by construction. Written at the ceiling: if a
+  fourth raise of the same shape arrives, the question is whether `experiment-not-run` needs its
+  own count, not whether the ceiling moves again.
+last_updated: "2026-09-07T10:20:00.000Z"
 last_activity: >-
-  2026-09-07 — Phase 38 waves 1 and 2 and Phase 39 wave 1 merged. The embedded-browser detector,
-  the hidden-span instrument, the recruitment copy in the tree, the dated go/no-go checklist with
-  its guard, probe-before-targeting for the funnel, and the relay-counter reading. RUN-06 and
-  RUN-01 both moved to Partial. What remains on both is an owner act, not a mechanism.
+  2026-09-07 — Phases 38 and 39 executed as far as agents can take them. Ten plans across two
+  phases, and both phases end at the same place: the instruments exist and the acts are the
+  owner's. RUN-06, RUN-01 and RUN-07 all moved to Partial. The urgent finding is not a criterion
+  -- an object whose region is null refuses every halt, and the deployed one reported null.
 progress:
   total_phases: 15
   completed_phases: 0

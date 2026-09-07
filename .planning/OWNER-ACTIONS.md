@@ -302,3 +302,49 @@ came along because the rule the owner stated says *nowhere*, not *wherever it is
 
 That the secret is set, and the `peerId` from `/self` — which must match the one captured
 before the deploy.
+
+---
+
+## 9. One request that tells you whether the kill switch works — Phase 39, before any invite
+
+| | |
+|---|---|
+| **Act** | Read `region` off the deployed node's `/self` and, if it is `null`, deploy with `O2_REGION` set |
+| **Cost** | The read: none, one request. The redeploy, if needed: none beyond what `36-RUNBOOK.md` act 2 already costs |
+| **Why not an agent** | The read is safe but the fix is a deploy, and deployment is a separately-triggered gate by this project's own `DEMO-04` ruling |
+| **Unblocks** | Phase 39 criterion 5, and the kill switch itself — which is the control the run is supposed to be able to fall back on |
+
+**This is the most urgent row on this list, and it was found rather than expected.**
+
+`refuseMisaddressed` refuses **every** write to an object whose own region is `null` — with any
+key, correctly addressed or not. The deployed `/self` **as recorded on 2026-09-04** answers
+`region: null`. If that still holds, the kill switch answers `409` to everything and the fabric
+has no stop control at all, while every document says it has one.
+
+**It was not asserted from that record.** Plan 39-06 stood a second local `workerd` with no
+`O2_REGION` and watched a correctly-keyed halt refused twice, the body containing `serves no
+region`, the object unmoved. What is unverified is only whether the **deployed** object still
+reports `null` — a redeploy since then may have set it, and `36-RUNBOOK.md` act 2 is the act
+that would have.
+
+### What to run
+
+```
+curl -s https://o2-bootstrap.af-4a0.workers.dev/self | grep -o '"region":[^,}]*'
+```
+
+### What it means
+
+| reading | verdict |
+|---|---|
+| `"region":null` | **STOP.** There is no kill switch. `36-RUNBOOK.md` act 2 lands before any invite |
+| `"region":"<a name>"` | The precondition holds. Phase 39's criterion 5 exercise can proceed |
+
+A criterion that exercises the switch **during** the run, which is what criterion 5 asks for,
+is worthless if the switch cannot be thrown at all — and this is a control on the run's only
+way to stop. Full working, with the six-step observation script and its five stop arms:
+`.planning/phases/phase-39-the-public-run/39-KILL-SWITCH-DURING-RUN.md`.
+
+### What to say back
+
+The `region` value verbatim, and if it was `null`, that act 2 has landed.
