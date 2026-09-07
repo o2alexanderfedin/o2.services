@@ -74,3 +74,53 @@ export const BANNED: readonly Banned[] = [
     why: 'reads as cryptocurrency to a reviewer who does not stop to check the sense',
   },
 ]
+
+/** One banned word, where it was found. */
+export interface Violation {
+  /** Repo-relative path, or whatever name the caller gave the text it scanned. */
+  readonly file: string
+  readonly line: number
+  /** Zero-based offset of the match within the line. */
+  readonly column: number
+  readonly term: string
+  readonly match: string
+  readonly text: string
+}
+
+/**
+ * Every banned word in `content`, before any exemption is applied.
+ *
+ * Separated from the exemption layer so the mutation tests can prove the matcher
+ * itself fires, independently of where a file happens to live. It moved here from
+ * `vocabulary.node.test.ts` on 2026-09-06 for a second reason on top of that one:
+ * `bin/check-copy.ts` has to produce the *same* findings the guard produces, and a
+ * second implementation of "walk the lines, apply the five patterns" is a place the
+ * two answers can differ. Sharing the array and re-writing the loop would leave the
+ * cheaper half of the duplication in place.
+ *
+ * **The exemption layer did NOT move with it**, and that is the design rather than an
+ * omission. `scan()` in `vocabulary.node.test.ts` still owns `EXEMPT_PATHS` and
+ * `EXEMPT_LINES`, because those answer "is this defensible in the file it is in" — a
+ * question about a repository. Copy about to be sent to a few hundred strangers is
+ * not in a file and has no such answer, so the command calls this function and stops.
+ */
+export function rawMatches(file: string, content: string): Violation[] {
+  const found: Violation[] = []
+  const lines = content.split('\n')
+  for (const [index, text] of lines.entries()) {
+    for (const { term, pattern } of BANNED) {
+      for (const match of text.matchAll(pattern)) {
+        if (match.index === undefined) continue
+        found.push({
+          file,
+          line: index + 1,
+          column: match.index,
+          term,
+          match: match[0],
+          text: text.trim(),
+        })
+      }
+    }
+  }
+  return found
+}

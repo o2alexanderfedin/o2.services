@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { BANNED } from './banned-vocabulary.ts'
+import { BANNED, rawMatches, type Violation } from './banned-vocabulary.ts'
 import { blocking, commitScope, pathFormProblems, trackedPaths } from './commit-scope.ts'
 
 /**
@@ -321,17 +321,6 @@ function nulVerdict(file: string, bytes: Buffer): NulVerdict {
   return isDeclaredBinary(file) ? 'declared-binary' : 'invisible'
 }
 
-interface Violation {
-  /** Repo-relative path. */
-  readonly file: string
-  readonly line: number
-  /** Zero-based offset of the match within the line. */
-  readonly column: number
-  readonly term: string
-  readonly match: string
-  readonly text: string
-}
-
 function exemptPathFor(file: string): PathExemption | undefined {
   return EXEMPT_PATHS.find(({ path }) => (path.endsWith('/') ? file.startsWith(path) : file === path))
 }
@@ -365,33 +354,6 @@ function lineExemptionFor(
     }
   }
   return undefined
-}
-
-/**
- * Every banned word in `content`, before any exemption is applied.
- *
- * Separated from the exemption layer so the mutation tests can prove the matcher
- * itself fires, independently of where a file happens to live.
- */
-function rawMatches(file: string, content: string): Violation[] {
-  const found: Violation[] = []
-  const lines = content.split('\n')
-  for (const [index, text] of lines.entries()) {
-    for (const { term, pattern } of BANNED) {
-      for (const match of text.matchAll(pattern)) {
-        if (match.index === undefined) continue
-        found.push({
-          file,
-          line: index + 1,
-          column: match.index,
-          term,
-          match: match[0],
-          text: text.trim(),
-        })
-      }
-    }
-  }
-  return found
 }
 
 /**
@@ -671,7 +633,16 @@ describe('the checker can fail — proved by mutation, not assumed', () => {
     //
     // `String#match` and not `RegExp#test`: these patterns are `/g`, so a `test` moves
     // `lastIndex` and hands the next caller a different regex than it was given.
-    const drifted = BANNED.filter(({ term, pattern }) => !(term.match(pattern) ?? []).includes(term))
+    //
+    // The fallback is annotated rather than left as a bare `[]`. Inferred, the union of
+    // `RegExpMatchArray | never[]` gives `includes` a parameter of `never` and the line
+    // does not typecheck — which `tsc` did not report on the run that introduced it,
+    // because a concurrent agent's mid-edit file was failing to PARSE and the semantic
+    // pass never reached this one.
+    const drifted = BANNED.filter(({ term, pattern }) => {
+      const matched: readonly string[] = term.match(pattern) ?? []
+      return !matched.includes(term)
+    })
     expect(drifted.map(({ term }) => term)).toEqual([])
     // The literal, not `BANNED.length` — an assertion that reuses the value it tests
     // moves with it and proves nothing. Without this line a sixth row that fails to
