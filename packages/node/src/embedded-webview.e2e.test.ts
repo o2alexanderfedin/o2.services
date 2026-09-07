@@ -4,6 +4,7 @@ import type { Browser, BrowserContext, Page } from 'playwright'
 import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { DIGIT } from '../../browser/src/demo-regions.ts'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 
 /**
@@ -279,5 +280,66 @@ describe('the page notices it is inside a host application, by what the host inj
         'none of them same-origin — the page did not load, so the clean result above is an ' +
         'artefact of the instrument rather than a property of the page',
     ).toBeGreaterThan(1)
+  }, 120_000)
+
+  /**
+   * The catalogue's jurisdiction, asserted rather than argued.
+   *
+   * `38-01-PLAN.md`'s `<catalogue_decision>` rules that `demo-regions.ts` and UI-SPEC's tally
+   * do not move for this notice, and it rules that on three properties: the section sits
+   * outside `#main`, declares no `data-region`, and carries no digit. Each is checked here,
+   * against the notice **while it is on screen** — a hidden section trivially satisfies all
+   * three and would make this a paragraph with a green beside it.
+   *
+   * `DIGIT` is imported from the catalogue rather than written again, so there is one
+   * definition of *digit on screen* in this repository and not two that can come to disagree.
+   */
+  it('stays outside the region catalogue\u2019s jurisdiction, on all three of the properties that keep it there', async () => {
+    const notice = await embeddedPage.evaluate(() => {
+      const section = document.getElementById('entry-notice')
+      if (section === null) return null
+      const main = document.getElementById('main')
+      return {
+        text: (section.textContent ?? '').trim(),
+        regions: section.querySelectorAll('[data-region]').length,
+        insideMain: main !== null && main.contains(section),
+        visible: !section.hidden,
+      }
+    })
+
+    expect(notice, 'there is no #entry-notice to have jurisdiction over').not.toBeNull()
+    // The floor, and it is not decoration: 'holds no digit' and 'declares no region' are both
+    // perfectly satisfied by an empty section, so a notice that rendered nothing would pass
+    // all three properties below while offering the visitor nothing at all.
+    expect(
+      notice?.visible,
+      'the notice is hidden in the case that raised it, so the three readings below are ' +
+        'about a section nobody can see',
+    ).toBe(true)
+    expect(
+      (notice?.text ?? '').length,
+      `#entry-notice holds ${String((notice?.text ?? '').length)} characters of text — an ` +
+        'empty section satisfies every property below and says nothing to a visitor',
+    ).toBeGreaterThan(200)
+
+    expect(
+      DIGIT.test(notice?.text ?? ''),
+      `#entry-notice puts a digit on screen — "${notice?.text ?? ''}". The section is ` +
+        'digit-free so that it carries no figure, which is what keeps it outside the region ' +
+        'catalogue; a digit here means REGIONS, UI_SPEC_TALLY and UI-SPEC sections 4 and 12 ' +
+        'must move in the same commit as the markup',
+    ).toBe(false)
+
+    expect(
+      notice?.regions,
+      'a [data-region] appeared inside #entry-notice, which enumerates it into ' +
+        "demo-regions.e2e.test.ts's P1a as an uncatalogued region of no surface",
+    ).toBe(0)
+
+    expect(
+      notice?.insideMain,
+      '#entry-notice moved inside #main, where P2\u2019s TreeWalker walks it for undeclared ' +
+        'digits and where the notice has no business being — it is shown before consent',
+    ).toBe(false)
   }, 120_000)
 })

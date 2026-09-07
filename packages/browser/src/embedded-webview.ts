@@ -59,6 +59,29 @@
  * it: `packages/node/src/embedded-webview.e2e.test.ts`'s RUN-06 case fires a `host-object`
  * row with a stock desktop string and no mobile shape at all.
  *
+ * ## Where this table came from, and what is allowed to change it
+ *
+ * **Every row of {@link CANDIDATE_SIGNALS} states candidate confidence, and not one of them
+ * has been read off a real Telegram client.** The phase's own Research note records that
+ * Telegram's current WebView behaviour *"was not found in any authoritative current source"*
+ * — which is why the field exists at all rather than every row being implicitly true. What
+ * is written here is a set of things worth looking for, in the shapes that embedding
+ * applications are generally reported to leave behind.
+ *
+ * **The table is revised from Plan 38-04's device readings, and from nothing else.** Not from
+ * further reading, not from a better-sourced article, not from another repository's
+ * detector: the owner opens the real recruitment link from a real Telegram message on an iOS
+ * device and an Android one, and what those two devices actually expose is what a row is
+ * allowed to be promoted on. A row raised to measured confidence has to name the device the
+ * reading came from, and a row that fires on neither device should be deleted rather than
+ * kept as a guess that has now been checked and failed.
+ *
+ * This paragraph is a statement of **provenance**, not a claim of correctness — a comment is
+ * not a specification. What is asserted lives in `embedded-webview.test.ts` and
+ * `packages/node/src/embedded-webview.e2e.test.ts`, and what they assert is that the
+ * *mechanism* separates engine evidence from a string. Whether these are the right five
+ * signals is a question no spec in this repository can answer.
+ *
  * ## Not in the barrel
  *
  * `packages/browser/src/index.ts` does not export this, on `computing-indicator.ts`'s and
