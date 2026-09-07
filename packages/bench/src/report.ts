@@ -24,6 +24,7 @@
  * platform and this package must not.
  */
 
+import { LOCAL_COMBINE_EXECUTOR } from '@o2/core'
 import { describe } from './stats.ts'
 import type { Summary } from './stats.ts'
 import type { ConnectivityTax, Crossover, SweepResult } from './harness.ts'
@@ -110,6 +111,68 @@ export function machineLabel(inventory: Inventory): string {
   return isSameMachine(inventory)
     ? `SAME-MACHINE: ${nodes} nodes on ${hosts} host — a node count, not a machine count`
     : `${nodes} nodes across ${hosts} hosts`
+}
+
+/**
+ * Distinct executor peer ids in a reduce outcome — the participant count, and nothing more.
+ *
+ * The same source `harness.ts`'s `combineExecutors` already reads, and distinct for the
+ * same reason: three contributions answered by two peers are two participants, not three.
+ * {@link LOCAL_COMBINE_EXECUTOR} is removed rather than counted — it is *"an id no peer
+ * can present"* (`reduce.ts`), so a run whose every combine stayed in the requestor's own
+ * process observed no participant at all, and answering `1` there would publish the
+ * requestor as a participant in its own run.
+ *
+ * The constant is imported rather than re-spelled here. A second copy is a second thing
+ * to keep in step, and the copy that drifts is the one nobody tested.
+ */
+export function distinctParticipants(executedBy: ReadonlyMap<string, string>): number {
+  const peers = new Set(executedBy.values())
+  peers.delete(LOCAL_COMBINE_EXECUTOR)
+  return peers.size
+}
+
+/**
+ * A participant reading: peers counted, machines only if something announced them.
+ *
+ * `announcedMachines` is `number | null` and has **no default**. An optional field
+ * defaulting to a number would reproduce `bench-inventory.ts`'s recorded defect in a new
+ * place — a value that is right by construction and that no plant can falsify — and that
+ * file's own words are the reason this type is shaped the way it is: *"a claim no plant
+ * can falsify is not a claim"*. `null` is the honest reading on the browser job path
+ * today, and the type says so rather than a comment saying so.
+ */
+export interface ParticipantReading {
+  readonly peers: number
+  readonly announcedMachines: number | null
+}
+
+/**
+ * The label that goes beside a participant count, and the noun it will not say.
+ *
+ * **This function will not print `machines` without a source, and the reason is arithmetic
+ * rather than caution.** A peer id is what a tab has; a tab announces nothing about the
+ * machine it runs on, because `AgentOptions` carries no machine field and
+ * `browser-id.ts` refuses `platform` and `hardwareConcurrency` by name. So two tabs on one
+ * laptop are two peer ids and one machine, and rendering that pair as "2 machines" is
+ * precisely the report BENCH-06 exists to forbid — its own row says sixteen nodes on one
+ * laptop are sixteen processes on one machine, not sixteen of anything else. Until an
+ * announced machine datum exists on the job path, the honest sentence names peers, states
+ * that the machine count was not measured, and tells the reader why the two differ.
+ *
+ * In `machineLabel`'s shape, and for `machineLabel`'s reason: the label is derived from
+ * what was counted, never declared beside it, and it travels in the same string as the
+ * number so that copying the number out of context carries the caveat with it.
+ */
+export function participantLabel(reading: ParticipantReading): string {
+  const { peers, announcedMachines } = reading
+  if (announcedMachines === null) {
+    return (
+      `${peers} distinct peers — machine count not measured; peers are tabs, ` +
+      'and two tabs on one device are two peers'
+    )
+  }
+  return `${peers} distinct peers on ${announcedMachines} announced machines`
 }
 
 export interface Report {

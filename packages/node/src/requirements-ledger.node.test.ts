@@ -1012,8 +1012,26 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * guards the DOCUMENT's form — that every row reads GO or NO-GO, that a GO row names evidence,
  * that a citation still resolves, that a row naming an unticked ledger box reddens. It does not
  * and cannot attest the gate's observance, which is the half of `RUN-01`'s sentence still open.
+ *
+ * **Raised 6 -> 7 on 2026-09-07, in the commit that moved `RUN-07` to `Partial`** (Phase 39,
+ * plans 39-05 and 39-06). Same shape as `RUN-01` in the entry above, and **the repetition is the
+ * finding rather than a coincidence**: this is the THIRD raise in one session, and all three are
+ * requirements whose remaining half is an ACT only the owner can perform — opening a link on two
+ * real phones, sending the first invite, sending it in stages. A phase that builds records and
+ * instruments for irreversible acts produces `Partial` rows by construction, and each one lands
+ * here because a row whose reason is *"the experiment has not been run"* names no exported symbol
+ * for this file to read.
+ *
+ * That is not a reason to relax the register. It is a reason to expect it to shrink in one step
+ * rather than gradually: the acts happen, or they do not. **If this ceiling reaches a fourth
+ * raise of the same shape, the question to ask is whether `experiment-not-run` should carry its
+ * own count separate from the other two buckets** — not whether the ceiling should move again.
+ *
+ * Two witnesses, measured by running the scan. What holds the row open is `39-09`, the run's own
+ * staging, plus a precondition newly in doubt: an object whose region is `null` refuses every
+ * halt, so the kill switch criterion 5 exercises may not be throwable at all.
  */
-const REREAD_REGISTER_CEILING = 6
+const REREAD_REGISTER_CEILING = 7
 
 /**
  * ## The rule this list encodes
@@ -1801,6 +1819,15 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     because: 'experiment-not-run',
     reread: '2026-09-07',
     witnesses: ['packages/node/src/go-no-go-checklist.node.test.ts'],
+  },
+  {
+    id: 'RUN-07',
+    because: 'experiment-not-run',
+    reread: '2026-09-07',
+    witnesses: [
+      'packages/node/src/funnel-probe.e2e.test.ts',
+      'packages/node/src/switch-observation.node.test.ts',
+    ],
   },
   // `AOT-04` was here until 2026-08-18 and is **REMOVED**, by the second of the two exits
   // the rule allows: its row is `Done`, so it leaves the population and the set equality

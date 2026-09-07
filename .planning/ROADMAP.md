@@ -2620,10 +2620,10 @@ harness at all, on any budget, which is why criterion 2 needs two phones and not
 - [x] `39-01-PLAN.md` — the dated go/no-go checklist as a document, and a guard that notices a row losing its evidence (wave 1)
 - [x] `39-02-PLAN.md` — the funnel's silent-drop defect: probe before targeting, validated on the response BODY rather than its status (wave 1)
 - [x] `39-03-PLAN.md` — the relay counters, including the 6714-hop-streams-against-zero-relayed-bytes anomaly measured on a local workerd (wave 1)
-- [ ] `39-04-PLAN.md` — the participant path for `BENCH-06`'s distinct-machine half, and the guard that refuses a same-host figure in its place (wave 2)
-- [ ] `39-05-PLAN.md` — the staged-invite runbook and the request-budget reading with a numeric stop rule (wave 2)
-- [ ] `39-06-PLAN.md` — the kill-switch instrument and the band criterion 5 compares the run against (wave 2)
-- [ ] `39-07-PLAN.md` — re-measure the node lane and own `vitest.config.ts`, because `slow-specs` sits at its tolerance boundary (wave 3)
+- [x] `39-04-PLAN.md` — the participant path for `BENCH-06`'s distinct-machine half, and the guard that refuses a same-host figure in its place (wave 2)
+- [x] `39-05-PLAN.md` — the staged-invite runbook and the request-budget reading with a numeric stop rule (wave 2)
+- [x] `39-06-PLAN.md` — the kill-switch instrument and the band criterion 5 compares the run against (wave 2)
+- [x] `39-07-PLAN.md` — re-measure the node lane and own `vitest.config.ts`, because `slow-specs` sits at its tolerance boundary (wave 3)
 - [ ] `39-08-PLAN.md` — **owner**: the machine-datum ruling, the release cut, and the pre-invite funnel reading (wave 4)
 - [ ] `39-09-PLAN.md` — **owner**: the run itself, its stages, and the record only the run can write (wave 5)
 
@@ -2670,6 +2670,52 @@ RESERVE from a CONNECT. `BENCH-06`'s distinct-machine half stays descoped and un
 DEPLOYED host, so a local relay left at that value hands its reserving client a circuit address
 pointing at production. Three reservations were made, all local, and zero requests reached the
 deployed object.
+
+**Status 2026-09-07 — waves 2 and 3 executed and merged. Every plan an agent can run is done;
+what is left is four owner acts and one precondition that is newly in doubt.**
+
+**Criterion 3 has its procedure and its refusal.** `tools/run/stage-budget.mjs` computes a
+stage's expected Durable Object cost before it is sent and compares it against the measured
+delta afterwards — the estimate is checked, not trusted. A stage that cannot state its expected
+cost **throws**, so refusing is the default rather than a fallback. Three stop arms, each a
+number with what it is sited against, and one of them refuses the run on the 2026-09-03
+incident's own numbers. That incident is the reason for the shape: the free tier's cap took the
+hosted node down mid-day, and a spending alert would not have caught it, because that is a
+control on money and this was a control on **requests**.
+
+**Criterion 4 gets a figure that says what it is.** The participant count is derived from
+`ReduceOutcome.executedBy` and prints *"N distinct peers — machine count not measured; peers are
+tabs, and two tabs on one device are two peers"*. Beside it, `machine-claim-guard.node.test.ts`
+reddens on any published machine claim with no named announced-machine source — and its positive
+control is what makes that mean something: the fixture containing a machine claim is shown being
+caught FIRST, because the plant that blinded the instrument left the absence case perfectly
+green. `BENCH-06`'s distinct-machine half stays descoped and unmeasured.
+
+**Criterion 5 gets an instrument and a doubt.** A read-only sampler timestamps the
+admitting-to-halted transition from outside the fabric and compares it against Phase 36 as a
+**ratio to the poll interval**, refusing to answer where the planes are not comparable rather
+than giving a verdict it has no right to. **But `refuseMisaddressed` refuses every write to an
+object whose own region is `null`, and the deployed `/self` reported `region: null` on
+2026-09-04.** Measured rather than inferred: a local `workerd` in that configuration refused a
+correctly-keyed halt twice, body containing `serves no region`. If that still holds on the
+deployed object there is no kill switch to exercise. The one-request check is
+`.planning/OWNER-ACTIONS.md` row 9, and it is the most urgent row on that list.
+
+`RUN-07` moved `Not started` to **`Partial`**, on the same reading as `RUN-01`: the procedure
+exists, the act has not happened.
+
+**A cost figure this phase leaned on turns out to be the wrong SHAPE, not the wrong value.**
+`REQUESTS_PER_RESERVATION = 165` is a quotient — a day's Durable Object requests over one run's
+reservations. Read out of the source, the cost is `51 + 164 x minutes`: 51 requests to establish,
+then **164 a minute for as long as the socket is open**, dominated by `ConnectionMonitor` opening
+a fresh `/ipfs/ping/1.0.0` stream every 10 s in both directions, and doubled again because
+`websocket-to-conn.ts` sends one WebSocket frame per constituent buffer. So 165 is roughly one
+peer-minute, **a peer that connects and never reserves costs the same**, and the driver is
+connections held rather than invitations sent. The obvious lever is not the obvious one:
+reservation TTL is worth 0.07 %, while `connectionMonitor.pingInterval` — set nowhere in this
+repository — is worth 95 %. Working:
+`.planning/consults/2026-09-07-what-a-reservation-actually-costs.md`. The constant is documented
+rather than changed; reframing the model is an owner decision.
 
 ### Phase 40: The Numbers Only the Run Can Produce
 **Goal**: As the project owner, I want two figures that did not exist before this milestone published under the discipline the `BENCH-` family already carries — the WebRTC connection-failure rate segmented by country and by network class, and a diurnal churn curve per region — so that the two measurements only a real public run can produce are on the record.
