@@ -155,6 +155,8 @@ import { IdbCheckpoints } from '../src/idb-checkpoints.ts'
 import { fetchModuleForDispatch } from '../src/gateway-module.ts'
 // BROW-07's carrier. Relative for the same reason, stated in that module's own header.
 import { ComputingIndicator, documentTitlePort } from '../src/computing-indicator.ts'
+// RUN-06's detector. Relative and not through the barrel, on the same module's stated rule.
+import { detectEmbeddedWebView, readEmbeddedWebViewProbe } from '../src/embedded-webview.ts'
 import { KillSwitch, switchEndpointFor } from '../src/kill-switch.ts'
 // RUN-04's two halves. Relative and **deliberately not through the barrel**, on
 // `computing-indicator.ts`'s stated rule and for its stated reason: a barrel export whose only
@@ -184,6 +186,85 @@ import * as pid from '@libp2p/peer-id'
 // graph. A type-only import is erased before anything runs, emits no edge, and is the only way
 // to annotate a binding the dynamic import produces.
 import type { CID } from 'multiformats/cid'
+
+/**
+ * RUN-06 — offer to hand this page to the visitor's own browser, and do it first.
+ *
+ * ## Why this runs at module scope rather than from the page's own driver
+ *
+ * The gate is painted by the inline module script at the foot of `index.html`, and that
+ * script waits for `window.o2` — which this file assigns as its last statement. So anything
+ * written here runs before the gate is on screen, which is where a notice about *which
+ * browser you are in* belongs: it is a fact about the arrival, not about the session, and a
+ * visitor who is about to be asked for consent should already be able to see that the page
+ * thinks they are somewhere awkward.
+ *
+ * ## It is an offer and never a wall — T-38-05
+ *
+ * It does not hide `#gate`, does not disable `#allow`, and does not change any ordering
+ * `disclosure-before-optin.e2e.test.ts` asserts. The dismiss control hides the section and
+ * nothing else; there is deliberately no state written anywhere, because a visitor who
+ * dismissed it on one visit and is still inside the same host application should be told
+ * again rather than silently left where they were.
+ *
+ * ## What is rendered, and what is not — T-38-02
+ *
+ * The **names** of the signals that fired, out of the declared `CANDIDATE_SIGNALS` table.
+ * Never `navigator.userAgent`, never `location.href`: both put host-identifying strings on a
+ * screen a volunteer may photograph, and the address of this page also puts digits inside a
+ * section that stays digit-free so it stays outside the region catalogue's jurisdiction.
+ *
+ * The address can still be *copied*, which is a different act: it goes to the clipboard on an
+ * explicit tap and never to the screen. That control stays hidden unless
+ * `navigator.clipboard.writeText` is really a function — the DOM types say `navigator.clipboard`
+ * is always there and on an insecure origin it is not, so the check is a runtime one and the
+ * optional chain is load-bearing rather than defensive style.
+ */
+function offerOwnBrowser(): void {
+  const verdict = detectEmbeddedWebView(readEmbeddedWebViewProbe(window))
+  // Published for every visit, embedded or not — T-38-04. A harness that could only read the
+  // verdict when the notice appeared could not tell "not embedded" from "detection never ran".
+  window.__o2EntryVerdict = verdict
+
+  const notice = document.getElementById('entry-notice')
+  if (notice === null) return
+
+  const dismiss = document.getElementById('entry-notice-dismiss')
+  dismiss?.addEventListener('click', () => {
+    notice.hidden = true
+  })
+
+  const copy = document.getElementById('entry-notice-copy')
+  if (copy !== null && typeof navigator.clipboard?.writeText === 'function') {
+    copy.hidden = false
+    copy.addEventListener('click', () => {
+      void navigator.clipboard.writeText(location.href).then(
+        () => {
+          // Words only. A confirmation carrying the address it copied would put the address
+          // on screen by the back door, which is the one thing this section does not do.
+          copy.textContent = 'Copied — now paste it into your own browser'
+        },
+        () => {
+          copy.textContent = 'This app would not let the page copy it — use its own menu instead'
+        },
+      )
+    })
+  }
+
+  const signals = document.getElementById('entry-notice-signals')
+  if (signals !== null) {
+    // `textContent`, and the names come from the declared table rather than from the probe,
+    // so nothing a host application chose to call itself can reach this element.
+    signals.textContent =
+      verdict.fired.length === 0
+        ? ''
+        : `What this page noticed: ${verdict.fired.map((signal) => signal.name).join(' · ')}`
+  }
+
+  notice.hidden = !verdict.embedded
+}
+
+offerOwnBrowser()
 
 /**
  * The anchor set this demo consents under.
