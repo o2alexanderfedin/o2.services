@@ -1855,8 +1855,16 @@ const api: TabApi = {
     //
     // **Not awaited, deliberately.** The reporter's held buffer keeps every report with the
     // hour it happened — the 2026-09-03 repair — so a target installed a round trip later
-    // loses nothing at all; but a start that WAITED on a network round trip would move the
-    // stage-three timing this funnel exists to measure.
+    // loses nothing for a visit that outlives the probe; but a start that WAITED on a network
+    // round trip would move the stage-three timing this funnel exists to measure.
+    //
+    // **It is not free, and the cost falls on the shortest visits.** Until the probe answers
+    // there is no send port, so a tab that closes inside that window takes stages one and two
+    // AND its terminal stall with it — where the unconditional target above delivered them.
+    // The window is one round trip against a healthy collector and `FUNNEL_PROBE_TIMEOUT_MS`
+    // against a hanging one. Nothing is lost against a collector that refuses, because nothing
+    // was ever collected there; the residue is on the working path and it is stated rather than
+    // absorbed, because plan 39-04 reads these counts.
     const funnelEndpoint = funnelEndpointFrom(location.search, options.relayAddrs ?? [])
     const funnelWasConfigured = funnelEndpointFrom(location.search) !== null
     if (funnelEndpoint !== null && funnelWasConfigured) {

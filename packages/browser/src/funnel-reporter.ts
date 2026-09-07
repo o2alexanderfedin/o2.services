@@ -435,10 +435,21 @@ export function funnelEndpointFromRelay(relayAddr: string): string | null {
  *
  * Ten seconds is deliberately generous, and the reasoning is the reporter's own hold. Every
  * report composed before {@link FunnelReporter.target} is kept with **the hour it happened**, so
- * a probe that resolves late loses nothing at all — while a probe that gives up early recreates
- * the exact defect this function exists to close, on a slow connection instead of on a
- * self-hosted seed. Erring long costs one outstanding request per visit; erring short costs the
- * measurement.
+ * a probe that resolves late loses nothing *for a visit that outlives it* — while a probe that
+ * gives up early recreates the exact defect this function exists to close, on a slow connection
+ * instead of on a self-hosted seed. Erring long costs one outstanding request per visit; erring
+ * short costs the measurement.
+ *
+ * **What erring long DOES cost, stated because it is a real change and not a nil one.** Before
+ * the probe, the send port was installed synchronously, so a visit that consented, started and
+ * then closed immediately still delivered stages one and two and its terminal stall. Now those
+ * reports sit in the hold until the probe answers, and a tab that dies first takes them with it
+ * — `stalled()` finds no port and holds a report nothing will ever flush. The window is one
+ * round trip against a healthy collector and this constant against a hanging one, and the visits
+ * inside it are exactly the shortest ones. Any figure taken from this funnel is therefore over
+ * visits that survived a round trip past `start`, and `BENCH-08`'s denominator says so twice
+ * over: the population was already the opted-in subset, and it is now the opted-in subset that
+ * did not bounce inside one round trip.
  */
 export const FUNNEL_PROBE_TIMEOUT_MS = 10_000
 

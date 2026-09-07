@@ -294,6 +294,26 @@ all. **A live read of the deployed collector before the first invitation is `37-
 change would make the published page inert — which is the same inertness it had before, and is
 why the fence closes this way round.
 
+## The one thing this change costs, on the working path
+
+`#held` makes a late target safe, and "safe" is narrower than the phrase this summary first
+used. Before the probe, the send port was installed **synchronously** inside `start()`, so a
+visitor who consented, started and then closed the tab immediately still delivered stages one
+and two and the terminal `stalled()` beacon. Now those reports sit in the hold until the probe
+answers: `stalled()` on `pagehide` finds `#send === null`, pushes the report, and a tab that
+dies before the probe resolves takes all of them with it.
+
+The window is **one round trip against a healthy collector, and `FUNNEL_PROBE_TIMEOUT_MS` — ten
+seconds — against one that hangs**. Nothing is lost against a collector that refuses, because
+nothing was ever collected there; the residue is entirely on the path that works. So the visits
+this change makes invisible are exactly the shortest ones, and any figure taken from this funnel
+is over visits that survived a round trip past `start`. `BENCH-08`'s denominator now carries two
+qualifiers rather than one: the opted-in subset, that did not bounce inside one round trip. Plan
+39-04 reads these counts and this is the term it has to carry.
+
+Both the module's own docblock and the comment at the wiring site say this; neither says "loses
+nothing at all", which is what they said when this plan was first committed.
+
 It also does not know what a **real** self-hosted seed answers. The 400 arm is a stand-in that
 answers 400 on every path, which is what a seed's websocket port is reported to do; it is the
 defect's shape, measured, and not the seed itself.
