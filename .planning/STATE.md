@@ -326,8 +326,46 @@ stopped_at: >-
   STILL OWNER-OWNED, ALL SEVEN IN `.planning/OWNER-ACTIONS.md`: the spending alert FIRST,
   three Durable Objects, a Cloudflare TURN key, the telemetry's legal basis, two devices with
   Telegram, the first invite, and the arm64 dispatch.
-last_updated: "2026-09-03T04:25:00.000Z"
-last_activity: 2026-08-28 — the hosted tier deployed and released four times, the browser client published and fixed, criterion 2 met in full, Phase 29 closed uncounted on criterion 1 alone
+  PHASE 38 WAVES 1 AND 2 ARE EXECUTED AND MERGED, 2026-09-06 — three plans, and what they
+  produced is an INSTRUMENT rather than an answer. The page now notices it is running inside
+  another application's browser by what that application INJECTS, not by what the user-agent
+  string claims: the case titled `RUN-06` fires on a host-injected bridge object with a stock
+  desktop user-agent, which is the one arrangement a string check cannot pass, and the
+  string-only arm is deliberately titled WITHOUT `RUN-06` so the traceability guard can never
+  read a spoofed header as this row's evidence. The page also says, in words, whether the
+  script kept running, was slowed down or was stopped while it was hidden — the observable
+  `38-DEVICE-OBSERVATIONS.md` had itself named as missing. And the recruitment message is now
+  a TRACKED FILE, so the vocabulary and licensing guards already scan it instead of somebody
+  remembering to; copy that never enters the tree is checked by a command sharing the guard's
+  one array of patterns. `RUN-06` moved `Not started` -> `Partial` and entered the re-read
+  register; `DEMO-05` and `DEMO-06` were already `Done` and `DEMO-06` gained a dated amendment
+  because its corpus grew from five prose files to six. **NEITHER CRITERION 1 NOR CRITERION 2
+  IS CLAIMED, and the phase's checkbox is off for one reason**: both say *the real link from a
+  real Telegram message on both iOS and Android*, and that is `38-04`, an owner act.
+  TWO MEASUREMENTS FROM THAT WORK FORECLOSE THINGS AND ARE WORTH MORE THAN THE FEATURE.
+  `navigator.standalone` is `undefined` in stock desktop Chromium and Firefox as well as in a
+  WKWebView — so an ungated signal on it would have read `embedded: true` for every desktop
+  visitor; it is gated on an iOS-shaped user-agent, and the residue is recorded: a desktop
+  browser spoofing an iPhone reads engine-corroborated on what is really a string. And
+  **headless Chromium cannot background a page for itself** — no `visibilitychange` fired and
+  the interval kept its full rate — so the engine-suspension reading does not exist in this
+  harness on any budget. That is why criterion 2 needs two phones rather than a longer timeout.
+  A THIRD FINDING, ABOUT MEASUREMENT ITSELF: a clean `tsc --noEmit` taken while a concurrent
+  agent's file fails to PARSE is not a clean `tsc` — the checker never reaches your file. A
+  type error survived a commit that way and surfaced two tasks later.
+  AND THE NODE LANE'S VERDICT ON 2026-09-06 IS NOT AVAILABLE FROM THIS HOST. Another project
+  on this machine ran its own suite at load average 107-167 against 8 cores. Both arms lose
+  load-sensitive multi-process specs there and the loss SCATTERS: on the feature branch
+  `admission-agents` twice (a different clause each time) and `node-identity` once; on
+  `develop`, with no phase-38 commit in it, `node-identity` once — the same file. The
+  comparative reading is what settles it: the control arm fails too, so the cause is outside
+  these commits. No duration from any of those runs may be quoted, and a quiet-host reading is
+  still owed.
+last_updated: "2026-09-06T06:35:00.000Z"
+last_activity: >-
+  2026-09-06 — Phase 38 waves 1 and 2 merged. The embedded-browser detector, the hidden-span
+  instrument, and the recruitment copy in the tree where both guards already read it. RUN-06
+  moved Not started to Partial. Criteria 1 and 2 wait on two real phones.
 progress:
   total_phases: 15
   completed_phases: 0
