@@ -209,3 +209,11 @@ The guard was re-run after the concurrent plan committed `39-RUNBOOK.md` and `39
 the same directory, so the corpus it reports clean now includes them: `11 passed`, exit `0`. The full
 cheap guard set was re-run at the same point — 330 cases across seven guard files, `329 passed`, and
 `slow-specs/file-count-drift` the single failure, unchanged and outside this plan's fence.
+
+**And the section above was swept into another plan's commit, which is worth recording rather than
+repairing.** It was staged here and committed by the concurrent 39-05 agent in `8202ef5`, whose own
+message names only its plan. The content is intact and correct; only the attribution is wrong. This
+is the hazard `CLAUDE.md` describes in as many words — *"a bare commit sweeps whatever another agent
+has already staged into your commit; the tree stays green and the history is silently wrong"* — and
+it is left standing rather than rewritten, because rewriting another agent's commit to correct an
+attribution costs more than the error does.
