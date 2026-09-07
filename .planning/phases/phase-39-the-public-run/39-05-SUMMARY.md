@@ -236,9 +236,18 @@ is `<=`. So any one of the three alone would have tripped it, and the phase brie
 one file of headroom was one file optimistic.
 
 The fix belongs in `vitest.config.ts`, which is outside this plan's writable set and which **plan
-39-07 owns for the whole phase**. It was not edited. The commit used `O2_SKIP_GUARDS=1` after the
-full cheap-guard set was run first: **400 of 401 cases pass across nine files**, and the single
-failure is that one. Recorded in the commit's own message.
+39-07 owns for the whole phase**. It was not edited. The `feat` commit used `O2_SKIP_GUARDS=1`
+after the full cheap-guard set was run first: **400 of 401 cases pass across nine files**, and the
+single failure is that one. Recorded in the commit's own message.
+
+**The commit-scope partition was then watched doing its job, minutes later and in the same tree.**
+This summary's own `docs` commit touches no node-project spec, so the identical finding fell
+outside its scope and the hook printed *"slow-specs/file-count-drift: 1 finding(s) outside this
+commit — reported, not blocking"* and passed **401 of 401**. Same working tree, same drift, same
+guard, opposite verdicts, decided by whether the commit contained one of the paths the finding
+names — which is exactly what `packages/node/src/commit-scope.ts` says it is for, and the reason
+no skip was needed the second time. It also confirms the first skip was not a way around the
+guard: the `feat` commit really did contain one of the 256.
 
 ## Threat register
 

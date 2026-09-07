@@ -197,3 +197,15 @@ Host conditions were read before every quoted result. The two participants runs 
 restore were taken while the banner reported the host oversubscribed; both are string-equality
 assertions rather than timings, so the pass/fail stands and no duration from those runs is quoted
 anywhere. Every other run reported the host quiet.
+
+## Self-Check: PASSED
+
+All five files exist on disk. Both commits are reachable — `6768f6b` carrying exactly the four
+`files_modified` and `2d75968` carrying only this summary; neither contains a file written by anyone
+else and neither deletes anything. `.planning/BENCHMARK-RESULTS.md` is byte-identical to its state at
+the wave-1 merge `5b4f341`, confirmed by an empty `git diff --name-only` over that range.
+
+The guard was re-run after the concurrent plan committed `39-RUNBOOK.md` and `39-05-SUMMARY.md` into
+the same directory, so the corpus it reports clean now includes them: `11 passed`, exit `0`. The full
+cheap guard set was re-run at the same point — 330 cases across seven guard files, `329 passed`, and
+`slow-specs/file-count-drift` the single failure, unchanged and outside this plan's fence.
