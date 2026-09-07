@@ -481,8 +481,139 @@ const NODE_MEASUREMENT = {
    * count is what the tolerance reads, and inventing a test total nobody counted is the
    * defect this table exists to prevent.
    */
-  files: 248,
-  tests: 2948,
+  /**
+   * **248 -> 257 on 2026-09-07 (Phase 39, RUN-01), DERIVED and not adjusted.**
+   *
+   * Three routes sharing no code, run on the tree as this entry was written, and the LISTS
+   * were diffed rather than the counts:
+   *
+   * | route | what it models | reading |
+   * |---|---|---|
+   * | `npx vitest list --project node --filesOnly` | the runner's own collection | **257** |
+   * | `git ls-files`, filtered by the project's globs and suffixes | the index | **257** |
+   * | `find packages` for `*.test.ts` under a `src` path, filtered in the shell | the filesystem | **257** |
+   *
+   * `diff` is empty in all three pairwise directions — three identical lists, not three
+   * counts that agree. `git status --porcelain --untracked-files=all` reports **0**
+   * untracked test files, which is what makes the index route a real cross-check rather
+   * than a restatement of the disk. The guard's own reimplemented walk printed 257 in its
+   * refusal; that is a fourth reading and it is the one that is not independent, so it
+   * corroborates and is not counted as a route.
+   *
+   * **Nine node-lane files arrived over `b8a771d..HEAD` and none left, and every one is
+   * named here** — because the entry above records the failure of not naming them: *"the
+   * sixth arrived between the 2026-09-04 reading and this one and no list survives to name
+   * it."* Six are Phase 39's own; three arrived from Phase 38 between the 2026-09-06 reading
+   * and this one. Four `.e2e.` files also arrived and move nothing, because `relative()` in
+   * `slow-specs.node.test.ts` filters that suffix out of `NODE_PROJECT_FILES`, which is the
+   * population the drift assertion reads: `packages/node/src/funnel-probe.e2e.test.ts`,
+   * `packages/cloudflare/src/relay-counters.e2e.test.ts`,
+   * `packages/node/src/any-one-relay-is-enough.e2e.test.ts` and
+   * `packages/node/src/embedded-webview.e2e.test.ts`. That is the standing offset the
+   * 236 -> 242 entry above found and closed; it has not reopened.
+   *
+   * Median accounted span of three runs of ONE shared twelve-file invocation — nine
+   * arrivals plus three already-rowed anchors, so host load cancels instead of being
+   * assumed away — with what `--reporter=json` said in the same runs beside it:
+   *
+   * | file | phase / lane | accounted | reported | in the table |
+   * |---|---|---|---|---|
+   * | `packages/node/src/switch-observation.node.test.ts` | 39-06, node | **8 957** | 8 194 | **row added — above the 1 000 ms cut** |
+   * | `packages/browser/src/funnel-probe.test.ts` | 39-02, node (bare `.test.ts`, so `browser` collects it too and it counts once here) | **731** | 48 | **row added** |
+   * | `packages/node/src/check-copy.node.test.ts` | 38, node | **656** | 558 | **row added** |
+   * | `packages/node/src/machine-claim-guard.node.test.ts` | 39-04, node | **451** | 5 | **row added** |
+   * | `packages/node/src/go-no-go-checklist.node.test.ts` | 39-01, node | 116 | 53 | no — below the 300 ms listing floor |
+   * | `packages/bench/src/participants.test.ts` | 39-04, node | 94 | 2 | no — below the listing floor |
+   * | `packages/browser/src/embedded-webview.test.ts` | 38-01, node | 55 | 4 | no — below the listing floor |
+   * | `packages/browser/src/hidden-gap.test.ts` | 38-02, node | 44 | 5 | no — below the listing floor |
+   * | `packages/node/src/stage-budget.node.test.ts` | 39-05, node | 35 | 5 | no — below the listing floor |
+   *
+   * **Only one arrival crosses the 1 000 ms cut and it is the only one whose row changes
+   * behaviour.** `switch-observation` spawns two `wrangler dev` children and waits out a
+   * kill-switch flip against both, so the cost is the thing it measures. Its row puts it on
+   * `SLOW_NODE_SPECS`, so `excludedInNode` moves **80 -> 81** and `unitFiles` is
+   * `257 - 81 = 176` — **computed, not assumed to move by the same nine as `files`.** A pass
+   * that assumed would have written 177 and the identity would have refused it, which is the
+   * check the 158 -> 162 entry says matters here.
+   *
+   * **Confirmed by a third instrument sharing no code with either.** Solo
+   * `/usr/bin/time -p npx vitest run --project node <file>`, three rounds over Phase 39's
+   * six, all eighteen exit 0, taken in one window against a boot floor of
+   * `real 0.81 / 0.81 / 0.83` s read in the same window from the cheapest of them
+   * (`stage-budget`): `switch-observation` **9.34 / 9.39 / 9.35** s, i.e. **8.54 s net** —
+   * within 4.7 % of the accounted 8 957 ms, on two instruments that share no arithmetic, and
+   * over the cut by a factor of eight on both. The other five are `funnel-probe`
+   * 1.16 / 1.16 / 1.16 (0.35 s net), `machine-claim-guard` 1.06 / 1.10 / 1.08 (0.27 s),
+   * `participants` 1.06 / 1.02 / 1.06 (0.25 s), `go-no-go-checklist` 0.83 / 0.89 / 0.84
+   * (0.03 s) and `stage-budget` 0.81 / 0.81 / 0.83 (the floor itself). None of the five is
+   * within a factor of two of the cut on any instrument, so the only decision this table
+   * drives is unambiguous whichever window is believed.
+   *
+   * **`machine-claim-guard` is an import shadow of about 90x and is the reason step 3 is not
+   * optional here either.** `--reporter=json` reads it at **5 ms** and the module lifecycle
+   * at **451**, because it reads the tree in top-level constants — the mechanism the
+   * `vocabulary` / `opt-in-only-sources` rows record. `funnel-probe` is 48 against 731 for
+   * the same reason. Neither straddles the cut, so nothing behavioural turns on it; it is
+   * recorded because a pass that used the reporter alone would have called both of them
+   * a sub-50 ms file.
+   *
+   * **A comparative reading, because twelve files are not two hundred and fifty-seven.**
+   * The three already-rowed anchors read high in this window against their recorded spans:
+   * `libp2p/identity` 542 against 304 (**1.78**), `slow-specs` 477 against 338 (**1.41**),
+   * `one-crypto-implementation` 393 against 316 (**1.24**). So these rows are upper readings
+   * rather than like-for-like with their neighbours, the same direction the 236 -> 242 entry
+   * found. It changes no decision: at the least favourable anchor `switch-observation` is
+   * still 5 032 ms, five times the cut, and the five unlisted files are still under the
+   * listing floor at the most favourable one. `machine-claim-guard` at 451 is the one row
+   * that straddles the **listing** floor under that correction (451 / 1.78 = 253) — it is
+   * listed anyway, because the floor is a presentation choice about which neighbourhood is
+   * visible and nothing behavioural turns on it.
+   *
+   * **Conditions, recorded because the host was checked and was quiet rather than because it
+   * had to be waited for.** Nothing had to be waited for: the three shared runs ran at
+   * 1-minute load `4.96 / 4.75 / 4.63` before and `4.88 / 4.63 / 4.54` after, i.e. **0.57 to
+   * 0.62 per core** on 8 cores against the ceiling of 4.00 the conditions banner enforces,
+   * and the solo window ran at 4.13 falling to 3.57, with every solo run printing its own
+   * banner at load/core **0.45 to 0.52** — those runs keep the banner because they pass no
+   * CLI `--reporter=`. `/usr/bin/time -p` over the three shared runs: `real 10.53 / 9.76 /
+   * 9.82`, `user 4.53 / 4.27 / 4.45`, `sys 1.07 / 0.91 / 0.90`, so `(user+sys)/real` is
+   * **0.53 / 0.53 / 0.55** — well under 1, and that is waiting rather than starving: nine of
+   * the twelve files are trivial and the wall clock is dominated by one file blocked on two
+   * `wrangler dev` children. **What was NOT polled: the peak load during a run.** Only start
+   * and end were sampled, so nothing here may be read as a peak. **And the three shared runs
+   * carry CLI `--reporter=` flags, so they printed no `[host conditions]` banner** — their
+   * load figures are `uptime` read immediately before and after, which is a weaker reading
+   * than the banner's and is said here rather than left to be assumed.
+   *
+   * **`tests` 2 948 -> 3 687 and `unitTests` 2 317 -> 2 966, re-derived this pass**, unlike
+   * at 236 -> 242 and 242 -> 248 where both were left at their run's figures on the rule that
+   * inventing a test total nobody counted is the defect this table exists to prevent. Nothing
+   * is invented here: this pass ran both lanes to green and read the totals off them.
+   * `npx vitest run --project node` exited **0** at `Test Files 257 passed (257)`,
+   * `Tests 3685 passed | 2 skipped (3687)` — and **257 is the check on the derivation above**,
+   * because a config saying 257 while the runner collects 258 is the same defect one number
+   * later. `O2_UNIT_ONLY=1 npx vitest run --project node` exited **0** at
+   * `Test Files 176 passed (176)`, `Tests 2966 passed (2966)`, no skips. Both fields record
+   * the COLLECTED total, as they always have.
+   *
+   * **The counts are sound and the durations from those two runs are not, and the difference
+   * is the whole reason the banner exists.** The node lane ran `real 289.79  user 979.39
+   * sys 238.39`, ratio **4.20**, starting at load/core 1.02 and ending at 3.48 — foreign work
+   * arrived during it. The unit lane's own banner printed **HOST WAS OVERSUBSCRIBED**, 2.98
+   * before and **12.38** after, i.e. a 1-minute load of 99 on 8 cores, and said in terms that
+   * every duration in that run is void. So `unitWallClockMs` is deliberately NOT moved and
+   * neither is `wallClockMs`: a count is not affected by contention and a wall clock is
+   * nothing else. The 289 s figure is recorded in this sentence rather than in
+   * `wallClockMs`, for the same reason — that field means the wall clock of the run the span
+   * table came from, and this pass did not retake the table.
+   *
+   * `date`, `load`, `wallClockMs`, `crossCheckedFiles` and the shadow counts still date to
+   * the 2026-08-26 full retake and this pass did not re-establish them; see
+   * `crossCheckedFiles` for what it did cross-check, what it did not, and for a discrepancy
+   * between those fields and their own prose that this pass found while reading them.
+   */
+  files: 257,
+  tests: 3687,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
@@ -528,7 +659,22 @@ const NODE_MEASUREMENT = {
    * than left to be discovered. It moves no consumer: the guard checks only that this figure
    * covers the rows the table lists.
    */
-  sumOfFileSpansMs: 2_427_656,
+  /**
+   * **2 427 656 -> 2 438 795 on 2026-09-07 (Phase 39, RUN-01), a FOURTH contribution stated
+   * as such.** The nine node-lane files that arrived after the 2026-09-06 reading sum to
+   * **11 139 ms** by the module-lifecycle instrument, medians of three runs of one shared
+   * twelve-file invocation — see {@link NODE_MEASUREMENT.files} for the per-file figures,
+   * the three-instrument cross-check and the conditions. Four of them are now listed rows
+   * and five are not, so the listed total moves by 10 795 and this field by 11 139; the
+   * slack over the listed rows goes from **14 663 to 15 007**, and the extra 344 is exactly
+   * the five that stay below the 300 ms listing floor.
+   *
+   * The listed total the guard actually sums is **2 423 788** after this edit, against
+   * 2 412 993 before — so the paragraph below, already dated stale by the entry above, is
+   * stale by one more layer and is still left standing rather than quietly corrected, for
+   * the reason that entry gives.
+   */
+  sumOfFileSpansMs: 2_438_795,
   /**
    * What `--reporter=json` alone said the same two runs summed to: 979 703 ms for the
    * `node` project plus **343 313** ms for the eleven `aot` files as the `aot` run's own
@@ -581,6 +727,40 @@ const NODE_MEASUREMENT = {
    * file at or above the cut on either instrument, and only **16** change which side of the
    * cut a file falls on. The rest are small files where a 20 ms import is a large fraction
    * of a 60 ms total.
+   */
+  /**
+   * **NOT RE-ESTABLISHED 2026-09-07 (Phase 39, RUN-01), and the prose above is a layer
+   * older than these two numbers — which is the first thing a reader needs to know.**
+   *
+   * The paragraphs above describe a 198-file `node` run and say *"164 of 198"*. The fields
+   * say 206 and 177. Both are real: `2e8c13f` (2026-08-26) re-ran the whole project at 206
+   * files and moved `files`, `tests`, `sumOfFileSpansMs`, `sumOfReportedSpansMs`, these two
+   * fields, the two shadow counts and the two unit counts together — a genuine full retake,
+   * folded into a commit whose subject is a Durable Object and whose message says nothing
+   * about it, so no docblock was moved with it. **Nothing was fabricated and nothing was
+   * narrated**, and the cost is that this record has read 206 against a paragraph saying 198
+   * for twelve days. Recorded here rather than repaired, because repairing prose about a run
+   * nobody can re-run would be inventing it.
+   *
+   * **What THIS pass cross-checked, which is much less than a project.** Twelve files — the
+   * nine arrivals listed on {@link NODE_MEASUREMENT.files} plus three already-rowed anchors —
+   * carried both instruments in the same three runs. **Eleven of the twelve differ by more
+   * than 10 %**, which is a far higher rate than the project-wide 177 of 206 and is entirely
+   * explained by what is in the window: nine of the twelve are small files whose whole cost
+   * is their import, and the reporter cannot see an import. **The number that matters is the
+   * other one: ZERO of the twelve crosses the 1 000 ms cut between the two instruments.**
+   * Eleven are below it on both and `switch-observation` is above it on both, agreeing to
+   * 8.5 %. So this window found no new shadow crossing, and that is a positive reading
+   * rather than an absence — the same run that found none is the run that found
+   * `machine-claim-guard` at 5 ms reported against 451 accounted, so the instrument was
+   * demonstrably able to see one.
+   *
+   * **These two fields are deliberately left at the 2026-08-26 figures**, following the
+   * 2026-09-04 pass, which also measured an incremental window with both instruments and
+   * said of these fields that it *"did not re-establish"* them. Overwriting 206 with 12
+   * would replace a project-wide reading with a twelve-file one and lose more than it
+   * records; the twelve-file figures are above, where they cannot be mistaken for the
+   * project's. **Step 3 was performed for every span this pass wrote and for no other file.**
    */
   crossCheckedFiles: 206,
   crossCheckDisagreed: 177,
@@ -727,8 +907,25 @@ const NODE_MEASUREMENT = {
    * `files`, which records that three of them are nonetheless above the cut and why the span
    * table was deliberately not moved for them.
    */
-  unitFiles: 168,
-  unitTests: 2317,
+  /**
+   * **168 -> 176 on 2026-09-07 (Phase 39, RUN-01), and the subtrahend MOVED — which is the
+   * whole reason this field is computed rather than stepped by the same amount as `files`.**
+   * `files` moved 248 -> 257, nine arrivals; `excludedInNode` moved **80 -> 81**, because
+   * one arrival cleared `SLOW_CUTOFF_MS` and took a row —
+   * `packages/node/src/switch-observation.node.test.ts` at 8 957 ms, two `wrangler dev`
+   * children. So the identity gives `257 - 81 = 176`, and a pass that had assumed the
+   * subtrahend was unchanged would have written 177 and been refused by
+   * `slow-specs.node.test.ts`, exactly as the 158 -> 162 entry says.
+   *
+   * **Confirmed behaviourally, not only by the identity.** `O2_UNIT_ONLY=1 npx vitest list
+   * --project node --filesOnly` reads **176** — the runner applying the exclusions for real,
+   * which is a different question from whether two numbers in this file subtract correctly.
+   * The same list shows `switch-observation` gone from the unit lane and the other five of
+   * Phase 39's six still in it, which is the intended shape: the fast loop loses the file
+   * that spawns two `workerd` processes and keeps every guard.
+   */
+  unitFiles: 176,
+  unitTests: 2966,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
   unitWallClockMs: 10_240,
@@ -1289,6 +1486,7 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/node/src/trust-anchors.node.test.ts', 9_189],
   ['packages/node/src/capability-dispatch.node.test.ts', 9_091],
   ['packages/node/src/result-signature.node.test.ts', 9_043],
+  ['packages/node/src/switch-observation.node.test.ts', 8_957],
   ['packages/node/src/aot-dispatch.node.test.ts', 8_873],
   ['packages/node/src/fabric-node.node.test.ts', 8_107],
   ['packages/node/src/reservation-exhaustion.node.test.ts', 7_459],
@@ -1340,9 +1538,11 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/core/src/job/submit.test.ts', 901],
   ['packages/node/src/acceptance-traceability.node.test.ts', 864],
   ['packages/net/src/provider-merge.test.ts', 802],
+  ['packages/browser/src/funnel-probe.test.ts', 731],
   ['packages/net/src/discovery.test.ts', 719],
   ['packages/node/src/purity.node.test.ts', 675],
   ['packages/node/src/primes-reduce.node.test.ts', 657],
+  ['packages/node/src/check-copy.node.test.ts', 656],
   ['packages/net/src/discover-candidates.test.ts', 640],
   ['packages/net/src/reduce-job.test.ts', 602],
   ['packages/node/src/seed-enrollment-provider.node.test.ts', 556],
@@ -1357,6 +1557,7 @@ const MEASURED_NODE_SPANS: readonly (readonly [string, number])[] = [
   ['packages/node/src/certificate-cache.node.test.ts', 471],
   ['packages/node/src/commit-scope.node.test.ts', 469],
   ['packages/cloudflare/src/hosted-identity.test.ts', 468],
+  ['packages/node/src/machine-claim-guard.node.test.ts', 451],
   ['packages/core/src/discovery.test.ts', 429],
   ['packages/net/src/capability-authorizer.test.ts', 415],
   ['packages/net/src/sovereign-egress.test.ts', 414],
