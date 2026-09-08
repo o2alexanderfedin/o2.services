@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="o2-build" content="2.0.0-rc.12 409d46c" />
+    <meta name="o2-build" content="2.0.0-rc.12 779443e" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>o2.services — node</title>
     <!--
@@ -15,11 +15,11 @@
       page makes during load and before consent is same-origin — over the whole request
       set, not a filtered slice.
     -->
-    <script type="module" crossorigin src="./assets/index-jXJKXCh1.js"></script>
+    <script type="module" crossorigin src="./assets/index-TQFKqK-q.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/cid-BXpsijIc.js">
-    <link rel="modulepreload" crossorigin href="./assets/src-Du3LlYjV.js">
-    <link rel="modulepreload" crossorigin href="./assets/src-BTE1dbav.js">
-    <link rel="stylesheet" crossorigin href="./assets/index-9IUIkw3l.css">
+    <link rel="modulepreload" crossorigin href="./assets/src-VzQirhcz.js">
+    <link rel="modulepreload" crossorigin href="./assets/src-CxAtPYsE.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-COQ02Rew.css">
   </head>
   <body>
     <header class="wrap masthead">
@@ -30,6 +30,85 @@
         Nothing runs, and nothing is contacted, until you allow it.
       </p>
     </header>
+
+    <!--
+      RUN-06. Shown only when this page finds it is running inside a host application's own
+      embedded browser — a messaging client that opens links in a view it controls rather
+      than handing them to the browser the visitor chose.
+
+      **It is an offer and never a wall.** It does not hide `#gate`, does not disable
+      `#allow`, and changes no ordering `disclosure-before-optin.e2e.test.ts` asserts. A
+      visitor who dismisses it keeps the page exactly as it was. That is threat T-38-05's
+      mitigation and it is the reason the dismiss control is the one button that is never
+      hidden.
+
+      ## Three properties this section holds, and the precedent each rests on
+
+      It sits **outside `#main`**, carries **no `data-region`**, and contains **no digit**.
+      Together those keep it outside the region catalogue's jurisdiction, so `demo-regions.ts`
+      and UI-SPEC's tally do not move for it. Checked rather than assumed:
+
+      - `#gate` above is a whole visible pre-consent screen with a heading, a checkbox and two
+        buttons, and it carries zero `data-region` attributes. Visible surface is not, by
+        itself, a catalogue obligation.
+      - `demo-regions.e2e.test.ts`'s P2 roots its `TreeWalker` at `#main`, so nothing outside
+        `#main` is walked for undeclared digits — the same reason `#bar` at the foot of this
+        file states for itself.
+      - `demo-regions.ts`'s own first line: the catalogue is *"every figure the demo page may
+        put on screen"*. This notice carries no figure.
+
+      All three are asserted in `embedded-webview.e2e.test.ts`, so the decision is a check
+      rather than a paragraph. **If a digit or a `data-region` ever has to appear in here,
+      `demo-regions.ts` (`REGIONS` and `UI_SPEC_TALLY`) and UI-SPEC sections 4 and 12 move in
+      the same commit as the markup** — a half-landed figure is what `WIRED_SURFACES` exists
+      to prevent.
+
+      ## Why `#entry-notice-how` does not render the address of this page
+
+      A URL is digits, and it is also the one string on this screen that identifies where a
+      volunteer is. T-38-02: the notice renders signal **names** from the declared table and
+      nothing read off the visitor. `#entry-notice-copy` is the exception and it is behind a
+      deliberate tap and behind `navigator.clipboard?.writeText` existing at all — it stays
+      hidden when it does not.
+    -->
+    <section id="entry-notice" hidden>
+      <h2 id="entry-notice-headline">This page is open inside another app</h2>
+      <p id="entry-notice-why">
+        The app you came from is showing this page in a browser of its own. That browser is
+        not the one you chose, and pages here need to keep a little storage and to open a
+        direct connection to another device — both of which an app’s built-in browser often
+        limits without saying so.
+      </p>
+      <p id="entry-notice-how">
+        Open the menu in the app you came from and choose to open this page in your browser.
+        Everything works the same once you are there.
+      </p>
+      <p id="entry-notice-signals"></p>
+      <!--
+        Criterion 2's readout — whether the engine kept going while this page was hidden.
+
+        `38-DEVICE-OBSERVATIONS.md` records, from a real device, that the page could not
+        answer that: the indicator says disconnected whether the engine was suspended or the
+        network went away, and nothing on screen told the two apart. This line does, in one
+        of four fixed sentences from `hidden-gap.ts`.
+
+        **Words only, and that is a rule rather than a preference — T-38-06.** No timing
+        figure, no interval count and no clock value is ever written here. A millisecond
+        number on a photographed screen is a fingerprint of the device it was photographed
+        on, and it would also put a digit in a section that stays digit-free so that it
+        stays outside the region catalogue's jurisdiction — see the comment above.
+
+        **It stays when the offer goes.** Dismissing the notice adds `collapsed` rather than
+        hiding the section, because the observation criterion 2 needs is taken *after* the
+        visitor has chosen to stay: a readout that disappeared with the offer would be gone
+        at exactly the moment it is wanted.
+      -->
+      <p id="entry-notice-liveness"></p>
+      <p class="controls">
+        <button id="entry-notice-copy" class="btn" hidden>Copy the address of this page</button>
+        <button id="entry-notice-dismiss" class="btn btn-secondary">Stay here</button>
+      </p>
+    </section>
 
     <!--
       BROW-01. The gate is the first thing rendered and the only thing that starts
@@ -52,7 +131,138 @@
       <p class="note" id="gate-version"></p>
     </section>
 
+    <!--
+      AUTH-06 — the way in, plan `42-04`, the owner's ruling of 2026-09-04: a visitor who is
+      not logged in sees what this is and an invitation to register or log in; a visitor who
+      is logged in has a node already running.
+
+      ## Why this is AFTER the gate and not in front of it
+
+      The obvious arrangement — a login screen first, consent folded into registration — is
+      the one the owner rejected, and it is also the one the tree refuses.
+      `packages/node/src/artifact-fetch-gate.e2e.test.ts` is BROW-06's guard; its arm A loads
+      this page, **waits for `#gate` to be un-hidden**, and only then reads the gateway
+      server's own log. A screen in front of `#gate` makes that wait time out and takes one of
+      Phase 39's seven conditions of entry with it. So `#gate` keeps its position, its id, its
+      controls and its semantics, and `#signin` is a sibling shown after the gate is answered.
+
+      ## The contract with Phase 38, written here because that plan lands second
+
+      `38-01-PLAN.md` adds `#entry-notice` — an *"open in your own browser"* interstitial for a
+      Telegram in-app WebView — to this same pre-consent region, and declares this file as a
+      plant target. Measured on 2026-09-04: it has not run, so `42-04` lands first.
+
+        * The section is `#signin`, **not** `#entry`. A shared `entry` prefix between
+          `#entry-notice` and an entry screen is a collision a reader makes even where a
+          selector does not.
+        * `#entry-notice` is about **where the page is open**; `#signin` is about **who is
+          using it**. The notice renders ABOVE `#signin`, is dismissible, and never replaces it.
+
+      ## Why this section declares no UI-SPEC region
+
+      The precedent is `#gate` — a whole visible pre-consent screen with a heading, a checkbox
+      and two buttons — which declares none either. Both halves are stated because only the
+      second is a hazard: `demo-regions.e2e.test.ts:380-383` roots its undeclared-text walker
+      at `document.getElementById('main')`, so a section outside `#main` is not walked and its
+      prose may contain digits; but **`:367` runs `document.querySelectorAll` over the
+      catalogue attribute, document-wide**, so declaring one here WOULD be enumerated and would
+      need a matching entry in `demo-regions.ts`. Declaring none is what keeps `UI_SPEC_TALLY`
+      still — and the count of that attribute in this file is asserted unmoved by this plan,
+      which is why its literal spelling is not written out in this comment.
+
+      ## The passphrase never leaves this page
+
+      It is held in one module-scoped variable in `main.ts` for one visit: never
+      `localStorage`, never `sessionStorage`, never IndexedDB, never a URL, never a log, never
+      the funnel reporter's payload. Registering here is **not** enrolling — that authenticates
+      a node to a provider with a key this script cannot read — and neither credential may
+      reach the other.
+    -->
+    <section id="signin" class="blueprint" hidden>
+      <i class="corner tl"></i><i class="corner tr"></i>
+      <i class="corner bl"></i><i class="corner br"></i>
+      <h2 id="signin-headline"></h2>
+      <p class="note" id="signin-why"></p>
+      <!--
+        Attribution — owner instruction, 2026-09-04. A plain factual statement of who made
+        this, on the screen where somebody decides whether to trust it.
+
+        **An `<a href>` is not a request**, so this is safe against
+        `built-bundle.e2e.test.ts`'s P10, which asserts this page makes no foreign-origin
+        request before consent. A later reader will ask, so it is said here: nothing may turn
+        this into a `preconnect`, a `prefetch`, a `dns-prefetch` or an image, and there is no
+        third-party badge or widget on this page. It is a link and nothing else — in
+        particular it authenticates nobody and comes nowhere near the sign-in mechanism.
+      -->
+      <p class="note" id="signin-author">
+        Built by
+        <a href="https://linkedin.com/in/alex-fedin" rel="noopener noreferrer" target="_blank"
+          >Alexander Fedin</a
+        >.
+      </p>
+      <p class="note" id="signin-adopt" hidden></p>
+      <p>
+        <label for="signin-passphrase" id="signin-passphrase-label">Your passphrase</label>
+        <input type="password" id="signin-passphrase" autocomplete="new-password" />
+      </p>
+      <p id="signin-again-row">
+        <label for="signin-passphrase-again">Type it again</label>
+        <input type="password" id="signin-passphrase-again" autocomplete="new-password" />
+      </p>
+      <p class="controls">
+        <button id="signin-register" class="btn btn-primary">Register</button>
+        <button id="signin-login" class="btn btn-primary">Log in</button>
+        <!--
+          `42-07`, owner ruling of 2026-09-05. Secondary, and beside the act rather than
+          above it: the invitation is still to register, and this is the way past it for
+          somebody who has not decided yet. Hidden in `declined`, where both controls beside
+          it are frozen and there is no act to take.
+        -->
+        <button id="signin-lookaround" class="btn btn-secondary">Look around first</button>
+      </p>
+      <p class="note" id="signin-status"></p>
+      <!--
+        Revealed in the `refused` state and NOWHERE else — T-42-24, and it is the reachability
+        that is the property rather than the wording. A page that offers *start over* to
+        somebody who mistyped once is a page that will lose identities.
+      -->
+      <p class="controls">
+        <button id="signin-startover" class="btn btn-secondary" hidden>
+          Start over with a new identity
+        </button>
+      </p>
+      <p class="note" id="signin-startover-cost" hidden></p>
+    </section>
+
     <section id="main" hidden>
+      <!--
+        The look-around notice — `42-07`. Revealed in `looking-around` and nowhere else.
+
+        **No `data-region`, and no digit anywhere in this prose.** Both are guard
+        constraints, and they pull in opposite directions so neither is optional.
+        `demo-regions.e2e.test.ts` roots a text walker at `#main` and collects every text
+        node no ancestor declares, filtering for digits on the Node side over the whole
+        untruncated node — so an undeclared sentence here may carry no figure. And the same
+        file's region walker runs `querySelectorAll` over the catalogue attribute
+        **document-wide**, so declaring one would be enumerated, would need a catalogue row
+        in `demo-regions.ts`, and would move `UI_SPEC_TALLY`. Neither is wanted for a
+        sentence that states no figure. `#gate` is the precedent: a whole visible screen
+        with a heading, a checkbox and two buttons, declaring none.
+
+        It says what is missing rather than what is broken. *"Nothing is running"* on its own
+        is a page that looks faulty; a visitor needs to know that a node is what a passphrase
+        buys, that the readings below are honest rather than empty, and that the way on is
+        one press away.
+      -->
+      <p class="note" id="lookaround-notice" hidden>
+        You are looking around. Nothing has been started on this page and nothing is running,
+        so every reading below says so in its own words — the same sentences this page shows
+        after you press Stop. Running anything needs an identity only you can open, which is
+        what choosing a passphrase gives you, and it is one press away.
+      </p>
+      <p class="controls" id="lookaround-controls" hidden>
+        <button id="lookaround-signin" class="btn btn-primary">Register or log in</button>
+      </p>
       <!--
         The session header sits OUTSIDE the surfaces, and that is a guard constraint
         before it is a design one. `#state`, `#join` and `#explain` are read and

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="o2-build" content="2.0.0-rc.12 409d46c" />
+    <meta name="o2-build" content="2.0.0-rc.12 779443e" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>o2.services — what this page does</title>
     <style>
@@ -41,6 +41,26 @@
       any processor time and before it contacts anything. It shows what it is doing
       in a bar that cannot be dismissed while it runs, and a single control ends the
       thread. It handles no currency of any kind.
+    </div>
+
+    <!--
+      Attribution — owner instruction, 2026-09-04, and it is placed HERE rather than in a
+      footer on purpose. The reader of this page is deciding whether to block a page that uses
+      a stranger's processor, and for that reader *a named person with a public profile stands
+      behind this* is the missing reassurance: an anonymous page burning CPU is categorically
+      worse than a signed one. It is a plain factual statement and nothing else — no
+      endorsement, no credentials, no third-party badge or widget.
+
+      **An `<a href>` is not a request.** `built-bundle.e2e.test.ts`'s P10 asserts the demo
+      page makes no foreign-origin request before consent; a link makes none at any time.
+      Nothing may turn this into a `preconnect`, a `prefetch`, a `dns-prefetch` or an image.
+    -->
+    <div class="box">
+      <strong>Who made this.</strong> Built by
+      <a href="https://linkedin.com/in/alex-fedin" rel="noopener noreferrer" target="_blank"
+        >Alexander Fedin</a
+      >. It is the work of one named author rather than an anonymous project, and the source is
+      public.
     </div>
 
     <h2>What it computes</h2>
@@ -112,10 +132,20 @@
       <li>The results the visitor's machine computes, which are small integers and bit arrays.</li>
       <li>
         A peer key. It is not derived from anything about the device, and it does not
-        persist across origins. It <em>does</em> persist across visits: it is stored in
-        the browser for this site, and loaded again next time rather than made afresh,
-        so two visits are the same node rather than two strangers. Nothing on this page
-        forgets it; clearing this site's data in the browser is what removes it.
+        persist across origins. <strong>Since 2026-09-04 it persists across visits again,
+        encrypted.</strong> The page now asks a visitor to register with a passphrase of
+        their own choosing before anything runs; the key is stored in that browser sealed
+        under a key derived from the passphrase, and the passphrase is held in page memory
+        for one visit and written nowhere at all — not to this browser, not into a link, and
+        not to any server, because there is none. So a returning visitor who enters the same
+        passphrase is the same node, and a person who copies the browser profile has an
+        encrypted blob rather than an identity. Nobody can recover a forgotten passphrase,
+        including the author: the page offers to start over as a different node instead, and
+        states on that control what starting over costs. Until a visitor registers or logs
+        in, nothing runs and no key is made. <strong>One carry-over</strong>: a browser that
+        already holds a key from an earlier version of this page keeps that same key and
+        seals it in place on registration, rather than having its node identity deleted out
+        from under it. Clearing this site's data in the browser removes all of it.
       </li>
       <li>
         Optionally, and only if the visitor ticks the box: one line recording the
@@ -127,8 +157,11 @@
       <li>
         Nothing else. No files, no browsing history, no cookies, no advertising
         identifiers. Note that "no cookies" is a statement about cookies and not about
-        storage in general: the peer key above is kept in this browser's own storage for
-        this site, and it is the one durable thing this page leaves behind.
+        storage in general: this page does keep the visitor's own answer to the consent
+        gate in this browser's storage for this site, so that they are not asked again on
+        every visit, and — for a visitor who joins a provider — the signed statement
+        recording that. Neither is sent anywhere by this page; both are removed by
+        clearing this site's data.
       </li>
     </ul>
 
@@ -141,9 +174,11 @@
       </li>
       <li>
         It sets no cookies and uses no third-party analytics service — the counts described
-        below are taken by this project's own collector and go nowhere else. It does keep one value in
-        this browser's storage for this site — the peer key described above — which is
-        what lets a returning visitor be the same node rather than a new one.
+        below are taken by this project's own collector and go nowhere else. It does keep
+        values in this browser's storage for this site: the visitor's own answer to the
+        consent gate, and the signed statement from a provider they chose to join. It no
+        longer keeps a peer key, so a returning visitor is a new node rather than the same
+        one.
       </li>
       <li>
         <strong>A visitor who does not agree is not counted anywhere, by anything.</strong>
@@ -173,9 +208,26 @@
         defect written down.
       </li>
       <li>
+        <strong>All of that rests on your permission, and on nothing else.</strong> The counters
+        begin when you allow the work to run; the optional start report begins only if you also
+        tick its box; and a visitor who does neither is not counted on some other footing
+        instead, because there is no other footing here. Withdrawing either permission stops what
+        that permission covers — which is what makes it a permission rather than a notice. This
+        was an open question in this project's own records until 2026-09-04 and the disclosure
+        deliberately named no ground while it was open; the ground is now settled and stated, and
+        the code did not have to move for it, because the counters were already taken only after
+        a yes.
+      </li>
+      <li>
         It runs no server-side process. It is a static file. The only infrastructure
         it uses is a relay peer, which carries the connection handshake between
         browsers and then drops out of the data path.
+        <strong>This survives the sign-in described above, and it survives because of
+        it.</strong> Stated explicitly so a reader does not assume the claim was overlooked
+        when the page grew a way to log in: the credential is a <em>local passphrase</em>,
+        chosen deliberately over an email-and-password account and over a third-party login
+        precisely so that logging in adds no server, no account database and no other company.
+        Registering here contacts nothing.
       </li>
       <li>It does not run in a hidden frame, a background tab it opened, or a service worker.</li>
       <li>It is not obfuscated or minified beyond ordinary bundling, and its source is public.</li>
