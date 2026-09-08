@@ -275,6 +275,28 @@ export interface Disclosure {
   readonly decline: string
   /** The optional extra, unticked by default. */
   readonly reporting: DisclosureLine
+  /**
+   * What changed since the previous version — {@link CONSENT_VERSION_NOTE}, by reference.
+   *
+   * **A field here rather than only a sibling export, because a sibling export is what it was
+   * and nothing rendered it.** Measured 2026-09-07 against the published bundle: fifteen of the
+   * sixteen strings this module ships were in it and this one was not, because `demo/main.ts`
+   * never imported it. The constant existed, a spec asserted it was non-empty, and a returning
+   * visitor was re-asked with no explanation — which is the whole thing it was written to
+   * prevent, and the version that discovered it is the worst one to have discovered it on:
+   * version 7 told visitors a fresh key was made each visit and written nowhere, and version 8
+   * tells them the opposite.
+   *
+   * {@link TabApi.disclosure}'s own docblock is the reason this is the right home: *"The page
+   * renders this rather than holding its own copy, so the text a visitor reads, the version a
+   * stored consent answered, and the text on the policy page cannot drift apart."* A note the
+   * page could only obtain by importing a second symbol is a note the page can forget to
+   * obtain, and did.
+   *
+   * The value is the same object as {@link CONSENT_VERSION_NOTE}, not a copy of it. That export
+   * stays, because `disclosure-four-elements.node.test.ts` and two RFCs name it.
+   */
+  readonly versionNote: string
 }
 
 /**
@@ -287,6 +309,7 @@ export interface Disclosure {
  */
 export const DISCLOSURE: Disclosure = {
   version: DISCLOSURE_VERSION,
+  versionNote: CONSENT_VERSION_NOTE,
   headline: 'This page can use your processor. It will not, unless you say so.',
   lines: [
     {
