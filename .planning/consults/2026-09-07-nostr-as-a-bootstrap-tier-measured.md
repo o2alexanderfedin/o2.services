@@ -348,3 +348,34 @@ origin returns nothing, behind a pinned pubkey.
 stands: publish the document beside `bootstrap.json` first — that costs one more publish in
 `deploy-pages.sh` and changes nothing for a visitor whose page loads — and let a real visitor
 read it before anything depends on it.
+
+---
+
+## §10 The spike landed as code, 2026-09-07
+
+`packages/browser/src/nostr-bootstrap.ts`, wired into `demo/main.ts`'s discovery round at the one
+place the origin answers `undefined`.
+
+**It ships inert.** `NOSTR_BOOTSTRAP_PUBLISHER` reads the named literal `NOT_PUBLISHED` — no
+project key exists yet, and the key §9 measured under is deliberately public, so pinning it would
+be worse than pinning nothing. `readNostrBootstrapIfPinned` opens **no socket** in that state, and
+a case asserts the count is `0` as a literal. `built-bundle.e2e.test.ts`'s P10 was re-run against
+the built bundle afterwards: 9 of 9, including *"makes no request to any origin but its own, over
+the whole request set"*.
+
+29 unit cases over a scripted fake socket, 2 e2e cases against the pinned public relays. The fake
+is where the refusals live, because a hostile relay is not something `nos.lol` will impersonate on
+request; the e2e is the one question a fake cannot answer — whether the code speaks to real relay
+software or only to the fake written beside it. Coverage of the module: **100 % lines, 100 %
+functions, 94.4 % statements, 86.4 % branches**, the remainder being `instanceof Error`
+string-formatting alternates.
+
+Two plants, both watched red and both restored by the inverse edit with `cmp` against a snapshot
+taken immediately before: disabling the pinned-publisher check reddened two cases including *a
+relay serving somebody else's event wins the race*, and removing the inertness guard reddened
+*opens NO socket* at `expected 4 to be +0`.
+
+**What is still missing, and it is the whole of what makes this live:** a project key the owner
+controls, and the publisher half in `deploy-pages.sh`. Until both exist this module is a tested
+path nothing takes — which is the correct state for it to be merged in, because the alternative
+is pinning a key anybody can sign under.
