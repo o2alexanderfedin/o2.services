@@ -107,6 +107,23 @@ jobs:
       - name: Publish the browser client
         run: scripts/deploy-pages.sh --live
         env:
+          # The nostr bootstrap fallback's signing key. **Optional by construction**, and that is
+          # the property to keep: `tools/run/publish-nostr-bootstrap.mjs` warns loudly and exits 0
+          # when it is absent, because the page every visitor loads is already live and verified
+          # by the time it runs, and refusing to call this deploy successful because somebody
+          # else's relay could not be written to would let an optional fallback redden a release
+          # it has nothing to do with.
+          #
+          # A REPOSITORY secret rather than an environment one: this job deliberately carries no
+          # `environment:`, unlike the Cloudflare job above, and adding one to reach a secret
+          # would put the client publish behind whatever approvals that environment grows.
+          #
+          # What holding this key would buy somebody, stated at full size: they could publish a
+          # bootstrap document naming a relay of their choosing, which a visitor dials ONLY when
+          # their own origin gave them nothing and they named no `?relay=`. They could not
+          # impersonate a peer, forge a certificate, or be admitted by a gated relay. Rotating it
+          # is one edit to `NOSTR_BOOTSTRAP_PUBLISHER` and one publish.
+          O2_NOSTR_SECRET_KEY: ${{ secrets.O2_NOSTR_SECRET_KEY }}
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]
