@@ -155,6 +155,7 @@ import { IdbCheckpoints } from '../src/idb-checkpoints.ts'
 import { fetchModuleForDispatch } from '../src/gateway-module.ts'
 // BROW-07's carrier. Relative for the same reason, stated in that module's own header.
 import { ComputingIndicator, documentTitlePort } from '../src/computing-indicator.ts'
+import { readNostrBootstrapIfPinned } from '../src/nostr-bootstrap.ts'
 // RUN-06's detector. Relative and not through the barrel, on the same module's stated rule.
 import { detectEmbeddedWebView, readEmbeddedWebViewProbe } from '../src/embedded-webview.ts'
 // Criterion 2's instrument. Relative for the same reason, stated in that module's own header.
@@ -1210,7 +1211,19 @@ async function runDiscoveryRound(): Promise<TabDiscoveryRound> {
   //    relay circuit at all — so a lone visitor has a peer immediately.
   // Both mount points, relative first — see {@link fetchBootstrapDocument} for why a page
   // cannot know which of the two served it, and for what asking only one of them cost.
-  const info = await fetchBootstrapDocument()
+  // The origin first, and a Nostr document ONLY when the origin gave nothing — never the other
+  // way round and never a merge. `nostr-bootstrap.ts` states why that ordering is a security
+  // property rather than a preference: a page whose origin is answering correctly must not be
+  // redirectable by whoever holds a key on somebody else's infrastructure.
+  //
+  // **It opens no socket while nothing is pinned**, which is the state today, so this line
+  // changes no request this page makes until a project key exists. `readNostrBootstrapIfPinned`
+  // answers `undefined` for every reason a caller here would treat identically — no pin, no
+  // relay reachable, every answer refused — because this round already treats *no document* as
+  // an ordinary state and a stranger's silence must not be louder than the origin's.
+  const info =
+    (await fetchBootstrapDocument()) ??
+    (await readNostrBootstrapIfPinned({ open: (url) => new WebSocket(url), now: () => Date.now() }))
   if (info !== undefined && Array.isArray(info['peerAddrs'])) {
     candidates.push(...info['peerAddrs'].filter((a): a is string => typeof a === 'string'))
     asked = true
