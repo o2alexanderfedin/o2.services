@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="o2-build" content="2.0.0-rc.12 779443e" />
+    <meta name="o2-build" content="2.0.0-rc.12 f01ae4f" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>o2.services — node</title>
     <!--
@@ -15,7 +15,7 @@
       page makes during load and before consent is same-origin — over the whole request
       set, not a filtered slice.
     -->
-    <script type="module" crossorigin src="./assets/index-TQFKqK-q.js"></script>
+    <script type="module" crossorigin src="./assets/index-DcU3ocMM.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/cid-BXpsijIc.js">
     <link rel="modulepreload" crossorigin href="./assets/src-VzQirhcz.js">
     <link rel="modulepreload" crossorigin href="./assets/src-CxAtPYsE.js">
@@ -121,6 +121,19 @@
       <i class="corner tl"></i><i class="corner tr"></i>
       <i class="corner bl"></i><i class="corner br"></i>
       <h2 id="gate-headline"></h2>
+      <!--
+        What changed since the version this visitor last agreed to — shown ONLY to a returning
+        visitor whose stored consent names an older version, and shown ABOVE the terms because
+        somebody re-reading a page they already agreed to needs the diff before the whole.
+
+        It was missing entirely until 2026-09-07. `CONSENT_VERSION_NOTE` had existed since
+        version 3 and nothing rendered it: measured against the published bundle, fifteen of
+        the sixteen strings `disclosure.ts` ships were in it and this one was not. The page
+        said "what this page does has changed" in the small print below and never said WHAT —
+        on the bump where version 7 told visitors a fresh key was made each visit and written
+        nowhere, and version 8 tells them the opposite.
+      -->
+      <p class="note" id="gate-version-note" hidden></p>
       <dl id="gate-terms"></dl>
       <label><input type="checkbox" id="reporting" /> <span id="reporting-question"></span></label>
       <p class="note" id="reporting-answer"></p>
