@@ -10,6 +10,10 @@ import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { signInHarnessTab } from '../../node/src/e2e-signin.ts'
+// Hermetic by default — a fixture browser reaches the fixture's own server and nothing else.
+// Six files launched chromium directly and therefore dialled PRODUCTION once the nostr bootstrap
+// fallback went live; see `HERMETIC_PROXY`.
+import { launchFixtureBrowser } from '../../node/src/e2e-browser-launch.ts'
 
 
 
@@ -261,7 +265,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   baseUrl = url.endsWith('/') ? url : `${url}/`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
 }, 240_000)
 
 afterAll(async () => {

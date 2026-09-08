@@ -128,19 +128,32 @@ export const NOSTR_BOOTSTRAP_RELAYS: readonly string[] = [
  * forgotten one, and the failure mode of a forgotten pin here is a visitor dialling a relay
  * chosen by whoever answered first.
  *
- * It reads {@link NOT_PUBLISHED} today because **no project key exists yet**. The document
- * measured on 2026-09-07 was published under a deliberately public spike key derived from a
- * fixed sentence — anybody can sign under it, so pinning it would be worse than pinning
- * nothing. `readNostrBootstrapIfPinned` returns without opening a socket while this is the
- * value, so the fallback ships inert and becomes live on the day a key the owner controls is
- * put here and the publisher half runs.
+ * **It read {@link NOT_PUBLISHED} until 2026-09-07 and now names a real key.** The literal is
+ * kept because it is the value a fork, a second fabric or a future rotation window needs, and
+ * because `readNostrBootstrapIfPinned` opening no socket for it is a property with its own case.
+ *
+ * ## Whose key this is, and what holding it would buy an attacker
+ *
+ * The secret half was minted on 2026-09-07 with `schnorr.utils.randomSecretKey()` and lives in
+ * two places on the owner's machine, both outside this repository: `.secrets/O2_NOSTR_SECRET_KEY`
+ * (gitignored, `0600`) and the macOS login keychain under
+ * `o2.services/cloudflare/o2-bootstrap`. It is **not** the fabric's identity, not a trust anchor
+ * for artifacts and not an admission issuer — it signs one document and nothing else.
+ *
+ * What somebody holding it could do is bounded and worth stating exactly: publish a bootstrap
+ * document naming a relay of their choosing, which a visitor would dial **only** when their own
+ * origin gave them nothing. They could not impersonate a peer, forge a certificate, or be
+ * admitted by a gated relay — the address is a place to knock and the fabric's own admission is
+ * what answers. The cost of losing it is that the fallback must be rotated, which is one edit
+ * here and one publish.
  */
 export const NOT_PUBLISHED = 'no-nostr-bootstrap-published' as const
 
 /** A 64-character lowercase hex x-only public key, or {@link NOT_PUBLISHED}. */
 export type BootstrapPublisher = string | typeof NOT_PUBLISHED
 
-export const NOSTR_BOOTSTRAP_PUBLISHER: BootstrapPublisher = NOT_PUBLISHED
+export const NOSTR_BOOTSTRAP_PUBLISHER: BootstrapPublisher =
+  'b7848ea09f33de2dad97e4734db55751929ee5b03881ef99438f0ecdb96ca6a3'
 
 /** The socket surface this module uses, declared as narrowly as it is used. */
 export interface NostrSocket {

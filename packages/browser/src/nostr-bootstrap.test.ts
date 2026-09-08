@@ -25,6 +25,7 @@ import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/hashes/utils.js'
 import {
   NOSTR_BOOTSTRAP_IDENTIFIER,
   NOSTR_BOOTSTRAP_KIND,
+  NOSTR_BOOTSTRAP_PUBLISHER,
   NOSTR_BOOTSTRAP_RELAYS,
   NOSTR_DOCUMENT_MAX_AGE_MS,
   NOT_PUBLISHED,
@@ -362,10 +363,18 @@ describe('the race across relays', () => {
 // Inert until a key is pinned
 // ---------------------------------------------------------------------------
 
-describe('the fallback is inert until a publisher is pinned', () => {
-  it('opens NO socket while nothing is published — which is the state this ships in', async () => {
+describe('what the shipped pin is, and what an unpinned one still does', () => {
+  it('opens NO socket for a publisher of NOT_PUBLISHED', async () => {
+    // **This case was written when the SHIPPED pin was `NOT_PUBLISHED`, and it said so.** The
+    // key was minted on 2026-09-07 and the pin is now real, so the sentence *"which is the
+    // state this ships in"* went false and is gone rather than reworded. What survives is the
+    // property of the function, which a fork, a second fabric or a rotation window still needs:
+    // an unpinned publisher reads nothing and asks nobody. The publisher is supplied explicitly
+    // here for exactly that reason — the shipped constant is no longer this value and the case
+    // must not depend on it being.
     let opened = 0
     const result = await readNostrBootstrapIfPinned({
+      publisher: NOT_PUBLISHED,
       open: () => {
         opened += 1
         throw new Error('must not open a socket')
@@ -373,17 +382,23 @@ describe('the fallback is inert until a publisher is pinned', () => {
       now: () => NOW,
     })
     expect(result).toBeUndefined()
-    // The number, as a literal. This is what lets the module ship before a project key exists
-    // without changing a single request the page makes, and it is what `built-bundle`'s P10
-    // arithmetic depends on.
     expect(opened).toBe(0)
   })
 
-  it('is pinned to the named literal today, and the literal is not an empty string', () => {
+  it('ships a REAL pin — 64 lowercase hex, and not the public spike key', () => {
     // `trustAnchors`' discipline, applied: an empty pin is indistinguishable from a forgotten
-    // one. If this ever reads `''`, the assertion below is what says so.
+    // one, so the absence has a name.
     expect(NOT_PUBLISHED).toBe('no-nostr-bootstrap-published')
-    expect(NOT_PUBLISHED.length).toBeGreaterThan(0)
+    expect(NOSTR_BOOTSTRAP_PUBLISHER).not.toBe(NOT_PUBLISHED)
+    expect(NOSTR_BOOTSTRAP_PUBLISHER).toMatch(/^[0-9a-f]{64}$/)
+
+    // **The paste this guards against.** `.planning/consults/2026-09-07-nostr-as-a-bootstrap-
+    // tier-measured.md` §9 published a document under a key derived from a fixed sentence, so
+    // that it would be reproducible — which means anybody can sign under it. Pinning it would
+    // be strictly worse than pinning nothing, and it is one copy-paste away.
+    expect(NOSTR_BOOTSTRAP_PUBLISHER).not.toBe(
+      '717a67daccfa35ad51b1ccdfebd586a42aae9bc479965f08c54a04be964368bc',
+    )
   })
 
   it('does open sockets once a publisher IS supplied, so the inertness is a pin and not a stub', async () => {

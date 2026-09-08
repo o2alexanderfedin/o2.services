@@ -70,7 +70,7 @@ import type { FunnelStage } from '@o2/net'
 // `computing-indicator.ts`, and publishing it would add an exported-but-statically-unreachable
 // symbol in front of `reachability-guard.node.test.ts` for the benefit of no consumer.
 import { FUNNEL_ARMING } from '../../browser/src/funnel-reporter.ts'
-import { fixtureViteCacheDir } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { signInHarnessTab } from './e2e-signin.ts'
 
 /**
@@ -276,7 +276,7 @@ beforeAll(async () => {
   const url = server.resolvedUrls?.local[0]
   if (url === undefined) throw new Error('vite dev server produced no URL')
   baseUrl = url.endsWith('/') ? url : `${url}/`
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
 }, 180_000)
 
 afterAll(async () => {

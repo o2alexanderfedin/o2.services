@@ -66,7 +66,7 @@ import {
   PROPAGATION_POPULATION,
   PROPAGATION_WINDOW_MS,
 } from '../../browser/src/propagation-window.ts'
-import { fixtureViteCacheDir } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { signInHarnessTab } from './e2e-signin.ts'
 
 /**
@@ -198,7 +198,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   baseUrl = url.endsWith('/') ? url : `${url}/`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
 }, 400_000)
 
 afterAll(async () => {

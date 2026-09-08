@@ -55,6 +55,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ADMISSION_KEY_HEADER } from '../../cloudflare/src/admission-flag.ts'
 import { STOPPED_TITLE_PREFIX } from '../../browser/src/computing-indicator.ts'
 import { signInDemoTab } from './e2e-signin.ts'
+// Hermetic by default — a fixture browser reaches the fixture's own server and nothing else.
+// Six files launched chromium directly and therefore dialled PRODUCTION once the nostr bootstrap
+// fallback went live; see `HERMETIC_PROXY`.
+import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 
 /**
  * The identity secret the local `wrangler dev` below boots with — AUTH-07 criterion 4.
@@ -224,7 +228,7 @@ beforeAll(async () => {
   if (address === null || typeof address === 'string') throw new Error('no server port')
   baseUrl = `http://${HOST}:${String(address.port)}`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
 }, 400_000)
 
 afterAll(async () => {

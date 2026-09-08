@@ -351,6 +351,23 @@ case "$LIVE_JSON" in
       *"$BUILD_ID"*)
         say "✅ published. The site names the live node $PEER_ID, and names itself $BUILD_ID"
         echo "   $PAGES_URL"
+
+        # ── The same document, published a second time where the origin cannot reach ──────
+        #
+        # AFTER the origin copy is live and verified, never before and never instead. The
+        # ordering is the whole design: `packages/browser/src/nostr-bootstrap.ts` is read only
+        # when a page's own origin gave it nothing, so publishing the fallback ahead of the
+        # thing it is a fallback FOR would put the two out of step in the one direction that
+        # matters — a visitor believing an address the origin had not yet started serving.
+        #
+        # **It cannot fail this deploy**, and that is deliberate rather than lax. The page every
+        # visitor loads is already live and verified by the time this runs; refusing to call the
+        # deploy successful because somebody else's relay was down would make an optional
+        # fallback able to redden a release it has nothing to do with. The script says so at
+        # length in its own header and exits 0 either way.
+        say "Publishing the same document to the nostr fallback"
+        node "$REPO_ROOT/tools/run/publish-nostr-bootstrap.mjs" "$PUBLIC/bootstrap.json" || \
+          echo "   ⚠️  the nostr publish exited non-zero; the client publish above STANDS."
         ;;
       *)
         echo "" >&2

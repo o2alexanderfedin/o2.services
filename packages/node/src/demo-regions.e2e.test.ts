@@ -348,6 +348,10 @@ describe('the page, with the fabric stopped', () => {
     if (url === undefined) throw new Error('vite dev server produced no URL')
     baseUrl = url.endsWith('/') ? url : `${url}/`
 
+    // This block's whole premise is *no relay*, and since 2026-09-08 that premise is held by
+    // `launchFixtureBrowser` being hermetic by default: without it the page finds the fabric's
+    // own signed document on a public relay and never settles on `blocked`, which is exactly
+    // how this `beforeAll` waited out its full 30 s once. See `HERMETIC_PROXY`.
     browser = await launchFixtureBrowser(chromium)
     context = await browser.newContext()
     page = await context.newPage()
