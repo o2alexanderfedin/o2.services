@@ -124,20 +124,27 @@ export const FIREFOX_SHOW_LOCAL_ICE_CANDIDATES: Readonly<Record<string, boolean>
  */
 export async function launchFixtureBrowser(
   type: BrowserType,
-  options: LaunchOptions = {},
+  options: LaunchOptions & { readonly online?: boolean } = {},
 ): Promise<Browser> {
+  // Hermetic unless the caller says otherwise — see {@link HERMETIC_PROXY} for the seventeen
+  // cases that bought this. `online: true` is a claim a fixture makes about needing the
+  // internet, and it is one line in that fixture rather than a silent property of all of them.
+  const { online, ...rest } = options
+  const withProxy: LaunchOptions =
+    online === true ? rest : { ...rest, proxy: rest.proxy ?? HERMETIC_PROXY }
+  const opts = withProxy
   if (type.name() === 'chromium') {
-    return type.launch({ ...options, args: [SHOW_LOCAL_ICE_CANDIDATES, ...(options.args ?? [])] })
+    return type.launch({ ...opts, args: [SHOW_LOCAL_ICE_CANDIDATES, ...(opts.args ?? [])] })
   }
   if (type.name() === 'firefox') {
     // Merged under the caller's prefs rather than over them, so a fixture that deliberately
     // sets this pref for its own reasons still wins — the same courtesy `args` gets above.
     return type.launch({
-      ...options,
-      firefoxUserPrefs: { ...FIREFOX_SHOW_LOCAL_ICE_CANDIDATES, ...(options.firefoxUserPrefs ?? {}) },
+      ...opts,
+      firefoxUserPrefs: { ...FIREFOX_SHOW_LOCAL_ICE_CANDIDATES, ...(opts.firefoxUserPrefs ?? {}) },
     })
   }
-  return type.launch(options)
+  return type.launch(opts)
 }
 
 /**
@@ -149,6 +156,43 @@ export async function launchFixtureBrowser(
 export function chromiumFixtureArgs(extra: readonly string[] = []): string[] {
   return [SHOW_LOCAL_ICE_CANDIDATES, ...extra]
 }
+
+/**
+ * A fixture browser reaches the fixture's own server and nothing else.
+ *
+ * **This is the default since 2026-09-08, and it was paid for by a whole e2e lane.** The Nostr
+ * bootstrap fallback landed the night before, and on the next full run **seventeen cases in six
+ * files went red on a quiet host** — `'3 node(s) computing'` where two were expected, `'5'`,
+ * `'7'`, and a page that would not report itself stopped. The cause was not the fixtures: a page
+ * with no `bootstrap.json` and no `?relay=` is exactly what a local fixture looks like, so every
+ * one of those tabs found the fabric's signed document, dialled the **live production relay**,
+ * and joined the real network. **The suite was running against production and reporting real
+ * peers as its own.**
+ *
+ * Blackholing the relay hosts was the first fix and it is not enough: `--host-resolver-rules` is
+ * Chromium's, and `demo-fabric.e2e.test.ts` drives Firefox too. A dead proxy with the loopback
+ * bypassed is engine-independent, and it states the stronger property the lane actually wants —
+ * a fixture is hermetic, and an outbound call it did not intend fails rather than succeeding
+ * quietly. Port 9 is `discard`, which nothing listens on.
+ *
+ * A fixture that genuinely needs the internet — `nostr-bootstrap.e2e.test.ts` reads real relays,
+ * and one `built-bundle` case proves the fallback works — passes `{ online: true }` and says why.
+ */
+export const HERMETIC_PROXY = {
+  server: 'http://127.0.0.1:9',
+  /**
+   * Loopback **and every private range**, because a fixture's own server is not always on
+   * loopback.
+   *
+   * The private ranges were added after `seed-discovery.e2e.test.ts` failed with
+   * `net::ERR_PROXY_CONNECTION_FAILED at http://10.144.82.254:5173/` — that fixture serves the
+   * page from this machine's **LAN address on purpose**, because the thing it models is a second
+   * device joining knowing only a URL, and `127.0.0.1` is not a URL a second device can use. A
+   * bypass list that only knew loopback would have quietly redefined "local" as "the same
+   * process", which is the opposite of what that fixture exists to test.
+   */
+  bypass: 'localhost, 127.0.0.1, ::1, [::1], *.local, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16',
+} as const
 
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────

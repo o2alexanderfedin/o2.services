@@ -1026,7 +1026,17 @@ export interface TabApi {
    * discovering this does not make a tab enrollable by whatever served it.
    */
   discoverRelays(): Promise<{
-    source: 'query' | 'origin' | 'none'
+    /**
+     * Where the address came from.
+     *
+     * **`'nostr'` joined on 2026-09-07 and it joined because the alternative was a lie.** The
+     * fallback in `nostr-bootstrap.ts` first reported its documents as `'origin'`, measured
+     * against the built bundle on a static host: `source: 'origin'` for an address that came
+     * from `nos.lol`. A provenance field that names the wrong provenance is worse than no field
+     * — `demo-regions.ts` labels a surface from this value, and a reader would have been told
+     * this page's own host answered when it had 404ed twice.
+     */
+    source: 'query' | 'origin' | 'nostr' | 'none'
     relayAddrs: string[]
     enrollmentProvider?: string
   }>

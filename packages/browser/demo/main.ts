@@ -1160,10 +1160,32 @@ function noteOutcome(cause: StartFailure | null): void {
  * document that exists IS this origin's answer, and falling through on a missing field would
  * let one caller read one location and another caller read the other.
  *
- * Answers `undefined` when neither location has one — a static host with no seed, which is a
- * state and not a failure.
+ * ## And a third place, which is not this origin at all
+ *
+ * When neither location answers, the fabric's own signed copy on Nostr is asked —
+ * `../src/nostr-bootstrap.ts`. **The fallback lives HERE and not at a call site, and that is a
+ * repair rather than tidiness.** It was first wired into `runDiscoveryRound` alone, and measured
+ * the same day against the built bundle on a static host with no `bootstrap.json`: `discoverRelays`
+ * answered `source: 'none'` in **8 ms with no socket opened at all**, because
+ * `TabApi.discoverRelays` is a SECOND caller of this function and the wiring had reached only the
+ * first. Two call sites, one of them wired, is a feature that exists and does not run — which is
+ * the failure this repository keeps finding under other names. One seam, both callers, and a
+ * third caller cannot forget it.
+ *
+ * The ordering is a security property and is stated at `readNostrBootstrap`: the origin FIRST,
+ * this second, never a merge and never the reverse, because a page whose origin answers must not
+ * be redirectable by whoever holds a key on somebody else's infrastructure.
+ *
+ * Answers `undefined` when no location has one — a static host with no seed and no published
+ * fallback, which is a state and not a failure.
  */
-async function fetchBootstrapDocument(): Promise<Record<string, unknown> | undefined> {
+interface FoundBootstrap {
+  readonly document: Record<string, unknown>
+  /** Which of the three places answered. Reported outward, never inferred by a caller. */
+  readonly from: 'origin' | 'nostr'
+}
+
+async function fetchBootstrapDocument(): Promise<FoundBootstrap | undefined> {
   // Deduplicated, because a page served FROM the root resolves both to the same URL and a
   // second identical request would be a wasted round trip on the commonest arrangement.
   const seen = new Set<string>()
@@ -1181,13 +1203,29 @@ async function fetchBootstrapDocument(): Promise<Record<string, unknown> | undef
       // Narrowed rather than cast: a static host may answer 200 with HTML or with an array,
       // and neither must be read as a bootstrap document by a caller reaching for a field.
       if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
-        return { ...body }
+        return { document: { ...body }, from: 'origin' }
       }
     } catch {
       // A 404, HTML where JSON was expected, or no host at all. Try the other location.
     }
   }
-  return undefined
+  // **A relay the visitor named outranks a published document, so nothing is asked.** Measured
+  // 2026-09-07: without this, a page given `?relay=<local>` still consulted the fallback and
+  // added the LIVE production relay to its candidate set — `static-rendezvous.e2e.test.ts` went
+  // red at `attempted: 3` against `undiscovered: 2`, which is a fixture dialling production.
+  // The defect it caught is not the fixture's: an explicit address is the visitor's own choice,
+  // and widening the dial set behind it by asking strangers is the thing `?relay=` exists to
+  // avoid. `TabApi.discoverRelays` already returns early on it; this is the same rule one level
+  // down, where the second caller lives.
+  if (new URLSearchParams(location.search).getAll('relay').some((a) => a !== '')) return undefined
+
+  // No origin document and no named relay. Ask the fabric's own signed copy — see the third
+  // section of this docblock for why it is here rather than at a caller.
+  const published = await readNostrBootstrapIfPinned({
+    open: (url) => new WebSocket(url),
+    now: () => Date.now(),
+  })
+  return published === undefined ? undefined : { document: published, from: 'nostr' }
 }
 
 /** The round in flight, so a second caller joins it instead of starting another. */
@@ -1211,19 +1249,8 @@ async function runDiscoveryRound(): Promise<TabDiscoveryRound> {
   //    relay circuit at all — so a lone visitor has a peer immediately.
   // Both mount points, relative first — see {@link fetchBootstrapDocument} for why a page
   // cannot know which of the two served it, and for what asking only one of them cost.
-  // The origin first, and a Nostr document ONLY when the origin gave nothing — never the other
-  // way round and never a merge. `nostr-bootstrap.ts` states why that ordering is a security
-  // property rather than a preference: a page whose origin is answering correctly must not be
-  // redirectable by whoever holds a key on somebody else's infrastructure.
-  //
-  // **It opens no socket while nothing is pinned**, which is the state today, so this line
-  // changes no request this page makes until a project key exists. `readNostrBootstrapIfPinned`
-  // answers `undefined` for every reason a caller here would treat identically — no pin, no
-  // relay reachable, every answer refused — because this round already treats *no document* as
-  // an ordinary state and a stranger's silence must not be louder than the origin's.
-  const info =
-    (await fetchBootstrapDocument()) ??
-    (await readNostrBootstrapIfPinned({ open: (url) => new WebSocket(url), now: () => Date.now() }))
+  const found = await fetchBootstrapDocument()
+  const info = found?.document
   if (info !== undefined && Array.isArray(info['peerAddrs'])) {
     candidates.push(...info['peerAddrs'].filter((a): a is string => typeof a === 'string'))
     asked = true
@@ -2239,8 +2266,9 @@ const api: TabApi = {
     //    {@link fetchBootstrapDocument}: a seed mounts it at the root, a static host and
     //    GitHub Pages carry it beside the page, and a bundle cannot know which served it.
     {
-      const info = await fetchBootstrapDocument()
-      if (info !== undefined) {
+      const found = await fetchBootstrapDocument()
+      if (found !== undefined) {
+        const info = found.document
         const addrs = Array.isArray(info['relayAddrs'])
           ? info['relayAddrs'].filter((a): a is string => typeof a === 'string')
           : []
@@ -2256,7 +2284,8 @@ const api: TabApi = {
           // Narrowed rather than cast: `/bootstrap.json` is a network response, and a static
           // host answering with something else must not put a non-string on a dial path.
           return {
-            source: 'origin' as const,
+            // Whichever of the three answered — never a constant. See `TabApi.discoverRelays`.
+            source: found.from,
             relayAddrs: addrs,
             ...(typeof info['enrollmentProvider'] === 'string' && info['enrollmentProvider'] !== ''
               ? { enrollmentProvider: info['enrollmentProvider'] }

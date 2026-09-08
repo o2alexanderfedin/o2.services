@@ -54,7 +54,7 @@ import { FUNNEL_SCHEMA_DIGEST, FUNNEL_STAGES } from '@o2/net'
 import type { FunnelStage } from '@o2/net'
 import { KERNEL_RECORD, kernelBytes } from '@o2/demo'
 import type { TabNameRecord } from '@o2/browser'
-import { fixtureViteCacheDir } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { registerHarnessTab, signInHarnessTab } from './e2e-signin.ts'
 
 /**
@@ -211,7 +211,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   baseUrl = url.endsWith('/') ? url : `${url}/`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
 }, 240_000)
 
 afterAll(async () => {
