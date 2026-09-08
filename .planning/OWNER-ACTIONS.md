@@ -426,30 +426,71 @@ The refusal moved *past* the key check. **One half of the kill switch is closed;
 region, and only Act B carries that.** The probe that measured it was addressed `halted: false`
 deliberately, so an accepted write would have stopped nobody.
 
-**Act B — the deploy that carries the region.**
+### ACTS B AND C ARE DONE — 2026-09-07, on the owner's instruction, and the switch was EXERCISED
+
+`scripts/deploy-hosted.sh --live` ran the full gate first — typecheck, 176 files / 2978 tests, the
+bundle build — then deployed version `c4e59198-d33f-4452-ba27-289cccb9e2e2`, rollback target
+`5d31d045-3891-4d16-be94-beb63df54574`. The pre-flight reported both secrets configured. The
+read-back:
+
+```json
+"admission":{"region":"bootstrap-us","halted":false,...}
+"killSwitch":{"operable":true,"reason":"a halt addressed to \"bootstrap-us\" and presenting
+              this object's operator key would be accepted"}
+```
+
+**The identity survived and the migration ran.** `/self` calls `identity()`, so the first read
+after the deploy is what performed AUTH-07's migration — plaintext seed read, sealed under
+`O2_IDENTITY_SECRET`, envelope re-read and compared byte for byte, plaintext deleted. The PeerId
+came back `12D3KooWKm587fnGat5xncq9kaWUk4bN5gUJQiF4q8EwJnrb7rsz`, unchanged, which IS the proof
+that the envelope opened to the same bytes. The relay journal also survived the eviction:
+`inboundHopStreams` continued past 7 227 and `firstInboundHopStreamAt` is still 1788191433180.
+
+#### The switch was then thrown, and thrown back
+
+`operable: true` is the object's claim about itself, so it was checked against the object's
+behaviour. Four writes against production, with live traffic on it (24.6 connection-seconds
+accrued since the deploy):
+
+| write | result |
+|---|---|
+| `halted: true`, addressed `bootstrap-us`, correct key | `200`, and `/self` reads `halted: true` |
+| `halted: false`, same | `200`, and `/self` reads `halted: false` — **it moves both ways** |
+| `halted: true`, addressed `bootstrap-eu`, correct key | `409 this write is addressed to region "bootstrap-eu" and this object serves region "bootstrap-us"` |
+| `halted: true`, addressed `bootstrap-us`, wrong key | `401 the X-O2-Admission-Key header does not match` |
+
+Final state: `halted: false`, `note: ""`. The halt window was seconds against a 30 000 ms client
+poll, so most likely no tab ever read it; a tab that did paused admitting and resumed on its next
+poll, which is the designed behaviour rather than a mishap.
+
+**This is the first deployed reading RUN-02 has ever had.** Every prior measurement was local
+workerd.
+
+#### One thing this deploy could NOT check, recorded rather than left to be discovered
+
+The version read-back compared `2.0.0-rc.12` against `2.0.0-rc.12` and passed **trivially**: the
+root manifest was not bumped, so the new build carries the same version string as the one it
+replaced. What actually proves the new build landed is the `killSwitch` field, which the previous
+build did not have. A deploy of a *changed* build under an *unchanged* version string is invisible
+to that check — it is a real gap in `deploy-hosted.sh`, not a problem with this deploy, and closing
+it means either bumping the version per deploy or reading something the build changes.
+
+### To throw the switch for real
 
 ```
-scripts/deploy-hosted.sh --live
+KEY="$(security find-generic-password -s 'o2.services/cloudflare/o2-bootstrap' -a O2_ADMISSION_KEY -w)"
+curl -X POST https://o2-bootstrap.af-4a0.workers.dev/admission \
+  -H "X-O2-Admission-Key: $KEY" -H 'Content-Type: application/json' \
+  --data '{"region":"bootstrap-us","halted":true,"versions":"all","since":null,"note":"why"}'
 ```
 
-It now injects `O2_REGION:bootstrap-us`, refuses if act A was skipped, and reads the switch back.
-A green run ends with `✅ the kill switch is ARMED`.
-
-**Act C — read it back yourself, from a different machine than the one that deployed.**
-
-```
-curl -s https://o2-bootstrap.af-4a0.workers.dev/self | grep -o '"killSwitch":{[^}]*}'
-```
+Set `halted` back to `false` to resume. Tabs pick it up within one 30 s poll. `versions` takes a
+list instead of `"all"` to stop only certain client builds.
 
 ### What it means
 
-| reading | verdict |
+| reading of `/self` | verdict |
 |---|---|
-| `"operable":true` | The switch exists. Criterion 5's exercise can proceed, and so can invitations |
-| `"operable":false` | **STOP.** `reason` names which half is still missing. Do not invite anyone |
-| no `killSwitch` field at all | The old build is still serving — act B did not land |
-
-### What to say back
-
-The `killSwitch` object verbatim. If `operable` is `false`, its `reason` says what to fix and
-nothing else on the Phase 39 list should start.
+| `"operable":true` | The switch exists. **This is the current state.** |
+| `"operable":false` | **STOP.** `reason` names which half is missing. Do not invite anyone |
+| no `killSwitch` field at all | An older build is serving — the deploy did not land |
