@@ -385,21 +385,46 @@ neither injected nor read back, so no deploy ever noticed. Three changes, all la
 `refuseMisaddressed` — the same functions the write path runs — against the best input an operator
 could supply. A restatement could drift from the gate; this cannot.
 
-### What to run, in this order
+### ACT A IS DONE — 2026-09-07, and it corrected a claim this row made
 
-**Act A — the operator key.** Nothing else on this list can be done first: without it the deploy
-below refuses.
+**`O2_IDENTITY_SECRET` was NOT set either.** This row said it was, inferring it from `/self`
+answering with a PeerId. The inference was wrong: `wrangler secret list --name o2-bootstrap`
+answered **`[]`** — the deployed script held *no secrets at all*. The reading was controlled both
+ways: a non-existent script name errors, and `wrangler deployments list` shows the real script with
+a deployment dated 2026-08-28. That deploy **predates AUTH-07**, so the object never needed the
+secret and the PeerId told us nothing about it. An absence needs a positive control, and the
+inference had none.
+
+Both secrets were generated with `openssl rand -hex 32` (256 bits each), stored, and uploaded.
+Neither value passed through a command-line argument, a log, or this document.
+
+#### Where they are kept
+
+**The macOS login keychain of this machine.** Read either one back with:
 
 ```
-cd packages/cloudflare && npx wrangler secret put O2_ADMISSION_KEY
+security find-generic-password -s 'o2.services/cloudflare/o2-bootstrap' -a O2_ADMISSION_KEY   -w
+security find-generic-password -s 'o2.services/cloudflare/o2-bootstrap' -a O2_IDENTITY_SECRET -w
 ```
 
-Paste a value from a password manager, ~32 random characters. **Store it before pressing enter** —
-it is the only thing that can ever stop this fabric, and Cloudflare will not show it to you again.
+Both items carry a comment saying what they are and what losing them costs. **Copy them into a
+password manager that is backed up.** The login keychain is on one machine: it survives a reboot
+and a logout, and it does not survive that machine. `O2_IDENTITY_SECRET` is the more dangerous of
+the two to lose — without it the node cannot open its own sealed seed, and a node that mints a new
+one is a node every peer holding the published address can no longer reach.
 
-`O2_IDENTITY_SECRET` is already set: the deployed object answers `/self` with a PeerId, which an
-object without that secret cannot do (it refuses to mint and answers 500). The deploy checks both
-anyway.
+#### What that already changed on the LIVE object, measured
+
+`wrangler secret put` applies to the running script, so this took effect without a code deploy:
+
+| | before | after |
+|---|---|---|
+| `POST /admission` with the correct key | `401 this object has no operator key configured` | `409 this object serves no region` |
+| `peerId` | `12D3KooWKm587fnGat5xncq9kaWUk4bN5gUJQiF4q8EwJnrb7rsz` | **unchanged** |
+
+The refusal moved *past* the key check. **One half of the kill switch is closed; the other is the
+region, and only Act B carries that.** The probe that measured it was addressed `halted: false`
+deliberately, so an accepted write would have stopped nobody.
 
 **Act B — the deploy that carries the region.**
 
