@@ -519,6 +519,12 @@ describe('RUN-02 — the deploy cannot produce a node nobody can stop', () => {
     expect(DEPLOY).toContain('O2_ADMISSION_KEY')
     // Without this one the read-back would roll a good deploy back while the real fault was a
     // binding: an object with no identity secret answers `GET /self` with 500.
+    //
+    // **And it was genuinely absent.** Measured 2026-09-07: `wrangler secret list --name
+    // o2-bootstrap` answered `[]` — no secrets at all — while `.planning/OWNER-ACTIONS.md` row 9
+    // claimed this one was set, having inferred it from `/self` answering with a PeerId. The
+    // inference was wrong because the deployed build is dated 2026-08-28 and predates AUTH-07,
+    // so it never read the binding. The pre-flight is what turns that inference into a reading.
     expect(DEPLOY).toContain('O2_IDENTITY_SECRET')
   })
 
