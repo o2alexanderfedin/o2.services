@@ -278,3 +278,73 @@ open),
 [ikarius6/entropy](https://github.com/ikarius6/entropy),
 [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md) for the ephemeral and
 replaceable kind ranges.
+
+---
+
+## §9 SPIKE, 2026-09-07 — a real browser, the published origin, a document that agrees
+
+The question a spike had to answer, given the owner's constraint that Nostr goes **in addition**
+to the Cloudflare bootstrap and never instead of it: *can a real tab get the address out of
+Nostr, does the address agree with the one it already has, and is doing so lawful under the rules
+this page already keeps?* Answered by running it, not by design. The probes are throwaway and
+live in the session scratchpad; nothing from them is proposed for the tree.
+
+### What was run
+
+The **live** `bootstrap.json` — fetched from the published site, byte for byte, not a
+hand-written copy — was published as a `30078` replaceable event under a **deterministic spike
+key**, derived from the sentence *"o2.services nostr bootstrap SPIKE key, not a project
+identity, 2026-09-07"* so that it is reproducible and unmistakable for a project identity.
+Pubkey `717a67daccfa35ad51b1ccdfebd586a42aae9bc479965f08c54a04be964368bc`. Accepted by four
+relays.
+
+Then a real Chromium loaded `https://o2alexanderfedin.github.io/o2.services/` and, **from the
+page's own context**, raced six relays for the document — with two that cannot answer placed
+**first** in the list, because a race that only ever sees healthy relays proves nothing about the
+failure this fallback exists for.
+
+### What it answered
+
+| | |
+|---|---|
+| page load | 262 ms |
+| **document in hand, racing six relays** | **655 ms** |
+| bytes | 336 |
+| **identical to the origin's own `bootstrap.json`** | **yes** |
+| `relay.nostr.band` | timed out at 5 000 ms |
+| `this-relay-does-not-exist.invalid` | socket error |
+| `nos.lol` / `relay.primal.net` / `nostr.mom` / `relay.snort.social` | 729 / 790 / 1 239 / 720 ms |
+
+**Two of six relays were dead in this very run and the race did not notice.** It resolves on the
+first answer that *carries a document* rather than on the first settled promise — a relay
+answering *"no such document"* resolves too, and `Promise.any` would let it win while carrying
+nothing.
+
+### Three findings that constrain the design
+
+1. **No CSP stands in the way — today.** Neither the GitHub Pages response nor the markup carries
+   a `Content-Security-Policy`, so a `wss://` to an arbitrary relay is permitted. **If one is ever
+   added, `connect-src` must name every relay**, and that is a coupling worth knowing about
+   before the CSP is written rather than after a fallback silently stops working.
+2. **It is lawful as an addition, and that is not luck.** `discoverRelays()` is a network act that
+   runs only when the surfaces are revealed — `packages/browser/src/signin.ts:53` states it in
+   those words — which is **after** consent. `built-bundle.e2e.test.ts`'s P10 forbids foreign
+   origins *before* consent (`:209`). A Nostr read placed inside `discoverRelays()` therefore does
+   not touch P10. A read placed at page load would break it, and would deserve to.
+3. **The ordering is a security property, not a preference.** Origin first, Nostr only when the
+   origin gives nothing. The reverse — or a "freshest wins" merge — would let whoever holds the
+   Nostr key redirect every visitor to a relay of their choosing. The pubkey must be pinned in
+   the build, which makes it a **third pinned key** beside `trustAnchors` and `trustedIssuers`,
+   and `fabric-node.ts`'s existing sentence that those two *"pin different sets"* is the place
+   that has to say what this third one pins.
+
+### Verdict
+
+**Feasible, cheap, and correctly shaped as a fallback.** The remaining work is small: a reader
+that races a pinned relay list for one document, called by `discoverRelays()` only after the
+origin returns nothing, behind a pinned pubkey.
+
+**Not now.** It is not on the path to the public run, and the run is the goal. §8's ordering
+stands: publish the document beside `bootstrap.json` first — that costs one more publish in
+`deploy-pages.sh` and changes nothing for a visitor whose page loads — and let a real visitor
+read it before anything depends on it.
