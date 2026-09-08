@@ -2,9 +2,16 @@
 
 **Question asked:** can Nostr do for bootstrapping what the Cloudflare tier does?
 
-**Answer in one line:** it can replace the *documents* — the bootstrap seed, the status reading
-and the kill switch — and it **cannot** replace the relay, because js-libp2p's browser-to-browser
+**Answer in one line:** it can carry the *documents* — the bootstrap seed, the status reading and
+the kill switch — and it **cannot** replace the relay, because js-libp2p's browser-to-browser
 WebRTC needs a live libp2p **stream** and Nostr is a mailbox.
+
+**And read §6 item 1's correction before quoting the buys.** The first draft of this document said
+carrying the seed on Nostr *"stops the bootstrap depending on GitHub Pages"*. It does not, and it
+does not remove Cloudflare either — the page is served by the first and the document names the
+second. What it removes is the **origin** as the only place an address may come from, which is a
+portability argument for embedded hosts and for a relay that moves. The two things that genuinely
+leave the billed object are the **kill switch** and the **`/self` poll**, items 2 and 3.
 
 Everything below was measured against real public relays from this machine on 2026-09-07, with a
 throwaway key and a minimal NIP-01 client written on `@noble/curves` and `@noble/hashes`, both
@@ -158,9 +165,39 @@ this project does not run.
 
 ### Buys
 
-1. **The bootstrap seed stops depending on GitHub Pages.** Today `bootstrap.json` is a file on a
+1. ~~**The bootstrap seed stops depending on GitHub Pages.** Today `bootstrap.json` is a file on a
    static host, written by `deploy-pages.sh` from the live node. A page that cannot reach that
-   host has no way to knock. A Nostr document is readable from any of several unrelated relays.
+   host has no way to knock. A Nostr document is readable from any of several unrelated relays.~~
+
+   **CORRECTED THE SAME DAY, and it was wrong in both directions at once.** The owner asked which
+   dependency this actually removes — GitHub Pages or Cloudflare — and the answer measured out of
+   `packages/browser/src/tab-api.ts:1029` is **neither**:
+
+   - `discoverRelays()` declares `source: 'query' | 'origin' | 'none'`. The `origin` source is
+     `/bootstrap.json` on **the page's own origin**. The page is served by GitHub Pages, so a
+     visitor who cannot reach GitHub Pages has no page at all — moving the document off it buys
+     nothing in the one failure mode the sentence named.
+   - And the document's *content* is the Cloudflare relay's multiaddr and PeerId. Fetching that
+     name from a Nostr relay instead of from a file does not change which peer is then dialled.
+     §2 already says the relay stays; this bullet forgot its own §2.
+
+   **What the Nostr copy actually removes is narrower and real: the ORIGIN as the only place an
+   address can come from.** That matters in exactly the cases where the client is not served by
+   the host that knows the address:
+
+   - **embedded in a host application** — this project's own stated target, where there is no
+     `/bootstrap.json` origin to ask and the address would otherwise be baked into a build.
+     `tab-api.ts` warns in as many words against *"an address that can go stale in a build"*, and
+     today the only alternative it offers is a `?relay=` query parameter, i.e. whatever found the
+     page choosing where it knocks;
+   - **a relay that moves.** `wrangler.jsonc` records the open choice that a domain the owner
+     controls is a better long-term address than any `workers.dev` name, *"because this value
+     reaches other peers' routing tables and a published address is painful to move."* A mutable
+     document under a stable name, signed, rollback-refused by §5, is the thing that makes it
+     less painful.
+
+   So this is a **portability** argument, not an availability one, and it was filed under the
+   wrong heading.
 2. **The kill switch becomes a signed statement instead of a service.** Today a halt is a
    `POST /admission` to one Durable Object behind an operator key — measured on 2026-09-07 to
    have been inoperative since the first deploy and invisible while it was. A halt published as a
@@ -171,9 +208,14 @@ this project does not run.
    30 000 ms, and *every WebSocket message is a billed request* — the measured driver of the
    1 100 232 requests that took the free tier down on 2026-09-03. Moving the poll to a Nostr
    relay moves that load to infrastructure nobody bills us for.
-4. **It is a second, unrelated failure domain.** The 2026-09-03 outage was Cloudflare error 1027
-   at the edge — the Worker never ran, so nothing this project could have written would have
-   answered. A bootstrap path that does not pass through that account survives it.
+4. **It is a second, unrelated failure domain — for the DIRECTIVE, and not for the address.**
+   The 2026-09-03 outage was Cloudflare error 1027 at the edge: the Worker never ran, so nothing
+   this project could have written would have answered. A halt published to Nostr is still
+   readable in that state, and a status reading still answers. **The address is not**, and saying
+   otherwise would repeat item 1's mistake in a different bullet: an address whose relay is down
+   is an address to a node nobody can dial, however many relays served the document. What
+   survives an outage is the *ability to be told to stop*, which is worth having and is not the
+   same as the fabric working.
 
 ### Costs, stated at full size
 
