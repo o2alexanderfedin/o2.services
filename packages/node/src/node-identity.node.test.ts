@@ -7,7 +7,8 @@ import { SEED_BYTES, nodeKeyForPeerId, peerIdForNodeKey } from '@o2/libp2p'
 import { FabricNode } from './fabric-node.ts'
 import type { FabricNodeOptions } from './fabric-node.ts'
 import { FsBlockstore } from './fs-blockstore.ts'
-import { IDENTITY_FILE, PROVIDER_FILE } from './identity-store.ts'
+import { IDENTITY_FILE, PROVIDER_FILE, SEALED_IDENTITY_FILE, SEALED_PROVIDER_FILE } from './identity-store.ts'
+import type { IdentityProtection } from '@o2/libp2p'
 
 /**
  * AUTH-01 — a running node's identity, on the production startup path.
@@ -20,7 +21,25 @@ import { IDENTITY_FILE, PROVIDER_FILE } from './identity-store.ts'
  * **Nothing here branches on a kind of node.** Whether a process holds a provider signing
  * key is one boolean option among the others; every node built below has the identical
  * executor, transport, relay capability and protocol surface.
+ *
+ * ## AUTH-06 — persistence now costs a passphrase, and saying nothing costs the peer id
+ *
+ * Plan 42-02 made `FabricNodeOptions.identityProtection` default to `writes-no-new-secret`,
+ * so a node told nothing writes no identity to its directory. Every case below whose subject
+ * is *the identity surviving* therefore states {@link PERSISTS} — **not** because the
+ * assertion was weakened to accommodate the change, but because persistence is now a thing a
+ * caller asks for and these are the cases that ask. The two cases whose subject is a node
+ * with no directory are untouched: they never persisted anything.
+ *
+ * The no-passphrase arm gained a case of its own rather than being left as the default
+ * nobody reads — see *"a node given no passphrase is a different node on its next start"*.
  */
+
+/**
+ * The protection every case about persistence states. At least `PASSPHRASE_MIN_LENGTH`
+ * characters; the floor itself is `identity-at-rest.node.test.ts`'s subject, not this file's.
+ */
+const PERSISTS: IdentityProtection = { kind: 'passphrase', passphrase: 'node-identity-spec-passphrase' }
 
 let workdir: string
 const nodes: FabricNode[] = []
@@ -60,6 +79,25 @@ const stop = async (node: FabricNode): Promise<void> => {
   await node.stop()
 }
 
+/**
+ * Every case here spawns a real `FabricNode`, and on the default 5 000 ms they sat ON their
+ * own boundary rather than inside it.
+ *
+ * Measured 2026-09-06 on a host whose load/core was 1.58 at the start of the lane: the three
+ * slowest cases in this file ran 5 349 ms, 5 684 ms and 7 397 ms and TIMED OUT, while their
+ * neighbours passed at 4 761 ms and 3 185 ms — inside the same 5 000 ms only by luck. The
+ * same file lost cases on `develop` too, with no phase-38 commit in it, which is what puts
+ * the cause in this number rather than in any change.
+ *
+ * 30 000 ms is not a guess: it is `node-enrollment.node.test.ts`'s figure, which every case
+ * of that file already carries for work of exactly this shape — spawn a node, write an
+ * identity, read it back. This file was the one that never set it.
+ *
+ * A timeout is an ABSOLUTE threshold, which this repository prefers not to write, and the
+ * reason it is one here is stated rather than hidden: a timeout has no comparative form. What
+ * it is sited against is the sibling file, not this machine.
+ */
+const CASE_TIMEOUT_MS = 30_000
 describe('AUTH-01 — the identity survives the process that made it', () => {
   /**
    * The whole point of the phase, at the layer an operator sees it.
@@ -70,25 +108,25 @@ describe('AUTH-01 — the identity survives the process that made it', () => {
   it('gives a node restarted against the same directory the same peerId and nodeKey', async () => {
     const dir = join(workdir, 'stable')
 
-    const first = await start({ blockstoreDir: dir })
+    const first = await start({ blockstoreDir: dir, identityProtection: PERSISTS })
     const firstPeerId = first.peerId
     const firstNodeKey = first.nodeKey
     // Stopped before the second starts, so the socket is free. This is the restart case
     // reduced to the one fact that makes it true.
     await stop(first)
 
-    const second = await start({ blockstoreDir: dir })
+    const second = await start({ blockstoreDir: dir, identityProtection: PERSISTS })
     expect(second.peerId).toBe(firstPeerId)
     expect(second.nodeKey).toBe(firstNodeKey)
-  })
+  }, CASE_TIMEOUT_MS)
 
   it('gives nodes in different directories different identities', async () => {
-    const a = await start({ blockstoreDir: join(workdir, 'a') })
-    const b = await start({ blockstoreDir: join(workdir, 'b') })
+    const a = await start({ blockstoreDir: join(workdir, 'a'), identityProtection: PERSISTS })
+    const b = await start({ blockstoreDir: join(workdir, 'b'), identityProtection: PERSISTS })
 
     expect(b.peerId).not.toBe(a.peerId)
     expect(b.nodeKey).not.toBe(a.nodeKey)
-  })
+  }, CASE_TIMEOUT_MS)
 
   /**
    * Decision 2's stated behaviour, asserted rather than left to be discovered: a process
@@ -103,7 +141,7 @@ describe('AUTH-01 — the identity survives the process that made it', () => {
 
     expect(b.peerId).not.toBe(a.peerId)
     expect(b.nodeKey).not.toBe(a.nodeKey)
-  })
+  }, CASE_TIMEOUT_MS)
 
   /**
    * The assertion that makes "the advertised identity is a certificate rather than a bare
@@ -115,21 +153,54 @@ describe('AUTH-01 — the identity survives the process that made it', () => {
    */
   it('reads peerId and nodeKey as two encodings of one identity, both ways', async () => {
     for (const node of [
-      await start({ blockstoreDir: join(workdir, 'derived') }),
+      await start({ blockstoreDir: join(workdir, 'derived'), identityProtection: PERSISTS }),
       await start(),
     ]) {
       expect(peerIdForNodeKey(node.nodeKey)).toBe(node.peerId)
       expect(nodeKeyForPeerId(node.peerId)).toBe(node.nodeKey)
     }
-  })
+  }, CASE_TIMEOUT_MS)
 
-  it('writes exactly SEED_BYTES to the dot-prefixed identity file', async () => {
+  /**
+   * **AUTH-06 inverted the on-disk half of this case, and the inversion is the phase.** It
+   * asserted the identity file held exactly `SEED_BYTES`; the whole claim now is that no file
+   * in this directory does. So it reads the dot-prefixed ENVELOPE, asserts it is longer than a
+   * seed, and asserts the plaintext name is not there at all.
+   *
+   * Reddened by dropping the leading dot from `SEALED_IDENTITY_FILE`, or by making the node
+   * write the plaintext name again.
+   */
+  it('writes a dot-prefixed envelope that is longer than a seed, and no plaintext seed file', async () => {
     const dir = join(workdir, 'seeded')
-    await start({ blockstoreDir: dir })
+    await start({ blockstoreDir: dir, identityProtection: PERSISTS })
 
-    expect(readdirSync(dir)).toContain(IDENTITY_FILE)
-    expect(statSync(join(dir, IDENTITY_FILE)).size).toBe(SEED_BYTES)
-  })
+    expect(readdirSync(dir)).toContain(SEALED_IDENTITY_FILE)
+    expect(statSync(join(dir, SEALED_IDENTITY_FILE)).size).toBeGreaterThan(SEED_BYTES)
+    expect(readdirSync(dir)).not.toContain(IDENTITY_FILE)
+  }, CASE_TIMEOUT_MS)
+
+  /**
+   * AUTH-06 — the honest cost of the default arm, asserted rather than left in a docblock.
+   *
+   * A node told nothing about protection writes no identity, so it is a different node on its
+   * next start and its directory holds no secret to lose. That is what `writes-no-new-secret`
+   * promises, and a promise nothing reads is a comment.
+   *
+   * Reddened by making the default arm persist a plaintext seed again.
+   */
+  it('gives a node with no passphrase a new identity on its next start, and leaves no secret behind', async () => {
+    const dir = join(workdir, 'ephemeral')
+
+    const first = await start({ blockstoreDir: dir })
+    const firstPeerId = first.peerId
+    await stop(first)
+
+    expect(readdirSync(dir)).not.toContain(IDENTITY_FILE)
+    expect(readdirSync(dir)).not.toContain(SEALED_IDENTITY_FILE)
+
+    const second = await start({ blockstoreDir: dir })
+    expect(second.peerId).not.toBe(firstPeerId)
+  }, CASE_TIMEOUT_MS)
 
   /**
    * `FsBlockstore.open`'s filter **is** the block counter, so any non-block file in a
@@ -141,12 +212,14 @@ describe('AUTH-01 — the identity survives the process that made it', () => {
    * the file is MISSING from reading identically to a count that matches because the
    * filter works.
    *
-   * Reddened by dropping the leading dot from `IDENTITY_FILE`, or by reverting
-   * `fs-blockstore.ts`'s filter to `!name.startsWith('.tmp-')`.
+   * Reddened by dropping the leading dot from `SEALED_IDENTITY_FILE`, or by reverting
+   * `fs-blockstore.ts`'s filter to `!name.startsWith('.tmp-')`. **A `.enc` suffix on a dotted
+   * name still starts with a dot**, which is why AUTH-06 could rename the file without
+   * touching the filter — and this case is where that is read rather than assumed.
    */
-  it('does not count the identity file among the blocks', async () => {
+  it('does not count the identity envelope among the blocks', async () => {
     const dir = join(workdir, 'counted')
-    const node = await start({ blockstoreDir: dir })
+    const node = await start({ blockstoreDir: dir, identityProtection: PERSISTS })
 
     const n = 3
     for (let i = 0; i < n; i++) {
@@ -154,9 +227,9 @@ describe('AUTH-01 — the identity survives the process that made it', () => {
     }
     await stop(node)
 
-    expect(readdirSync(dir)).toContain(IDENTITY_FILE)
+    expect(readdirSync(dir)).toContain(SEALED_IDENTITY_FILE)
     expect((await FsBlockstore.open(dir)).size).toBe(n)
-  })
+  }, CASE_TIMEOUT_MS)
 })
 
 describe('AUTH-01 — holding a provider key is a configuration, not a class', () => {
@@ -164,31 +237,44 @@ describe('AUTH-01 — holding a provider key is a configuration, not a class', (
    * Decision 6's separate-file rule, asserted rather than assumed, so a provider-signed
    * certificate can never be confused with a self-signed one.
    *
-   * Reddened by changing `PROVIDER_FILE` to `IDENTITY_FILE` in the authority block.
+   * Reddened by changing `SEALED_PROVIDER_FILE` to `SEALED_IDENTITY_FILE` in the authority
+   * block.
    */
   it('reports an issuerKey that is never the nodeKey, from a second file on disk', async () => {
     const dir = join(workdir, 'provider')
-    const node = await start({ blockstoreDir: dir, issuesCertificates: 'issues-without-an-aggregate-budget' })
+    const node = await start({
+      blockstoreDir: dir,
+      issuesCertificates: 'issues-without-an-aggregate-budget',
+      identityProtection: PERSISTS,
+    })
 
     expect(node.issuerKey).not.toBeNull()
     expect(node.issuerKey).not.toBe(node.nodeKey)
-    expect(readdirSync(dir)).toContain(PROVIDER_FILE)
-    expect(readdirSync(dir)).toContain(IDENTITY_FILE)
-    expect(statSync(join(dir, PROVIDER_FILE)).size).toBe(SEED_BYTES)
-  })
+    // AUTH-06 — two envelopes, and neither plaintext name. The provider signing key is the
+    // higher-value of the two secrets in this directory and is sealed on identical terms.
+    expect(readdirSync(dir)).toContain(SEALED_PROVIDER_FILE)
+    expect(readdirSync(dir)).toContain(SEALED_IDENTITY_FILE)
+    expect(readdirSync(dir)).not.toContain(PROVIDER_FILE)
+    expect(readdirSync(dir)).not.toContain(IDENTITY_FILE)
+    expect(statSync(join(dir, SEALED_PROVIDER_FILE)).size).toBeGreaterThan(SEED_BYTES)
+  }, CASE_TIMEOUT_MS)
 
   it('reports issuerKey null when it was not told to issue', async () => {
-    const node = await start({ blockstoreDir: join(workdir, 'plain') })
+    const node = await start({ blockstoreDir: join(workdir, 'plain'), identityProtection: PERSISTS })
     expect(node.issuerKey).toBeNull()
-  })
+  }, CASE_TIMEOUT_MS)
 
   /**
    * A process holding a provider key is the same node in every other respect. If a
    * decision keyed on node kind it would show up here.
    */
   it('gives a provider the identical executor binding every other node has', async () => {
-    const provider = await start({ blockstoreDir: join(workdir, 'p'), issuesCertificates: 'issues-without-an-aggregate-budget' })
-    const plain = await start({ blockstoreDir: join(workdir, 'q') })
+    const provider = await start({
+      blockstoreDir: join(workdir, 'p'),
+      issuesCertificates: 'issues-without-an-aggregate-budget',
+      identityProtection: PERSISTS,
+    })
+    const plain = await start({ blockstoreDir: join(workdir, 'q'), identityProtection: PERSISTS })
 
     for (const node of [provider, plain]) {
       // The executor id binding is unchanged by this phase, so a disagreement still names
@@ -197,5 +283,5 @@ describe('AUTH-01 — holding a provider key is a configuration, not a class', (
       expect(node.admission.slots).toBeGreaterThan(0)
       expect(node.relays).toBe(true)
     }
-  })
+  }, CASE_TIMEOUT_MS)
 })

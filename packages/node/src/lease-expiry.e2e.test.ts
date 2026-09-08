@@ -119,11 +119,72 @@ const PROCESS_TEST_TIMEOUT = 600_000
  * the two constants.
  *
  * `DEFAULT_MAX_CONCURRENT_TASKS` (64) is a third bound and is nowhere near binding here.
+ *
+ * **Both bounds above were derived against a single-threaded executor and one of them did not
+ * survive the worker pool.** See {@link COORDINATE_N}: the floor is a *wall-clock* window and
+ * a pool divides it by the thread count, while the ceiling — the survivor's queue against its
+ * own renewal point — is divided by the same number and so did not move. Raising this
+ * constant to compensate was tried and exhausts the fabric; the cube's cost was raised
+ * instead.
  */
 const SHARDS = 12
 
-/** The demo colouring kernel's problem size — `checkpoint-coordinator.e2e.test.ts`'s reasoning. */
-const COORDINATE_N = 300
+/**
+ * The demo colouring kernel's problem size — and since 2026-09-05 it is **this fixture's
+ * trigger margin**, not merely a workload size copied from `checkpoint-coordinator`.
+ *
+ * ## What broke, measured
+ *
+ * `WorkerExecutor` posted to exactly ONE worker when this file was written on 2026-08-18. On
+ * 2026-08-28 it became a pool sized by the host's cores. Every number in {@link SHARDS} and
+ * {@link BURN_MS} was derived against the single-threaded executor, and the pool invalidated
+ * the one that matters: **the holder's queue is no longer `SHARDS x cube` of wall time, it is
+ * `SHARDS / threads x cube`.** At twelve shards on eight threads that is two waves — about a
+ * tenth of a second — and the trigger cannot land inside it.
+ *
+ * It failed as `expected 0 to be greater than 0`, which said nothing. With the tally and the
+ * CPU reading added to that assertion it says everything: `{"granted":12,"completed":12}` —
+ * every shard granted once and answered, nothing lost — **with the silenced executor holding
+ * 1290, 1350 and 1440 ms of CPU at the instant it was signalled, against a {@link BURN_MS} of
+ * 60**. The poll was not merely late; it was twenty-odd times late, because sixteen compute
+ * threads across two executors leave the polling process no core to fork `ps` on.
+ *
+ * ## The reading, and it is comparative rather than absolute
+ *
+ * | shard cost | runs | green |
+ * |---|---|---|
+ * | 300 | 6, across `develop` and the branch | **2** |
+ * | 900 | 7 | **7** |
+ *
+ * Same host, same day, same fixture, one constant differing. The wall clock barely moved —
+ * 23.2 to 23.9 s across the seven, against about 20 s for the runs that failed — because a
+ * dearer cube costs the survivor the same parallelism it costs the holder.
+ *
+ * **And the cause was flip-tested rather than inferred.** With `hostCoreCount` forced to
+ * return 1 — the pool as it stood before 2026-08-28, nothing else changed — the unmodified
+ * fixture passed 3 of 3.
+ *
+ * ## Two levers that were tried and are wrong, so nobody spends the runs again
+ *
+ * - **`--max-concurrent-tasks 1` on each executor.** Serialises the holder, and the trigger
+ *   then fires honestly at 70 and 110 ms of CPU. But it also throttles the coordinator: the
+ *   job reported `{"granted":2,"completed":2}` and stalled, 3 runs of 3. It bounds admission,
+ *   which is not the same question as how many threads drain what was admitted.
+ * - **{@link SHARDS} scaled by the pool, twelve per thread.** Restores the wall-clock queue
+ *   exactly, and 96 shards over two nodes with one of them silenced exhausts the fabric:
+ *   `expected 'no-untried-node' to be 'agreed'`. That constant's stated ceiling is real and
+ *   the pool did not move it.
+ *
+ * Raising the cube's cost is the lever that moves the floor without touching the ceiling.
+ *
+ * ## What this absolute was sited against
+ *
+ * This file prefers a comparative reading, so the conditions are recorded beside the number:
+ * **eight cores, two executors, sixteen compute threads.** A host with many more cores
+ * narrows the window again by the same arithmetic, and the failure will then say so in the
+ * words above rather than as a bare zero.
+ */
+const COORDINATE_N = 900
 
 /**
  * The short lease — sized against the **queue**, not against the clock, and the arithmetic is
@@ -402,6 +463,8 @@ function jobOf(line: Line): JobLine {
 
 /** What one arm produced, plus the identity of the node it silenced. */
 interface Arm {
+  /** The arm's own label, so a failure names WHICH arm rather than only what it expected. */
+  readonly name: string
   readonly job: JobLine
   readonly silencedPeerId: string
   /** CPU the silenced executor had spent on the job at the instant it was silenced. */
@@ -478,7 +541,7 @@ async function runArm(
   const job = jobOf(await coordinator.waitFor((line) => 'job' in line, `${tag}'s job line`))
   if (signal === 'SIGSTOP') silenced.child.kill('SIGCONT')
 
-  return { job, silencedPeerId: peerIdOf(silenced), burnedMs, survivorMs }
+  return { name: tag, job, silencedPeerId: peerIdOf(silenced), burnedMs, survivorMs }
 }
 
 /** Every `heldMs` in an arm, with the nulls refused rather than filtered. */
@@ -498,7 +561,17 @@ function heldOf(arm: Arm): readonly number[] {
 function readArm(arm: Arm, leaseMs: number): void {
   // **Stated first, so an arm whose signal landed too late fails by name** instead of making
   // every reading beneath it vacuously true.
-  expect(arm.job.expired.length).toBeGreaterThan(0)
+  expect(
+    arm.job.expired.length,
+    `arm '${arm.name}' recorded no expiry at all. What the fabric DID record: `
+      + `${JSON.stringify(arm.job.kinds)}, with the silenced executor holding `
+      + `${String(arm.burnedMs)}ms of CPU at the instant it was signalled and the survivor `
+      + `${String(arm.survivorMs)}ms. A tally of granted === completed and nothing else means `
+      + 'the signal landed after the holder had already answered everything — the margin '
+      + '{@link SHARDS} exists to buy, spent. A `surrendered` entry instead would mean the '
+      + 'loss came back as a closed socket inside the lease rather than as a lease running '
+      + 'out, which is the ordering this case exists to pin — see the case docblock.',
+  ).toBeGreaterThan(0)
   // The instrument check: the node that was silenced is the one that was doing the work.
   //
   // **Not `survivorMs < BURN_MS`, and the difference is a flake this file already carries the

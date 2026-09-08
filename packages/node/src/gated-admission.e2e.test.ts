@@ -85,6 +85,7 @@ import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { toHex } from '@o2/core'
 import type { PublicKeyHex } from '@o2/core'
+import type { IdentityProtection } from '@o2/libp2p'
 import { encodeRequest, parseResponse } from '@o2/net'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { FabricNode } from './fabric-node.ts'
@@ -118,6 +119,16 @@ const publisher = (() => {
 const USER_PRIVATE_KEY = new Uint8Array(32).fill(63)
 
 const OPERATOR_ID = 'south-quay-volunteers'
+/**
+ * AUTH-06 — this fixture's identity passphrase.
+ *
+ * A **fixture constant, not a secret**: it names nothing outside this file, and it is
+ * written here rather than generated so that a reader can see the two starts below use the
+ * same one. At or above `PASSPHRASE_MIN_LENGTH` (20), which `assertUsablePassphrase`
+ * enforces before anything is derived from it.
+ */
+const SPEC_PASSPHRASE = 'a-fixture-passphrase-for-a-tab'
+
 
 /** The engines the browser-tier standard names, in the order they are launched. */
 const ENGINES: readonly { readonly name: string; readonly type: BrowserType }[] = [
@@ -243,6 +254,17 @@ async function tabSaysReserved(peerId: string): Promise<readonly string[]> {
  * It does now, and a reading of the criterion that installed its own gate would be grading a
  * hook rather than the production path from `relayAdmission` through `relayAdmissionGate`.
  */
+/**
+ * AUTH-06 — stated because the fixture below restarts door on its own directory and
+ * refuses if the issuer key moved.
+ *
+ * Plan 42-02 made `FabricNodeOptions.identityProtection` default to `writes-no-new-secret`, so
+ * a node told nothing persists no secret and mints a fresh provider key on every start. The
+ * refusal a few lines down would then fire for a reason about identity rather than about the
+ * gate this file measures. Persistence is asked for; the refusal is left as strict as it was.
+ */
+const PERSISTS: IdentityProtection = { kind: 'passphrase', passphrase: 'gated-admission-spec-passphrase' }
+
 async function startCoLocatedDoor(): Promise<void> {
   const minting = await FabricNode.start({
     // Admits nobody, and that is the truthful posture for a node whose entire life is to mint
@@ -251,6 +273,7 @@ async function startCoLocatedDoor(): Promise<void> {
     relayAdmission: new Set<PublicKeyHex>(),
     startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'door'),
+    identityProtection: PERSISTS,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [publisher.pub],
     issuesCertificates: 'issues-without-an-aggregate-budget',
@@ -266,6 +289,7 @@ async function startCoLocatedDoor(): Promise<void> {
     relayAdmission: new Set<PublicKeyHex>([issuer]),
     startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'door'),
+    identityProtection: PERSISTS,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [publisher.pub],
     issuesCertificates: 'issues-without-an-aggregate-budget',
@@ -313,7 +337,7 @@ async function openTab(engine: string, type: BrowserType): Promise<{ browser: Br
 /** Start the tab's node, with or without an enrolment, and hand back its peer id. */
 async function startTabNode(page: Page, blockstoreName: string, enrol: boolean): Promise<string> {
   return page.evaluate(
-    async ([store, anchor, relay, operatorId, userKey, shouldEnrol]) =>
+    async ([store, anchor, relay, operatorId, userKey, shouldEnrol, passphrase]) =>
       window.o2capability.start({
         // The **only** address this tab is ever given, and it is the door's. A page handed a
         // peer list out of band is not reading admission.
@@ -324,6 +348,11 @@ async function startTabNode(page: Page, blockstoreName: string, enrol: boolean):
         // The seed persists in this origin's IndexedDB under `blockstoreName`, so the restart
         // below reuses it and both arms are the same node. That identity is the transition.
         whenSeedIsGone: 'mints-a-new-identity',
+        // AUTH-06 — and this is the field that keeps the sentence above true. A tab's seed
+        // is now written only when a passphrase says where it may live, so a fixture whose
+        // whole subject is *the same node before and after enrolment* has to supply one. It
+        // is a fixture constant and names nothing outside this file.
+        identityProtection: { kind: 'passphrase', passphrase: passphrase as string },
         ...(shouldEnrol === true
           ? {
               enrollment: {
@@ -336,7 +365,7 @@ async function startTabNode(page: Page, blockstoreName: string, enrol: boolean):
             }
           : {}),
       }),
-    [blockstoreName, publisher.pub, doorAddr, OPERATOR_ID, [...USER_PRIVATE_KEY], enrol] as const,
+    [blockstoreName, publisher.pub, doorAddr, OPERATOR_ID, [...USER_PRIVATE_KEY], enrol, SPEC_PASSPHRASE] as const,
   )
 }
 

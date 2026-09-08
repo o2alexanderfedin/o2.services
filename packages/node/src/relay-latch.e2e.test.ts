@@ -5,6 +5,7 @@ import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -115,11 +116,14 @@ async function openPeer(engine: string, type: BrowserType): Promise<Peer> {
   await page.goto(`${baseUrl}${PAGE}?relay=${encodeURIComponent(relayAddr)}`)
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
   // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor
-  // clicks the button.
-  const joined = await page.evaluate(async (store) => {
-    window.o2.grantConsent()
-    return window.o2.autoStart({ blockstoreName: store })
-  }, `relay-latch-${engine}`)
+  // clicks the button. AUTH-06, `42-06`: it signs in for the same reason too, because
+  // `window.o2.start` refuses with `SignedOutError` until somebody has opened their own
+  // envelope. `signInHarnessTab` does both, in the order its header explains.
+  await signInHarnessTab(page)
+  const joined = await page.evaluate(
+    async (store) => window.o2.autoStart({ blockstoreName: store }),
+    `relay-latch-${engine}`,
+  )
   // A reservation that has produced no dialable address is a peer nobody can name, so
   // this is part of joining rather than part of any reading.
   await page.evaluate(async () => window.o2.waitForWebrtcAddr(90_000))

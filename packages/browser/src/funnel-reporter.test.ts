@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   FUNNEL_ARMING,
-  FUNNEL_PENDING_POPULATION,
+  FUNNEL_POPULATION,
   FunnelReporter,
   beaconSendPort,
   funnelEndpointFrom,
@@ -99,7 +99,7 @@ describe('a stage is reported at most once per visit', () => {
       stage: 'ice-gathering',
       kind: 'entered',
       hourBucket: 14,
-      population: FUNNEL_PENDING_POPULATION,
+      population: FUNNEL_POPULATION,
       networkClass: 'wifi',
     })
   })
@@ -174,7 +174,7 @@ describe('the arming point is the intersection of both readings of open question
     // The literal, because the value IS the claim. Reading it off the module would agree with
     // whatever it had been changed to.
     expect(FUNNEL_ARMING).toBe('at-consent')
-    expect(FUNNEL_PENDING_POPULATION).toBe('opted-in-only')
+    expect(FUNNEL_POPULATION).toBe('opted-in-only')
   })
 
   it('holds a report composed before arming and sends nothing until armed', () => {

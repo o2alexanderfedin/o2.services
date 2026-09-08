@@ -103,3 +103,21 @@ tools/aot/fixtures/r1/
 # extracted from ghcr.io/yomaytk/elfconv:arm64. Reproducible from those two sources,
 # so committing them would add 9 MB of opaque bytes for nothing.
 packages/aot/artifacts/
+
+# Operating secrets for the deployed hosted node, kept here so they are one `cat` away
+# instead of one machine away — the macOS login keychain holds the same two values and does
+# not survive this laptop.
+#
+# **Ignored BEFORE anything was written into it**, which is the only order that is safe: a
+# secret written first and ignored second is a secret git has already seen, and `.gitignore`
+# does not reach a file that is already tracked. `git check-ignore -v` was read against the
+# real paths before the first byte went in.
+#
+# Ignored rather than merely untracked for `.o2-seed/`'s stated reason: six specs snapshot
+# `git status --porcelain` around themselves and assert it is unchanged, so an untracked
+# directory here reddens them for reasons that have nothing to do with anyone's code.
+#
+# The whole directory, not a glob over file names. A pattern that named today's two files
+# would silently stop covering the third somebody adds — and the failure mode of that
+# omission is a private key in the history, which cannot be taken back by deleting it.
+.secrets/

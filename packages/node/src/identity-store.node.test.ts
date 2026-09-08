@@ -11,16 +11,46 @@ import {
   CERTIFICATE_FILE,
   IDENTITY_FILE,
   PROVIDER_FILE,
+  SEALED_IDENTITY_FILE,
+  SEALED_PROVIDER_FILE,
   loadCertificate,
-  loadOrCreateSeed,
+  loadOrCreateSealedSeed,
   saveCertificate,
 } from './identity-store.ts'
+import type { IdentityProtection } from '@o2/libp2p'
 
 /**
  * AUTH-01 — the identity seed on disk.
  *
  * Node-only: writes real files and reads real modes.
+ *
+ * ## AUTH-06 — the same cases, against the sealed store that replaced `loadOrCreateSeed`
+ *
+ * Every case in the first two describe blocks was written for `loadOrCreateSeed`, which
+ * wrote 32 raw bytes and was deleted by plan 42-02. **What each case asserts is unchanged
+ * and still worth having** — byte length, non-aliasing, stability across calls, two names
+ * meaning two seeds, a wrong-length refusal, a leftover `.tmp-` file being ignored, and
+ * directory creation are all properties of the replacement too. What changed is the
+ * function they call and the passphrase they now pass it.
+ *
+ * Two of them are now assertions about the ENVELOPE rather than about a raw file: a store
+ * whose whole purpose is that the bytes on disk are not the seed cannot be asked whether
+ * the bytes on disk are the seed. Those two read the envelope back through
+ * `loadOrCreateSealedSeed` itself, which is the production reader.
+ *
+ * The criteria this phase is measured by are in `identity-at-rest.node.test.ts`, across
+ * real processes. This file stays what it was: the unit-level reading of one module.
  */
+
+/**
+ * At least `PASSPHRASE_MIN_LENGTH` characters. The cases below are not about the floor —
+ * `identity-at-rest.node.test.ts` carries that one — so this only has to clear it.
+ */
+const PROTECTION: IdentityProtection = { kind: 'passphrase', passphrase: 'identity-store-spec-passphrase' }
+
+/** Argon2id at the production parameters costs a few hundred ms per call, and some cases
+ * make four. Budgets, never assertions: nothing here reads a clock. */
+const KDF_BUDGET_MS = 60_000
 
 let dir: string
 
@@ -32,106 +62,127 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
-describe('AUTH-01 — loadOrCreateSeed creates', () => {
-  it('writes exactly SEED_BYTES bytes and returns them', async () => {
-    const seed = await loadOrCreateSeed(dir, IDENTITY_FILE)
+/** The identity seed, sealed, under this file's shared protection. */
+const held = async (target = dir, sealed = SEALED_IDENTITY_FILE, legacy = IDENTITY_FILE): Promise<Uint8Array> =>
+  (await loadOrCreateSealedSeed(target, sealed, legacy, PROTECTION)).seed
+
+describe('AUTH-01/AUTH-06 — loadOrCreateSealedSeed creates', () => {
+  /**
+   * **The on-disk half of this case is now an inequality, and that inversion IS the phase.**
+   * It used to read the file back and assert it equalled the seed; the whole claim of
+   * AUTH-06 is that it does not. So it asserts the file is longer than a seed, is not the
+   * seed's bytes, and nevertheless yields the seed when read through the production reader.
+   */
+  it('returns exactly SEED_BYTES and writes something on disk that is not them', async () => {
+    const seed = await held()
     expect(seed.length).toBe(SEED_BYTES)
 
-    const onDisk = await readFile(join(dir, IDENTITY_FILE))
-    expect(onDisk.length).toBe(SEED_BYTES)
-    expect(new Uint8Array(onDisk)).toStrictEqual(seed)
-  })
+    const onDisk = await readFile(join(dir, SEALED_IDENTITY_FILE))
+    expect(onDisk.length).toBeGreaterThan(SEED_BYTES)
+    expect(onDisk.includes(Buffer.from(seed))).toBe(false)
+    // And the plaintext name was never written at all.
+    expect(await readFile(join(dir, IDENTITY_FILE)).then(() => true, () => false)).toBe(false)
+
+    // The production reader gets the same bytes back out of it.
+    expect(await held()).toStrictEqual(seed)
+  }, KDF_BUDGET_MS)
 
   /**
-   * A private key readable by every account on the host is not a private key.
-   * Reddened by deleting `{ mode: 0o600 }` from the `writeFile` call.
+   * Filesystem mode is no longer the protection, and the case is kept anyway: it is free,
+   * and the asymmetry with `.certificate.json`'s deliberate lack of a mode still tells
+   * whoever reads the directory next which of the two files is a secret.
+   *
+   * Reddened by deleting `{ mode: 0o600 }` from `writeEnvelope`'s `writeFile` call.
    */
-  it('creates the file readable and writable by its owner only', async () => {
-    await loadOrCreateSeed(dir, IDENTITY_FILE)
-    expect(statSync(join(dir, IDENTITY_FILE)).mode & 0o777).toBe(0o600)
-  })
+  it('creates the envelope readable and writable by its owner only', async () => {
+    await held()
+    expect(statSync(join(dir, SEALED_IDENTITY_FILE)).mode & 0o777).toBe(0o600)
+  }, KDF_BUDGET_MS)
 
   it('does not alias the bytes it hands back across two calls', async () => {
-    const first = await loadOrCreateSeed(dir, IDENTITY_FILE)
-    const second = await loadOrCreateSeed(dir, IDENTITY_FILE)
+    const first = await held()
+    const second = await held()
     expect(second).toStrictEqual(first)
     expect(second).not.toBe(first)
     first.fill(0)
     // Mutating one caller's copy must not reach the next caller's.
-    const third = await loadOrCreateSeed(dir, IDENTITY_FILE)
-    expect(third.some((b) => b !== 0)).toBe(true)
-  })
+    const third = await held()
+    expect(third.some((b: number) => b !== 0)).toBe(true)
+  }, KDF_BUDGET_MS)
 })
 
-describe('AUTH-01 — loadOrCreateSeed reads back', () => {
+describe('AUTH-01/AUTH-06 — loadOrCreateSealedSeed reads back', () => {
   /**
    * The whole of "the peer id becomes stable across restarts", reduced to the one fact
-   * that makes it true. Reddened by deleting the `readFile` attempt so every call
+   * that makes it true. Reddened by deleting the envelope-read attempt so every call
    * generates.
    */
   it('returns the same bytes on a second call against the same directory', async () => {
-    const first = await loadOrCreateSeed(dir, IDENTITY_FILE)
-    const second = await loadOrCreateSeed(dir, IDENTITY_FILE)
+    const first = await held()
+    const second = await held()
     expect(second).toStrictEqual(first)
-  })
+  }, KDF_BUDGET_MS)
 
   /**
    * Two names, one function, so the provider signing key and the node identity key
    * cannot accidentally become the same bytes — which is what keeps `issuer !== nodeKey`
    * true and a provider-signed certificate distinguishable from a self-signed one.
    *
-   * Reddened by changing `PROVIDER_FILE` to equal `IDENTITY_FILE`.
+   * Reddened by changing `SEALED_PROVIDER_FILE` to equal `SEALED_IDENTITY_FILE`.
    */
   it('gives two file names in one directory two different seeds', async () => {
-    const identity = await loadOrCreateSeed(dir, IDENTITY_FILE)
-    const provider = await loadOrCreateSeed(dir, PROVIDER_FILE)
+    const identity = await held()
+    const provider = await held(dir, SEALED_PROVIDER_FILE, PROVIDER_FILE)
     expect(provider).not.toStrictEqual(identity)
 
     // And both are still stable individually.
-    expect(await loadOrCreateSeed(dir, IDENTITY_FILE)).toStrictEqual(identity)
-    expect(await loadOrCreateSeed(dir, PROVIDER_FILE)).toStrictEqual(provider)
-  })
+    expect(await held()).toStrictEqual(identity)
+    expect(await held(dir, SEALED_PROVIDER_FILE, PROVIDER_FILE)).toStrictEqual(provider)
+  }, KDF_BUDGET_MS)
 
   /**
    * A truncated identity file that silently became a new identity would drop the node out
    * of every peer's verified set with nothing reporting why. Fatal, never regenerated.
    *
-   * Reddened by deleting the `if (bytes.length !== SEED_BYTES) throw …` line.
+   * **Read against the LEGACY plaintext name**, which is the only place a raw-length file
+   * can still arrive from — a directory written by a build before AUTH-06, arriving at the
+   * migration branch. Reddened by deleting the `if (legacy.length !== SEED_BYTES) throw …`
+   * line.
    */
-  it('refuses a wrong-length file by name instead of minting a new identity', async () => {
+  it('refuses a wrong-length legacy file by name instead of minting a new identity', async () => {
     for (const wrong of [31, 33]) {
       const path = join(dir, IDENTITY_FILE)
       await writeFile(path, new Uint8Array(wrong))
 
-      await expect(loadOrCreateSeed(dir, IDENTITY_FILE)).rejects.toThrow(
-        new RegExp(`${wrong} bytes`),
-      )
+      await expect(held()).rejects.toThrow(new RegExp(`${wrong} bytes`))
       // The error names the path too, so an operator knows which file to look at.
-      await expect(loadOrCreateSeed(dir, IDENTITY_FILE)).rejects.toThrow(/identity\.key/)
+      await expect(held()).rejects.toThrow(/identity\.key/)
 
-      // And it did NOT rewrite the file — a refusal that repaired the thing it refused
-      // would be the silent regeneration this test exists to forbid.
+      // And it did NOT rewrite the file, nor seal it, nor delete it — a refusal that
+      // repaired the thing it refused would be the silent regeneration this test forbids.
       expect((await readFile(path)).length).toBe(wrong)
+      expect(await readFile(join(dir, SEALED_IDENTITY_FILE)).then(() => true, () => false)).toBe(false)
     }
-  })
+  }, KDF_BUDGET_MS)
 
   /**
-   * The crash-mid-write case, inert by construction: `loadOrCreateSeed` writes to a
-   * `.tmp-` name and renames, so a leftover temporary is never the identity.
+   * The crash-mid-write case, inert by construction: `writeEnvelope` writes to a `.tmp-`
+   * name carrying the pid and a per-call counter and renames, so a leftover temporary is
+   * never the identity.
    */
   it('ignores a leftover .tmp- file rather than adopting it or failing', async () => {
     await writeFile(join(dir, '.tmp-99999-0'), new Uint8Array(7))
 
-    const seed = await loadOrCreateSeed(dir, IDENTITY_FILE)
+    const seed = await held()
     expect(seed.length).toBe(SEED_BYTES)
-    expect(await loadOrCreateSeed(dir, IDENTITY_FILE)).toStrictEqual(seed)
-  })
+    expect(await held()).toStrictEqual(seed)
+  }, KDF_BUDGET_MS)
 
   it('creates the directory when it does not exist yet', async () => {
     const nested = join(dir, 'a', 'b')
-    const seed = await loadOrCreateSeed(nested, IDENTITY_FILE)
+    const seed = await held(nested)
     expect(seed.length).toBe(SEED_BYTES)
-  })
+  }, KDF_BUDGET_MS)
 })
 
 /**

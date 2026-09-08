@@ -103,10 +103,26 @@ interface Departure {
 let workdir: string
 const agents: Agent[] = []
 
+/**
+ * AUTH-06 — every agent this file launches is given a passphrase file, and the restart case
+ * is why.
+ *
+ * Plan 42-02 made `--dir` alone start a node under `writes-no-new-secret`, which writes no
+ * identity — so a provider restarted on the same directory would mint a new signing key and
+ * the case asserting *"the same issuer refuses again"* would fail about identity rather than
+ * about the budget it is measuring. Persistence is asked for; nothing asserted is relaxed.
+ */
+const IDENTITY_PASSPHRASE = 'enrollment-cost-spec-identity-passphrase'
+let passphraseFile: string
+
 function launch(dir: string, extraArgs: readonly string[]): AgentProcess {
-  return spawn(process.execPath, [AGENT, '--dir', dir, ...extraArgs], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-  })
+  return spawn(
+    process.execPath,
+    [AGENT, '--dir', dir, '--identity-passphrase-file', passphraseFile, ...extraArgs],
+    {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
+  )
 }
 
 /** Spawn an agent and wait for its one-line handshake. Fails loudly if it leaves first. */
@@ -245,6 +261,8 @@ async function enrollerArgs(name: string, providerAddr: string): Promise<string[
 
 beforeEach(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'o2-cost-'))
+  passphraseFile = join(workdir, 'identity.passphrase')
+  await writeFile(passphraseFile, `${IDENTITY_PASSPHRASE}\n`, { mode: 0o600 })
 })
 
 afterEach(async () => {

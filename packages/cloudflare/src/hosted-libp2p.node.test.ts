@@ -18,7 +18,7 @@ import type { NodeCertificate } from '@o2/core'
 import { dhtKeyForNodeKey } from '@o2/libp2p'
 import { encodeNodeRecords } from '@o2/net'
 import { Key } from 'interface-datastore'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FakeDurableObjectAlarms, FakeDurableObjectStorage } from './do-storage.fixture.ts'
 import {
   HOSTED_INBOUND_THRESHOLD,
@@ -32,6 +32,49 @@ import {
   hostedRelayInit,
 } from './hosted-libp2p.ts'
 import type { HostedFabric } from './hosted-libp2p.ts'
+
+
+
+
+/**
+ * **Every case in this file derives an Argon2id key, so the default five-second budget is the
+ * wrong one — measured, not anticipated.**
+ *
+ * Since AUTH-07 criterion 4 the hosted identity is an envelope, and opening or sealing it
+ * costs one Argon2id derivation at `DEFAULT_KDF_PARAMS` — 19 MiB and roughly 650 ms
+ * uncontended on this host. A case that builds two nodes pays it twice. That is comfortably
+ * inside five seconds on a quiet machine and NOT inside it on a busy one: a full
+ * `--project node` sweep runs eight workers, several of them deriving at the same time, and
+ * this file lost two cases to `Error: Test timed out in 5000ms.` on a run whose banner
+ * reported the host oversubscribed at load 11.89 across 8 cores.
+ *
+ * **Raising the budget rather than lowering the cost**, because the cost is the feature: a
+ * memory-hard KDF is what prices a guess against an attacker holding this store. A per-case
+ * timeout would have to be repeated on every case and would drift; `vi.setConfig` states it
+ * once for the file.
+ *
+ * The number is a **budget, never an assertion**. Nothing here reads it, no case passes or
+ * fails on how long it took, and this repository asserts cost comparatively — see the
+ * cold-versus-warm ratio in `hosted-seed-at-rest.e2e.test.ts`.
+ */
+vi.setConfig({ testTimeout: 60_000 })
+
+/**
+ * The identity secret this spec's local `wrangler dev` boots with — AUTH-07 criterion 4.
+ *
+ * Since that criterion the hosted object refuses to open its identity without
+ * `O2_IDENTITY_SECRET` and answers `GET /self` with `500`, so every spec that polls `/self`
+ * for readiness has to supply one. There is deliberately no default in production source — a
+ * default is the empty-DEK defect one criterion over — and no value in `wrangler.jsonc`,
+ * which is tracked.
+ *
+ * **Per-spec test data rather than a shared constant**, in the style of this tree's `TEST_KEY`
+ * and `TURN_SECRET`: this spec passes its own `--persist-to`, so its Durable Object store is
+ * its own and the value only has to be self-consistent across its own restarts. The one thing
+ * that IS load bearing is the length — under twenty characters `assertUsablePassphrase`
+ * refuses and every boot below fails with `WeakPassphraseError`.
+ */
+const SECRET = 'local-dev-identity-secret-42'
 
 const ANNOUNCE = ['/dns4/bootstrap.example/tcp/443/tls/ws']
 
@@ -113,7 +156,7 @@ describe('steps 6 and 7 are one deliverable — proven as a value, not as a rule
     const storage = new FakeDurableObjectStorage()
     const alarms = new FakeDurableObjectAlarms()
 
-    running = await createHostedFabric({ storage, alarms, announce: ANNOUNCE })
+    running = await createHostedFabric({ storage, alarms, identitySecret: SECRET, announce: ANNOUNCE })
 
     expect(await alarms.getAlarm()).not.toBeNull()
     expect(alarms.setCalls.length).toBe(1)
@@ -136,7 +179,7 @@ describe('steps 6 and 7 are one deliverable — proven as a value, not as a rule
     const storage = new FakeDurableObjectStorage()
     const alarms = new FakeDurableObjectAlarms()
 
-    running = await createHostedFabric({ storage, alarms, announce: ANNOUNCE })
+    running = await createHostedFabric({ storage, alarms, identitySecret: SECRET, announce: ANNOUNCE })
 
     await expect(
       running.datastore.put(new Key('/o2/abcdef'), new Uint8Array([1])),
@@ -147,12 +190,12 @@ describe('steps 6 and 7 are one deliverable — proven as a value, not as a rule
     const storage = new FakeDurableObjectStorage()
     const alarms = new FakeDurableObjectAlarms()
 
-    running = await createHostedFabric({ storage, alarms, announce: ANNOUNCE })
+    running = await createHostedFabric({ storage, alarms, identitySecret: SECRET, announce: ANNOUNCE })
     const first = running.identity.peerId
 
     // A second assembly over the SAME storage — no memo is shared between them, so an equal
     // answer is the store's and not an instance's.
-    const second = await createHostedFabric({ storage, alarms, announce: ANNOUNCE })
+    const second = await createHostedFabric({ storage, alarms, identitySecret: SECRET, announce: ANNOUNCE })
     try {
       expect(second.identity.peerId).toBe(first)
       expect(running.libp2p.peerId.toString()).toBe(first)
@@ -343,7 +386,7 @@ describe('HOST-14 — `/o2/<nodeKey>` value records expire, and the sweep walks 
     // One clock for the whole assembly, moved by hand — the sweep reads the same `now` the
     // rest of the node does, which is what makes "the clock is the only variable" true.
     let clock = issuedAt
-    running = await createHostedFabric({ storage, alarms, announce: ANNOUNCE, now: () => clock })
+    running = await createHostedFabric({ storage, alarms, identitySecret: SECRET, announce: ANNOUNCE, now: () => clock })
 
     const { key, value } = nodeRecordBytes(new Uint8Array(32).fill(14), issuedAt, expiresAt)
 
@@ -366,7 +409,7 @@ describe('HOST-14 — `/o2/<nodeKey>` value records expire, and the sweep walks 
     const storage = new FakeDurableObjectStorage()
     const alarms = new FakeDurableObjectAlarms()
     let clock = 1_000
-    running = await createHostedFabric({ storage, alarms, announce: ANNOUNCE, now: () => clock })
+    running = await createHostedFabric({ storage, alarms, identitySecret: SECRET, announce: ANNOUNCE, now: () => clock })
 
     const { key, value } = nodeRecordBytes(new Uint8Array(32).fill(14), 1_000, 2_000)
     await putThroughDht(running.libp2p.services['dht'], key, value)

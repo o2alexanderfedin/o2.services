@@ -13,6 +13,7 @@ import { describeAttestation, toHex } from '@o2/core'
 import type { NodeSovereignty } from '@o2/core'
 import { KERNEL_RECORD, KERNEL_TRUST_ANCHOR, kernelBytes } from '@o2/demo'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -341,11 +342,8 @@ async function openPage(name: string): Promise<Page> {
     { timeout: 30_000 },
   )
   await page.click('#allow')
-  await page.waitForFunction(
-    () => document.getElementById('main')?.hasAttribute('hidden') === false,
-    null,
-    { timeout: 30_000 },
-  )
+  // `42-04` moved the door: `#allow` reveals `#signin`, and `#main` is what UNLOCK reveals.
+  await signInDemoTab(page)
   return page
 }
 

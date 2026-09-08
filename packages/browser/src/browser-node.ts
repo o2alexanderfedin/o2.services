@@ -46,12 +46,17 @@ import {
   SelfRecordIndex,
   SignedNameResolver,
   StartOutcomeLedger,
+  DEFAULT_KDF_PARAMS,
   attestResults,
+  deriveSealKey,
   guardModuleProvenance,
   guardSovereignty,
   isStartBrowserLabel,
   publishCapabilities,
+  openSecret,
+  openWithKey,
   requestEnrollment,
+  sealedUnderSameKey,
   subtleUserSigner,
   encodeCanonical,
   TURN_MINT_PURPOSE,
@@ -71,6 +76,7 @@ import type {
   PublicKeyHex,
   RecordIndex,
   ResultAttestor,
+  SealedSecret,
   SelfRecordIndexOptions,
   StartOutcome,
   StartReport,
@@ -87,6 +93,9 @@ import {
   O2_KAD_PROTOCOL,
   O2_RECORD_NAMESPACE,
   PeerVerifier,
+  SEED_BYTES,
+  SeedLengthError,
+  assertUsablePassphrase,
   audienceKeyOf,
   generateSeed,
   identityFromSeed,
@@ -98,7 +107,7 @@ import {
   providerRecordPolicy,
   topUpRelays,
 } from '@o2/libp2p'
-import type { NodeIdentity, PeerVerdict, SweepOutcome } from '@o2/libp2p'
+import type { IdentityProtection, NodeIdentity, PeerVerdict, SweepOutcome } from '@o2/libp2p'
 import type { KadDHT } from '@libp2p/kad-dht'
 import {
   CountingExecutor,
@@ -125,7 +134,11 @@ import type { HeldPeer } from './dial-plan.ts'
 import { iceConfiguration } from './ice-configuration.ts'
 import { turnCredentialHolder } from './turn-credentials.ts'
 import { IdbBlockstore } from './idb-blockstore.ts'
-import { IdbIdentityStore } from './idb-identity-store.ts'
+import {
+  IdbIdentityStore,
+  SealedIdentityNeedsPassphraseError,
+  SealedIdentityUnlockError,
+} from './idb-identity-store.ts'
 import { IdbIssuance } from './idb-issuance.ts'
 import { IdbSovereignCids } from './idb-sovereign-cids.ts'
 import { installSubtleDigestFallback } from './subtle-digest-fallback.ts'
@@ -438,6 +451,47 @@ export interface BrowserNodeOptions {
    * bootstrap; a caller choosing it is saying the seed is provisioned elsewhere.
    */
   readonly whenSeedIsGone: 'mints-a-new-identity' | 'refuses-to-start-without-its-seed'
+  /**
+   * What this tab will do with the long-lived secrets it persists — AUTH-06.
+   *
+   * **Required, with no `?` and no default**, and the precedent is the field directly above
+   * this one, in that field's own words: *this factory refuses to make this decision for its
+   * caller.* A default here would be a default about **where a secret lives on somebody
+   * else's device**, which is exactly the class of decision that has to be written down by a
+   * person rather than inherited from a library.
+   *
+   * The two arms and what each costs — `identity-protection.ts` carries the long form:
+   *
+   * - **`{ kind: 'passphrase', passphrase }`** — every secret this tab persists is sealed
+   *   under an Argon2id key derived from it, and a database written by an older build is
+   *   migrated in place on the first start that supplies one: same bytes, same peer id. A
+   *   wrong passphrase on a later start throws {@link SealedIdentityUnlockError} and mints
+   *   nothing.
+   * - **`{ kind: 'writes-no-new-secret' }`** — a promise, not an absence. This tab persists
+   *   no new secret at all. It adopts a pre-existing plaintext record if one is there, so a
+   *   visitor who upgrades keeps their peer id and is *told* that the record is readable by
+   *   anyone who copies the profile ({@link BrowserNode.identityIsUnprotected}); otherwise it
+   *   mints a per-session identity that never reaches IndexedDB and is **a different node on
+   *   the next start**.
+   *
+   * ## Why this is required where the Node tier's is optional, and the asymmetry is measured
+   *
+   * `FabricNodeOptions.identityProtection` defaults to `writes-no-new-secret` because
+   * `blockstoreDir:` appears at 169 call sites across roughly thirty files, and a required
+   * field there would have been a sweep nobody could review. `whenSeedIsGone:` appears at 22
+   * sites across 12 files, and every one of them is a place this option goes too. That is
+   * affordable, so it is required — a count, not a preference.
+   *
+   * ## The one combination that cannot hold
+   *
+   * `writes-no-new-secret` together with
+   * `whenSeedIsGone: 'refuses-to-start-without-its-seed'` describes a node that will not
+   * write a secret and will not start without a stored one, which can never start at all
+   * once its storage is evicted — and a tab's storage is evicted silently. It is refused at
+   * `start` by name ({@link ContradictoryIdentityPolicyError}) rather than left to present
+   * as a node that stopped working for no stated reason.
+   */
+  readonly identityProtection: IdentityProtection
   /**
    * Enrol with a provider on the way up, and hold the certificate it signs — AUTH-01.
    *
@@ -802,6 +856,122 @@ function identityStoreName(blockstoreName: string): string {
 }
 
 /**
+ * Thrown when a caller asks for a node that can never start — AUTH-06.
+ *
+ * `writes-no-new-secret` promises this tab persists no new secret. `whenSeedIsGone:
+ * 'refuses-to-start-without-its-seed'` promises it will not run without a stored one.
+ * Together they describe a node that cannot bootstrap and, once IndexedDB is evicted —
+ * which happens silently, under storage pressure, and is the recorded difference between a
+ * tab and a `blockstoreDir` — can never start again.
+ *
+ * Refused at `start` by name rather than left to present as a tab that stopped working,
+ * because the two fields are set in different places by different people and the
+ * contradiction is invisible from either one of them.
+ */
+export class ContradictoryIdentityPolicyError extends Error {
+  constructor() {
+    super(
+      "identityProtection: { kind: 'writes-no-new-secret' } and whenSeedIsGone: "
+        + "'refuses-to-start-without-its-seed' cannot both hold — the first says this tab persists no "
+        + 'new secret and the second says it will not start without a persisted one, so this node could '
+        + 'never bootstrap and, once its storage were evicted, could never start again. Supply a '
+        + "passphrase, or choose 'mints-a-new-identity'.",
+    )
+    this.name = 'ContradictoryIdentityPolicyError'
+  }
+}
+
+/** What {@link resolveProtectedSeed} hands back: the bytes, and whether they are in the clear. */
+interface HeldSeed {
+  readonly seed: Uint8Array<ArrayBuffer>
+  /**
+   * `true` on exactly one path — a pre-AUTH-06 plaintext record adopted by a tab that
+   * supplied no passphrase. It exists so *"this identity is readable by anyone who copies
+   * this profile"* is a value a caller can act on rather than a fact nobody is told.
+   */
+  readonly unprotected: boolean
+}
+
+/**
+ * One derived key per start, for both of this tab's secrets — AUTH-06.
+ *
+ * The salt is read (or created) and the key derived **outside every transaction**, because
+ * Argon2id is asynchronous and costs hundreds of milliseconds, and awaiting it inside an
+ * IndexedDB transaction would commit that transaction out from under the check it exists to
+ * carry. `idb-identity-store.ts`'s `loadOrMintSealedSeed` states the constraint at length
+ * and gives the measured race it is the fix for.
+ *
+ * `null` means the caller promised to write no new secret, so no key exists and none is
+ * needed.
+ */
+interface SealBinding {
+  readonly key: Uint8Array
+  readonly salt: Uint8Array<ArrayBuffer>
+}
+
+/**
+ * Read, migrate or mint one of this tab's two long-lived secrets — AUTH-06.
+ *
+ * Both call sites take the **same** {@link SealBinding}, not a second derivation, so one
+ * database cannot end up with two keys; and the provider signing key is sealed under the
+ * same passphrase as the node seed because it is the higher-value of the two — the trust
+ * root every certificate this tab ever signs verifies against.
+ *
+ * ## The unlock failure throws before `whenSeedIsGone` is reachable, and that is criterion 4
+ *
+ * `whenSeedIsGone` governs the **absent** case only. A record that is present and does not
+ * open is not an absent record, so the mint arm below is unreachable from an unlock failure
+ * — which is the whole of what criterion 4 forbids, because the function this replaced
+ * minted whenever it found nothing and a decrypt failure that fell through would have walked
+ * into a silent re-mint: a working tab, a different peer id, an orphaned certificate, and
+ * nothing anywhere saying so.
+ *
+ * ## The key is derived once, and the envelope decides whether it is the right one
+ *
+ * `openWithKey` is tried only when {@link sealedUnderSameKey} says the envelope's salt and
+ * cost parameters are the ones this key was derived under. Never *try and fall back on
+ * failure*: matching parameters plus a failed open **is** the wrong passphrase, and a
+ * fallback derivation would spend another Argon2id producing the same key and the same
+ * refusal. `openSecret` — which derives from the envelope's own parameters — is the path for
+ * a record written under older ones, which is criterion 5 on this tier.
+ */
+async function resolveProtectedSeed(options: {
+  readonly store: IdbIdentityStore
+  readonly protection: IdentityProtection
+  readonly binding: SealBinding | null
+  readonly legacy: () => Promise<Uint8Array<ArrayBuffer> | null>
+  readonly sealed: (binding: SealBinding, mint: () => Uint8Array<ArrayBuffer>) => Promise<SealedSecret>
+  readonly mint: () => Uint8Array<ArrayBuffer>
+}): Promise<HeldSeed> {
+  const { store, protection, binding } = options
+
+  if (protection.kind !== 'passphrase' || binding === null) {
+    // **Reported, never repaired.** Deleting somebody's identity because they supplied no
+    // passphrase is a worse outcome than the exposure it would close: the tab would come
+    // back as a stranger, with every certificate naming it orphaned.
+    const existing = await options.legacy()
+    if (existing !== null) return { seed: existing, unprotected: true }
+    return { seed: options.mint(), unprotected: false }
+  }
+
+  const envelope = await options.sealed(binding, options.mint)
+  let opened: Uint8Array
+  try {
+    opened = sealedUnderSameKey(envelope, DEFAULT_KDF_PARAMS, binding.salt)
+      ? openWithKey(binding.key, envelope)
+      : await openSecret(envelope, protection.passphrase)
+  } catch (cause: unknown) {
+    throw new SealedIdentityUnlockError(store.name, cause)
+  }
+  // A decrypted blob is external data, whatever produced it — the same rule
+  // `parseSealedSecret` states for a stored envelope, applied to what comes out of one.
+  if (opened.length !== SEED_BYTES) throw new SeedLengthError(opened.length)
+  const seed = new Uint8Array(SEED_BYTES)
+  seed.set(opened)
+  return { seed, unprotected: false }
+}
+
+/**
  * The issuer this origin's node enrolled with, or `null` — AUTH-02's production anchor.
  *
  * ## Why a tab has to ask this *before* it starts
@@ -878,6 +1048,131 @@ export async function enrolledIssuer(blockstoreName?: string): Promise<PublicKey
  * owner. `enrolledIssuer` has carried that shape since Phase 22 and states why it is right
  * rather than merely tolerable.
  */
+/**
+ * Which invitation this origin's visitor is owed — AUTH-06, plan `42-04`.
+ *
+ * {@link enrolledIssuer}'s shape exactly, reading a different record of the same database:
+ * open the default identity store for this origin, ask it one question, close it. The name
+ * is derived here rather than by the caller for the reason {@link DEFAULT_BLOCKSTORE_NAME}
+ * exists at all — *two copies of a database name is a defect that presents as a node with no
+ * identity rather than as an error.*
+ *
+ * It writes nothing and opens no envelope, so a page may call it before a visitor has typed
+ * anything. That is the whole point: *which field do I show you* precedes the passphrase.
+ */
+export async function storedIdentityKind(
+  blockstoreName?: string,
+): Promise<'none' | 'sealed' | 'legacy-plaintext'> {
+  const store = await IdbIdentityStore.open(
+    identityStoreName(blockstoreName ?? DEFAULT_BLOCKSTORE_NAME),
+  )
+  try {
+    return await store.storedSeedKind()
+  } finally {
+    store.close()
+  }
+}
+
+/**
+ * Destroy this origin's stored identity — T-42-24, the escape hatch behind *start over*.
+ *
+ * {@link storedIdentityKind}'s shape, writing where that one reads. It exists because a
+ * forgotten passphrase is otherwise a permanent lockout: the seal is against an offline
+ * attacker holding a disk image, so a recovery path would be a second way in and would
+ * defeat the thing it is a recovery for. There is no server, no account and no third party
+ * holding anything of this visitor's — the one party that ever saw anything, an enrolment
+ * provider, saw a signature over the **public** half — so there is nothing anywhere to
+ * recover from and nothing here can invent one.
+ *
+ * **The cost is the visitor's to accept, and the surface must say what it is** before this is
+ * reached: they become a different node, they must enrol again, and the certificate the old
+ * key holds is abandoned. The difference between this act and the defect criterion 4 forbids
+ * is not the outcome — both end with a different node — it is **who decided, and whether they
+ * were told**.
+ */
+export async function forgetIdentity(blockstoreName?: string): Promise<void> {
+  const store = await IdbIdentityStore.open(
+    identityStoreName(blockstoreName ?? DEFAULT_BLOCKSTORE_NAME),
+  )
+  try {
+    await store.forgetStoredIdentity()
+  } finally {
+    store.close()
+  }
+}
+
+/**
+ * Open this origin's identity under a passphrase, without starting anything — AUTH-06.
+ *
+ * ## Why the sign-in surface cannot get here through `start`
+ *
+ * Sealing happens inside the node-start path, and a start needs a relay. Four e2e fixtures
+ * serve the demo page from a static host with **no relay at all** — `demo-regions` waits for
+ * `#state`'s tone to become `'blocked'` for exactly that reason — so if registering could
+ * only seal by starting a node, registering would fail on every one of them and the page
+ * would be unreachable behind its own entry screen. Every act below is an IndexedDB act, and
+ * every one of them succeeds offline.
+ *
+ * That is also what makes *"the node starts automatically"* honest rather than a slogan: what
+ * signs a visitor in is **opening their envelope**, and the start is attempted afterwards. A
+ * start that fails is a reported state on a page whose visitor is still signed in.
+ *
+ * ## It reuses {@link resolveProtectedSeed} rather than repeating its decisions
+ *
+ * The `sealedUnderSameKey` / `openWithKey` / `openSecret` order is a correctness property —
+ * *matching parameters plus a failed open **is** the wrong passphrase* — and two copies of it
+ * would drift. So this composes the same function `start` composes, with the same store, and
+ * the only thing it does differently is stop before libp2p exists.
+ *
+ * `whenAbsent` is the difference between the two controls the page renders. **Register**
+ * mints and seals; **log in** refuses, because a login that quietly created an account is a
+ * login that turns a mistyped passphrase into a second identity — which is criterion 4's
+ * failure arriving through a door criterion 4 was not looking at.
+ *
+ * A wrong passphrase throws {@link SealedIdentityUnlockError}. No branch below mints on that
+ * path: a record that is present and does not open is not an absent record.
+ */
+export async function unsealIdentity(options: {
+  readonly passphrase: string
+  readonly blockstoreName?: string
+  readonly whenAbsent: 'mints-and-seals-a-new-identity' | 'refuses-to-mint'
+}): Promise<NodeIdentity> {
+  const protection: IdentityProtection = { kind: 'passphrase', passphrase: options.passphrase }
+  // Before anything is derived, so a short passphrase costs a string length rather than an
+  // Argon2id derivation and its refusal cannot be confused with a decryption failure.
+  assertUsablePassphrase(protection)
+  const store = await IdbIdentityStore.open(
+    identityStoreName(options.blockstoreName ?? DEFAULT_BLOCKSTORE_NAME),
+  )
+  try {
+    const salt = await store.loadOrCreateSalt()
+    const binding: SealBinding = {
+      salt,
+      key: await deriveSealKey(options.passphrase, salt, DEFAULT_KDF_PARAMS),
+    }
+    const held = await resolveProtectedSeed({
+      store,
+      protection,
+      binding,
+      legacy: async () => store.legacyPlaintextSeed(),
+      sealed: async (bound, mint) =>
+        store.loadOrMintSealedSeed(bound.key, DEFAULT_KDF_PARAMS, bound.salt, mint),
+      mint: () => {
+        if (options.whenAbsent === 'refuses-to-mint') {
+          throw new Error(
+            `no identity in ${store.name}: there is nothing here for a passphrase to open, so `
+              + 'this browser has not registered yet',
+          )
+        }
+        return generateSeed()
+      },
+    })
+    return identityFromSeed(held.seed)
+  } finally {
+    store.close()
+  }
+}
+
 export async function enrolledUserKey(blockstoreName?: string): Promise<PublicKeyHex | null> {
   const store = await IdbIdentityStore.open(
     identityStoreName(blockstoreName ?? DEFAULT_BLOCKSTORE_NAME),
@@ -1049,6 +1344,30 @@ function ownStartLedger(
   return held
 }
 
+/**
+ * A relay this tab was told to use and could not reach — the browser tier's half of NET-05.
+ *
+ * **A deliberate twin of `fabric-node.ts`'s `RelayDialFailure` (declared there at the top
+ * of its options block), field for field and word for word, and it is duplicated rather
+ * than imported on purpose.** `purity.node.test.ts` lists `browser` under `DUAL_TARGET`,
+ * so this package may not import from `@o2/node`; the alternative would be a third
+ * package holding two fields. What matters is that the two tiers describe the same thing
+ * the same way, so a caller holding one kind of node does not have to learn a second
+ * vocabulary to ask the same question — see {@link BrowserNode.relayFailures}.
+ *
+ * Distinct from a reservation *refusal*, exactly as it is on the other tier: there the
+ * dial succeeded and the relay declined to hold a slot, here the relay was never reached
+ * at all. The two demand opposite responses — wait and retry this one, versus try a
+ * different one — and collapsing them into "no circuit address appeared" is precisely the
+ * ambiguity NET-05 exists to remove.
+ */
+export interface RelayDialFailure {
+  /** The address as configured, so a page can show which line was wrong. */
+  readonly address: string
+  /** libp2p's own words. Never synthesised here. */
+  readonly reason: string
+}
+
 export class BrowserNode {
   readonly libp2p: Libp2p
   readonly transport: Libp2pTransport
@@ -1107,6 +1426,22 @@ export class BrowserNode {
   readonly sovereignCids: SovereignCids
   /** Where this tab's seed, provider key and certificate live across reloads — AUTH-01. */
   readonly identityStore: IdbIdentityStore
+  /**
+   * Whether this tab's identity is readable by anyone who copies this browser profile —
+   * AUTH-06.
+   *
+   * `true` on exactly one path: a pre-AUTH-06 plaintext record adopted by a tab started
+   * with `identityProtection: { kind: 'writes-no-new-secret' }`. It is **reported and never
+   * repaired** — deleting somebody's identity because they supplied no passphrase is a worse
+   * outcome than the exposure it would close, since the tab would come back as a stranger
+   * with every certificate naming it orphaned. The exposure closes the moment a passphrase
+   * is supplied, at which point the same bytes are sealed in place and the peer id does not
+   * move.
+   *
+   * A value rather than only a log line, so a surface above this one can act on it. `start`
+   * additionally says it once, by name, on the console.
+   */
+  readonly identityIsUnprotected: boolean
   /**
    * This tab's provider-signed certificate, or `null` when it holds none — AUTH-01.
    *
@@ -1293,6 +1628,7 @@ export class BrowserNode {
     store: ObservingBlockstore<IdbBlockstore>
     sovereignCids: SovereignCids
     identityStore: IdbIdentityStore
+    identityIsUnprotected: boolean
     certificates: CertificateHolder
     executor: GovernedExecutor
     signingExecutor: Executor
@@ -1305,6 +1641,7 @@ export class BrowserNode {
     counter: CountingExecutor
     startLedger: StartOutcomeLedger
     verifier: PeerVerifier
+    relayFailures: readonly RelayDialFailure[]
   }) {
     this.libp2p = parts.libp2p
     this.transport = parts.transport
@@ -1318,6 +1655,7 @@ export class BrowserNode {
     this.#announcer = parts.announcer
     this.sovereignCids = parts.sovereignCids
     this.identityStore = parts.identityStore
+    this.identityIsUnprotected = parts.identityIsUnprotected
     this.#certificates = parts.certificates
     this.executor = parts.executor
     this.signingExecutor = parts.signingExecutor
@@ -1330,10 +1668,32 @@ export class BrowserNode {
     this.#counter = parts.counter
     this.#startLedger = parts.startLedger
     this.#verifier = parts.verifier
+    this.#relayFailures = parts.relayFailures
   }
 
   /** AUTH-02 — per-peer verdicts. See {@link BrowserNodeOptions.trustedIssuers}. */
   readonly #verifier: PeerVerifier
+
+  readonly #relayFailures: readonly RelayDialFailure[]
+
+  /**
+   * Relays this tab was told to use and could not reach — NET-05, the browser tier.
+   *
+   * `[]` for a tab given no `relayAddrs`, and `[]` for one that reached every relay it was
+   * given. A non-empty list is the difference between *"no circuit address appeared
+   * because the relay was full"* and *"because it was never there"*, which are the two
+   * readings NET-05 exists to keep apart.
+   *
+   * Mirrors `FabricNode.relayFailures` — same name, same element type, same wording
+   * — because a test or a page that measures the two tiers against each other should not
+   * have to know which one it is holding. The one thing that differs is what a *complete*
+   * failure means: a node with entries here started anyway on **both** tiers, but on this
+   * one at least one other relay must have answered, because a tab that reached none does
+   * not start at all. See the dial site for why.
+   */
+  get relayFailures(): readonly RelayDialFailure[] {
+    return this.#relayFailures
+  }
 
   /**
    * The connected peers this tab will fetch a block from — AUTH-02.
@@ -1528,38 +1888,79 @@ export class BrowserNode {
     const identityStore = await IdbIdentityStore.open(identityStoreName(blockstoreName))
     undo.push(() => identityStore.close())
 
-    // AUTH-01 — this tab's own name, and the one decision this factory refuses to make
-    // for its caller. `whenSeedIsGone` carries what each branch costs; all that happens
-    // here is that the branch is taken by a value somebody wrote down.
+    // AUTH-01/AUTH-06 — this tab's own name, and the two decisions this factory refuses to
+    // make for its caller. `whenSeedIsGone` says what an ABSENT seed costs;
+    // `identityProtection` says where a secret may live on this device. All that happens
+    // here is that the branches are taken by values somebody wrote down.
     //
     // A minted seed is persisted **before** anything is derived from it, so a tab that
     // crashes between generating and using one comes back as the node it just became
     // rather than as a third.
     //
-    // **Read and write in ONE transaction — task #49, and it was measured.** This was
-    // `loadSeed()` then, on `null`, `generateSeed()` and `saveSeed()`, with nothing spanning
-    // the two. Four tabs of one profile opening one cold origin together minted four
-    // identities and the last write won, so three of them ran as nodes whose seed was not
-    // the stored one and came back on their next start as somebody else — the silent arrival
-    // at exactly the state `whenSeedIsGone` exists to make loud.
-    // `IdbIdentityStore.loadOrMintSeed` carries the reasoning and the constraint it puts on
-    // `mint`; `idb-identity-store.browser.test.ts` carries the reading and its plant.
+    // **Read, seal and write in ONE transaction — task #49, and it was measured.** This was
+    // a read, then on `null` a mint and a separate write, with nothing spanning the two.
+    // Four tabs of one profile opening one cold origin together minted four identities and
+    // the last write won, so three of them ran as nodes whose seed was not the stored one
+    // and came back on their next start as somebody else — the silent arrival at exactly the
+    // state `whenSeedIsGone` exists to make loud.
+    // `IdbIdentityStore.loadOrMintSealedSeed` carries the reasoning and the constraint it
+    // puts on `mint`; `idb-identity-store.browser.test.ts` carries the reading and its plant.
     //
-    // The refusing branch still reads and never mints, which is the whole of the difference
-    // between the two: nothing about the fix widens what a refusing node will accept.
-    let seed: Uint8Array<ArrayBuffer>
-    if (options.whenSeedIsGone === 'mints-a-new-identity') {
-      seed = await identityStore.loadOrMintSeed(generateSeed)
-    } else {
-      const stored = await identityStore.loadSeed()
-      if (stored === null) {
+    // The refusing branch mints nothing, and it says so **inside** that transaction rather
+    // than through a separate read: `mint` throws, which is how a caller states *"there is
+    // nothing here and I will not create one"* without a second read that could disagree
+    // with the first. Nothing about the fix widens what a refusing node will accept.
+    if (
+      options.identityProtection.kind !== 'passphrase' &&
+      options.whenSeedIsGone === 'refuses-to-start-without-its-seed'
+    ) {
+      throw new ContradictoryIdentityPolicyError()
+    }
+    // Before anything is derived from it, so a passphrase under the floor costs a string
+    // length rather than an Argon2id derivation and its refusal cannot be confused with a
+    // decryption failure.
+    assertUsablePassphrase(options.identityProtection)
+
+    // The expensive half, and it runs **outside every transaction** — one Argon2id
+    // derivation per start, shared by both of this tab's secrets. `resolveProtectedSeed`
+    // carries why that is a correctness requirement rather than an economy.
+    const protection = options.identityProtection
+    let binding: SealBinding | null = null
+    if (protection.kind === 'passphrase') {
+      const salt = await identityStore.loadOrCreateSalt()
+      binding = { salt, key: await deriveSealKey(protection.passphrase, salt, DEFAULT_KDF_PARAMS) }
+    }
+
+    /**
+     * `whenSeedIsGone`, as the callback the transaction consults when it finds nothing.
+     *
+     * A refusal expressed this way is decided by the same read that would have decided the
+     * write. Expressed as a separate `loadSeed()` before the transaction, it would be a
+     * second read that can disagree with the first — which is the shape of the defect this
+     * whole path exists to have removed.
+     */
+    const mintOrRefuse = (): Uint8Array<ArrayBuffer> => {
+      if (options.whenSeedIsGone === 'refuses-to-start-without-its-seed') {
         throw new Error(
           `no seed in ${identityStore.name}: this node was started with 'refuses-to-start-without-its-seed', and starting anyway would give it a different peer id and invalidate any certificate naming the old one`,
         )
       }
-      seed = stored
+      return generateSeed()
     }
-    const identity = await identityFromSeed(seed)
+
+    const held = await resolveProtectedSeed({
+      store: identityStore,
+      protection,
+      binding,
+      legacy: async () => identityStore.legacyPlaintextSeed(),
+      sealed: async (bound, mint) =>
+        identityStore.loadOrMintSealedSeed(bound.key, DEFAULT_KDF_PARAMS, bound.salt, mint),
+      mint: mintOrRefuse,
+    })
+    // `let`, because the provider branch far below resolves the second secret under the
+    // same binding and either of the two can be the one in the clear.
+    let identityIsUnprotected = held.unprotected
+    const identity = await identityFromSeed(held.seed)
 
     // NET-12 — the TURN rung, built here because this is the only place that holds both halves
     // a mint request needs: `identity.seed` signs it, and this tab's certificate names who is
@@ -1706,27 +2107,82 @@ export class BrowserNode {
     //
     // The peer ids are collected because a certificate has to name the relays a node is
     // reachable through when it is not reachable cold — `relayIds` below. Same collection
-    // `fabric-node.ts` makes at its own dial loop.
+    // `fabric-node.ts` makes at its own dial loop, and — since 2026-09-06 on this tier —
+    // it holds only the relays that actually answered. A certificate naming a relay this
+    // tab never reached would be a claim about who was *meant* to be reached rather than
+    // about who was, and a signed statement is the worst possible place for the second
+    // kind of fact. That is `fabric-node.ts`'s own sentence, and it now applies here too.
     //
-    // **The absent `catch` is the decision, not an omission, and the two tiers diverge
-    // here on purpose.** A failed dial propagates, `start` rejects, and `#compose`'s
-    // unwind closes the store and stops libp2p. `fabric-node.ts` does the opposite under
-    // NET-05: it catches, records the address and reason on `FabricNode.relayFailures`,
-    // and keeps the node running. Both are right for their platform. That process binds a
-    // real listening port, so a relay it could not enter costs it circuit reachability and
-    // nothing else; a tab binds no socket, so a tab with no reservation cannot be reached
-    // by anyone, and starting it would hand the visitor a node that silently does nothing
-    // — the ambiguity NET-05 removed on the other tier, reintroduced on this one. Each
-    // side is measured as its own disposition: `start-unwind.browser.test.ts` — *"closes
-    // the blockstore and stops libp2p when a relay dial fails"* — holds this one in all
-    // three engines, and `reservation-exhaustion.node.test.ts` case C holds the other
-    // cross-process through `bin/agent.ts`. **Do not add a `catch` here to match that
-    // file.** W-2 of `18-VERIFICATION.md` is that the divergence was recorded on neither
-    // side, which is what makes it read as drift.
+    // **The rule is "at least one" — not "all", and not "none".** Until 2026-09-06 this
+    // was a serial `await` with no `catch`, so one unreachable address rejected `start`.
+    // A list of N relays was therefore not N spares but N points of failure in series:
+    // handing a tab three relays for redundancy made it three times likelier to fail to
+    // start, which is backwards. Measured on the unfixed tree before it was changed —
+    // `packages/node/src/any-one-relay-is-enough.e2e.test.ts` is the reading, and its
+    // header records what the failure looked like.
+    //
+    // **What the old code was right about is kept exactly: a tab that reached NO relay
+    // still refuses to start.** A tab binds no socket, so a tab holding no reservation
+    // cannot be reached by anyone, and starting it would hand the visitor a node that
+    // silently does nothing. That case throws below, `#compose`'s unwind closes the store
+    // and stops libp2p, and `start-unwind.browser.test.ts` holds it in all three engines.
+    // `relayAddrs: []` is deliberately **not** that case — a tab that was asked to dial
+    // nothing has not failed to dial anything — and it starts, as several specs rely on.
+    //
+    // **How the two tiers now differ, said here because W-2 of `18-VERIFICATION.md` is
+    // that a divergence recorded on neither side reads as drift.** They now AGREE about
+    // everything except the all-failed case: both catch a failed dial, both report it as a
+    // `RelayDialFailure` with the same two fields and the same words, and both keep
+    // running when at least one relay answered. They part only when none did —
+    // `fabric-node.ts` starts anyway under NET-05, because that process binds a real
+    // listening port and stays useful to anyone who can reach it directly, while this tier
+    // rejects, because a tab that reached nothing is reachable by nobody. So the surviving
+    // divergence is narrower than it was: it used to be *all-or-nothing versus
+    // best-effort*, and it is now *what to do when best-effort got nothing*.
+    // `reservation-exhaustion.node.test.ts` case C holds that side cross-process through
+    // `bin/agent.ts`; the two cases named above hold this one.
+    //
+    // **Dialled concurrently rather than in series**, because nothing here depends on the
+    // order of attempt and three sequential dials to three continents are three round
+    // trips where one would do. `Promise.allSettled` is what makes that safe: it settles
+    // every dial, so no rejection can escape as an unhandled rejection, and it preserves
+    // input order, so `relayPeerIds` is the configured list filtered to the relays that
+    // answered rather than a race result that reorders between runs.
+    const dialled = await Promise.allSettled(
+      options.relayAddrs.map(async (address) => libp2p.dial(multiaddr(address))),
+    )
     const relayPeerIds: string[] = []
-    for (const address of options.relayAddrs) {
-      const connection = await libp2p.dial(multiaddr(address))
-      relayPeerIds.push(connection.remotePeer.toString())
+    const relayFailures: RelayDialFailure[] = []
+    options.relayAddrs.forEach((address, index) => {
+      const outcome = dialled[index]
+      if (outcome === undefined) return
+      if (outcome.status === 'fulfilled') {
+        relayPeerIds.push(outcome.value.remotePeer.toString())
+        return
+      }
+      const cause: unknown = outcome.reason
+      relayFailures.push({ address, reason: cause instanceof Error ? cause.message : String(cause) })
+    })
+    if (options.relayAddrs.length > 0 && relayPeerIds.length === 0) {
+      // The address is carried in the thrown text as well as in `relayFailures`, and that
+      // is not redundancy. `start` rejected before this node exists, so there is no
+      // `BrowserNode` for a caller to read `relayFailures` off — the message is the only
+      // place the addresses can be. And the reason alone would not name them, which is two
+      // readings rather than one and they were taken by different instruments. That a
+      // browser WebSocket dial to a closed port rejects with a **raw `Event`** rather than
+      // an `Error` is `start-unwind.browser.test.ts`'s prior measurement, taken in all
+      // three engines. That `String()` of that Event is **`[object Event]`** — so libp2p's
+      // own words carry no address — was measured on 2026-09-06 in **Chromium only**,
+      // through `packages/node/src/any-one-relay-is-enough.e2e.test.ts`. Neither reading
+      // is claimed wider than it was taken.
+      const firstRejection = dialled.find(
+        (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+      )
+      throw new Error(
+        'no relay could be reached, so this tab would be addressable by nobody: ' +
+          relayFailures.map((failure) => `${failure.address} — ${failure.reason}`).join('; '),
+        firstRejection === undefined ? {} : { cause: firstRejection.reason },
+      )
     }
 
     // NET-08: the first `Libp2pTransportOptions` this factory has ever passed — the
@@ -1894,7 +2350,25 @@ export class BrowserNode {
       // because two tabs raced would invalidate every certificate it had signed. Fixed in
       // the same pass rather than left, because *"the other one has the same shape"* is how
       // a closed defect comes back.
-      const providerPrivateKey = await identityStore.loadOrMintProviderSeed(generateSeed)
+      //
+      // AUTH-06 — sealed under the **same binding** as the node seed, not a second
+      // derivation and not a second passphrase, so one database cannot end up behind two
+      // keys. It is the higher-value of the two secrets: the trust root every certificate
+      // this tab ever signs verifies against.
+      const providerHeld = await resolveProtectedSeed({
+        store: identityStore,
+        protection,
+        binding,
+        legacy: async () => identityStore.legacyPlaintextProviderSeed(),
+        sealed: async (bound, mint) =>
+          identityStore.loadOrMintSealedProviderSeed(bound.key, DEFAULT_KDF_PARAMS, bound.salt, mint),
+        // A provider signing key has no `whenSeedIsGone` of its own: `refuses-to-start-without-its-seed`
+        // is about the identity peers dial, and a tab told to issue certificates that had no
+        // signing key would have nothing to refuse *for*. It mints.
+        mint: generateSeed,
+      })
+      const providerPrivateKey = providerHeld.seed
+      identityIsUnprotected = identityIsUnprotected || providerHeld.unprotected
       // AUTH-04, and this is the line that turns the mechanism on for a tab. Both required
       // issuance options carried a named sentinel for one wave; both now carry the real
       // thing, and they are the **same** two things `fabric-node.ts` passes.
@@ -2300,6 +2774,21 @@ export class BrowserNode {
       announcer.sweepSoon()
     })
 
+    // AUTH-06 — said once, by name, because a fact nobody is told is the defect that
+    // returning it as a value exists to close. `fabric-node.ts` writes the same sentence to
+    // stderr; a tab's stderr is the console, and this is the first `console.` call in
+    // `packages/browser/src` — deliberately, because there is nowhere else a tab can say
+    // something to the person sitting in front of it that is not a UI decision this factory
+    // has no business making.
+    if (identityIsUnprotected) {
+      console.warn(
+        `${identityStore.name} holds this tab's identity in the clear — anyone who copies this browser `
+          + 'profile can speak as this node. It was adopted rather than deleted, because losing it would '
+          + 'make this tab a different node and orphan any certificate naming it. Supply '
+          + 'identityProtection: { kind: \'passphrase\', … } to seal the same bytes in place.',
+      )
+    }
+
     const node = new BrowserNode({
       libp2p,
       transport,
@@ -2313,6 +2802,7 @@ export class BrowserNode {
       announcer,
       sovereignCids,
       identityStore,
+      identityIsUnprotected,
       certificates,
       executor,
       signingExecutor: signing,
@@ -2325,6 +2815,7 @@ export class BrowserNode {
       counter,
       startLedger,
       verifier,
+      relayFailures,
     })
     serveAgent({
       rpc,

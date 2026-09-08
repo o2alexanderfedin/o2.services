@@ -947,6 +947,26 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * disclosure guard that today asserts the basis is stated NOWHERE and that would have to be
  * inverted in the same commit as whichever sentence lands. Raised by the one entry that arrived.
  *
+ * **Lowered 6 → 4 on 2026-09-04, in the commit that landed the telemetry ruling** — the
+ * ordinary exit, and both departures at once because both entries were the same open question
+ * one row apart. The owner ruled CONSENT, the sentence landed in `DISCLOSURE`, and `BROW-09`
+ * and `RUN-05` both became `Done`, so neither is *unreached* any longer and the ceiling follows
+ * them down in the same commit rather than keeping the slack their departure opened. That is
+ * `OPEN_FINDING_CEILING`'s stated rule applied here — *a ceiling with slack in it stops
+ * binding*.
+ *
+ * **One thing both entries promised turned out not to be needed, and it is recorded rather than
+ * quietly dropped.** Each said the disclosure guard *"has to be inverted in the same commit as
+ * the ruling and cannot be left half-turned"*. It did not: the guard forbids the phrases
+ * `legitimate interest`, `legal basis` and `gdpr`, and the sentence that landed contains none of
+ * them, so the guard stayed green through the ruling. What the commit did instead was
+ * deliberate rather than forced — the guard's rationale was rewritten from *take the ruling
+ * first* to *the ruling was permission*, a positive case was added beside it with two plants
+ * watched red, and its `GDPR` leg was fixed to lower case, having been compared against a
+ * lower-cased string and therefore unable to fail at all. **The promise was written from a
+ * plausible reading of the guard rather than from the guard**, which is the same class as this
+ * file's other recorded corrections.
+ *
  * **Raised 5 → 6 on 2026-09-02, in the commit that moved `NET-12` to `Partial`** (Phase 34,
  * plan 34-01), and it is this register's shape rather than a ceiling raised to make a red go
  * away. Every mechanism `NET-12` names is wired AND driven — `iceConfiguration` at the one
@@ -958,8 +978,60 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * on **two continents** (the cohort): an experiment nobody can run here, not code nobody wired.
  * Thirteen witnesses, every one of them measured by running the scan rather than typed. Raised
  * by the one entry that arrived.
+ *
+ * **Raised 4 -> 5 on 2026-09-06, in the commit that moved `RUN-06` to `Partial`** (Phase 38,
+ * plans 38-01 and 38-02). The row entered this register because moving it was the honest edit and
+ * `Partial` is what pulls a row into this file's population at all: `Not started` sits outside
+ * {@link UNREACHED_VERDICTS} entirely, so the row was unread AND unlisted while it said the
+ * detection did not exist. It says that no longer -- `detectEmbeddedWebView` fires on a
+ * host-injected object with a stock desktop user-agent, `demo/main.ts` calls it before the gate
+ * is painted, and `hidden-gap.ts` is driven from the same page -- so there is no *"nothing calls
+ * X"* sentence for this file to read, and typing one would be false. What holds the row open is
+ * its own verification clause: opening the REAL recruitment link from a REAL Telegram message on
+ * BOTH iOS and Android. That is an experiment nobody has run, not code nobody wired, and it is
+ * `38-04` -- an owner act. **One witness, measured by running the scan**: exactly one case in the
+ * tree title-names `RUN-06`, and that is deliberate rather than thin. The string-only arm is
+ * titled without it, so a green obtainable by setting a header can never be read as this row's
+ * evidence.
+ *
+ * **Raised 5 -> 6 on 2026-09-07, in the commit that moved `RUN-01` to `Partial`** (Phase 39,
+ * plan 39-01). The row's mechanism is a DOCUMENT and a guard over it, so it names files rather
+ * than exported symbols and there is no *"nothing calls X"* sentence for this file to read. What
+ * holds it open is the other half of its own conjunction — *no recruitment invite is sent until*
+ * the seven conditions hold — a clause that can be violated but not completed in advance, and
+ * which becomes demonstrable only when an invite goes out. An experiment nobody has run.
+ *
+ * **One witness, and it was written down empty first — this file caught that and was right.**
+ * The entry originally carried `witnesses: []` with a paragraph calling it *a measured zero*.
+ * The scan had not been run; it was inferred from the shape of the requirement, which is exactly
+ * what the `witnesses` field exists to make impossible. The guard answered by name:
+ * *"RUN-01 was last re-read on 2026-09-07, and packages/node/src/go-no-go-checklist.node.test.ts
+ * now names it in a test title"*. Four titles in that file name `RUN-01`.
+ *
+ * **What the witness does and does not attest is the part to carry into the re-read.** That spec
+ * guards the DOCUMENT's form — that every row reads GO or NO-GO, that a GO row names evidence,
+ * that a citation still resolves, that a row naming an unticked ledger box reddens. It does not
+ * and cannot attest the gate's observance, which is the half of `RUN-01`'s sentence still open.
+ *
+ * **Raised 6 -> 7 on 2026-09-07, in the commit that moved `RUN-07` to `Partial`** (Phase 39,
+ * plans 39-05 and 39-06). Same shape as `RUN-01` in the entry above, and **the repetition is the
+ * finding rather than a coincidence**: this is the THIRD raise in one session, and all three are
+ * requirements whose remaining half is an ACT only the owner can perform — opening a link on two
+ * real phones, sending the first invite, sending it in stages. A phase that builds records and
+ * instruments for irreversible acts produces `Partial` rows by construction, and each one lands
+ * here because a row whose reason is *"the experiment has not been run"* names no exported symbol
+ * for this file to read.
+ *
+ * That is not a reason to relax the register. It is a reason to expect it to shrink in one step
+ * rather than gradually: the acts happen, or they do not. **If this ceiling reaches a fourth
+ * raise of the same shape, the question to ask is whether `experiment-not-run` should carry its
+ * own count separate from the other two buckets** — not whether the ceiling should move again.
+ *
+ * Two witnesses, measured by running the scan. What holds the row open is `39-09`, the run's own
+ * staging, plus a precondition newly in doubt: an object whose region is `null` refuses every
+ * halt, so the kill switch criterion 5 exercises may not be throwable at all.
  */
-const REREAD_REGISTER_CEILING = 6
+const REREAD_REGISTER_CEILING = 7
 
 /**
  * ## The rule this list encodes
@@ -1251,7 +1323,10 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // THROUGH THE UI excluding a connected-but-unverified peer off the wire"*, and priced it at
   // *"~60-90 lines to join them, no production change needed"*. Both halves held.
   // `visitor-enrolment.e2e.test.ts` gained a second case per engine that clicks `#allow`,
-  // `#enrol` and `#join`, restarts on the SAME ORIGIN through
+  // signs in, and clicks `#enrol` — it clicked `#join` too until `42-06`, and stopped
+  // because since `42-04` unlocking starts the node and `#enrol` restarts it so that it
+  // enrols, so the third press was on a control the page had already spent — restarts on
+  // the SAME ORIGIN through
   // `/packages/browser/harness/capability.html` — which the seed's own Vite server serves on
   // the same port as the demo page — and reads `fetchBlock` through the composed
   // `FetchingBlockstore`. No production file changed.
@@ -1678,52 +1753,6 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // for a checkable reason: the arrangement exists, the dispatch has not happened, and the
   // dispatch is an owner act because it is a push to a public repository.
   {
-    // ── Added 2026-09-02 by Plan 35-01 ────────────────────────────────────────────────
-    //
-    // **The open leg is not a symbol and cannot become one: it is a sentence somebody with
-    // legal standing has to choose.** `BROW-09` asks the disclosure to state four things, and
-    // four things it states — each asserted individually in the two witnesses below, each with
-    // a plant watched red, plus the ordering. What is missing is the **legal basis** of the
-    // telemetry element: consent versus legitimate interest under GDPR, recorded at
-    // `.planning/REQUIREMENTS.md` § Open questions item 3 as *contested across sources* and
-    // *"settled by legal review, not engineering judgement"*.
-    //
-    // So there is no exported symbol with no caller to name, and no configuration or tier to
-    // drive. `experiment-not-run` is the nearest of the three buckets and is not a comfortable
-    // fit: the act that would close this row is a **ruling**, not a measurement. It is chosen
-    // over the other two because it is the only one that says *the thing that would close this
-    // has not been done yet*, which is true, rather than pointing at a code path that is not
-    // the obstacle. If a fourth bucket is ever wanted, this is the entry that wants it.
-    //
-    // **What would close it**, so the promise this id carries is specific rather than a
-    // reminder: the owner picks reading A (consent) or reading B (legitimate interest) — both
-    // drafted verbatim in
-    // `.planning/phases/phase-35-conditions-of-entry-in-the-browser/35-01-SUMMARY.md` — the
-    // chosen sentence lands in `DISCLOSURE`, `DISCLOSURE_VERSION` bumps again, `policy.html`
-    // mirrors it, and `disclosure-four-elements.node.test.ts` gains a case asserting the
-    // sentence is present with its removal planted. That file today asserts the **absence** of
-    // any basis sentence, so the guard has to be inverted in the same commit as the ruling and
-    // cannot be left half-turned.
-    id: 'BROW-09',
-    because: 'experiment-not-run',
-    reread: '2026-09-02',
-    witnesses: [
-      'packages/node/src/disclosure-before-optin.e2e.test.ts',
-      'packages/node/src/disclosure-four-elements.node.test.ts',
-    ],
-  },
-  {
-    // Phase 37. The row's schema half is machine-read and green; what is unread is the LEGAL
-    // BASIS sentence, and the act that closes it is a ruling rather than a run — `BROW-09`'s
-    // shape, on the same open question. The witness is the one spec the ruling moves: the
-    // disclosure guard that today asserts the basis appears nowhere and would have to be
-    // inverted in the same commit as whichever sentence lands.
-    id: 'RUN-05',
-    because: 'experiment-not-run',
-    reread: '2026-09-02',
-    witnesses: ['packages/node/src/disclosure-four-elements.node.test.ts'],
-  },
-  {
     // ── Added 2026-09-02 by Phase 34 (34-01), and the promise it carries is precise ──────
     //
     // `NET-12` is `Partial`, and the leg holding it open is **not** a symbol without a caller.
@@ -1777,6 +1806,27 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'tools/aot/cross-host-lift.node.test.ts',
       'tools/aot/cross-host-workflow.node.test.ts',
       'tools/aot/cross-machine.node.test.ts',
+    ],
+  },
+  {
+    id: 'RUN-06',
+    because: 'experiment-not-run',
+    reread: '2026-09-06',
+    witnesses: ['packages/node/src/embedded-webview.e2e.test.ts'],
+  },
+  {
+    id: 'RUN-01',
+    because: 'experiment-not-run',
+    reread: '2026-09-07',
+    witnesses: ['packages/node/src/go-no-go-checklist.node.test.ts'],
+  },
+  {
+    id: 'RUN-07',
+    because: 'experiment-not-run',
+    reread: '2026-09-07',
+    witnesses: [
+      'packages/node/src/funnel-probe.e2e.test.ts',
+      'packages/node/src/switch-observation.node.test.ts',
     ],
   },
   // `AOT-04` was here until 2026-08-18 and is **REMOVED**, by the second of the two exits

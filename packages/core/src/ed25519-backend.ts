@@ -400,14 +400,123 @@ export async function subtleKeyPairSigner(
  */
 export const KEYGEN_ATTEMPTS = 3
 
+/**
+ * A pair generated **non-extractable**, which since `AUTH-07` nothing in production wants.
+ *
+ * ## Deferred, in writing, so the guard that reports it reads a decision rather than a defect
+ *
+ * Its only production caller was `browser/visitorKeyPair`, and on 2026-09-06 that moved to
+ * {@link generateSealableSubtleKeyPair}: a key that must be encrypted at rest cannot be
+ * generated non-extractable, because sealing needs bytes and such a key has none to give.
+ * `reachability-guard.node.test.ts` reported the consequence by name — the symbol no longer
+ * becomes reachable when the `window.o2` hop is traced, so its old disposition named a cause
+ * that had stopped being true.
+ *
+ * **It is kept rather than deleted, and the reason is a boundary rather than a preference.**
+ * Two browser specs need a non-extractable pair — `webcrypto-ed25519.browser.test.ts` routes
+ * its cases through this function deliberately, so the measured WebKit-on-Linux keygen retry
+ * sits behind them — and a spec in `@o2/browser` cannot import this module directly across
+ * the package boundary. Removing the export would make those specs hand-roll WebCrypto
+ * Ed25519, which is the thing `CRYPTO-01` exists to keep in one place.
+ *
+ * **The remedy, so this is a deferral and not a shrug**: if a production caller for a
+ * non-extractable pair appears, wire it and the disposition entry disappears on its own; if
+ * those two specs stop needing one, delete this function and its entry together. Reversing
+ * either is a decision to make, not something to take in passing.
+ */
 export async function generateSubtleKeyPair(
   subtle: SubtleCrypto = globalThis.crypto.subtle,
+): Promise<CryptoKeyPair> {
+  return generateWithRetry(subtle, false)
+}
+
+/**
+ * Generate a pair whose private half **can be sealed**, and hand back the bytes — `AUTH-07`.
+ *
+ * ## Why an extractable key is the safer one here, which reads backwards until measured
+ *
+ * `extractable: false` sounds like the stronger choice and for a key held only in memory it
+ * is. For a key that is **stored**, it is not: measured on 2026-09-06 against Chromium 151
+ * and Firefox 153, a non-extractable Ed25519 private key's **whole PKCS#8 wrapper sits in the
+ * profile's IndexedDB files in the clear** — the seed at one offset and the DER wrapper
+ * sixteen bytes before it — while `exportKey` refuses and the handle still signs after a
+ * restart. `.planning/consults/2026-09-06-non-extractable-keys-and-a-disk-image.md`.
+ *
+ * So the flag protects the key from the page and not from the disk. The owner's rule is about
+ * the disk: *a key saved anywhere must always be encrypted*. To encrypt it we need its bytes,
+ * and a non-extractable key has none to give — **the API prevents us from protecting the key
+ * without preventing anyone from reading it.** That irony is the reason this function exists.
+ *
+ * The bytes are handed back rather than sealed here because `@o2/core` holds no passphrase
+ * and no store. The caller seals them and stores the envelope; the private half is a JS value
+ * for the length of that hop and never afterwards — {@link importSealedSubtleKeyPair} brings
+ * it back **non-extractable**, so the in-memory property the old shape had is kept.
+ *
+ * `spki` is public material and its caller stores it in the clear, on the certificate's own
+ * reasoning: encrypting a public key protects nothing.
+ */
+export async function generateSealableSubtleKeyPair(
+  subtle: SubtleCrypto = globalThis.crypto.subtle,
+): Promise<{ readonly pkcs8: Uint8Array; readonly spki: Uint8Array }> {
+  const pair = await generateWithRetry(subtle, true)
+  return {
+    pkcs8: new Uint8Array(await subtle.exportKey('pkcs8', pair.privateKey)),
+    spki: new Uint8Array(await subtle.exportKey('spki', pair.publicKey)),
+  }
+}
+
+/**
+ * Rebuild a pair from sealed bytes, private half **non-extractable** — `AUTH-07`.
+ *
+ * The counterpart of {@link generateSealableSubtleKeyPair}. The private half comes back with
+ * `extractable: false`, so from the moment it is imported it behaves exactly as a key
+ * generated that way: `exportKey` refuses it and nothing can read it out of the handle.
+ *
+ * **Nothing here is a claim about the disk.** What is on the disk is the caller's envelope,
+ * and this function never writes one.
+ */
+export async function importSealedSubtleKeyPair(
+  pkcs8: Uint8Array,
+  spki: Uint8Array,
+  subtle: SubtleCrypto = globalThis.crypto.subtle,
+): Promise<CryptoKeyPair> {
+  // `toBufferSource` for this module's own stated reason — see its docblock: `BufferSource`
+  // wants a `Uint8Array<ArrayBuffer>` specifically and this module's public surface takes the
+  // ordinary one. Following the pattern the four call sites above already use.
+  const privateKey = await subtle.importKey(
+    'pkcs8',
+    toBufferSource(pkcs8),
+    { name: 'Ed25519' },
+    false,
+    ['sign'],
+  )
+  const publicKey = await subtle.importKey(
+    'spki',
+    toBufferSource(spki),
+    { name: 'Ed25519' },
+    true,
+    ['verify'],
+  )
+  return { privateKey, publicKey }
+}
+
+/**
+ * The retry, shared by both generators.
+ *
+ * Extracted when {@link generateSealableSubtleKeyPair} was added rather than copied, because
+ * the retry is not a convenience: it answers a **measured** WebKit-on-Linux keygen refusal
+ * whose residual is worked out above, and a second generator with its own loop would be a
+ * second thing that can drift from that account.
+ */
+async function generateWithRetry(
+  subtle: SubtleCrypto,
+  extractable: boolean,
 ): Promise<CryptoKeyPair> {
   let lastRefusal: unknown
   for (let attempt = 1; attempt <= KEYGEN_ATTEMPTS; attempt += 1) {
     let generated: CryptoKey | CryptoKeyPair
     try {
-      generated = await subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify'])
+      generated = await subtle.generateKey({ name: 'Ed25519' }, extractable, ['sign', 'verify'])
     } catch (cause) {
       lastRefusal = cause
       continue

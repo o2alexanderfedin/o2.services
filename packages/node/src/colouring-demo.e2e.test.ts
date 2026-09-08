@@ -10,6 +10,7 @@ import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -77,13 +78,27 @@ async function openTab(name: string): Promise<Tab> {
   await page.goto(`${baseUrl}${PAGE}`)
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 30_000 })
 
+  // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor
+  // clicks the button. AUTH-06, `42-06`: it signs in for the same reason too, because
+  // `window.o2.start` refuses with `SignedOutError` until somebody has opened their own
+  // envelope.
+  //
+  // **Driven through the page's own controls rather than through `window.o2`, and the reason
+  // is two cases further down.** `#run` and `#verify` live inside `#main`, and `#main` is
+  // what UNLOCK reveals — a tab signed in through the API alone leaves the entry surface on
+  // screen and Playwright reports *element is not visible* on both presses, which is exactly
+  // what the first sweep of this file measured. So the gate is answered and the passphrase
+  // typed the way a visitor does them.
+  //
+  // That is safe here, and it is not safe everywhere: revealing `#main` also starts a node
+  // when relay discovery finds an address. **This page is served with no `?relay=` and this
+  // origin serves no `/bootstrap.json`**, so discovery finds nothing, `#state` settles on
+  // `blocked`, and the only start in this tab is the configured one below — under this
+  // fixture's own `blockstoreName`, which is what makes two tabs two nodes.
+  await page.click('#allow')
+  await signInDemoTab(page)
   const peerId = await page.evaluate(
-    async ([address, store]) => {
-      // BROW-01 has no test-only bypass: a harness consents for the same reason a
-      // visitor clicks the button.
-      window.o2.grantConsent()
-      return window.o2.start({ relayAddrs: [address!], blockstoreName: store! })
-    },
+    async ([address, store]) => window.o2.start({ relayAddrs: [address!], blockstoreName: store! }),
     [relayAddr, `o2-colouring-${name}`],
   )
 

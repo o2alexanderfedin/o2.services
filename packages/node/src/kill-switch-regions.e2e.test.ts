@@ -88,7 +88,8 @@ import type { ChildProcess } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fixtureViteCacheDir } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
@@ -99,6 +100,24 @@ import { ADMISSION_KEY_HEADER } from '../../cloudflare/src/admission-flag.ts'
 import { HOSTED_OBJECT_NAMES } from '../../cloudflare/src/hosted-object.ts'
 import { STOPPED_TITLE_PREFIX } from '../../browser/src/computing-indicator.ts'
 import type { HostedObjectName } from '../../cloudflare/src/hosted-object.ts'
+
+/**
+ * The identity secret the local `wrangler dev` below boots with — AUTH-07 criterion 4.
+ *
+ * Since that criterion the hosted object refuses to open its identity without
+ * `O2_IDENTITY_SECRET` and answers `GET /self` with `500`, so every spec that polls `/self`
+ * for readiness has to supply one. There is deliberately no default in production source — a
+ * default is the empty-DEK defect one criterion over — and no value in `wrangler.jsonc`,
+ * which is tracked.
+ *
+ * **Per-spec test data rather than a shared constant**, in the style of this tree's `TEST_KEY`
+ * and `TURN_SECRET`: this spec passes its own `--persist-to`, so its Durable Object store is
+ * its own and the value only has to be self-consistent across its own restarts. The one thing
+ * that IS load bearing is the length — under twenty characters `assertUsablePassphrase`
+ * refuses and every boot below fails with `WeakPassphraseError`.
+ */
+const IDENTITY_SECRET = 'local-dev-identity-secret-42'
+
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const CLOUDFLARE_DIR = fileURLToPath(new URL('../../cloudflare', import.meta.url))
@@ -233,6 +252,10 @@ beforeAll(async () => {
         String(PORTS[region]),
         '--local-protocol',
         'http',
+        // AUTH-07 criterion 4 — the object refuses to open its sealed identity without this,
+        // so `/self` would answer 500 and every readiness poll below would time out.
+        '--var',
+        `O2_IDENTITY_SECRET:${IDENTITY_SECRET}`,
         '--persist-to',
         persistDir,
         '--var',
@@ -265,7 +288,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   baseUrl = url.endsWith('/') ? url : `${url}/`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
 }, 400_000)
 
 afterAll(async () => {
@@ -300,11 +323,13 @@ async function startTab(region: HostedObjectName): Promise<Page> {
   const address = `/ip4/${HOST}/tcp/${String(PORTS[region])}/ws/p2p/${String(peerIds.get(region))}`
   await page.goto(`${baseUrl}${PAGE}?relay=${encodeURIComponent(address)}`)
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+  // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor
+  // clicks the button. AUTH-06, `42-06`: it signs in for the same reason too, because
+  // `window.o2.start` refuses with `SignedOutError` until somebody has opened their own
+  // envelope. `signInHarnessTab` does both, in the order its header explains.
+  await signInHarnessTab(page)
   await page.evaluate(
     async ([addr, name, duty, poll]) => {
-      // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor
-      // clicks the button.
-      window.o2.grantConsent()
       return window.o2.start({
         relayAddrs: [addr as string],
         blockstoreName: name as string,

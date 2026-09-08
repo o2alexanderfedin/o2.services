@@ -54,7 +54,26 @@ import { FUNNEL_SCHEMA_DIGEST, FUNNEL_STAGES } from '@o2/net'
 import type { FunnelStage } from '@o2/net'
 import { KERNEL_RECORD, kernelBytes } from '@o2/demo'
 import type { TabNameRecord } from '@o2/browser'
-import { fixtureViteCacheDir } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { registerHarnessTab, signInHarnessTab } from './e2e-signin.ts'
+
+/**
+ * The identity secret the local `wrangler dev` below boots with — AUTH-07 criterion 4.
+ *
+ * Since that criterion the hosted object refuses to open its identity without
+ * `O2_IDENTITY_SECRET` and answers `GET /self` with `500`, so every spec that polls `/self`
+ * for readiness has to supply one. There is deliberately no default in production source — a
+ * default is the empty-DEK defect one criterion over — and no value in `wrangler.jsonc`,
+ * which is tracked.
+ *
+ * **Per-spec test data rather than a shared constant**, in the style of this tree's `TEST_KEY`
+ * and `TURN_SECRET`: this spec passes its own `--persist-to`, so its Durable Object store is
+ * its own and the value only has to be self-consistent across its own restarts. The one thing
+ * that IS load bearing is the length — under twenty characters `assertUsablePassphrase`
+ * refuses and every boot below fails with `WeakPassphraseError`.
+ */
+const IDENTITY_SECRET = 'local-dev-identity-secret-42'
+
 
 const CLOUDFLARE_DIR = fileURLToPath(new URL('../../cloudflare', import.meta.url))
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -177,7 +196,7 @@ beforeAll(async () => {
   persistDir = await mkdtemp(join(tmpdir(), 'o2-funnel-live-'))
   worker = spawn(
     'npx',
-    ['wrangler', 'dev', '--port', String(PORT), '--local-protocol', 'http', '--persist-to', persistDir],
+    ['wrangler', 'dev', '--port', String(PORT), '--local-protocol', 'http', '--var', `O2_IDENTITY_SECRET:${IDENTITY_SECRET}`, '--persist-to', persistDir],
     {
       cwd: CLOUDFLARE_DIR,
       env: { ...process.env, CLOUDFLARE_API_TOKEN: '', WRANGLER_SEND_METRICS: 'false' },
@@ -192,7 +211,7 @@ beforeAll(async () => {
   if (url === undefined) throw new Error('vite dev server produced no URL')
   baseUrl = url.endsWith('/') ? url : `${url}/`
 
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
 }, 240_000)
 
 afterAll(async () => {
@@ -254,6 +273,11 @@ describe('RUN-04 criterion 1 — the counts are readable while the tab is still 
     ).toBe(1)
     expect(armed.entered['consent'], `criterion 1: stage two did not arrive — ${render(armed)}`).toBe(1)
 
+    // AUTH-06, `42-06`. Signed in HERE and not beside the consent above, because the two
+    // readings taken between them are about what the funnel does with a consent on its own.
+    // Registering enters no funnel stage — `armFunnel` is called from `api.start` — so what
+    // stage three below attributes is unchanged.
+    await registerHarnessTab(page)
     await page.evaluate(
       async ([relay]) =>
         window.o2.start({ relayAddrs: [relay as string], blockstoreName: 'o2-funnel-live' }),
@@ -356,11 +380,12 @@ describe('RUN-04 criterion 1 — the three stages a single tab cannot reach', ()
         pages.map(async (page) => {
           await page.goto(url)
           await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+          // BROW-01 / AUTH-06: a harness consents and signs in for the same reasons a
+          // visitor presses the two controls — see `signInHarnessTab`.
+          await signInHarnessTab(page)
           return page.evaluate(
-            async ([relay]) => {
-              window.o2.grantConsent()
-              return window.o2.start({ relayAddrs: [relay as string], blockstoreName: 'o2-funnel-live-2' })
-            },
+            async ([relay]) =>
+              window.o2.start({ relayAddrs: [relay as string], blockstoreName: 'o2-funnel-live-2' }),
             [address],
           )
         }),

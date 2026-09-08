@@ -8,6 +8,7 @@ import { chromium, firefox, webkit } from 'playwright'
 import type { Browser, BrowserType, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -164,10 +165,14 @@ async function openPeer(engine: string, type: BrowserType): Promise<Peer | Exclu
     // visitor clicks the button. `autoStart` then reads `?relay=` through
     // `discoverRelays()` — the same precedence a visitor's page uses — and inherits
     // the demo's own build authority, because nothing here pins one.
-    const joined = await page.evaluate(async (store) => {
-      window.o2.grantConsent()
-      return window.o2.autoStart({ blockstoreName: store })
-    }, `static-rendezvous-${engine}`)
+    // AUTH-06, `42-06`: signing in is the same kind of act as consenting, because
+    // `window.o2.start` refuses with `SignedOutError` until somebody has opened their own
+    // envelope — see `signInHarnessTab`.
+    await signInHarnessTab(page)
+    const joined = await page.evaluate(
+      async (store: string) => window.o2.autoStart({ blockstoreName: store }),
+      `static-rendezvous-${engine}`,
+    )
 
     // A reservation that has not yet produced a dialable `/webrtc` address is a peer
     // the relay cannot name to anybody, so this is part of joining rather than part of

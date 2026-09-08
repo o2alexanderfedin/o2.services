@@ -40,17 +40,42 @@
     -->
     <h1>Fabric status</h1>
     <p class="sub">
-      What the fabric's bootstrap objects are publishing about themselves, read live. Nothing
-      here needs an account, a key or a cookie, and nothing on this page can change anything —
-      the operator's write surface is not reachable from any web page. Add
-      <code>?self=https://host</code> (comma-separated for several) to point this at other
-      objects.
+      What the fabric's bootstrap objects are publishing about themselves, read live.
+    </p>
+    <!--
+      **Corrected 2026-09-06, and the correction is one word's worth of meaning.** This
+      paragraph read *"Nothing **here** needs an account, a key or a cookie"*, which was true
+      of everything in this project until `42-04` put a passphrase in front of the node page.
+      After that, *"here"* had two readings — *on this page* (still true) and *in this
+      project* (no longer true) — and the link to the node page sits ten lines below it. A
+      reader was told no key was needed and then met a passphrase field one click later.
+
+      So neither sentence says "here" any more. Each one names its subject, and the second
+      says outright that the other page is different and why, because a visitor who is
+      surprised by a password box is a visitor who closes the tab.
+    -->
+    <p class="sub">
+      <strong>This page asks you for nothing.</strong> No account, no passphrase, no cookie.
+      It only reads, and nothing you do on it can change anything anywhere — the operator's
+      write surface is not reachable from any web page.
+    </p>
+    <p class="sub">
+      <strong>The node page is a different page and it does ask.</strong> It keeps an identity
+      on your own device, so it asks you to choose a passphrase before it will run anything:
+      that passphrase is what stops whoever finds your device from being able to act as you.
+      There is still no account and no server behind it — the passphrase never leaves your
+      browser, and nobody, here or anywhere, can recover it for you. You can look around that
+      page without choosing one; you just cannot run anything until you do.
+    </p>
+    <p class="sub">
+      Add <code>?self=https://host</code> (comma-separated for several) to point this page at
+      other objects.
     </p>
     <main id="objects">
       <p class="sub">Reading…</p>
     </main>
     <p class="sub">
-      <a href="./index.html">The node itself</a> ·
+      <a href="./index.html">The node itself — asks for a passphrase</a> ·
       <a href="./policy.html">What that page does</a>
     </p>
     <script type="module" src="./status.ts"></script>

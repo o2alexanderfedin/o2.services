@@ -73,6 +73,7 @@ import type {
   StartOutcome,
 } from '@o2/core'
 import { clientVersionFrom, nodeKeyForPeerId, peerIdForNodeKey } from '@o2/libp2p'
+import type { IdentityProtection } from '@o2/libp2p'
 import {
   RemoteExecutor,
   RpcRecordIndex,
@@ -154,6 +155,13 @@ import { IdbCheckpoints } from '../src/idb-checkpoints.ts'
 import { fetchModuleForDispatch } from '../src/gateway-module.ts'
 // BROW-07's carrier. Relative for the same reason, stated in that module's own header.
 import { ComputingIndicator, documentTitlePort } from '../src/computing-indicator.ts'
+import { readNostrBootstrapIfPinned } from '../src/nostr-bootstrap.ts'
+// RUN-06's detector. Relative and not through the barrel, on the same module's stated rule.
+import { detectEmbeddedWebView, readEmbeddedWebViewProbe } from '../src/embedded-webview.ts'
+// Criterion 2's instrument. Relative for the same reason, stated in that module's own header.
+import { HIDDEN_GAP_SENTENCES, HiddenGapWatcher } from '../src/hidden-gap.ts'
+import type { HiddenGapVerdict } from '../src/hidden-gap.ts'
+import type { VisibilitySource } from '../src/visibility-governor.ts'
 import { KillSwitch, switchEndpointFor } from '../src/kill-switch.ts'
 // RUN-04's two halves. Relative and **deliberately not through the barrel**, on
 // `computing-indicator.ts`'s stated rule and for its stated reason: a barrel export whose only
@@ -162,11 +170,21 @@ import { KillSwitch, switchEndpointFor } from '../src/kill-switch.ts'
 import {
   FunnelReporter,
   beaconSendPort,
+  fetchProbePort,
   funnelEndpointFrom,
+  probeFunnelTarget,
   readNetworkClass,
   utcHourPort,
 } from '../src/funnel-reporter.ts'
 import { onFirstIceGathering } from '../src/ice-observer-install.ts'
+// AUTH-06's visitor half — plan `42-04`, the owner's ruling of 2026-09-04. Relative and
+// **deliberately not through the barrel**, on the rule stated at `IdbCheckpoints` above and
+// for its stated reason: a barrel export whose only caller is inside the `window.o2` literal
+// is an exported-but-statically-unreachable symbol in front of
+// `reachability-guard.node.test.ts`, bought for nothing.
+import { forgetIdentity, storedIdentityKind, unsealIdentity } from '../src/browser-node.ts'
+import { SignedOutError } from '../src/signin.ts'
+import type { SigninInput } from '../src/signin.ts'
 import * as pid from '@libp2p/peer-id'
 // **`import type`, and the distinction matters here rather than being pedantry.** This file's
 // convention is that `CID` is reached through `await import('multiformats/cid')` — see
@@ -175,6 +193,197 @@ import * as pid from '@libp2p/peer-id'
 // graph. A type-only import is erased before anything runs, emits no edge, and is the only way
 // to annotate a binding the dynamic import produces.
 import type { CID } from 'multiformats/cid'
+
+/**
+ * RUN-06 — offer to hand this page to the visitor's own browser, and do it first.
+ *
+ * ## Why this runs at module scope rather than from the page's own driver
+ *
+ * The gate is painted by the inline module script at the foot of `index.html`, and that
+ * script waits for `window.o2` — which this file assigns as its last statement. So anything
+ * written here runs before the gate is on screen, which is where a notice about *which
+ * browser you are in* belongs: it is a fact about the arrival, not about the session, and a
+ * visitor who is about to be asked for consent should already be able to see that the page
+ * thinks they are somewhere awkward.
+ *
+ * ## It is an offer and never a wall — T-38-05
+ *
+ * It does not hide `#gate`, does not disable `#allow`, and does not change any ordering
+ * `disclosure-before-optin.e2e.test.ts` asserts. The dismiss control hides the section and
+ * nothing else; there is deliberately no state written anywhere, because a visitor who
+ * dismissed it on one visit and is still inside the same host application should be told
+ * again rather than silently left where they were.
+ *
+ * ## What is rendered, and what is not — T-38-02
+ *
+ * The **names** of the signals that fired, out of the declared `CANDIDATE_SIGNALS` table.
+ * Never `navigator.userAgent`, never `location.href`: both put host-identifying strings on a
+ * screen a volunteer may photograph, and the address of this page also puts digits inside a
+ * section that stays digit-free so it stays outside the region catalogue's jurisdiction.
+ *
+ * The address can still be *copied*, which is a different act: it goes to the clipboard on an
+ * explicit tap and never to the screen. That control stays hidden unless
+ * `navigator.clipboard.writeText` is really a function — the DOM types say `navigator.clipboard`
+ * is always there and on an insecure origin it is not, so the check is a runtime one and the
+ * optional chain is load-bearing rather than defensive style.
+ */
+/**
+ * The search parameter that forces the readout on, and why the value is a word.
+ *
+ * **This mode exists for the device where the detector is wrong.** Plan 38-04 opens the real
+ * recruitment link from a real Telegram message on two real phones, and the case that matters
+ * most is a phone on which **none** of the five declared candidate signals fires. Without a way
+ * to force the section on, the owner can only report *nothing appeared* — which does not say
+ * which candidates were wrong, and `embedded-webview.ts`'s own rule is that a row firing on
+ * neither device should be deleted rather than kept as a guess.
+ *
+ * The value is `on` rather than a digit. A digit in a URL is harmless, because the URL is never
+ * rendered — T-38-02 — but the section this parameter opens is digit-free by rule, and a habit
+ * is what eventually puts one there.
+ *
+ * T-38-07, accepted: a crafted link can force the readout to show. It reveals which of five
+ * **declared** signals fired in the visitor's own browser, which that browser already knows. No
+ * state changes, nothing is stored, nothing is sent.
+ */
+const ENTRY_DIAGNOSTICS_PARAM = 'entry-diagnostics'
+const ENTRY_DIAGNOSTICS_VALUE = 'on'
+
+/**
+ * The headline the forced state carries instead of the real one.
+ *
+ * A reader must never be able to mistake *this page was opened with a parameter* for *this page
+ * noticed something*. The forced notice therefore says why it is showing, in its own words, in
+ * the largest text in the section — and it replaces the real headline only when there was
+ * nothing to detect. When a signal did fire, the detection stands on its own and the ordinary
+ * headline is the true one.
+ */
+const DIAGNOSTICS_HEADLINE = 'Shown because this page was opened with diagnostics on'
+
+/**
+ * What `#entry-notice-signals` says when nothing fired.
+ *
+ * An empty line and a broken readout are indistinguishable on a photographed screen, and on the
+ * device this mode exists for they are the two readings that must be told apart.
+ */
+const NOTHING_NOTICED =
+  'What this page noticed: nothing — none of the signals it looks for is present here'
+
+function offerOwnBrowser(): void {
+  const verdict = detectEmbeddedWebView(readEmbeddedWebViewProbe(window))
+  // Published for every visit, embedded or not — T-38-04. A harness that could only read the
+  // verdict when the notice appeared could not tell "not embedded" from "detection never ran".
+  window.__o2EntryVerdict = verdict
+
+  const notice = document.getElementById('entry-notice')
+  if (notice === null) return
+
+  const forced =
+    new URLSearchParams(location.search).get(ENTRY_DIAGNOSTICS_PARAM) === ENTRY_DIAGNOSTICS_VALUE
+
+  // **Collapse, do not hide** — and this is the point of the control rather than a nicety.
+  // The observation criterion 2 needs is taken AFTER the visitor has chosen to stay, because
+  // that is when the page is left alone long enough to be backgrounded. A dismiss that hid the
+  // section would take the signal names and the hidden-span readout away at exactly the moment
+  // they are wanted. The offer goes; the evidence stays; the element is never removed.
+  //
+  // `classList` rather than `hidden`, deliberately: `[hidden]` is what decides whether the
+  // section is on screen at all, and a control that set it would leave the page with two
+  // different reasons for the same attribute and no way to tell them apart.
+  const dismiss = document.getElementById('entry-notice-dismiss')
+  dismiss?.addEventListener('click', () => {
+    notice.classList.add('collapsed')
+  })
+
+  const copy = document.getElementById('entry-notice-copy')
+  if (copy !== null && typeof navigator.clipboard?.writeText === 'function') {
+    copy.hidden = false
+    copy.addEventListener('click', () => {
+      void navigator.clipboard.writeText(location.href).then(
+        () => {
+          // Words only. A confirmation carrying the address it copied would put the address
+          // on screen by the back door, which is the one thing this section does not do.
+          copy.textContent = 'Copied — now paste it into your own browser'
+        },
+        () => {
+          copy.textContent = 'This app would not let the page copy it — use its own menu instead'
+        },
+      )
+    })
+  }
+
+  const signals = document.getElementById('entry-notice-signals')
+  if (signals !== null) {
+    // `textContent`, and the names come from the declared table rather than from the probe,
+    // so nothing a host application chose to call itself can reach this element.
+    signals.textContent =
+      verdict.fired.length === 0
+        ? NOTHING_NOTICED
+        : `What this page noticed: ${verdict.fired.map((signal) => signal.name).join(' · ')}`
+  }
+
+  // Only when the section is showing BECAUSE of the parameter. A page that detected something
+  // and also carries the parameter is showing the notice for the real reason, and overwriting
+  // its headline would hide a true detection behind a diagnostic.
+  if (forced && !verdict.embedded) {
+    const headline = document.getElementById('entry-notice-headline')
+    if (headline !== null) headline.textContent = DIAGNOSTICS_HEADLINE
+  }
+
+  notice.hidden = !(verdict.embedded || forced)
+}
+
+/**
+ * Criterion 2's instrument, started before anything else and left running.
+ *
+ * ## Why it starts unconditionally
+ *
+ * Whether the notice is showing is a fact about *where* this page was opened; whether the
+ * engine survives being hidden is a fact about *what happens next*, and a visitor can
+ * background the page before the gate is even read. So the watcher starts for every visit,
+ * embedded or not, and the readout is written once immediately — before any hide has happened
+ * the screen says so, rather than leaving an empty line that a reader cannot distinguish from
+ * a broken one.
+ *
+ * ## One watcher, one interval — T-38-08
+ *
+ * *"It must not be per-notice or per-visibility-change, or a page cycled between foreground
+ * and background accumulates timers."* This function is called exactly once at module scope and
+ * `HiddenGapWatcher.start()` is idempotent besides.
+ *
+ * ## Why `pagehide` releases it only when the page is NOT being kept
+ *
+ * The threat register asks for the interval to be released on `pagehide`. Taken literally that
+ * would break the instrument on the one device it was built for: on a phone, backgrounding the
+ * browser fires `pagehide` with `persisted: true` while the page is kept in the back/forward
+ * cache — the page is coming back, and stopping the interval there would leave the counter at
+ * zero across the span and make the watcher *manufacture* the suspended-engine verdict it
+ * exists to detect. So the release is gated on `persisted === false`, which is the teardown the
+ * register is actually about. A page that is genuinely kept keeps its watcher; a page that is
+ * going away takes its timer with it.
+ */
+function watchHiddenGap(): void {
+  const liveness = document.getElementById('entry-notice-liveness')
+  const show = (verdict: HiddenGapVerdict): void => {
+    if (liveness !== null) liveness.textContent = HIDDEN_GAP_SENTENCES[verdict]
+  }
+
+  const watcher = new HiddenGapWatcher({
+    // The same cast `visibility-governor.ts` makes at the same seam and for its reason:
+    // `Document` carries a far wider `addEventListener` than `VisibilitySource` names, and the
+    // narrow shape is what makes the instrument drivable from a spec with no tab.
+    visibility: document as unknown as VisibilitySource,
+    onVerdict: show,
+  })
+  watcher.start()
+  show(watcher.verdict())
+
+  window.addEventListener('pagehide', (event) => {
+    if (!event.persisted) watcher.stop()
+  })
+}
+
+offerOwnBrowser()
+watchHiddenGap()
 
 /**
  * The anchor set this demo consents under.
@@ -211,6 +420,116 @@ let declinedLocally = 0
  * about. Read `undefined` as "the question does not arise".
  */
 let runningWithProvider: string | null | undefined
+
+/**
+ * The visitor's passphrase, for **this visit and nowhere else** — AUTH-06, plan `42-04`.
+ *
+ * Never `localStorage`, never `sessionStorage`, never IndexedDB, never a URL, never a log,
+ * never the funnel reporter's payload. The funnel's schema is frozen and digest-guarded by
+ * `FUNNEL_SCHEMA_DIGEST`, so a field added there would redden `funnel-schema.test.ts`
+ * independently of anybody noticing — but the rule is that it must not be added at all, and
+ * the guard is a second line rather than the line.
+ *
+ * **What that costs, stated rather than discovered:** every fresh visit shows the login field
+ * again. *"Started automatically"* therefore means **no further click after unlock in this
+ * visit** — never a silent start on load, which would be a page that runs a node for somebody
+ * who has not opened their own envelope.
+ *
+ * The alternative was weighed and refused. A device-held wrapping key — a non-extractable
+ * WebCrypto key beside the ciphertext, no prompt on return — genuinely defeats *a copy of the
+ * identity database*: `exportKey` throws, and the database cannot be opened from another
+ * origin. It does **not** defeat an imaged device, because the wrapping key lives in the same
+ * browser profile as the ciphertext and unwraps whatever the image contains. AUTH-06's goal
+ * sentence is *"unreadable without my passphrase, so that losing the device does not also
+ * hand over the identity"*, and a mechanism a lost device hands over does not meet it.
+ */
+let heldPassphrase: string | null = null
+
+/**
+ * The identity resolution behind the two controls — register and log in.
+ *
+ * Both resolve **offline**, through `unsealIdentity`, which is IndexedDB and Argon2id and no
+ * network at all. That is a correctness requirement rather than an economy: sealing otherwise
+ * happens inside the node-start path, and four e2e fixtures serve this page from a static host
+ * with no relay, where a node can never come up. If registering could only seal by starting,
+ * this page would be unreachable behind its own entry screen on every one of them.
+ *
+ * The passphrase is held only after the envelope opened. A refusal leaves `heldPassphrase`
+ * exactly as it was, so a wrong attempt cannot arm the `identityProtection` arm below with a
+ * key that opens nothing.
+ */
+/**
+ * The passphrase this visit is signed in with, or a refusal that names itself.
+ *
+ * `requireConsent()`'s counterpart, one layer over: the gate says what the page may do, this
+ * says who is doing it. Both are re-read at the point of use rather than captured, so a state
+ * that changed since the page rendered is the state that applies.
+ */
+function requireSignIn(): string {
+  const held = heldPassphrase
+  if (held === null) throw new SignedOutError()
+  return held
+}
+
+/**
+ * Whether anybody is signed in — **a boolean, and never the passphrase itself**.
+ *
+ * The distinction is not fastidiousness, it is `T-42-27` written as two functions.
+ * `visitor-enrolment.e2e.test.ts` asserts that {@link requireSignIn}, which *returns the
+ * passphrase*, has exactly **one** call site — the `identityProtection` field — because a
+ * second site anywhere is the whole of that threat: the credential that opens this browser's
+ * identity reaching the path that talks to a provider.
+ *
+ * **That guard caught this pair being written as one function**, on 2026-09-06, when
+ * `acceptEnrolment` was given `requireSignIn()` to answer a question that never needed the
+ * secret. The guard was right and the code moved: enrolment asks *is somebody signed in*, and
+ * gets a yes or a no.
+ */
+function signedIn(): boolean {
+  return heldPassphrase !== null
+}
+
+/**
+ * Refuse unless somebody is signed in, and hand back **nothing** — `AUTH-07` criterion 1.
+ *
+ * {@link SignedOutError} already says what would otherwise happen and why it must not, so the
+ * refusal is shared rather than reworded: one failure a surface can render, whatever asked.
+ */
+function requireSignedIn(): void {
+  if (!signedIn()) throw new SignedOutError()
+}
+
+/**
+ * What this page will do with **any** long-lived secret it persists — one object, one source.
+ *
+ * ## Why this function exists rather than four `requireSignIn()` calls
+ *
+ * `visitor-enrolment.e2e.test.ts` asserts that {@link requireSignIn} — which *returns the
+ * passphrase* — has exactly **one** call site, and `T-42-27` is why: this tab holds a
+ * passphrase it registered with and a certificate a provider signed, and the threat is the
+ * first reaching the second. Each new persister that needed the passphrase would otherwise be
+ * a new site, and the guard would be relaxed once per persister until it said nothing.
+ *
+ * `AUTH-07` added a second persister — the visitor's own key, whose whole PKCS#8 was measured
+ * lying in a Chromium and Firefox profile in the clear. So the passphrase is obtained **here,
+ * once**, into the vocabulary both tiers already speak (`IdentityProtection`), and every
+ * persister takes that object. The guard's property is preserved rather than widened: there
+ * is still exactly one place where the passphrase is obtained, and it is now easier to audit
+ * than four call sites would have been, because the object is named and typed.
+ */
+function identityProtection(): IdentityProtection {
+  return { kind: 'passphrase', passphrase: requireSignIn() }
+}
+
+async function openIdentity(
+  passphrase: string,
+  whenAbsent: 'mints-and-seals-a-new-identity' | 'refuses-to-mint',
+): Promise<{ readonly peerId: string }> {
+  const identity = await unsealIdentity({ passphrase, whenAbsent })
+  heldPassphrase = passphrase
+  notify()
+  return { peerId: identity.peerId }
+}
 
 // **`pageConsentStore` and not `localConsentStore`, and the difference is a refusal a
 // visitor could hit.** `requireConsent()` below does not use the value `grantConsent`
@@ -400,6 +719,33 @@ function armFunnel(): void {
   funnel.enter('consent')
 }
 
+/**
+ * What this page's reporter is doing, for a fixture that has to read it — RUN-07.
+ *
+ * **Exported here rather than added to `TabApi`** for `signinFacts`'s reason, and reached the
+ * same way `signinFacts` is: as a module export of this file, which `index.html` already
+ * imports and a fixture reaches by importing the same URL the page loaded. `TabApi` is the
+ * surface a visitor's page and an embedding host are handed, and a funnel diagnostic belongs on
+ * neither.
+ *
+ * ## Why it answers TWO fields when the question is about one
+ *
+ * `active` is the reading — whether a send port was installed, which after the probe below is
+ * the difference between a funnel that collects and one that silently drops. `furthest` is
+ * there so a reader can tell that reading apart from a **fresh module instance**: anything that
+ * loads this file a second time re-runs `funnel.enter('page-load')` on a reporter nobody armed,
+ * and would answer `active: false` for a reason that has nothing to do with a collector. A
+ * caller that has consented and sees `furthest` still at `'page-load'` is holding the wrong
+ * object, and an `active: false` taken from it is an artefact rather than a measurement.
+ *
+ * **Nothing in this page consumes it.** That is the one way it differs from `signinFacts`, and
+ * it is stated rather than hidden: it exists so that "the funnel is inert" is observable at all,
+ * which is the property `RUN-07`'s staged go/no-go rests on.
+ */
+export function funnelFacts(): { readonly active: boolean; readonly furthest: string | null } {
+  return { active: funnel.active, furthest: funnel.furthest }
+}
+
 /** Set once stage six has been reported, so the poll loop stops asking. */
 let funnelSawFirstTask = false
 /**
@@ -568,6 +914,68 @@ function stateOf(): TabConsentState {
 }
 
 /**
+ * Abandon the identity in this browser and become somebody else — T-42-24.
+ *
+ * The one way past a forgotten passphrase, and it is deliberately an **explicit act whose
+ * cost is written on the control that takes it**. `#signin-startover-cost` carries that
+ * sentence, and the surface reveals the control in the `refused` state and nowhere else — a
+ * page that offered *start over* to somebody who mistyped once is a page that will lose
+ * identities.
+ *
+ * The node is stopped first, for `revokeConsent`'s stated reason applied to this decision: a
+ * tab still running as the node it just abandoned is a tab whose surface disagrees with its
+ * own storage.
+ *
+ * **Exported here rather than added to `TabApi`** for `signinFacts`'s reason: `TabApi` grows
+ * exactly two methods in this plan, and a harness driving this journey clicks the control the
+ * visitor clicks.
+ */
+export async function startOver(): Promise<void> {
+  await api.stop()
+  // Cleared BEFORE the delete, not after. A rejection from `forgetIdentity` must not leave
+  // this page holding a passphrase for an identity it has begun destroying.
+  heldPassphrase = null
+  await forgetIdentity()
+  notify()
+}
+
+/**
+ * The three facts the entry surface cannot work out for itself — AUTH-06, plan `42-04`.
+ *
+ * `demo/index.html` composes a `SigninInput` from this plus the two facts it owns — whether
+ * the visitor pressed the control that declines, and the last refusal — and renders whatever
+ * `signinState` returns. The page derives its state; it does not set a flag in eight places.
+ *
+ * **Exported from this module rather than added to `TabApi`**, and the reason is the
+ * contract: `TabApi` grows exactly two methods in this plan, `register` and `unlock`, which
+ * are the harness equivalents of the two controls. This is not a control — it is the page
+ * reading its own driver, the same relationship `index.html` already has with `./nav.ts` and
+ * `./surfaces/*.ts`. An ES module imported twice under one specifier is one instance, so the
+ * `heldPassphrase` this reports on is the one `requireSignIn` reads.
+ *
+ * `consent` carries `readConsent`'s own vocabulary rather than a boolean, because *"you never
+ * asked me"* and *"the terms changed since you asked me"* are different things to tell a
+ * visitor.
+ */
+export async function signinFacts(): Promise<{
+  readonly consent: SigninInput['consent']
+  readonly stored: SigninInput['stored']
+  readonly unlocked: boolean
+}> {
+  const found = readConsent(store, DEMO_ANCHORS)
+  // The identity read is taken **after** the consent read and is reported beside it rather
+  // than gating on it, because `signinState` decides the ordering and this function must not
+  // hold a second opinion about it. It writes nothing: `storedIdentityKind` opens no envelope
+  // and derives no key, which is what lets it run before a visitor has typed anything.
+  const stored = await storedIdentityKind()
+  return {
+    consent: found.ok ? 'granted' : found.gap.kind,
+    stored,
+    unlocked: signedIn(),
+  }
+}
+
+/**
  * The `enrollment` option a visitor's stored decision amounts to — AUTH-01/02/04.
  *
  * The only place the three fields are assembled, and the assembly is the point: the address
@@ -591,7 +999,7 @@ async function visitorEnrolmentOption(providerAddr: string): Promise<{
   // ordinary unenrolled node rather than throwing, because a stored decision made on an
   // origin that has since lost `crypto.subtle` must not turn into a page that will not load.
   if (!canHoldVisitorKey()) return null
-  const keyPair = await visitorKeyPair()
+  const keyPair = await visitorKeyPair(identityProtection())
   return {
     userPrivateKey: keyPair,
     operatorId: await visitorOperatorId(keyPair),
@@ -637,7 +1045,7 @@ async function sovereignChainsFor(
   if (sovereign === undefined) return null
   if (n.certificate === null) return null
   if (!canHoldVisitorKey()) return null
-  const signer = await subtleUserSigner(await visitorKeyPair())
+  const signer = await subtleUserSigner(await visitorKeyPair(identityProtection()))
   return chainsForOwner(signer, { ownerId: sovereign.ownerId, nodeIds, now: () => Date.now() })
 }
 
@@ -655,7 +1063,13 @@ async function offerOf(): Promise<TabEnrolmentOffer> {
   // granted it has nothing to offer yet. Reported as "no offer" rather than thrown: the
   // consent gate is the surface that should be speaking at that moment, not this one.
   if (!readConsent(store, DEMO_ANCHORS).ok) {
-    return { offered: false, accepted: false, canHoldKey, appliedToRunningNode: true }
+    return {
+      offered: false,
+      accepted: false,
+      canHoldKey,
+      signedIn: signedIn(),
+      appliedToRunningNode: true,
+    }
   }
   const { enrollmentProvider } = await api.discoverRelays()
   const found = readEnrolment(store, enrollmentProvider)
@@ -675,6 +1089,9 @@ async function offerOf(): Promise<TabEnrolmentOffer> {
     accepted,
     ...(found.ok ? {} : { gap: found.gap.kind }),
     canHoldKey,
+    // Read here rather than captured anywhere: `requireSignIn`'s own rule — the state that
+    // changed since the page rendered is the state that applies.
+    signedIn: signedIn(),
     ...(heldIssuer === null ? {} : { heldIssuer }),
     // `undefined` means no node is running, and then the question does not arise — a
     // decision cannot be out of step with a node that does not exist.
@@ -743,10 +1160,32 @@ function noteOutcome(cause: StartFailure | null): void {
  * document that exists IS this origin's answer, and falling through on a missing field would
  * let one caller read one location and another caller read the other.
  *
- * Answers `undefined` when neither location has one — a static host with no seed, which is a
- * state and not a failure.
+ * ## And a third place, which is not this origin at all
+ *
+ * When neither location answers, the fabric's own signed copy on Nostr is asked —
+ * `../src/nostr-bootstrap.ts`. **The fallback lives HERE and not at a call site, and that is a
+ * repair rather than tidiness.** It was first wired into `runDiscoveryRound` alone, and measured
+ * the same day against the built bundle on a static host with no `bootstrap.json`: `discoverRelays`
+ * answered `source: 'none'` in **8 ms with no socket opened at all**, because
+ * `TabApi.discoverRelays` is a SECOND caller of this function and the wiring had reached only the
+ * first. Two call sites, one of them wired, is a feature that exists and does not run — which is
+ * the failure this repository keeps finding under other names. One seam, both callers, and a
+ * third caller cannot forget it.
+ *
+ * The ordering is a security property and is stated at `readNostrBootstrap`: the origin FIRST,
+ * this second, never a merge and never the reverse, because a page whose origin answers must not
+ * be redirectable by whoever holds a key on somebody else's infrastructure.
+ *
+ * Answers `undefined` when no location has one — a static host with no seed and no published
+ * fallback, which is a state and not a failure.
  */
-async function fetchBootstrapDocument(): Promise<Record<string, unknown> | undefined> {
+interface FoundBootstrap {
+  readonly document: Record<string, unknown>
+  /** Which of the three places answered. Reported outward, never inferred by a caller. */
+  readonly from: 'origin' | 'nostr'
+}
+
+async function fetchBootstrapDocument(): Promise<FoundBootstrap | undefined> {
   // Deduplicated, because a page served FROM the root resolves both to the same URL and a
   // second identical request would be a wasted round trip on the commonest arrangement.
   const seen = new Set<string>()
@@ -764,13 +1203,29 @@ async function fetchBootstrapDocument(): Promise<Record<string, unknown> | undef
       // Narrowed rather than cast: a static host may answer 200 with HTML or with an array,
       // and neither must be read as a bootstrap document by a caller reaching for a field.
       if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
-        return { ...body }
+        return { document: { ...body }, from: 'origin' }
       }
     } catch {
       // A 404, HTML where JSON was expected, or no host at all. Try the other location.
     }
   }
-  return undefined
+  // **A relay the visitor named outranks a published document, so nothing is asked.** Measured
+  // 2026-09-07: without this, a page given `?relay=<local>` still consulted the fallback and
+  // added the LIVE production relay to its candidate set — `static-rendezvous.e2e.test.ts` went
+  // red at `attempted: 3` against `undiscovered: 2`, which is a fixture dialling production.
+  // The defect it caught is not the fixture's: an explicit address is the visitor's own choice,
+  // and widening the dial set behind it by asking strangers is the thing `?relay=` exists to
+  // avoid. `TabApi.discoverRelays` already returns early on it; this is the same rule one level
+  // down, where the second caller lives.
+  if (new URLSearchParams(location.search).getAll('relay').some((a) => a !== '')) return undefined
+
+  // No origin document and no named relay. Ask the fabric's own signed copy — see the third
+  // section of this docblock for why it is here rather than at a caller.
+  const published = await readNostrBootstrapIfPinned({
+    open: (url) => new WebSocket(url),
+    now: () => Date.now(),
+  })
+  return published === undefined ? undefined : { document: published, from: 'nostr' }
 }
 
 /** The round in flight, so a second caller joins it instead of starting another. */
@@ -794,7 +1249,8 @@ async function runDiscoveryRound(): Promise<TabDiscoveryRound> {
   //    relay circuit at all — so a lone visitor has a peer immediately.
   // Both mount points, relative first — see {@link fetchBootstrapDocument} for why a page
   // cannot know which of the two served it, and for what asking only one of them cost.
-  const info = await fetchBootstrapDocument()
+  const found = await fetchBootstrapDocument()
+  const info = found?.document
   if (info !== undefined && Array.isArray(info['peerAddrs'])) {
     candidates.push(...info['peerAddrs'].filter((a): a is string => typeof a === 'string'))
     asked = true
@@ -1382,6 +1838,19 @@ const api: TabApi = {
     return stateOf()
   },
 
+  async register(passphrase) {
+    // AUTH-06 — the owner's ruling of 2026-09-04. A visitor chooses a passphrase; their
+    // identity is minted and sealed under it in this browser. No email, no account, no
+    // server, and nobody to ask it back from.
+    return openIdentity(passphrase, 'mints-and-seals-a-new-identity')
+  },
+
+  async unlock(passphrase) {
+    // `refuses-to-mint` is the whole difference from `register`: a login against an empty
+    // database is a refusal, never a quiet registration. See `TabApi.unlock`.
+    return openIdentity(passphrase, 'refuses-to-mint')
+  },
+
   async start(options) {
     // BROW-01 — **the return value is used, and that is the fix.** It is the same
     // `GrantedConsent` the gate rests on, so the node below is built from the record the
@@ -1409,8 +1878,42 @@ const api: TabApi = {
     // which is a drop-off the funnel exists to measure.
     //
     // `funnel.target` is once-only, so a page that named `?funnel=` keeps what it named.
+    //
+    // **AMENDED — RUN-07. The derived branch is PROBED and the configured branch is not.**
+    // The derivation is right about the deployed Worker, which serves the collector on the
+    // same host as the relay, and wrong about any self-hosted seed, which serves libp2p
+    // WebSocket on that port and answers 400. The beacon fails immediately, so nothing hangs
+    // and nothing is logged: the funnel looks configured and collects nothing, which is a
+    // criterion-2 failure that presents as a criterion-2 pass. `probeFunnelTarget` asks the
+    // origin whether it is a collector — reading its BODY, not its status — and a refusal
+    // leaves the reporter exactly as inert as it was before the derivation existed.
+    //
+    // The two sources are told apart by asking `funnelEndpointFrom` WITHOUT the relay list:
+    // a non-null answer there is an explicit `?funnel=`, which somebody named on purpose and
+    // which is not this page's to second-guess. No second precedence rule is introduced —
+    // `funnelEndpointFrom` states one and `target`'s first-install-wins enforces it again.
+    //
+    // **Not awaited, deliberately.** The reporter's held buffer keeps every report with the
+    // hour it happened — the 2026-09-03 repair — so a target installed a round trip later
+    // loses nothing for a visit that outlives the probe; but a start that WAITED on a network
+    // round trip would move the stage-three timing this funnel exists to measure.
+    //
+    // **It is not free, and the cost falls on the shortest visits.** Until the probe answers
+    // there is no send port, so a tab that closes inside that window takes stages one and two
+    // AND its terminal stall with it — where the unconditional target above delivered them.
+    // The window is one round trip against a healthy collector and `FUNNEL_PROBE_TIMEOUT_MS`
+    // against a hanging one. Nothing is lost against a collector that refuses, because nothing
+    // was ever collected there; the residue is on the working path and it is stated rather than
+    // absorbed, because plan 39-04 reads these counts.
     const funnelEndpoint = funnelEndpointFrom(location.search, options.relayAddrs ?? [])
-    if (funnelEndpoint !== null) funnel.target(beaconSendPort(funnelEndpoint))
+    const funnelWasConfigured = funnelEndpointFrom(location.search) !== null
+    if (funnelEndpoint !== null && funnelWasConfigured) {
+      funnel.target(beaconSendPort(funnelEndpoint))
+    } else if (funnelEndpoint !== null) {
+      void probeFunnelTarget(funnelEndpoint, fetchProbePort()).then((confirmed) => {
+        if (confirmed !== null) funnel.target(beaconSendPort(confirmed))
+      })
+    }
     // RUN-04 stage four. The observer itself was installed at the top of this file's import
     // graph — see the side-effect import — and this only registers where its answer goes.
     // Gathering that already happened is not lost: `onFirstIceGathering` fires immediately.
@@ -1596,6 +2099,47 @@ const api: TabApi = {
         // is exactly the wrong one for a node whose name other people have pinned — which
         // is why this is a value here and not a default in the factory.
         whenSeedIsGone: 'mints-a-new-identity',
+        // AUTH-06, and this is the visitor's own passphrase — the owner's ruling of
+        // 2026-09-04, built. Plan `42-04`.
+        //
+        // **What stood here until this line, paraphrased and deliberately NOT quoted.**
+        // The page passed the arm that promises to write no new secret, because a visitor
+        // was asked for nothing, and the paragraph above it said `42-04` would ask at
+        // enrolment. The ruling superseded that: a visitor is asked on the way in, not at
+        // enrolment, and the two acts are not the same act. The old arm's literal is left
+        // unwritten on purpose — `consent.test.ts` reads THIS FILE'S RAW SOURCE for exactly
+        // one `identityProtection` arm and decides off it which of two disclosure sentences
+        // a visitor is owed, so quoting the retired one would set both arms present and
+        // report a page that had silently chosen a branch.
+        //
+        // **Registering is not enrolling, and a reader who conflates them will undo a real
+        // property.** Two words that both mean *sign up* in English name two unrelated acts:
+        //
+        //   - **this line** authenticates a **person** to **their own browser**, with a
+        //     passphrase they chose, which is held in page memory for one visit and lives
+        //     nowhere else. There is nobody to ask it back from.
+        //   - **enrolment** (`#enrol`) authenticates a **node** to a **provider**, with a key
+        //     pair minted in this browser that this script cannot read.
+        //     `packages/core/src/enrollment.ts:44-47` states the property that must not be
+        //     undone: *"The private key never leaves the device… there is no code path here
+        //     that accepts, transports, or stores a private key."*
+        //
+        // **Neither credential may reach the other.** This passphrase must never be passed to
+        // anything under `packages/core/src/enrollment.ts`, and the enrolment key must never
+        // be presented as a login. Enrolment stays where it is: a separate and optional act
+        // available to a signed-in visitor.
+        //
+        // **`SignedOutError` and no fallback arm.** Falling through to
+        // `writes-no-new-secret` when nobody has signed in would be the silent re-mint
+        // criterion 4 forbids, arriving from the UI instead of from the store: a working tab,
+        // a peer id nobody expected, an orphaned certificate, and nothing anywhere saying so.
+        //
+        // `autoStart` grows **no** passphrase parameter, for the reason this file already
+        // gives about `trustAnchors` and `enrollment`: a page that was found rather than
+        // configured must not be configurable by whatever found it, and a passphrase is the
+        // last thing that rule should be relaxed for. The value here comes from the visitor,
+        // at the surface they are looking at, and can come from nowhere else.
+        identityProtection: identityProtection(),
         rpcTimeoutMs: 60_000,
         // Conditional spread, so an omitted option is genuinely absent and the factory's
         // own default is what applies — passing `undefined` explicitly would override it.
@@ -1722,8 +2266,9 @@ const api: TabApi = {
     //    {@link fetchBootstrapDocument}: a seed mounts it at the root, a static host and
     //    GitHub Pages carry it beside the page, and a bundle cannot know which served it.
     {
-      const info = await fetchBootstrapDocument()
-      if (info !== undefined) {
+      const found = await fetchBootstrapDocument()
+      if (found !== undefined) {
+        const info = found.document
         const addrs = Array.isArray(info['relayAddrs'])
           ? info['relayAddrs'].filter((a): a is string => typeof a === 'string')
           : []
@@ -1739,7 +2284,8 @@ const api: TabApi = {
           // Narrowed rather than cast: `/bootstrap.json` is a network response, and a static
           // host answering with something else must not put a non-string on a dial path.
           return {
-            source: 'origin' as const,
+            // Whichever of the three answered — never a constant. See `TabApi.discoverRelays`.
+            source: found.from,
             relayAddrs: addrs,
             ...(typeof info['enrollmentProvider'] === 'string' && info['enrollmentProvider'] !== ''
               ? { enrollmentProvider: info['enrollmentProvider'] }
@@ -1760,6 +2306,28 @@ const api: TabApi = {
   async acceptEnrolment() {
     // The network read below and everything after it is gated, like every other path here.
     requireConsent()
+
+    // **AUTH-07 criterion 1, and it is the guarantee rather than the courtesy.** Enrolling
+    // mints a visitor key, and a key minted where no passphrase exists is a key nothing can
+    // ever seal — the owner's rule broken at its weakest point, not by forgetting to encrypt
+    // something but by creating something there is nothing to encrypt it with.
+    //
+    // **This line is the fix and hiding the control is not.** `42-07` made `#main` reachable
+    // without unlocking, and `#enrol`'s visibility consulted only `offer.accepted`; that was
+    // reproduced on all three engines. A surface that merely hid the control would still be
+    // one `window.o2.acceptEnrolment()` away from the same key, and the reproduction case
+    // reads the STORE as well as the control for exactly that reason.
+    //
+    // It sits above the origin and browser refusals below deliberately: those are facts
+    // about the origin, this is a fact about who is asking, and a visitor who is not signed
+    // in should be told that rather than told their origin is unsuitable.
+    //
+    // **`requireSignedIn()` and NOT `requireSignIn()`, and the difference is `T-42-27`.** The
+    // second returns the passphrase, and this file's guard asserts it has exactly one call
+    // site — the `identityProtection` field — because the credential that opens this
+    // browser's identity must not travel the path that talks to a provider. This line was
+    // written as `requireSignIn()` first and that guard reddened it, correctly.
+    requireSignedIn()
 
     // Refusals by name, in the order a visitor would hit them, because somebody who pressed
     // a button is owed the reason it did not work rather than a page that quietly does
@@ -1788,7 +2356,7 @@ const api: TabApi = {
     // Minted here rather than lazily at the next `start`, so a visitor who accepts on an
     // origin whose storage or crypto is about to refuse finds out now, while the surface is
     // still about enrolment, and not as a start failure later.
-    await visitorKeyPair()
+    await visitorKeyPair(identityProtection())
 
     notify()
     return offerOf()

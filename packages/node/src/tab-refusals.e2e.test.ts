@@ -18,6 +18,7 @@ import type { TabNameRecord } from '@o2/browser'
 // Test-only relative import — see the note in packages/net/src/distributed.test.ts.
 import { MODULE_WRITES_PARTITION } from '../../core/src/executor/fixtures.ts'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -172,11 +173,13 @@ async function openTab(name: string, slots?: number): Promise<Tab> {
   await page.goto(`${baseUrl}${PAGE}`)
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 30_000 })
 
+  // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor
+  // clicks the button. AUTH-06, `42-06`: it signs in for the same reason too, because
+  // `window.o2.start` refuses with `SignedOutError` until somebody has opened their own
+  // envelope. `signInHarnessTab` does both, in the order its header explains.
+  await signInHarnessTab(page)
   const peerId = await page.evaluate(
     async ([address, store, anchor, maxConcurrent]) => {
-      // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor
-      // clicks the button.
-      window.o2.grantConsent()
       return window.o2.start({
         relayAddrs: [address as string],
         blockstoreName: store as string,

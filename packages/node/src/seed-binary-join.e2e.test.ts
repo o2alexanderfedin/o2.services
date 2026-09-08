@@ -10,6 +10,7 @@ import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 
 /**
  * NET-03, runnable half — the relay binary an operator actually runs, on a real socket,
@@ -323,11 +324,14 @@ describe('NET-03 (runnable half) — the seed binary on a real socket, joined by
         expect(fetched.seedPeerId).toBe(live.peerId)
         expect(fetched.relayAddrs[0]).toContain(`/tcp/${live.wsPort}/ws`)
 
+        // BROW-01 / AUTH-06: a harness consents and signs in for the same reasons a visitor
+        // presses the two controls — see `signInHarnessTab`.
+        await signInHarnessTab(page)
         const joined = await timed(`${name}-autostart`, async () =>
-          page.evaluate(async (store) => {
-            window.o2.grantConsent()
-            return window.o2.autoStart({ blockstoreName: store })
-          }, `seed-binary-${index}`),
+          page.evaluate(
+            async (store: string) => window.o2.autoStart({ blockstoreName: store }),
+            `seed-binary-${index}`,
+          ),
         )
         expect(joined.relayAddrs[0]).toContain(live.peerId)
 

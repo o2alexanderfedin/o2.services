@@ -12,6 +12,7 @@ import { createServer } from 'vite'
 import type { ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -146,7 +147,8 @@ async function openPage(name: string, query: string): Promise<Page> {
   // BROW-01 has no test-only bypass: a harness consents by pressing the button a visitor
   // presses, and joins by pressing the button a visitor presses.
   await page.click('#allow')
-  await page.waitForSelector('#main', { state: 'visible', timeout: 30_000 })
+  // `42-04` moved the door: `#allow` reveals `#signin`, and `#main` is what UNLOCK reveals.
+  await signInDemoTab(page)
   return page
 }
 
@@ -300,12 +302,10 @@ describe('bring your own — the record is required, and the refusal is read rat
     // and a tab that has not reserved yet is not there to be found.
     const join = async (name: string): Promise<Page> => {
       const page = await openPage(name, `?relay=${encodeURIComponent(relayAddr)}`)
-      await page.waitForFunction(
-        () => document.getElementById('join')?.hasAttribute('disabled') === false,
-        null,
-        { timeout: 60_000 },
-      )
-      await page.click('#join')
+      // **No `#join` click since `42-04`.** This fixture serves the page with a relay in the
+      // query string, so `revealMain` starts the node on unlock and disables the control
+      // while it does — a click here would wait on a button the page has already spent.
+      // What "joined" means is unchanged, and it is the wait below.
       await page.waitForFunction(
         () => document.getElementById('state')?.dataset['tone'] === 'live',
         null,
@@ -972,12 +972,7 @@ describe('bring your own — a module pulled from a gateway, verified, and refus
 
   it('opens a tab that holds no module at all, and fills the gateway root', async () => {
     tabC = await openPage('c', `?relay=${encodeURIComponent(relayAddr)}`)
-    await tabC.waitForFunction(
-      () => document.getElementById('join')?.hasAttribute('disabled') === false,
-      null,
-      { timeout: 60_000 },
-    )
-    await tabC.click('#join')
+    // No `#join` click since `42-04` — see the note in the two-tab `join` helper above.
     await tabC.waitForFunction(
       () => document.getElementById('state')?.dataset['tone'] === 'live',
       null,

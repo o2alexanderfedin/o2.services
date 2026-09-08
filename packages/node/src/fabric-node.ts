@@ -86,6 +86,7 @@ import { http } from '@libp2p/http'
 import { identify, identifyPush } from '@libp2p/identify'
 import { kadDHT, passthroughMapper } from '@libp2p/kad-dht'
 import { keychain } from '@libp2p/keychain'
+import { defaultLogger } from '@libp2p/logger'
 import { ping } from '@libp2p/ping'
 import { tcp } from '@libp2p/tcp'
 import { webSockets } from '@libp2p/websockets'
@@ -192,15 +193,18 @@ import {
   providerRecordPolicy,
   reservedPeerIds,
   relayServiceCid,
+  keychainProtectionFor,
   topUpRelays,
 } from '@o2/libp2p'
-import type { NodeIdentity, PeerVerdict, RelayAdmission, SweepOutcome } from '@o2/libp2p'
+import type { IdentityProtection, KeychainProtection, NodeIdentity, PeerVerdict, RelayAdmission, SweepOutcome } from '@o2/libp2p'
 import type { KadDHT } from '@libp2p/kad-dht'
 import {
   IDENTITY_FILE,
   PROVIDER_FILE,
+  SEALED_IDENTITY_FILE,
+  SEALED_PROVIDER_FILE,
   loadCertificate,
-  loadOrCreateSeed,
+  loadOrCreateSealedSeed,
   saveCertificate,
 } from './identity-store.ts'
 import type { ReservationWatcher } from './reservation-watch.ts'
@@ -284,6 +288,24 @@ export interface FabricNodeOptions {
    * different class.
    */
   readonly blockstoreDir?: string
+  /**
+   * AUTH-06 — what this node will do with the long-lived secrets it persists into
+   * {@link blockstoreDir}.
+   *
+   * **Optional, and defaulting to `{ kind: 'writes-no-new-secret' }` — the SAFE arm.** The
+   * optionality is measured rather than preferred: `blockstoreDir:` appears at 169 call
+   * sites across roughly thirty files in this repository, and a required field would mean a
+   * mechanical edit to every one of them. What makes the default acceptable is which arm it
+   * is — a caller who says nothing gets a node that writes **no** secret to the disk, so the
+   * absence of this option can never be the reason a plaintext seed lands on one.
+   *
+   * The cost of saying nothing is stated rather than hidden: such a node is a different node
+   * on its next start. `bin/agent.ts` prints that to stderr once, by name.
+   *
+   * One protection covers both secrets in one directory — the identity seed and the provider
+   * signing key. Two passphrases would be a second thing to lose with nothing gained.
+   */
+  readonly identityProtection?: IdentityProtection
   /**
    * SCHED-03. Read on every request to decide whether this node is **paused** —
    * alive, reachable, unchanged in what it can do, and declining all work right now.
@@ -846,6 +868,13 @@ export interface FabricNodeOptions {
  * never reached at all. The two demand opposite responses — wait and retry this one,
  * versus try a different one — and collapsing them into "no circuit address appeared"
  * is precisely the ambiguity NET-05 exists to remove.
+ *
+ * **Twinned in `packages/browser/src/browser-node.ts` since 2026-09-06**, field for field
+ * and word for word. Duplicated rather than shared because `purity.node.test.ts` lists
+ * `browser` under `DUAL_TARGET`, so that package may not import from here, and a third
+ * package holding two fields would be worse than the copy. Change one, change the other:
+ * the point of the duplication is that a caller holding either kind of node asks the same
+ * question with the same words.
  */
 export interface RelayDialFailure {
   /** The address as configured, so an operator can see which line was wrong. */
@@ -1514,6 +1543,71 @@ function ownStartLedger(
   return held
 }
 
+/**
+ * AUTH-07 criterion 3 — drop keychain entries this node cannot read, so a node whose
+ * datastore predates the real DEK still starts.
+ *
+ * **What the sweep can actually know is "unreadable", and not why.** Two causes produce it:
+ * an entry written before this DEK existed (the empty password), and an entry written by a
+ * *different identity* sharing this datastore — because the DEK follows the seed. The second
+ * is not hypothetical: it fires in `auto-tls.node.test.ts` whenever two starts share a store
+ * without sharing an identity. The message says both rather than asserting the first.
+ *
+ * ## Why this is needed at all, measured rather than anticipated
+ *
+ * Every key written while `keychain()` took no arguments was encrypted under the empty
+ * string. Once {@link keychainProtectionFor} supplies a real DEK those entries are
+ * undecryptable, and `@ipshipyard/libp2p-auto-tls` does **not** shrug that off: its
+ * `loadOrCreateKey` catches `exportKey` and rethrows anything whose `name` is not
+ * `NotFoundError` (`dist/src/utils.js:13-26`). Measured 2026-09-06 by seeding a store with
+ * an entry written under the empty DEK and calling the library's own function against a
+ * real-DEK keychain: it threw `OperationError: The operation failed for an
+ * operation-specific reason`. **A node with a pre-existing AutoTLS datastore would fail to
+ * start**, and no test over a fresh directory could ever see it.
+ *
+ * ## Why entries are destroyed rather than migrated
+ *
+ * Re-encrypting them under the new DEK was considered and rejected. An entry written under
+ * the empty DEK has been sitting on disk as plaintext-equivalent key material; under the
+ * rule this phase serves that key is burned, and the honest treatment is destruction. The
+ * two things actually in here are AutoTLS's ACME account key and its certificate key, both
+ * of which `loadOrCreateKey` **recreates by design** on `NotFoundError` — so removal hands
+ * the library its own documented path rather than a workaround. The cost is one new ACME
+ * account and one certificate reissue, once, on upgrade. Migrating would also mean keeping
+ * an empty-DEK keychain constructor in production source forever, which is the exact
+ * artefact this criterion exists to delete.
+ *
+ * ## The scope is the keychain and nothing else
+ *
+ * `listKeys()` reads the plaintext `/info/<name>` records and needs no DEK — measured — so
+ * the sweep can see names it cannot decrypt, and `removeKey()` clears both `/info/` and
+ * `/pkcs8/` without one. Nothing outside those namespaces is touched.
+ *
+ * **Matched on the error `name`, never on its message.** Two different texts were observed
+ * for the same defect depending on the stored key type: `OperationError` for AutoTLS's RSA
+ * keys, and `Encrypted key was not a libp2p-key or a PEM file` for an Ed25519 entry. A
+ * message match would have caught one of them.
+ */
+async function sweepUnreadableKeychain(
+  datastore: Datastore,
+  protection: KeychainProtection,
+): Promise<readonly string[]> {
+  const chain = keychain(protection)({ datastore, logger: defaultLogger() })
+  const removed: string[] = []
+  for (const info of await chain.listKeys()) {
+    try {
+      await chain.exportKey(info.name)
+    } catch (error) {
+      // `NotFoundError` means the entry is already gone — nothing to sweep, and racing
+      // another reader is not a reason to report a removal that did not happen.
+      if (error instanceof Error && error.name === 'NotFoundError') continue
+      await chain.removeKey(info.name)
+      removed.push(info.name)
+    }
+  }
+  return removed
+}
+
 export class FabricNode {
   readonly libp2p: Libp2p
   readonly transport: Libp2pTransport
@@ -1925,10 +2019,41 @@ export class FabricNode {
     // already told us it wants to survive a restart. A process given no directory has
     // nowhere to persist and gets a fresh identity per start — a deployment choice, in the
     // framing `blockstoreDir`'s own doc uses, and not a kind of node.
-    const seed =
-      options.blockstoreDir === undefined
-        ? generateSeed()
-        : await loadOrCreateSeed(options.blockstoreDir, IDENTITY_FILE)
+    //
+    // AUTH-06 — and the protection is resolved once, here, for BOTH secrets this directory
+    // holds. `writes-no-new-secret` is the default because a caller who says nothing must
+    // not be the reason a plaintext seed lands on a disk; the cost of that silence — a
+    // different peer id on the next start — is printed by `bin/agent.ts`.
+    const protection: IdentityProtection = options.identityProtection ?? { kind: 'writes-no-new-secret' }
+    let seed: Uint8Array<ArrayBuffer>
+    if (options.blockstoreDir === undefined) {
+      seed = generateSeed()
+    } else {
+      const held = await loadOrCreateSealedSeed(
+        options.blockstoreDir,
+        SEALED_IDENTITY_FILE,
+        IDENTITY_FILE,
+        protection,
+      )
+      // **Told once, by name.** `unprotected` is true on exactly one path — a pre-existing
+      // plaintext seed adopted by a node that supplied no passphrase — and the whole reason
+      // the store returns it as a value rather than swallowing it is that somebody has to
+      // say so. Not repaired here: deleting an identity nobody asked to protect is a worse
+      // outcome than the exposure, and sealing it needs a passphrase this node was not given.
+      //
+      // Straight to `process.stderr` because this file has no logging surface at all —
+      // measured 2026-09-04, a grep for `console.` over it finds nothing and every hit for
+      // `stderr` is a comment about `bin/agent.ts` — and a fact nobody is told is the exact
+      // defect returning it as a value exists to close.
+      if (held.unprotected) {
+        process.stderr.write(
+          `fabric-node: ${options.blockstoreDir}/${IDENTITY_FILE} holds this node's identity seed in the clear `
+            + '— anyone who copies this directory can speak as this node. Start with a passphrase '
+            + '(--identity-passphrase-file) to seal it in place; the peer id does not change.\n',
+        )
+      }
+      seed = held.seed
+    }
     const identity = await identityFromSeed(seed)
 
     const relayAddrs = options.relayAddrs ?? []
@@ -2017,6 +2142,40 @@ export class FabricNode {
       (options.blockstoreDir === undefined
         ? undefined
         : new FsDatastore(nodePathJoin(options.blockstoreDir, '.datastore')))
+
+    // AUTH-07 criterion 3 — the DEK the keychain writes its stored private keys under.
+    //
+    // Derived from the identity seed rather than from `protection.passphrase`, and the
+    // reasoning is in `keychain-protection.ts`: handing the operator's passphrase to
+    // PBKDF2-10 000 beside the same passphrase's Argon2id envelope would make the cheap
+    // target an oracle for the expensive one, and the `writes-no-new-secret` arm carries no
+    // passphrase at all, so that route would rebuild the empty DEK on exactly the
+    // deployment least likely to notice. The seed exists on every path.
+    //
+    // Derived unconditionally even though the keychain is only spread under AutoTLS, so the
+    // value is in hand for the sweep below and so a future service that wants a keychain
+    // cannot acquire one without it.
+    const keychainProtection = await keychainProtectionFor(identity.seed)
+
+    // Entries written while the DEK was the empty string cannot be read under the real one,
+    // and AutoTLS rethrows that rather than recreating the key — so without this a node with
+    // a pre-existing datastore would fail to start. See `sweepUnreadableKeychain`.
+    if (libp2pDatastore !== undefined) {
+      const swept = await sweepUnreadableKeychain(libp2pDatastore, keychainProtection)
+      if (swept.length > 0) {
+        // Straight to `process.stderr`, in the same voice and for the same reason as the
+        // unprotected-seed warning above: this file has no logging surface, and a key this
+        // node destroyed is a fact somebody has to be told rather than a silent repair.
+        process.stderr.write(
+          `fabric-node: removed ${swept.length} libp2p keychain entr${swept.length === 1 ? 'y' : 'ies'} `
+            + `(${swept.join(', ')}) that this node cannot read. A keychain entry is readable only under `
+            + "the DEK derived from this node's identity seed, so either it was written before that DEK "
+            + 'existed — under the empty password — or it was written by a node with a different '
+            + 'identity sharing this datastore. They are recreated on demand; AutoTLS will register a '
+            + 'new ACME account and order a new certificate once.\n',
+        )
+      }
+    }
 
     const libp2p = await createLibp2p({
       // AUTH-01. Without this line libp2p mints a fresh ephemeral key on every start, so
@@ -2171,7 +2330,14 @@ export class FabricNode {
         ...(options.autoTls === undefined
           ? {}
           : {
-              keychain: keychain(),
+              // AUTH-07 criterion 3 — **both** `pass` and `dek.salt`, never bare
+              // `keychain()`. With no arguments the derived encryption key is the empty
+              // string, so the ACME account key and the certificate key AutoTLS writes here
+              // would be encrypted under a password everybody knows. `pass` alone is not
+              // enough either, though not for the reason the phase proposal gives: it does
+              // produce a real DEK, but over `DEK_INIT`'s hardcoded global salt, which every
+              // libp2p deployment on earth shares.
+              keychain: keychain(keychainProtection),
               http: http(),
               // **The cast is over an optionality TypeScript cannot see through, and it
               // widens nothing.** `AutoTLSComponents` declares `keychain` and `http` as
@@ -2295,20 +2461,38 @@ export class FabricNode {
     // circuit. Which relays failed, and why, is reported rather than inferred from an
     // empty `circuitAddrs` — the exact ambiguity NET-05 exists to remove.
     //
-    // **The browser tier does the opposite, and that divergence is deliberate.**
-    // `browser-node.ts`'s dial loop has no `catch`: the failure propagates, `start`
-    // rejects, and the tab unwinds. The reason is the platform, not an oversight — this
-    // process binds a real listening port and remains useful to anyone who can reach it
-    // directly, while a tab binds nothing, so a tab holding no reservation cannot be
-    // reached at all and starting it would produce a node nobody can dial with no named
-    // reason why. Each side is measured as its own disposition:
+    // **AMENDED 2026-09-06 — the two tiers now differ far less than this paragraph used
+    // to say, and the difference that remains is a narrower one.** It read: *"The browser
+    // tier does the opposite, and that divergence is deliberate. `browser-node.ts`'s dial
+    // loop has no `catch`: the failure propagates, `start` rejects, and the tab unwinds…
+    // Do not make them agree."* That was true until `browser-node.ts` adopted the *"at
+    // least one"* rule, and it is false now.
+    //
+    // What the two tiers now share: both catch a failed dial, both report it as a
+    // `RelayDialFailure` — this very type, same two fields, same words — and both keep
+    // running when at least one relay answered. The browser tier's `catch` was added
+    // because the absent one made a list of N relays into N points of failure in series,
+    // which is the opposite of what a redundancy list is for.
+    //
+    // What they still do NOT share, and the reason is still the platform rather than an
+    // oversight: **what to do when NO relay answered.** This process starts anyway,
+    // because it binds a real listening port and remains useful to anyone who can reach
+    // it directly. A tab rejects, because it binds nothing, so a tab holding no
+    // reservation cannot be reached at all and starting it would produce a node nobody
+    // can dial with no named reason why. So the divergence used to be *all-or-nothing
+    // versus best-effort* and is now *what best-effort does when it got nothing*.
+    //
+    // Each side is still measured as its own disposition:
     // `reservation-exhaustion.node.test.ts` case C drives this one cross-process through
     // `bin/agent.ts` and reads `relay … unreachable:` off stderr with `exitCode` null;
-    // `start-unwind.browser.test.ts` — *"closes the blockstore and stops libp2p when a
-    // relay dial fails"* — reads the other in all three engines. **Do not make them
-    // agree.** W-2 of `18-VERIFICATION.md` is that this paragraph used to describe the
-    // change without recording that the two tiers now differ, which is a trap for
-    // whoever reads the other file first.
+    // `start-unwind.browser.test.ts` reads the other in all three engines — now in two
+    // cases, one relay dead out of one and two dead out of two — and
+    // `any-one-relay-is-enough.e2e.test.ts` reads the half that is newly shared, a tab
+    // starting on one live relay out of two. **Do not make the remaining difference go
+    // away by inspection of one file.** W-2 of `18-VERIFICATION.md` is that a divergence
+    // recorded on neither side reads as drift, which is why this paragraph is amended in
+    // place rather than deleted, and why `browser-node.ts`'s dial site carries the twin
+    // of it.
     const relayPeerIds: string[] = []
     const relayFailures: RelayDialFailure[] = []
     for (const address of relayAddrs) {
@@ -2435,7 +2619,20 @@ export class FabricNode {
             providerPrivateKey:
               options.blockstoreDir === undefined
                 ? generateSeed()
-                : await loadOrCreateSeed(options.blockstoreDir, PROVIDER_FILE),
+                : (
+                    await loadOrCreateSealedSeed(
+                      options.blockstoreDir,
+                      SEALED_PROVIDER_FILE,
+                      PROVIDER_FILE,
+                      // AUTH-06 — the SAME `protection` value the identity seed above was
+                      // resolved under, and the same binding rather than a second read of
+                      // the option, so the two secrets in one directory cannot end up
+                      // behind two different passphrases. A provider signing key is the
+                      // trust root every certificate it ever issued verifies against, so it
+                      // is the higher-value of the two and is sealed on identical terms.
+                      protection,
+                    )
+                  ).seed,
             maxIssuedPerWindow: options.issuesCertificates,
             issuance:
               options.blockstoreDir === undefined

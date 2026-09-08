@@ -25,6 +25,17 @@
 # 4. **The gate runs before the deploy, in this order**: typecheck, the unit set, the bundle
 #    build. A red suite cannot be deployed past, and the ordering is the control rather than
 #    a preference.
+# 5. **A node this deploy cannot STOP is not deployed, and if it somehow is, the run goes red.**
+#    Added 2026-09-07, and it is a repair rather than a precaution. The deployed object was
+#    measured that day with `region: null` and no operator key — both halves of RUN-02's kill
+#    switch absent — on a node that had already relayed 143 connections for real people. It had
+#    been that way since the first deploy and nothing had ever said so, because **this script
+#    verified exactly what it injected**: the version it passed as a `--var`, and a PeerId that
+#    is stable by construction. The kill switch was neither injected nor read back, so it was
+#    invisible in the one place that looks. Three changes close it: the region label is DERIVED
+#    from `SERVED_BY` rather than typed by whoever remembers, the operator key is required
+#    before a single request is spent, and `killSwitch.operable` is read back off the deployed
+#    node afterwards.
 #
 # ## Usage
 #
@@ -32,6 +43,10 @@
 #   scripts/deploy-hosted.sh --live          # the real thing
 #   scripts/deploy-hosted.sh --live --skip-tests   # only when the gate just ran; says so loudly
 #   scripts/deploy-hosted.sh --verify-only   # read the deployed node's identity and stop
+#
+# There is no `--region` flag, deliberately. See "Which region this deployment labels itself
+# with" below: a flag is a thing that can be forgotten, and forgetting it is the defect this
+# script now exists to make impossible.
 #
 # Requires `CLOUDFLARE_API_TOKEN` for `--live`. `--dry-run` needs no credential — measured, it
 # exits 0 on a machine with none configured.
@@ -58,7 +73,9 @@ for arg in "$@"; do
     --dry-run) LIVE=0 ;;
     --skip-tests) SKIP_TESTS=1 ;;
     --verify-only) VERIFY_ONLY=1 ;;
-    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    # Every leading comment line, stopping at the first that is not one. A line range drifts
+    # the moment the header grows — and it had, silently, before this was written.
+    -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
     *) echo "❌ unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -93,6 +110,59 @@ case "$SCRIPT_NAME" in
 esac
 
 # ---------------------------------------------------------------------------
+# Which region this deployment labels itself with — DERIVED, never typed
+# ---------------------------------------------------------------------------
+#
+# **There is no `--region` flag and there must not be one.** The label is read out of
+# `worker.ts`'s `SERVED_BY`, which is the constant the fetch handler passes to `stubFor` — so it
+# is not a name somebody chose for this deploy, it is *the name every request that reaches this
+# object was routed under*. Deriving it makes two values one:
+#
+#   - a flag can be forgotten, and on 2026-09-07 it had been, on every deploy there had ever
+#     been. `.github/workflows/deploy.yml` runs this script with no arguments but `--live`, so
+#     a required flag would have had to be remembered in two places instead of none.
+#   - a flag can be WRONG in a way nothing catches. `O2_REGION` is the label a halt is addressed
+#     to and `SERVED_BY` is the object that receives the traffic; a deploy that labelled the
+#     object `bootstrap-eu` while routing to `bootstrap-us` would answer every reading correctly
+#     and refuse every halt an operator ever sent it.
+#
+# Narrowed against the same closed set `narrowRegion` narrows against, read from the same file
+# that declares it. A `SERVED_BY` outside that set is refused HERE rather than becoming an
+# object that reports `region: null` after the money is spent.
+SOURCE_DIR="$PACKAGE/src"
+
+declared_region_names() {
+  sed -n '/^export const HOSTED_OBJECT_NAME = {/,/^} as const/p' "$SOURCE_DIR/hosted-object.ts" |
+    grep -oE "'[^']+'" |
+    tr -d "'"
+}
+
+# `|| true` on both: under `pipefail` a `grep` that matches nothing kills the script with no
+# message, and a missing constant deserves the sentence below rather than a silent exit 1.
+REGION="$(
+  grep -oE "^const SERVED_BY: HostedObjectName = '[^']+'" "$SOURCE_DIR/worker.ts" |
+    head -1 |
+    sed "s/.*'\([^']*\)'.*/\1/" || true
+)"
+
+if [ -z "$REGION" ]; then
+  echo "❌ could not read SERVED_BY from $SOURCE_DIR/worker.ts." >&2
+  echo "   That constant is the object every request is routed to, and it is where this" >&2
+  echo "   deploy takes its region label from. Without it the deploy would produce a node" >&2
+  echo "   that reports region: null and refuses every halt — which is what happened before" >&2
+  echo "   this check existed." >&2
+  exit 1
+fi
+
+if ! declared_region_names | grep -qx "$REGION"; then
+  echo "❌ REFUSED: SERVED_BY is '$REGION', which is not one of the declared object names:" >&2
+  declared_region_names | sed 's/^/     /' >&2
+  echo "   An object labelled with a name that exists nowhere else reads correctly and" >&2
+  echo "   accepts no halt addressed to any real region." >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # Which build. ONE source, and the release tag is checked against it.
 # ---------------------------------------------------------------------------
 #
@@ -124,7 +194,7 @@ if [ -n "${GITHUB_REF_NAME:-}" ] && [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
   exit 1
 fi
 
-say "Deploying: $SCRIPT_NAME  v$VERSION  (mode: $([ "$LIVE" = 1 ] && echo LIVE || echo dry-run))"
+say "Deploying: $SCRIPT_NAME  v$VERSION  region $REGION  (mode: $([ "$LIVE" = 1 ] && echo LIVE || echo dry-run))"
 
 # ---------------------------------------------------------------------------
 # --verify-only: read the deployed identity and stop
@@ -151,8 +221,15 @@ if [ "$VERIFY_ONLY" = 1 ]; then
     exit 1
   fi
   say "Reading the deployed identity from $HOST"
-  read_identity "$HOST"
+  SELF="$(read_identity "$HOST")"
+  echo "$SELF"
   echo
+  # The one reading somebody checking on a live node most needs and would otherwise have to
+  # infer from a `region` field whose meaning is three files away.
+  case "$SELF" in
+    *'"operable":true'*) say "Kill switch: ARMED." ;;
+    *) say "⚠️  KILL SWITCH INOPERATIVE — this node cannot be halted by anyone. See killSwitch.reason above." ;;
+  esac
   exit 0
 fi
 
@@ -185,7 +262,7 @@ else
   # `--var` added a var rather than replacing the file's.
   say "3/3  the bundle builds"
   ( cd "$PACKAGE" && WRANGLER_SEND_METRICS=false npx wrangler deploy --dry-run \
-      --var "O2_VERSION:$VERSION" --outdir="$(mktemp -d)" )
+      --var "O2_VERSION:$VERSION" --var "O2_REGION:$REGION" --outdir="$(mktemp -d)" )
 fi
 
 # ---------------------------------------------------------------------------
@@ -202,6 +279,64 @@ if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
   echo "❌ --live needs CLOUDFLARE_API_TOKEN in the environment." >&2
   exit 1
 fi
+
+# ---------------------------------------------------------------------------
+# The secrets this deploy depends on, checked BEFORE a request is spent
+# ---------------------------------------------------------------------------
+#
+# Two bindings decide whether the thing being deployed can be operated at all, and neither is in
+# `wrangler.jsonc` — both are secrets, deliberately, because that file is tracked.
+#
+#   O2_ADMISSION_KEY    without it every halt is refused, INCLUDING the owner's. The object runs
+#                       perfectly and cannot be stopped by anybody.
+#   O2_IDENTITY_SECRET  without it the object refuses to mint and answers `GET /self` with 500,
+#                       so the read-back below would roll back a perfectly good deploy while the
+#                       real fault was a binding.
+#
+# **Refusing here rather than warning, and the direction is deliberate.** A refusal costs one
+# unspent deploy and prints the command that fixes it. Deploying anyway costs a node the fabric
+# cannot stop, which is the failure this whole section exists to prevent — and on a cohort that
+# is spendable once, it is the failure with no second attempt.
+#
+# **But a pre-flight that cannot RUN only warns.** This is a proxy for the property; the
+# read-back after the deploy measures the property itself. A credential scoped without permission to
+# list secrets is a reason to fall through to the real check, not a reason to block a release.
+require_configured_secrets() {
+  local listed
+  listed="$(
+    cd "$PACKAGE" &&
+      WRANGLER_SEND_METRICS=false npx wrangler secret list \
+        --name "$SCRIPT_NAME" --format json 2>/dev/null || true
+  )"
+  if [ -z "$listed" ]; then
+    say "⚠️  this script's secrets could not be listed — the PRE-FLIGHT is skipped."
+    echo "   The read-back after the deploy measures the same property directly and still runs."
+    return 0
+  fi
+
+  local missing=""
+  local required
+  for required in O2_ADMISSION_KEY O2_IDENTITY_SECRET; do
+    case "$listed" in
+      *"\"$required\""*) ;;
+      *) missing="$missing $required" ;;
+    esac
+  done
+  if [ -n "$missing" ]; then
+    echo "" >&2
+    echo "❌ REFUSED: '$SCRIPT_NAME' is missing secrets this deploy depends on:$missing" >&2
+    echo "" >&2
+    for required in $missing; do
+      echo "   (cd $PACKAGE && npx wrangler secret put $required)" >&2
+    done
+    echo "" >&2
+    echo "   Nothing was deployed. Set them and run this again." >&2
+    exit 1
+  fi
+  say "Secrets: O2_ADMISSION_KEY and O2_IDENTITY_SECRET are both configured."
+}
+
+require_configured_secrets
 
 # The identity BEFORE, so the check afterwards is a comparison rather than an assertion about
 # a value nobody recorded. A first-ever deploy has nothing to read and that is not an error.
@@ -233,7 +368,8 @@ else
 fi
 
 say "Deploying for real"
-( cd "$PACKAGE" && WRANGLER_SEND_METRICS=false npx wrangler deploy --var "O2_VERSION:$VERSION" )
+( cd "$PACKAGE" && WRANGLER_SEND_METRICS=false npx wrangler deploy \
+    --var "O2_VERSION:$VERSION" --var "O2_REGION:$REGION" )
 
 # ---------------------------------------------------------------------------
 # The read-back. A changed PeerId is a failure, not a note.
@@ -314,6 +450,57 @@ AFTER_ID="$(extract_peer_id "$AFTER")"
 if [ -z "$AFTER_ID" ]; then
   roll_back "the deployed node answered without a peerId" || exit 1
 fi
+
+# ---------------------------------------------------------------------------
+# The kill switch, read off the node rather than assumed from the flags
+# ---------------------------------------------------------------------------
+#
+# **Two checks with two different remedies, which is why they are not one check.**
+#
+# The region is a `--var` this script injected, exactly like the version — so a label that did
+# not arrive means the deploy did not carry what it was told to carry, and the treatment is the
+# version's: roll back, because the deployment cannot be taken at its word.
+#
+# `killSwitch.operable` is NOT something this script injected. It is the node's own answer to
+# *could anybody stop me*, and if it is false after a deploy whose pre-flight passed, rolling
+# back would revert a good build without arming anything — the previous version has the same
+# bindings. So it fails LOUD and leaves the deployment standing. In CI that reddens the job and
+# `publish-client` never runs, which is the right coupling and not a side effect: a client is not
+# put in front of visitors while the node behind it cannot be stopped.
+AFTER_REGION="$(extract_field region "$AFTER")"
+if [ "$AFTER_REGION" != "$REGION" ]; then
+  echo "" >&2
+  echo "   deployed with:  O2_REGION=$REGION" >&2
+  echo "   answering with: ${AFTER_REGION:-null}" >&2
+  echo "" >&2
+  echo "   A halt is addressed to a region. A node reporting the wrong one — or none — refuses" >&2
+  echo "   every halt an operator sends it, while every other reading looks correct." >&2
+  roll_back "THE DEPLOYED NODE DOES NOT REPORT THE REGION THAT WAS DEPLOYED" || exit 1
+fi
+
+# A literal match rather than `extract_field`, which reads quoted string values only and would
+# find nothing in `"operable":true`. `Response.json` emits compact JSON, and `operable` appears
+# in exactly one place in the body, so the needle is unambiguous wherever the field sits.
+case "$AFTER" in
+  *'"operable":true'*)
+    say "✅ the kill switch is ARMED: region $AFTER_REGION, operator key configured."
+    ;;
+  *)
+    echo "" >&2
+    echo "❌ THE DEPLOYED NODE CANNOT BE STOPPED BY ANYBODY." >&2
+    echo "" >&2
+    echo "   It reports \`killSwitch.operable: false\`, and its own reason is in the body above." >&2
+    echo "" >&2
+    echo "   The deployment is LEFT STANDING and was NOT rolled back — the previous version" >&2
+    echo "   carries the same bindings, so a rollback would revert this build and arm nothing." >&2
+    echo "   Fix the binding it names and deploy again:" >&2
+    echo "" >&2
+    echo "     (cd $PACKAGE && npx wrangler secret put O2_ADMISSION_KEY)" >&2
+    echo "" >&2
+    echo "   Until then this node runs and no operator can halt it. Do not invite anyone." >&2
+    exit 1
+    ;;
+esac
 
 if [ -z "$BEFORE" ]; then
   say "✅ deployed v$VERSION. PeerId $AFTER_ID — no earlier reading to compare against."

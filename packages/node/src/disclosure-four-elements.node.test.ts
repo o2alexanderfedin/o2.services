@@ -268,10 +268,71 @@ describe('BROW-09 — the four things a visitor is told before they decide', () 
     ).toContain('what other participants send back to you is not in it')
   })
 
-  it('RUN-05 / BROW-09: states no legal basis for the telemetry, because that is not an engineering judgement', () => {
-    // Guarding an ABSENCE, deliberately. Open question 3 is contested across sources and is
-    // settled by legal review; an agent adding either sentence would be recording a compliance
-    // ruling as a code change, and this case is what makes that visible rather than quiet.
+  /**
+   * RUN-05 / BROW-09 — the ground, and it is stated because it was RULED and not because an
+   * agent picked it.
+   *
+   * `.planning/REQUIREMENTS.md` § Open questions item 3 was settled on 2026-09-04: the visitor's
+   * permission, and nothing else. What this case pins is not the wording but the four things the
+   * ruling makes checkable, and the second of them is the one a careless edit loses: **there are
+   * TWO permissions**, the affirm click over the counters and the checkbox over the start
+   * report, and a sentence naming only the checkbox would be false against the counters. That
+   * is exactly how the sentence drafted in `35-01-PLAN.md` had aged — it predates versions 4
+   * and 5 — so this case is sited on the defect that was actually found rather than on a
+   * hypothetical one.
+   */
+  it('BROW-09 / RUN-05: the ground is stated, and it names BOTH permissions — ruled 2026-09-04', () => {
+    const line = theLineWhere(
+      (l) => l.answer.includes('rest on your permission'),
+      'what the counting and the optional report rest on',
+    )
+
+    // 1 — the ground is named, and named exclusively. "Rests on permission" without "and on
+    // nothing else" leaves room for a second ground the page never states.
+    expect(line.answer).toMatch(/rest on your permission/i)
+    expect(
+      line.answer,
+      'BROW-09: the answer names permission as A ground without saying it is the ONLY one, so a ' +
+        'reader cannot tell an exclusive claim from a partial one',
+    ).toMatch(/and on nothing else/i)
+
+    // 2 — BOTH permissions, because the counters and the start report are separate yeses and a
+    // sentence covering one is false about the other.
+    expect(
+      line.answer,
+      'BROW-09: the ground sentence does not name the consent that covers the COUNTERS. A ' +
+        'sentence naming only the optional report is the false sentence 35-01-PLAN.md drafted ' +
+        'before versions 4 and 5 existed.',
+    ).toMatch(/counters begin when you allow the work to run/i)
+    expect(
+      line.answer,
+      'BROW-09: the ground sentence does not name the separate permission the start report ' +
+        'needs, so a reader takes one yes for both',
+    ).toMatch(/only if you also tick its box/i)
+
+    // 3 — the alternative ground is closed. This is the half that distinguishes the ruling from
+    // the reading it refused: under the other reading a declining visitor IS counted minimally.
+    expect(
+      line.answer,
+      'BROW-09: the answer does not close off collection on any other footing, which is the ' +
+        'entire content of the 2026-09-04 ruling',
+    ).toMatch(/no other footing/i)
+
+    // 4 — withdrawal, which is what makes it a permission rather than a notice.
+    expect(line.answer).toMatch(/withdrawing either permission/i)
+  })
+
+  it('RUN-05 / BROW-09: names no ground the ruling did not take, in the vocabulary of the review', () => {
+    // Guarding an ABSENCE, and it survives the ruling with its rationale rewritten rather than
+    // its mechanism removed. Before 2026-09-04 it said: take the ruling first. Now it says: the
+    // ruling was PERMISSION, so any of these phrases appearing here is either a second ground
+    // being asserted beside the first or a compliance vocabulary entering a visitor-facing
+    // document — and both are edits that must be made deliberately rather than drift in.
+    //
+    // The `gdpr` entry is LOWER CASE on purpose, and it was upper case until 2026-09-04 while
+    // being compared against `everyString.toLowerCase()` — a leg that could never fail. It is
+    // fixed here rather than dropped: an instrument that cannot see its property is the defect,
+    // not the property.
     const everyString = [
       DISCLOSURE.headline,
       ...DISCLOSURE.lines.flatMap((line) => [line.question, line.answer]),
@@ -279,12 +340,14 @@ describe('BROW-09 — the four things a visitor is told before they decide', () 
       DISCLOSURE.reporting.answer,
     ].join(' | ')
 
-    for (const phrase of ['legitimate interest', 'legal basis', 'GDPR']) {
+    for (const phrase of ['legitimate interest', 'legal basis', 'gdpr']) {
       expect(
         everyString.toLowerCase(),
-        `BROW-09: the disclosure now states "${phrase}". Which basis the telemetry rests on is ` +
-          '.planning/REQUIREMENTS.md § Open questions item 3 — contested across sources and ' +
-          'settled by legal review, not by whoever edited this file. Take the ruling first.',
+        `BROW-09: the disclosure now states "${phrase}". The ground was ruled on 2026-09-04 ` +
+          "and it is the visitor's permission — see .planning/REQUIREMENTS.md § Open questions " +
+          'item 3. A second ground stated beside it contradicts the ruling; the review\'s own ' +
+          'vocabulary in a page written for a visitor is a separate defect. Take a fresh ruling ' +
+          'before either.',
       ).not.toContain(phrase)
     }
   })

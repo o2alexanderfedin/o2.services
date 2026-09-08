@@ -39,7 +39,7 @@
  * adding it afterwards costs a second one.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { FakeDurableObjectAlarms, FakeDurableObjectStorage } from './do-storage.fixture.ts'
 import { BootstrapObject } from './worker.ts'
 import { DoDatastore } from './do-datastore.ts'
@@ -48,6 +48,49 @@ import { readFunnelJournal } from './funnel-journal.ts'
 import type { RelayServiceTotals } from '@o2/libp2p'
 import type { CloudflareWebSocket } from './websocket-connection.ts'
 import type { HostedEnv, HostedObjectStateWithSockets } from './worker.ts'
+
+
+
+
+/**
+ * **Every case in this file derives an Argon2id key, so the default five-second budget is the
+ * wrong one — measured, not anticipated.**
+ *
+ * Since AUTH-07 criterion 4 the hosted identity is an envelope, and opening or sealing it
+ * costs one Argon2id derivation at `DEFAULT_KDF_PARAMS` — 19 MiB and roughly 650 ms
+ * uncontended on this host. A case that builds two nodes pays it twice. That is comfortably
+ * inside five seconds on a quiet machine and NOT inside it on a busy one: a full
+ * `--project node` sweep runs eight workers, several of them deriving at the same time, and
+ * this file lost two cases to `Error: Test timed out in 5000ms.` on a run whose banner
+ * reported the host oversubscribed at load 11.89 across 8 cores.
+ *
+ * **Raising the budget rather than lowering the cost**, because the cost is the feature: a
+ * memory-hard KDF is what prices a guess against an attacker holding this store. A per-case
+ * timeout would have to be repeated on every case and would drift; `vi.setConfig` states it
+ * once for the file.
+ *
+ * The number is a **budget, never an assertion**. Nothing here reads it, no case passes or
+ * fails on how long it took, and this repository asserts cost comparatively — see the
+ * cold-versus-warm ratio in `hosted-seed-at-rest.e2e.test.ts`.
+ */
+vi.setConfig({ testTimeout: 60_000 })
+
+/**
+ * The identity secret this spec's local `wrangler dev` boots with — AUTH-07 criterion 4.
+ *
+ * Since that criterion the hosted object refuses to open its identity without
+ * `O2_IDENTITY_SECRET` and answers `GET /self` with `500`, so every spec that polls `/self`
+ * for readiness has to supply one. There is deliberately no default in production source — a
+ * default is the empty-DEK defect one criterion over — and no value in `wrangler.jsonc`,
+ * which is tracked.
+ *
+ * **Per-spec test data rather than a shared constant**, in the style of this tree's `TEST_KEY`
+ * and `TURN_SECRET`: this spec passes its own `--persist-to`, so its Durable Object store is
+ * its own and the value only has to be self-consistent across its own restarts. The one thing
+ * that IS load bearing is the length — under twenty characters `assertUsablePassphrase`
+ * refuses and every boot below fails with `WeakPassphraseError`.
+ */
+const SECRET = 'local-dev-identity-secret-42'
 
 /**
  * Storage and alarms as the platform carries them — together on `state.storage`.
@@ -72,6 +115,11 @@ function newState(
 /** No namespace and no announce list — `GET /self` reads neither. */
 const ENV: HostedEnv = {
   BOOTSTRAP: undefined as unknown as HostedEnv['BOOTSTRAP'],
+  // AUTH-07 criterion 4 — every object in this file opens a sealed identity, so every one of
+  // them needs the binding that opens it. An env WITHOUT it is a case in its own right, and it
+  // lives in `hosted-seed-sealed.node.test.ts` beside the rest of the fail-closed evidence
+  // rather than being sprinkled through this file's thirty constructions.
+  O2_IDENTITY_SECRET: SECRET,
 }
 
 interface TrafficLegReading {
@@ -88,6 +136,20 @@ interface SelfReading {
   readonly traffic: { readonly direct: TrafficLegReading; readonly relayed: TrafficLegReading }
   /** The relay-service record. Required for the same reason, and it is the DURABLE one. */
   readonly relayService: RelayServiceTotals
+  /**
+   * Whether this object can be halted at all — required here for the reason the split was made
+   * required, and with a sharper instance behind it.
+   *
+   * On 2026-09-07 the deployed object could not be halted by anybody and no reading anywhere
+   * said so. A field that a reader may skip is a field a deploy may drop, and this is the one
+   * field whose absence means nobody finds out that the stop button does nothing.
+   */
+  readonly killSwitch: KillSwitchReading
+}
+
+interface KillSwitchReading {
+  readonly operable: boolean
+  readonly reason: string
 }
 
 function readLeg(value: unknown, name: string): TrafficLegReading {
@@ -121,11 +183,18 @@ async function readSelf(object: BootstrapObject): Promise<SelfReading> {
     // look. That is not a hypothetical: the split was added as a fifth field on a reader
     // that required four, and it took a deliberate edit here to make its absence detectable.
     !('traffic' in body) ||
-    !('relayService' in body)
+    !('relayService' in body) ||
+    // **Seven as of 2026-09-07**, and this one joined for a reason the note above predicted:
+    // the split "was added as a fifth field on a reader that required four, and it took a
+    // deliberate edit here to make its absence detectable". Same edit, same reason, higher
+    // cost — a dropped `killSwitch` is a node nobody can stop and nothing that says so.
+    !('killSwitch' in body)
   ) {
-    throw new Error(`GET /self did not answer with the six declared fields: ${JSON.stringify(body)}`)
+    throw new Error(
+      `GET /self did not answer with the seven declared fields: ${JSON.stringify(body)}`,
+    )
   }
-  const { peerId, nodeKey, instance, version, traffic, relayService } = body
+  const { peerId, nodeKey, instance, version, traffic, relayService, killSwitch } = body
   if (
     typeof peerId !== 'string' ||
     typeof nodeKey !== 'string' ||
@@ -144,7 +213,23 @@ async function readSelf(object: BootstrapObject): Promise<SelfReading> {
     version,
     traffic: { direct: readLeg(traffic.direct, 'direct'), relayed: readLeg(traffic.relayed, 'relayed') },
     relayService: readRelayService(relayService),
+    killSwitch: readKillSwitch(killSwitch),
   }
+}
+
+/** Narrow the kill-switch reading, refusing anything that is not the two declared values. */
+function readKillSwitch(value: unknown): KillSwitchReading {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('operable' in value) ||
+    !('reason' in value) ||
+    typeof value.operable !== 'boolean' ||
+    typeof value.reason !== 'string'
+  ) {
+    throw new Error(`GET /self reported a killSwitch that is not a verdict: ${JSON.stringify(value)}`)
+  }
+  return { operable: value.operable, reason: value.reason }
 }
 
 /**
@@ -521,5 +606,64 @@ describe('`POST /funnel` banks without losing a report or poisoning the instance
       body.entered['page-load'],
       'GET /funnel reported a count storage had refused, which the next eviction would erase',
     ).toBe(99)
+  })
+})
+
+/**
+ * RUN-02's precondition, on the route an operator actually reads.
+ *
+ * `admission-flag.test.ts` proves the verdict; what belongs HERE is that the verdict reaches
+ * `/self` at all, and that it is composed from this deployment's own bindings rather than from
+ * a constant. The default `ENV` in this file carries neither binding, which is not a contrivance
+ * — it is the exact shape the deployed object had on 2026-09-07.
+ */
+describe('`GET /self` says whether this object can be stopped', () => {
+  it('reports INOPERABLE on an object with neither binding — the deployed shape of 2026-09-07', async () => {
+    const object = new BootstrapObject(
+      newState(new FakeDurableObjectStorage(), new FakeDurableObjectAlarms()),
+      ENV,
+    )
+    const reading = await readSelf(object)
+    expect(reading.killSwitch.operable).toBe(false)
+    // Both halves named, so the reader is not sent round the loop twice. Literals, not values
+    // read back off the reading.
+    expect(reading.killSwitch.reason).toContain('no operator key configured')
+    expect(reading.killSwitch.reason).toContain('serves no region')
+  })
+
+  it('reports OPERABLE once the deployment carries both, and names the region it would accept', async () => {
+    const object = new BootstrapObject(
+      newState(new FakeDurableObjectStorage(), new FakeDurableObjectAlarms()),
+      { ...ENV, O2_REGION: 'bootstrap-us', O2_ADMISSION_KEY: 'a-key-an-operator-generated' },
+    )
+    const reading = await readSelf(object)
+    expect(reading.killSwitch.operable).toBe(true)
+    expect(reading.killSwitch.reason).toContain('"bootstrap-us"')
+  })
+
+  it('reads the bindings and not a constant — one binding present is still INOPERABLE', async () => {
+    // The case that separates "reports the verdict" from "reports true when configured".
+    // Without it, a field hardcoded to the happy answer would pass the case above.
+    const keyOnly = new BootstrapObject(
+      newState(new FakeDurableObjectStorage(), new FakeDurableObjectAlarms()),
+      { ...ENV, O2_ADMISSION_KEY: 'a-key-an-operator-generated' },
+    )
+    expect((await readSelf(keyOnly)).killSwitch.operable).toBe(false)
+
+    const regionOnly = new BootstrapObject(
+      newState(new FakeDurableObjectStorage(), new FakeDurableObjectAlarms()),
+      { ...ENV, O2_REGION: 'bootstrap-us' },
+    )
+    expect((await readSelf(regionOnly)).killSwitch.operable).toBe(false)
+  })
+
+  it('treats a region label outside the closed set as no region, so a typo cannot arm it', async () => {
+    const object = new BootstrapObject(
+      newState(new FakeDurableObjectStorage(), new FakeDurableObjectAlarms()),
+      { ...ENV, O2_REGION: 'bootstrap-antarctica', O2_ADMISSION_KEY: 'a-key' },
+    )
+    const reading = await readSelf(object)
+    expect(reading.killSwitch.operable).toBe(false)
+    expect(reading.killSwitch.reason).toContain('serves no region')
   })
 })

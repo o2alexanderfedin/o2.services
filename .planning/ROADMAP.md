@@ -2275,6 +2275,7 @@ pause; TEE tiers, zk proofs, S/Kademlia and secure aggregation. Reasons for each
 - [ ] **Phase 40: The Numbers Only the Run Can Produce** - The WebRTC failure rate segmented by country and network class, and a diurnal churn curve, published as measured and never beside a proxy that could be read as one
 - [ ] **Phase 41: Cross-Host Determinism for the AOT Track** - The same lift on two distinct hosts is byte-identical, or the divergence is reported — and `AOTW-06` stays gated on a compiler nobody has built
 - [ ] **Phase 42: Keys at Rest, Not in the Clear** - The node seed and the provider key are unreadable on a seized device without the passphrase, on both tiers, with a wrong passphrase refusing by name rather than minting a fresh identity
+- [ ] **Phase 43: Every Stored Key Is Ciphertext** - No private key this system writes to any store, on any tier, is readable without the credential that tier's operator holds — and a guard refuses any stored value nobody declared, so the next store is a finding rather than a silence
 
 ### Phase 29: Hosted Tier Assembly & First Deploy
 **Goal**: As a fabric operator, I want a third workspace package — `packages/cloudflare/`, beside `packages/browser` and `packages/node` and not a branch inside `fabric-node.ts` — that assembles a libp2p node deployable to a Durable Object and dialable by an ordinary peer over WSS at an identity that survives eviction and redeploy, so that I can stand up a hosted node with the money and the siting made irreversible-safe before the first object exists.
@@ -2567,13 +2568,46 @@ The six stages move in order against a real relay and real WebRTC, read out of t
   3. `CONTRIBUTING.md` states explicitly that pull requests are **triaged, never merged**, and that any fix is implemented **independently of the reported diff**. No CLA is planned — the owner ruled to rely on the civilized world rather than build CLA machinery — so provenance for the later relicensing track is preserved by not merging rather than by paperwork
   4. Public recruitment copy and project copy do **not** promise permanent open licensing. The settled position is open source with monetization for commercial use added later, and three dated precedents — Terraform→OpenTofu, Redis→Valkey, Elastic→OpenSearch — show the shape of the backlash when the copy and the later licensing disagree
   5. The copy carries no payment framing and no cryptocurrency framing, and is read against the five patterns `packages/node/src/vocabulary.node.test.ts` enforces. That guard scans tracked files, so recruitment copy that lives outside the tree is checked by hand against the same five patterns before it is sent — an unchecked message is the one a reviewer greps
-**Plans**: TBD
+**Plans**: 4 plans in 3 waves
+- [x] `38-01-PLAN.md` — detect the embedded browser on a host-injected bridge object rather than a user-agent string, and offer the "open in your own browser" notice (wave 1)
+- [x] `38-02-PLAN.md` — the hidden-gap instrument: say in words whether the script kept running, was slowed down or was stopped while the page was hidden, and keep it on screen after the notice is dismissed (wave 2)
+- [x] `38-03-PLAN.md` — recruitment copy into the tree so both guards reach it, the five patterns into one shared module, and one command for copy that never reaches the tree (wave 1)
+- [ ] `38-04-PLAN.md` — the owner script for two real phones, the checkpoint, and the ledger moved by exactly what they reported (wave 3, blocking checkpoint)
+
+**Status 2026-09-06 — criteria 3, 4 and 5 MET; criteria 1 and 2 have their mechanism and NOT
+their reading, and the phase's checkbox stays off for that reason.** Waves 1 and 2 are merged.
+
+Criterion 1's agent half holds and holds in the direction that matters. `detectEmbeddedWebView`
+fires on a **host-injected bridge object with a stock desktop user-agent** — the arrangement a
+user-agent check cannot pass — and that case is the **only** one in the tree titled `RUN-06`. The
+string-only arm is titled without it on purpose, so `acceptance-traceability.node.test.ts` cannot
+read a spoofed header as this criterion's evidence. Criterion 2's instrument exists: the page says
+in words whether the script kept running, was slowed down or was stopped while it was hidden —
+the observable `38-DEVICE-OBSERVATIONS.md` had named as missing in its own words. **Neither
+criterion is claimed.** Both say *the real link from a real Telegram message on both iOS and
+Android*, and that is `38-04`, an owner act. `RUN-06` moved `Not started` → **`Partial`** and
+entered the re-read register, which is what a `Partial` costs here.
+
+Criteria 3, 4 and 5 are met and two of them were already met before this phase: `DEMO-05` and
+`DEMO-06` closed on 2026-08-30. What this phase added is that criterion 5 is no longer a promise
+to check copy by hand. The recruitment message is a **tracked file**, so both guards already scan
+it; the five banned patterns live in one module a guard and a command share; and copy that never
+enters the tree is checked by that same command with an exit code. Its positive control is the
+one that matters — a text carrying all five is reported as **five**, not as one.
+
+**Two measurements that foreclose things, recorded rather than left to be rediscovered.**
+`navigator.standalone` is `undefined` in stock desktop Chromium and Firefox as well as in a
+WKWebView, so that signal is gated on an iOS-shaped user-agent and a desktop browser spoofing an
+iPhone string reads engine-corroborated on what is really a string — the `RUN-06` case does not
+rest on it. And **headless Chromium cannot background a page for itself**: no `visibilitychange`
+fired, the interval kept its full rate. The engine-suspension reading does not exist in this
+harness at all, on any budget, which is why criterion 2 needs two phones and not a longer timeout.
 
 ### Phase 39: The Public Run
 **Goal**: As the project owner, I want the first invite to go out only after seven conditions hold on a dated checklist with named evidence for each, and invites to go out in stages by region and by cohort slice with the funnel read between them, so that the fabric's headline claim is finally measured on hundreds of independently-owned devices rather than asserted.
 **The same goal as originally stated** (restated above as a user story 2026-08-25 by owner ruling — the same claim, in its older form): The first invite goes out only after seven conditions hold on a dated checklist with named evidence for each; invites go out in stages by region and by cohort slice with the funnel read between them; and the fabric's headline claim is finally measured on hundreds of independently-owned devices
 **Mode:** mvp
-**Depends on**: **Phases 35, 36, 37 and 38 — all four**, because criterion 1 is a gate over their outputs and not a summary of them. Also Phase 33 (three regions) and Phase 34 (both fallback rungs verified before the cohort arrives)
+**Depends on**: **Phases 35, 36, 37 and 38 — all four**, because criterion 1 is a gate over their outputs and not a summary of them. Also Phase 33 (three regions) and Phase 34 (both fallback rungs verified before the cohort arrives). **AMENDED 2026-09-04 by owner ruling — and Phase 42, which now runs first.** Keys at rest are sealed before real people join, because the owner intends to demonstrate that property. This is a DEPENDENCY, not an eighth gate condition: `RUN-01` still names exactly seven, and `AUTH-06` is not among them
 **Requirements**: RUN-01, RUN-07, BENCH-06 (carried from Phase 8)
 **Research**: None — this phase runs an event rather than building a mechanism. **Open question 5's answer is a precondition of criterion 1**, since `RUN-06` sits in the gate through `RUN-01`
 **Success Criteria** (what must be TRUE):
@@ -2582,7 +2616,106 @@ The six stages move in order against a real relay and real WebRTC, read out of t
   3. Invites go out in stages, by region and by cohort slice, and each stage's go/no-go **reads the funnel** before the next invite is sent. Staged rollout is **inferred from general release practice and recorded as inferred**: no named volunteer-computing precedent for staged rollout of a compute cohort was found, and this criterion does not pretend otherwise
   4. **`BENCH-06`'s distinct-machine half is measured from the run**: a map/reduce job distributes across nodes on independently-owned devices across several continents, each machine read off its own announced handshake line rather than off the driver, and the distinct-machine count is published beside the curve. **Until the run reports, the half stays descoped and unmeasured — not met — and a same-host figure may not be published in its place**
   5. The kill switch and the stop control are exercised **during** the run and not only before it, and the observed behaviour matches what Phase 36 measured on a quiet fabric — a control that works at three tabs and not at three hundred is a control nobody has
-**Plans**: TBD
+**Plans**: 9 plans in 5 waves — waves 1-3 are agent work with no money and no disclosure; waves 4-5 are the owner-gated tail, separate plans rather than trailing tasks
+- [x] `39-01-PLAN.md` — the dated go/no-go checklist as a document, and a guard that notices a row losing its evidence (wave 1)
+- [x] `39-02-PLAN.md` — the funnel's silent-drop defect: probe before targeting, validated on the response BODY rather than its status (wave 1)
+- [x] `39-03-PLAN.md` — the relay counters, including the 6714-hop-streams-against-zero-relayed-bytes anomaly measured on a local workerd (wave 1)
+- [x] `39-04-PLAN.md` — the participant path for `BENCH-06`'s distinct-machine half, and the guard that refuses a same-host figure in its place (wave 2)
+- [x] `39-05-PLAN.md` — the staged-invite runbook and the request-budget reading with a numeric stop rule (wave 2)
+- [x] `39-06-PLAN.md` — the kill-switch instrument and the band criterion 5 compares the run against (wave 2)
+- [x] `39-07-PLAN.md` — re-measure the node lane and own `vitest.config.ts`, because `slow-specs` sits at its tolerance boundary (wave 3)
+- [ ] `39-08-PLAN.md` — **owner**: the machine-datum ruling, the release cut, and the pre-invite funnel reading (wave 4)
+- [ ] `39-09-PLAN.md` — **owner**: the run itself, its stages, and the record only the run can write (wave 5)
+
+**Status 2026-09-07 — wave 1 executed and merged. Criterion 1's DOCUMENT exists and says NO-GO;
+criterion 2's DEFECT is closed and criterion 2 is not; criterion 4 gained a reading that
+FORECLOSES two candidate answers rather than supplying one.**
+
+**Criterion 1.** `39-GO-NO-GO.md` is dated and guarded. All seven conditions `RUN-01` names read
+`GO`, each citing a file a reader can open plus both ledger lines it was transcribed from — and
+`go-no-go-checklist.node.test.ts` reddens on a `GO` row naming no evidence, on a citation that
+stops resolving, and on a row naming a requirement whose ledger box is unticked. Its four floors
+are literals, so a parser finding zero rows cannot satisfy it. **Seven PRECONDITIONS sit in their
+own table at `NO-GO`, explicitly not part of `RUN-01`'s gate**, and the tree is green with them
+there — which is the property that lets this document exist before the run rather than be written
+after it. `RUN-01` moved `Not started` → **`Partial`**: the record half landed, and *no invite is
+sent until they all hold* is a clause that can be violated but not completed in advance.
+
+**Criterion 2.** The funnel's silent drop is fixed at its cause. `probeFunnelTarget` asks the
+derived origin whether it is a collector before any report is sent there and validates the
+**body**, not the status — a `200` from a static host or a captive portal is exactly the shape
+that installs a port to nowhere. The defect arm was watched failing FIRST, before the wiring
+changed, at *"the page posted 2 report(s) to a collector that answered 400 on every path"*. An
+explicit `?funnel=` still wins, unchanged, and the fix fails closed to the old inert behaviour.
+**The criterion is still open**: it asks for the funnel *reporting live with a timestamp preceding
+the invite*, and no mechanism satisfies a clause about when something was seen. **One cost is
+recorded rather than smoothed over** — the probe is not awaited, so a visit that consents, starts
+and closes inside one round trip now takes its first two stages and its terminal stall with it,
+where the unconditional target delivered them. `BENCH-08`'s denominator therefore carries two
+qualifiers, not one.
+
+**Criterion 4, and this is the result that matters most.** The `6714`-hop-streams-against-zero
+anomaly is **explained and is not a defect**, measured on a local `workerd` with a control arm in
+the same run. `outboundStopStreams` reaching 1 proves the relay actually delivered a relayed
+connection; over that step `relayService.bytes` moved 21 849 against 8 192 bytes of payload while
+`traffic.relayed` stayed `0/0` at all four sample points. **A relay has no relayed traffic of its
+own** — every connection it holds is a direct inbound leg, which is what `classifyConnection`
+answers. Phase 32's standing sentence held under measurement: `traffic.direct.bytes` moved 30 187
+over the same step, the same forwarded payload counted a second time, and the two must not be
+reconciled by subtraction. **What the reading forecloses is the important half**: neither counter
+can supply criterion 4's distinct-machine count, because both count STREAMS and neither can tell a
+RESERVE from a CONNECT. `BENCH-06`'s distinct-machine half stays descoped and unmeasured.
+
+**A money hazard was found and closed before the first run**: `wrangler.jsonc` announces the
+DEPLOYED host, so a local relay left at that value hands its reserving client a circuit address
+pointing at production. Three reservations were made, all local, and zero requests reached the
+deployed object.
+
+**Status 2026-09-07 — waves 2 and 3 executed and merged. Every plan an agent can run is done;
+what is left is four owner acts and one precondition that is newly in doubt.**
+
+**Criterion 3 has its procedure and its refusal.** `tools/run/stage-budget.mjs` computes a
+stage's expected Durable Object cost before it is sent and compares it against the measured
+delta afterwards — the estimate is checked, not trusted. A stage that cannot state its expected
+cost **throws**, so refusing is the default rather than a fallback. Three stop arms, each a
+number with what it is sited against, and one of them refuses the run on the 2026-09-03
+incident's own numbers. That incident is the reason for the shape: the free tier's cap took the
+hosted node down mid-day, and a spending alert would not have caught it, because that is a
+control on money and this was a control on **requests**.
+
+**Criterion 4 gets a figure that says what it is.** The participant count is derived from
+`ReduceOutcome.executedBy` and prints *"N distinct peers — machine count not measured; peers are
+tabs, and two tabs on one device are two peers"*. Beside it, `machine-claim-guard.node.test.ts`
+reddens on any published machine claim with no named announced-machine source — and its positive
+control is what makes that mean something: the fixture containing a machine claim is shown being
+caught FIRST, because the plant that blinded the instrument left the absence case perfectly
+green. `BENCH-06`'s distinct-machine half stays descoped and unmeasured.
+
+**Criterion 5 gets an instrument and a doubt.** A read-only sampler timestamps the
+admitting-to-halted transition from outside the fabric and compares it against Phase 36 as a
+**ratio to the poll interval**, refusing to answer where the planes are not comparable rather
+than giving a verdict it has no right to. **But `refuseMisaddressed` refuses every write to an
+object whose own region is `null`, and the deployed `/self` reported `region: null` on
+2026-09-04.** Measured rather than inferred: a local `workerd` in that configuration refused a
+correctly-keyed halt twice, body containing `serves no region`. If that still holds on the
+deployed object there is no kill switch to exercise. The one-request check is
+`.planning/OWNER-ACTIONS.md` row 9, and it is the most urgent row on that list.
+
+`RUN-07` moved `Not started` to **`Partial`**, on the same reading as `RUN-01`: the procedure
+exists, the act has not happened.
+
+**A cost figure this phase leaned on turns out to be the wrong SHAPE, not the wrong value.**
+`REQUESTS_PER_RESERVATION = 165` is a quotient — a day's Durable Object requests over one run's
+reservations. Read out of the source, the cost is `51 + 164 x minutes`: 51 requests to establish,
+then **164 a minute for as long as the socket is open**, dominated by `ConnectionMonitor` opening
+a fresh `/ipfs/ping/1.0.0` stream every 10 s in both directions, and doubled again because
+`websocket-to-conn.ts` sends one WebSocket frame per constituent buffer. So 165 is roughly one
+peer-minute, **a peer that connects and never reserves costs the same**, and the driver is
+connections held rather than invitations sent. The obvious lever is not the obvious one:
+reservation TTL is worth 0.07 %, while `connectionMonitor.pingInterval` — set nowhere in this
+repository — is worth 95 %. Working:
+`.planning/consults/2026-09-07-what-a-reservation-actually-costs.md`. The constant is documented
+rather than changed; reframing the model is an owner decision.
 
 ### Phase 40: The Numbers Only the Run Can Produce
 **Goal**: As the project owner, I want two figures that did not exist before this milestone published under the discipline the `BENCH-` family already carries — the WebRTC connection-failure rate segmented by country and by network class, and a diurnal churn curve per region — so that the two measurements only a real public run can produce are on the record.
@@ -2618,12 +2751,42 @@ The six stages move in order against a real relay and real WebRTC, read out of t
 **Mode:** mvp
 **Depends on**: Phase 17 (the seed, the provider key and the certificate this phase encrypts), Phase 35 (the browser tier that persists them)
 **Requirements**: AUTH-06
-**Research**: **What is stored in the clear is measured, not suspected.** Browser: `packages/browser/src/idb-identity-store.ts:95` and `:138` put a raw 32-byte ed25519 seed into IndexedDB, `:161`/`:172` the provider key, `:188` the certificate — no encryption and no passphrase anywhere. Node: `packages/node/src/identity-store.ts:67-86` writes the same seed as a raw file, protected by filesystem mode alone, which is nothing against a seized or imaged disk. **Argon2id is in the design (§3.9) and exists in this tree only as a comment** — `packages/node/src/capability-fixture.ts:18` — so this phase implements it rather than wiring something already present. `@noble/hashes` ships `argon2.js` and is already a dependency; `@libp2p/keychain` is installed and carries its own password-based key store, so which of the two holds the node seed is an open question for planning rather than a settled choice. **The visitor's owner key is deliberately out of scope**: it is generated non-extractable at `packages/browser/src/visitor-key.ts:134`, so `exportKey` fails and there is nothing at rest to encrypt. The node seed cannot use that mechanism at all — libp2p needs the raw ed25519 bytes for the Noise handshake — which is why at-rest encryption is the only option there rather than one option among several
-**Ordering, and an open question the owner should settle**: appended at the end of the milestone, this phase lands *after* Phase 39 has already recruited real people onto the fabric. Whether it should instead gate Phase 39's go/no-go checklist is an owner decision and is recorded here unanswered
+**Research**: **SUPERSEDED IN ITS PRESENT TENSE 2026-09-06 — every "is" below was true when written on 2026-09-02 and the phase has since made most of them false. Read the paragraph as a reading dated 2026-09-02, kept rather than rewritten because what a phase found before it started is part of its record.** What changed: `idb-identity-store.ts`'s `saveSeed`/`saveProviderSeed`/`loadOrMintSeed`/`loadOrMintProviderSeed` are **deleted**, not amended, and `#loadOrMintSealed` replaced them; `identity-store.ts`'s `loadOrCreateSeed` is **deleted** and `loadOrCreateSealedSeed` seals the seed **and** the provider key; Argon2id is no longer a comment but `packages/core/src/sealed-secret.ts`; and the open question of `@noble/hashes` versus `@libp2p/keychain` was settled for `@noble/hashes`, because `mint` must be **synchronous** — awaiting anything outside the IndexedDB transaction lets it commit, which was a measured four-tab race. What did NOT change is the certificate's exclusion and the reason for it. **What is stored in the clear is measured, not suspected.** Browser: `packages/browser/src/idb-identity-store.ts:95` and `:138` put a raw 32-byte ed25519 seed into IndexedDB, `:161`/`:172` the provider key, `:188` the certificate — no encryption and no passphrase anywhere. Node: `packages/node/src/identity-store.ts:67-86` writes the same seed as a raw file, protected by filesystem mode alone, which is nothing against a seized or imaged disk. **Argon2id is in the design (§3.9) and exists in this tree only as a comment** — `packages/node/src/capability-fixture.ts:18` — so this phase implements it rather than wiring something already present. `@noble/hashes` ships `argon2.js` and is already a dependency; `@libp2p/keychain` is installed and carries its own password-based key store, so which of the two holds the node seed is an open question for planning rather than a settled choice. **The visitor's owner key is deliberately out of scope**: it is generated non-extractable at `packages/browser/src/visitor-key.ts:134`, so `exportKey` fails and there is nothing at rest to encrypt. The node seed cannot use that mechanism at all — libp2p needs the raw ed25519 bytes for the Noise handshake — which is why at-rest encryption is the only option there rather than one option among several
+**Ordering — SETTLED 2026-09-04 by owner ruling; the question is kept rather than deleted, because what it weighed is part of the record.** It read: appended at the end of the milestone, this phase lands *after* Phase 39 has already recruited real people onto the fabric, and whether it should instead gate Phase 39's go/no-go checklist is an owner decision, recorded unanswered.
+**The ruling is: this phase runs BEFORE the public run.** Phase 39 does not begin until Phase 42 is done.
+**The reason is one the analysis did not weigh, and it is the owner's to weigh:** *"я предлагаю шифровать. тогда на презентации я смогу показать еще и это"* — encryption at rest is itself a thing to demonstrate, so the delay buys a demonstrable property rather than only removing a risk. The engineering analysis put to the owner recommended the opposite (run first, with enrolment closed during the run) on the ground that a demo visitor does not enrol, so a cohort member acquires no passphrase and no seal under either ordering; **that reasoning was not refuted and it is not what decided.** A presentation is a use of this work the ledger does not model.
+**What the ruling does NOT do:** it does not add an eighth condition to `RUN-01`'s seven. The gate is unchanged; Phase 42 becomes a dependency of Phase 39 instead, which is a different mechanism and is recorded as such so no one later reads `AUTH-06` as one of the seven.
+**A consequence the plans did not cover — CLOSED 2026-09-04 by the owner's login ruling, and the line is kept because the gap was real.** It read: all five of this phase's criteria are checked against the *store's contents*, none against anything a person can see, and "show it at the presentation" needs a visible surface that no plan carries. `42-04` now carries one — a `#signin` screen where a visitor chooses a passphrase, and a returning visitor's node comes back as the same node only when they enter it. That surface was not planned to close this gap; it closes it as a side effect of the ruling.
 **Success Criteria** (what must be TRUE):
-  1. A dump of everything the identity store holds after a completed enrolment — every key, every value decoded — contains **no seed bytes and no provider-key bytes** (the provider key where the tier stores one; the node tier persists only the seed), on **both** tiers. A criterion checked against the collector's intent rather than against the store does not satisfy this. **The certificate is deliberately not on this list**: it is public material, transmitted on the wire and published into DHT records, and encrypting the local copy would protect nothing while breaking the offline verification `packages/core/src/enrollment.ts:1528` provides. What a stored certificate leaks is the *fact of membership*, which is a different problem and not this phase's
+  1. A dump of everything the identity store holds after a completed enrolment — every key, every value decoded — contains **no seed bytes and no provider-key bytes** (the provider key where the tier stores one; **AMENDED 2026-09-04 by plan 42-02 — the parenthetical originally read *"the node tier persists only the seed"* and that was false against the tree when it was written: `packages/node/src/fabric-node.ts:2438` called `loadOrCreateSeed(options.blockstoreDir, PROVIDER_FILE)`, so a node started with `--issues-certificates` wrote a SECOND raw 32-byte secret into the same directory. `AUTH-06`'s own text — *"the identity seed, and the provider key where a tier stores one"* — always covered it, and it is the higher-value of the two: a provider signing key is the trust root every certificate it ever issued verifies against. The node tier's provider key is sealed under the same passphrase as its seed, and criterion 1's dump searches for both across BOTH participants' directories**), on **both** tiers. A criterion checked against the collector's intent rather than against the store does not satisfy this. **The certificate is deliberately not on this list**: it is public material, transmitted on the wire and published into DHT records, and encrypting the local copy would protect nothing while breaking the offline verification `packages/core/src/enrollment.ts:1528` provides. What a stored certificate leaks is the *fact of membership*, which is a different problem and not this phase's
   2. **The positive control holds**: the same dump taken against the pre-change store *does* contain those bytes. Without it, criterion 1 passes just as well on an empty store — this repository has already closed one criterion on an empty read and had to reopen it
   3. The correct passphrase yields **the same PeerId across a restart**, measured on both tiers. An identity that is protected but not stable is a new node every launch, which is a worse outcome than the defect being fixed
   4. A **wrong** passphrase produces a refusal that names itself, and **never a freshly minted identity**. A silent re-mint presents as success, burns the user's enrolment quota under the issuance budget, and orphans the certificate the old seed was issued against — so this case is planted and watched failing before it is trusted
   5. The KDF parameters are recorded beside the ciphertext rather than compiled in, so an identity stored today stays openable after the defaults are raised. A hard-coded cost is a stored identity that stops opening on the day somebody tunes it
-**Plans**: TBD
+**Plans**: 7 plans in 5 waves — six planned, and `42-07` added mid-phase by owner ruling
+- [x] `42-01-PLAN.md` — the sealed-secret envelope in `@o2/core` (Argon2id + xchacha20poly1305), parameters recorded beside the ciphertext
+- [x] `42-02-PLAN.md` — the node tier: seed **and provider key** sealed, legacy migration, `--identity-passphrase-file`
+- [x] `42-03-PLAN.md` — the browser tier: sealed IndexedDB store, required `identityProtection`, one-transaction migration
+- [x] `42-04-PLAN.md` — the way in: a `#signin` screen after the consent gate, register with a local passphrase or log in with it, and the node starts on unlock. **Rewritten 2026-09-04**: the superseded version tied the passphrase to *enrolment*, and the owner ruled instead that a visitor logs in or registers on the page itself, with no server, no account database and no third-party identity provider
+- [x] `42-05-PLAN.md` — the three at-rest shapes weighed, two document corrections, the device-factor measurement, and the owner's ordering ruling. **Two of its three tasks were already done when it ran**: the ordering ruling was taken 2026-09-04 and the parenthetical corrected by `42-02`, both recorded above. The measurement disqualified shape (b) — a non-extractable key's raw bytes are in the clear on disk in Chromium 151 and Firefox 153, with a positive control found on all three engines and a never-written control found on none
+- [x] `42-06-PLAN.md` — the twenty-one e2e specs that drive the demo page learn the new front door, BROW-06 re-read at a gateway's own log under the auto-start path, and the visible switch read on a node nobody pressed Start for
+- [x] `42-07-PLAN.md` — **added 2026-09-05 by owner ruling**, after the phase's plans were written: a visitor may look around the page before choosing a passphrase. The twenty-character floor does not move; who pays it before they have seen anything does, and the cohort is spendable exactly once. A ninth entry state, below unlock and above the three read from storage. It also uncovered a latent defect — `revealMain`'s once-only guard stood above its three visibility assignments, so a second reveal left `#main` hidden, which nothing reached while unlock was the only way in
+
+### Phase 43: Every Stored Key Is Ciphertext
+**Goal**: As the owner of a fabric whose devices can be lost, seized or imaged, I want every private key the system writes anywhere to be ciphertext, so that no artefact, no tier and no platform promise is the one exception somebody finds later.
+**Mode:** mvp
+**Depends on**: Phase 42 (the envelope, both passphrase surfaces, and the measurement that opened this)
+**Requirements**: AUTH-07
+**The rule, verbatim, ruled 2026-09-06 by the owner**: *"Ключ в открытом виде не должен быть записан нигде. Или иначе: сохраненный где бы то ни было ключ должен быть зашифрован всегда."* The proposal answering it, with the full inventory and the measurements behind every row, is `.planning/consults/2026-09-06-every-stored-key-is-ciphertext.md`.
+**Research**: **The inventory is measured, not suspected, and it is exactly three items.** (1) The visitor's owner key — `packages/browser/src/visitor-key.ts` stores an Ed25519 `CryptoKeyPair` generated `extractable: false`, and its whole PKCS#8 is on disk in Chromium 151 (offset 1074) and Firefox 153 (offset 24486), measured with a positive control found on all three engines and a never-written control found on none. `AUTH-06` excluded it on the ground that `exportKey` fails; that is an API promise read as an at-rest property and the inference is false. (2) The hosted tier — `packages/cloudflare/src/hosted-identity.ts` writes a raw 32-byte seed to `/identity/seed`. (3) **The libp2p keychain, which nobody had looked at**: `node_modules/@libp2p/keychain/dist/src/keychain.js:101-103` derives the encryption key as the **empty string** unless BOTH `pass` and `dek.salt` are given, and this repository constructs `keychain()` with no arguments at `packages/node/src/fabric-node.ts:2225` (under AutoTLS) and `packages/cloudflare/src/hosted-libp2p.ts:343` (unconditionally). **CORRECTED 2026-09-06: the claim that supplying `pass` alone leaves the DEK empty is FALSE** — `DEK_INIT.salt` is a hardcoded non-null default spread in by the constructor before the ternary reads it, so the guard reduces to `pass != null`; measured, `pass` alone does refuse an empty-DEK reader. The defect is unchanged — no `pass` means `dek = ''` — and the salt is still mandatory for a different defect, that every deployment leaving the default shares one PBKDF2 salt. Nothing else in the tree writes key material — every `writeFile` under `packages/node/src/` was read.
+**The mechanism follows the operator, not the artefact**: one envelope (`packages/core/src/sealed-secret.ts`, already shipped and measured) and three key-sources, because there are three kinds of operator — a person at a keyboard (the browser passphrase, shipped), an operator at a shell (`--identity-passphrase-file`, shipped), and nobody at all (a platform secret, new). A fourth mechanism per artefact would be four things that can disagree about what protects one class of secret, which is what `packages/libp2p/src/identity-protection.ts` exists to prevent.
+**What this phase does NOT cover, stated so nobody widens it**: the certificate stays in the clear — it is public material and encrypting the local copy would break offline verification while protecting nothing; at-use is untouched, and design §3.9's own limit applies verbatim — *"Derivation moves the risk from at-rest to at-use — the enclave closes that gap"*; and `--identity-passphrase-file` is a credential an operator places, not a key this system writes.
+**Success Criteria** (what must be TRUE):
+  1. **A visitor who has not signed in cannot cause any key to be minted.** `42-07` made `#main` reachable while looking around and `#enrol` is gated on `offer.accepted` and nothing about sign-in, so on an origin that offers enrolment the control whose handler mints the visitor key is reachable with no passphrase in existence. **This is read from source and NOT yet reproduced** — the criterion is met when it has been made to happen, watched, and then made impossible
+  2. The visitor's owner key is sealed under the same envelope and the same passphrase as the node seed, and a dump of the visitor key store after enrolment contains **no PKCS#8 and no private scalar** — with the pre-change dump shown to contain them, because an absence with no positive control passes just as well on an empty store
+  3. The libp2p keychain on both tiers that use it derives a real DEK, and supplies **`pass` AND `dek.salt`** — the two for two different defects, `pass` because without it the DEK is the empty string and the salt because the library's default is one shared constant every deployment would otherwise use. **A test asserts the property rather than the plumbing**: that the stored PKCS#8 cannot be opened with an empty password, and the two halves pinned separately, because a case asserting only `DEK !== ''` cannot see the salt at all and asserting that an options object was constructed is the defect itself
+  4. The hosted tier's seed is sealed under a secret held in the platform's secret store, and the object's own storage no longer contains the raw seed. **The claim is a move between compromise domains and not secrecy from the account holder** — a Durable Object cannot keep a secret from its own operator, and any surface that says otherwise fails this criterion
+  5. **One guard walks every persistent store on every tier against an allow-list of what that store may hold**, so a store or a value nobody declared is a finding by default. It carries a positive control in the same run — a value it is shown finding — and renders no byte through `String`, both of which this repository has paid for
+**Plans**: none — **executed criterion by criterion rather than planned**, because the five criteria are five independent artefacts on four tiers with no shared design decision between them, and a planning pass would have produced five plans each restating one criterion. The record is per criterion instead: `43-VISITOR-KEY.md` (criteria 1 and 2), `43-KEYCHAIN.md` (3), `43-HOSTED.md` (4), `43-ALLOWLIST.md` (5).
+**Status 2026-09-06 — all five criteria met in code and measured; the BOX IS NOT TICKED and the reason is not a technicality.** The deployed Durable Object still holds its seed in the clear, and will until the owner sets the platform secret and deploys — `.planning/OWNER-ACTIONS.md` row 8. The rule says *no key written anywhere in the clear*, and there is one, in production, right now. Ticking `AUTH-07` while that is true would be closing a requirement on the code rather than on the fabric.
+**What each criterion cost, in one line each**: (1) the defect was found by reading and **reproduced on three engines before it was fixed** — `42-07` had left the enrolment control reachable to a visitor holding no passphrase, so a key could be minted where there was nothing to seal it with; (2) the visitor key is sealed, and a pre-`AUTH-07` record **cannot** be migrated — a non-extractable key has no bytes to give, so the API meant to protect it is what prevented protecting it; (3) both keychains derive a real DEK by domain-separated HKDF from the identity seed, **not** from the operator passphrase, because feeding that to PBKDF2-10k beside its own Argon2id envelope makes the cheap target an oracle for the expensive one; (4) the hosted seed is sealed under a platform secret, with the migration ordering copied from `identity-store.ts` — re-read and open **before** the plaintext is deleted — and a missing secret refuses by name rather than minting; (5) one guard walks 50 stores and 73 write sites against a register that must match in both directions, and it found a deliberate plaintext seed in a test fixture that needed a fourth classification to describe honestly.

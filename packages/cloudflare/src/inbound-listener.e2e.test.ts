@@ -49,6 +49,29 @@ import type { Libp2p } from 'libp2p'
 import type { RelayServiceTotals } from '@o2/libp2p'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+
+
+/**
+ * The identity secret this spec's local `wrangler dev` boots with — AUTH-07 criterion 4.
+ *
+ * Since that criterion the hosted object refuses to open its identity without
+ * `O2_IDENTITY_SECRET` and answers `GET /self` with `500`, so every spec that polls `/self`
+ * for readiness has to supply one. There is deliberately no default in production source — a
+ * default is the empty-DEK defect one criterion over — and no value in `wrangler.jsonc`,
+ * which is tracked.
+ *
+ * **THIS VALUE MUST EQUAL THE ONE IN `hosted-record-store.e2e.test.ts`.** This spec and that one
+ * spawn `wrangler dev` with **no `--persist-to`**, so they share
+ * `packages/cloudflare/.wrangler/state` and therefore share one Durable Object store. Two
+ * different secrets there means the second spec to run meets an envelope the first one sealed
+ * and refuses it with `SealedHostedIdentityUnlockError` — which reads like a defect and is a
+ * disagreement between these two literals. Every other wrangler-spawning spec in this
+ * repository passes its own `--persist-to` and is free to choose its own.
+ *
+ * Also load bearing: at least twenty characters, or `assertUsablePassphrase` refuses.
+ */
+const SECRET = 'local-dev-identity-secret-42'
+
 const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url))
 const PORT = 8791
 const HOST = '127.0.0.1'
@@ -201,7 +224,7 @@ async function waitForReady(timeoutMs: number): Promise<void> {
 }
 
 beforeAll(async () => {
-  worker = spawn('npx', ['wrangler', 'dev', '--port', String(PORT), '--local-protocol', 'http'], {
+  worker = spawn('npx', ['wrangler', 'dev', '--port', String(PORT), '--local-protocol', 'http', '--var', `O2_IDENTITY_SECRET:${SECRET}`], {
     cwd: PACKAGE_DIR,
     // **The blanked credential is the measurement, not hygiene.** It is what makes "no account is
     // needed" a reading rather than an assumption: a path reaching for Cloudflare would fail

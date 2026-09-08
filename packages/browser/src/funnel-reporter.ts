@@ -67,26 +67,37 @@ import type {
 /**
  * When the reporter starts counting.
  *
- * **`'at-consent'` while `.planning/REQUIREMENTS.md` § Open questions item 3 is pending, and
- * that is NOT a choice between the two readings — it is their intersection.** The consent
- * reading permits only consent-armed collection; the legitimate-interest reading permits
- * consent-armed collection *and* page-load-armed collection. So this value is lawful under
- * either ruling and a ruling can only ever widen it. Collecting under the wrong basis is the
- * irreversible error; not collecting yet is the reversible one.
+ * **SETTLED 2026-09-04 by owner ruling, and the value did not have to move.**
+ * `.planning/REQUIREMENTS.md` § Open questions item 3 is answered: the ground is the visitor's
+ * permission and nothing else. `'at-consent'` is what that ruling requires, and it is what this
+ * constant already held.
  *
- * The question is settled by legal review and not by engineering judgement, and nothing in this
- * repository states a basis — `disclosure-four-elements.node.test.ts` holds an absence guard
- * that says so.
+ * **It held it for a reason worth keeping, because the reasoning is what made the ruling free.**
+ * Before the ruling this value was NOT a guess at the answer — it was the *intersection* of the
+ * two readings. Permission permits only consent-armed collection; the other reading permitted
+ * consent-armed collection *and* page-load-armed collection. So `'at-consent'` was lawful under
+ * either outcome and a ruling could only ever widen it. Collecting on the wrong ground is the
+ * irreversible error; not collecting yet is the reversible one. The ruling did not widen it, so
+ * eleven days of counting taken under the intersection are counting taken under the ruling.
  *
- * **What it costs, which is real and must be published beside any figure taken under it:** the
- * funnel measures a **self-selected opted-in subset**. Stage one is sent at the same moment as
- * stage two, so their counts are equal by construction and the first drop-off — how many
- * visitors arrive and never consent — is not measurable at all.
+ * **What it costs — now permanent rather than pending, and it must be published beside any
+ * figure taken under it.** The funnel measures a **self-selected opted-in subset**. Stage one is
+ * sent at the same moment as stage two, so their counts are equal by construction and the first
+ * drop-off — how many visitors arrive and never consent — is not measurable at all. Under the
+ * refused reading it would have been; it is not, and no figure derived from this funnel may use
+ * an arrival count it does not have. `BENCH-08`'s denominator is therefore the opted-in
+ * population, stated as such wherever the rate is published.
  */
 export const FUNNEL_ARMING: 'at-consent' | 'at-page-load' = 'at-consent'
 
-/** Which visitors the counts are over, under {@link FUNNEL_ARMING}. */
-export const FUNNEL_PENDING_POPULATION: FunnelPopulation = 'opted-in-only'
+/**
+ * Which visitors the counts are over, under {@link FUNNEL_ARMING}.
+ *
+ * Named `FUNNEL_POPULATION` until 2026-09-04, when the pending question it was named
+ * after was ruled on. The value is unchanged; the word `PENDING` had become a claim the tree
+ * no longer makes.
+ */
+export const FUNNEL_POPULATION: FunnelPopulation = 'opted-in-only'
 
 /** Where a report goes. `send` answers whether the platform accepted it for delivery. */
 export interface FunnelSendPort {
@@ -144,7 +155,7 @@ export class FunnelReporter {
     this.#send = options.send ?? null
     this.#clock = options.clock ?? null
     this.#networkClass = options.networkClass ?? 'unknown'
-    this.#population = options.population ?? FUNNEL_PENDING_POPULATION
+    this.#population = options.population ?? FUNNEL_POPULATION
     // Armed from the start only under the reading that permits it. Under the pending default
     // the reporter holds until `arm()` — see `FUNNEL_ARMING`.
     this.#armed = FUNNEL_ARMING === 'at-page-load'
@@ -413,6 +424,143 @@ export function funnelEndpointFromRelay(relayAddr: string): string | null {
     return `${new URL(`${scheme}://${host}:${port}`).origin}/funnel`
   } catch {
     return null
+  }
+}
+
+/**
+ * How long a derived collector is given to answer before the funnel gives up on it.
+ *
+ * **A named constant and a defaulted parameter rather than a number inside the function**, so a
+ * case can beat it by three orders of magnitude and prove the parameter is the one being used.
+ *
+ * Ten seconds is deliberately generous, and the reasoning is the reporter's own hold. Every
+ * report composed before {@link FunnelReporter.target} is kept with **the hour it happened**, so
+ * a probe that resolves late loses nothing *for a visit that outlives it* — while a probe that
+ * gives up early recreates the exact defect this function exists to close, on a slow connection
+ * instead of on a self-hosted seed. Erring long costs one outstanding request per visit; erring
+ * short costs the measurement.
+ *
+ * **What erring long DOES cost, stated because it is a real change and not a nil one.** Before
+ * the probe, the send port was installed synchronously, so a visit that consented, started and
+ * then closed immediately still delivered stages one and two and its terminal stall. Now those
+ * reports sit in the hold until the probe answers, and a tab that dies first takes them with it
+ * — `stalled()` finds no port and holds a report nothing will ever flush. The window is one
+ * round trip against a healthy collector and this constant against a hanging one, and the visits
+ * inside it are exactly the shortest ones. Any figure taken from this funnel is therefore over
+ * visits that survived a round trip past `start`, and `BENCH-08`'s denominator says so twice
+ * over: the population was already the opted-in subset, and it is now the opted-in subset that
+ * did not bounce inside one round trip.
+ */
+export const FUNNEL_PROBE_TIMEOUT_MS = 10_000
+
+/**
+ * How {@link probeFunnelTarget} asks. One method, in `consent.ts`'s shape and for its reason:
+ * *"a module that reads browser globals when it is loaded cannot be imported by a Node test at
+ * all."* Narrow enough that a case supplies one without a network.
+ */
+export interface FunnelProbePort {
+  probe(endpoint: string, signal: AbortSignal): Promise<Response>
+}
+
+/**
+ * Ask a derived collector whether it is one, and answer the endpoint back only if it is.
+ *
+ * ## The defect, which is recorded rather than hypothetical
+ *
+ * {@link funnelEndpointFromRelay} derives the collector from the relay a tab bootstrapped
+ * through. That is true of the deployed Worker, which serves the collector on the same host as
+ * the relay; it is **false of any self-hosted seed**, which serves libp2p WebSocket on that port
+ * and answers `400`. The send fails immediately, so nothing hangs and nothing is logged — the
+ * funnel *looks configured and collects nothing*, which is a failure that presents as a pass.
+ * `RUN-07` needs each stage's go/no-go to read the funnel before the next invitation goes out,
+ * and a funnel that silently drops makes that reading unable to tell "nobody came" from
+ * "nothing was collected".
+ *
+ * ## Validated on the BODY, never on the status, and that is the whole point
+ *
+ * A `200` from something that is not a collector — a static host, a captive portal, a router's
+ * admin page — is exactly the shape that would install a port to nowhere while looking
+ * configured. So the answer must parse as JSON **and** carry a `schemaDigest` string. That is
+ * also T-39-06's mitigation: an origin cannot become this page's collector merely by answering.
+ *
+ * ## The digest is NOT compared against {@link FUNNEL_SCHEMA_DIGEST}, deliberately
+ *
+ * Its job at this seam is to prove *this is a collector*. Comparing it against the client's own
+ * would make a page refuse a collector whose schema had moved — the funnel would go silent on
+ * exactly the deployment that had just been updated. `37-RUNBOOK.md` step 5 already owns that
+ * comparison, as an operator reading one collector between two moments, which is where a schema
+ * drift is diagnosable rather than merely fatal.
+ *
+ * ## What this adds to a visit, and what it does not weaken
+ *
+ * **One request per visit**, to the origin the visit already bootstrapped through, carrying no
+ * report and no identifier — T-39-08 and T-39-09, and plan `39-04` consumes that count. It
+ * introduces no origin of its own: the endpoint is the derived one, and this module still names
+ * no host anywhere, which `funnel-reporter.node.test.ts` reads off its source. And its failure
+ * mode is not new behaviour but the **old** behaviour — a reporter with no send port, exactly
+ * as before the derivation of 2026-09-03 existed. This change can only ever make the funnel
+ * quieter than it already is.
+ *
+ * Never throws, whatever the port does. A funnel that threw into a visitor's console would be
+ * an instrument making itself visible to the thing it measures.
+ *
+ * @param endpoint the derived collector, as {@link funnelEndpointFrom} assembled it
+ * @param port how to ask — {@link fetchProbePort} in a page, a stub in a spec
+ * @param timeoutMs how long to wait; defaults to {@link FUNNEL_PROBE_TIMEOUT_MS}
+ */
+export async function probeFunnelTarget(
+  endpoint: string,
+  port: FunnelProbePort,
+  timeoutMs: number = FUNNEL_PROBE_TIMEOUT_MS,
+): Promise<string | null> {
+  const controller = new AbortController()
+  let expire: ReturnType<typeof setTimeout> | undefined
+  // Raced rather than awaited-with-a-signal, because a port is supplied by the caller and
+  // nothing obliges it to honour an abort. The signal is still passed and still fired, so the
+  // real port withdraws its request rather than leaving one outstanding per refused visit.
+  const expired = new Promise<null>((resolve) => {
+    expire = setTimeout(() => {
+      controller.abort()
+      resolve(null)
+    }, timeoutMs)
+  })
+  const answered = (async (): Promise<string | null> => {
+    try {
+      const response = await port.probe(endpoint, controller.signal)
+      if (!response.ok) return null
+      const body: unknown = await response.json()
+      if (typeof body !== 'object' || body === null) return null
+      const digest = (body as Record<string, unknown>)['schemaDigest']
+      return typeof digest === 'string' ? endpoint : null
+    } catch {
+      // Every failure is the same answer: there is no collector here. A rejected request, a
+      // refused status, a body that is not JSON — none of them is a reason to tell a visitor
+      // anything, and all of them are a reason not to install a port.
+      return null
+    }
+  })()
+  try {
+    return await Promise.race([answered, expired])
+  } finally {
+    clearTimeout(expire)
+  }
+}
+
+/**
+ * The real probe port, over `fetch`.
+ *
+ * Read lazily out of the globals rather than captured at module scope, for this file's stated
+ * reason — a module that reaches for a browser global when it is loaded cannot be loaded by a
+ * Node spec at all. An environment with no `fetch` throws here and {@link probeFunnelTarget}
+ * turns that into `null`, which is the inert reporter and not an error a visitor sees.
+ */
+export function fetchProbePort(globals: BeaconGlobals = globalThis as BeaconGlobals): FunnelProbePort {
+  return {
+    async probe(endpoint: string, signal: AbortSignal): Promise<Response> {
+      const ask = globals.fetch
+      if (typeof ask !== 'function') throw new Error('no fetch in this environment to probe with')
+      return ask(endpoint, { method: 'GET', signal })
+    },
   }
 }
 

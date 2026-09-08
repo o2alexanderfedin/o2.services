@@ -99,9 +99,11 @@ import {
 } from './hibernatable-socket.ts'
 import { RelayServiceLog, TrafficSplitCounter } from '@o2/libp2p'
 import { announcedAddresses, createHostedFabric, hostedExpirySweep } from './hosted-libp2p.ts'
+import { hostedIdentityRefusal } from './hosted-identity.ts'
 import { readRelayServiceJournal, writeRelayServiceJournal } from './relay-service-journal.ts'
 import {
   ADMISSION_KEY_HEADER,
+  describeKillSwitch,
   authoriseWrite,
   narrowRegion,
   parseDirective,
@@ -122,6 +124,7 @@ import { parseFunnelReport } from '@o2/net'
 import type { FunnelPopulation, FunnelTotals } from '@o2/net'
 import type { HibernationCapableState } from './hibernatable-socket.ts'
 import type { HostedFabric } from './hosted-libp2p.ts'
+import type { NodeIdentity } from '@o2/libp2p'
 import type { CloudflareWebSocket } from './websocket-connection.ts'
 import type { DurableObjectAlarms, DurableObjectStorage } from './durable-object-storage.d.ts'
 
@@ -208,6 +211,26 @@ export interface HostedEnv {
    * toward the fabric continuing to work rather than toward anyone being able to stop it.
    */
   readonly O2_ADMISSION_KEY?: string
+  /**
+   * The secret this object's identity seed is sealed under, from
+   * `wrangler secret put O2_IDENTITY_SECRET` — AUTH-07 criterion 4.
+   *
+   * **A secret and never a `var`**, on `O2_ADMISSION_KEY`'s stated reason and more sharply:
+   * `wrangler.jsonc` is tracked, so a value there is a value in the history, and this
+   * particular value is the one that opens this object's identity.
+   *
+   * **What it does and does not buy, said here because this is where an operator meets it.** A
+   * Durable Object cannot keep a secret from its own operator; what this moves is the
+   * compromise domain, from *whoever can read this object's storage* to *whoever holds the
+   * Cloudflare account*. `hosted-identity.ts`'s header states the limit in the proposal's own
+   * words, and nothing here claims more.
+   *
+   * Optional in the type because a binding that was never set is exactly the case the design
+   * is about — and absence **refuses by name and mints nothing**, rather than quietly giving
+   * this object a new PeerId. See `HostedIdentitySecretMissingError`, and
+   * `.planning/OWNER-ACTIONS.md` row 8 for the act that sets it.
+   */
+  readonly O2_IDENTITY_SECRET?: string
   /**
    * The TURN shared secret, from `wrangler secret put O2_TURN_SECRET` — NET-12.
    *
@@ -411,7 +434,7 @@ export class BootstrapObject {
   constructor(state: HostedObjectStateWithSockets, env: HostedEnv) {
     this.#state = state
     this.#env = env
-    this.#node = new HostedNode(state.storage)
+    this.#node = new HostedNode(state.storage, env.O2_IDENTITY_SECRET)
   }
 
   /**
@@ -427,6 +450,7 @@ export class BootstrapObject {
       createHostedFabric({
         storage: this.#state.storage,
         alarms: this.#state.storage,
+        identitySecret: this.#env.O2_IDENTITY_SECRET,
         announce: announcedAddresses(this.#env.ANNOUNCE_MULTIADDRS),
         traffic: this.#traffic,
         relayLog,
@@ -671,6 +695,7 @@ export class BootstrapObject {
     const sweep = await hostedExpirySweep({
       storage: this.#state.storage,
       alarms: this.#state.storage,
+      identitySecret: this.#env.O2_IDENTITY_SECRET,
     })
     await sweep.run()
   }
@@ -878,7 +903,30 @@ export class BootstrapObject {
     if (path !== '/self') {
       return new Response('not found', { status: 404 })
     }
-    const identity = await this.#node.identity()
+    // **AUTH-07 criterion 4 — a deployment that cannot open its own identity says so.**
+    //
+    // Before this phase the seed was 32 raw bytes in storage and the only way this could fail
+    // was a corrupt store. It is now an envelope opened under a platform secret, so the two
+    // new ways to fail are *the secret was never set* and *the secret is not the one this
+    // envelope was sealed under* — both configuration, both invisible from outside unless this
+    // route reports them. The precedent is `turn-not-configured` two methods down: a
+    // deployment that is not configured should say so, not look broken.
+    //
+    // **The alternative it refuses is the one that must never ship**: minting a fresh seed and
+    // answering with a new PeerId. This object's name is published in bootstrap lists, so a
+    // 500 that names the fault is recoverable by setting a binding, and a new PeerId is not
+    // recoverable at all.
+    //
+    // Only the declared refusals are caught. Anything else rethrows, because an operator told
+    // to check a binding they already set will check it twice before looking anywhere else.
+    let identity: NodeIdentity
+    try {
+      identity = await this.#node.identity()
+    } catch (cause) {
+      const refusal = hostedIdentityRefusal(cause)
+      if (refusal === null) throw cause
+      return new Response(refusal, { status: 500 })
+    }
     // Restored before it is reported, so the answer is this NODE's history and not this
     // instance's. That difference is the whole of why the log exists.
     const relayLog = await this.#relayLogOnce()
@@ -916,6 +964,19 @@ export class BootstrapObject {
       // region label. A missing field would make "nobody has been told to stop" and "this
       // object does not know about halts" the same reading.
       admission: await readDirective(this.#node.store, this.#regionOnce()),
+      // **Whether the halt above can be written at all** — a FIELD, on `admission`'s own stated
+      // reasoning and for a reason that is stronger than any of theirs: this one was missing,
+      // and its absence was measured on a node that had already relayed 143 connections for
+      // real people. `region: null` was there to be read and meant nothing to a reader who did
+      // not know `refuseMisaddressed`; the operator key's absence was not on this route at all.
+      // A reader now learns in one field whether this object can be stopped, and if not, why.
+      //
+      // Composed by `describeKillSwitch`, which SIMULATES both gates rather than restating
+      // them — see its docblock. This line is a call and holds no rule of its own.
+      killSwitch: describeKillSwitch({
+        region: this.#regionOnce(),
+        operatorKey: this.#env.O2_ADMISSION_KEY,
+      }),
     }, { headers: SELF_CORS_HEADERS })
   }
 
@@ -1015,9 +1076,16 @@ const FUNNEL_POPULATION_PENDING_RULING: FunnelPopulation = 'opted-in-only'
  * What `GET /self` answers so a page on another origin can read it.
  *
  * **Origin `*`, and the body is why that costs nothing.** `/self` carries `peerId`, `nodeKey`,
- * `instance`, `version`, `traffic`, `relayService` and `admission` — every one of which a node
- * that announces itself already publishes, and none of which is a secret this header would be
- * protecting. The tab that needs it is on another origin *by construction*: the client is a
+ * `instance`, `version`, `traffic`, `relayService`, `admission` and `killSwitch` — every one of
+ * which a node that announces itself already publishes, and none of which is a secret this
+ * header would be protecting.
+ *
+ * `killSwitch` joined on 2026-09-07 and is the one that owes an argument, since it reports
+ * whether this object can be halted. It adds nothing a stranger cannot already have: `region`
+ * has been in `admission` since RUN-02, and whether an operator key is configured is the
+ * literal text of the `401` this object hands anybody who posts to `/admission` — measured
+ * against production the same day. What moves is not the information but who sees it: the
+ * person who can fix it now reads it on the route they already read. The tab that needs it is on another origin *by construction*: the client is a
  * static page and the object is a Worker, and they cannot share one.
  *
  * Only `GET` and `OPTIONS`, and no `Access-Control-Allow-Headers` for the admission key —

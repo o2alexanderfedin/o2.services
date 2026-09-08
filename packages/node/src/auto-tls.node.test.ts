@@ -2,7 +2,10 @@
 // `Reflect.metadata` polyfill installed before any of its decorators evaluate. Import
 // order is the contract: below the other imports this throws at module load.
 import 'reflect-metadata'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { lookup } from 'node:dns/promises'
 import { connect } from 'node:tls'
 import { MemoryDatastore } from 'datastore-core'
@@ -64,11 +67,21 @@ interface Rig {
 
 const started: { node?: FabricNode; acme?: LocalAcme }[] = []
 
+/**
+ * The passphrase the restart case seals its identity under — see `startRig`'s `identityDir`.
+ * Over the twenty-character NIST floor `@libp2p/keychain` and `identity-protection.ts` share.
+ */
+const RESTART_PASSPHRASE = 'an-auto-tls-restart-identity-passphrase'
+
+/** Identity directories the restart case creates, removed with the nodes that used them. */
+const restartDirs: string[] = []
+
 afterEach(async () => {
   for (const entry of started.splice(0)) {
     await entry.node?.stop().catch(() => {})
     await entry.acme?.close().catch(() => {})
   }
+  for (const dir of restartDirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
 
 /** A port nobody holds, released before the node binds it. Racy in principle, never in practice. */
@@ -93,6 +106,20 @@ async function startRig(
     acme?: LocalAcme
     datastore?: Datastore
     port?: number
+    /**
+     * A directory to keep this node's identity in, so a second start is the **same node**.
+     *
+     * Added 2026-09-06 for AUTH-07 criterion 3. The libp2p keychain's encryption key is now
+     * derived from the identity seed, so the certificate private key AutoTLS stores in the
+     * keychain is readable on a later start **only if the identity survived**. Without this a
+     * "restart" mints a fresh seed, which is two different nodes sharing one datastore rather
+     * than one node starting twice — and the keychain sweep correctly destroys the other
+     * identity's material. Pairing the directory with a passphrase is required rather than
+     * decorative: under the default `writes-no-new-secret` a node given a directory still
+     * mints a per-process identity that never touches a disk, so the seed would not persist
+     * and the second start would get a fresh one anyway.
+     */
+    identityDir?: string
     /** Declare the address in its `/tls/ws` form — see the published-address case. */
     secureAnnounce?: boolean
   } = {},
@@ -108,6 +135,12 @@ async function startRig(
     relayAdmission: 'admits-any-peer',
     startReporting: 'reports-its-own-start',
     listen: [`/ip4/127.0.0.1/tcp/${port}/ws`],
+    ...(options.identityDir === undefined
+      ? {}
+      : {
+          blockstoreDir: options.identityDir,
+          identityProtection: { kind: 'passphrase', passphrase: RESTART_PASSPHRASE },
+        }),
     appendAnnounce: [
       `/ip4/${DECLARED_PUBLIC_IP}/tcp/${port}${options.secureAnnounce === true ? '/tls/ws' : '/ws'}`,
     ],
@@ -363,7 +396,16 @@ describe('NET-03 — a relay acquires its own TLS certificate, with nobody manag
       // but not re-acquiring one. A relay that ordered afresh on every restart would be
       // rate-limited off a real CA within a day.
       const datastore = new MemoryDatastore()
-      const first = await startRig({ datastore })
+      // **One directory across both starts, so this is one node starting twice.** Added
+      // 2026-09-06 for AUTH-07 criterion 3: the keychain DEK is derived from the identity
+      // seed, so the certificate private key is only readable on the second start if the
+      // seed survived. Before that change the two starts had different identities and the
+      // reuse this case asserts held only because the DEK was the empty string on both —
+      // i.e. the claim was true for a reason nobody intended. It is now the stronger claim:
+      // the same node, with the same peer id, reuses its own certificate.
+      const identityDir = await mkdtemp(join(tmpdir(), 'o2-auto-tls-restart-'))
+      restartDirs.push(identityDir)
+      const first = await startRig({ datastore, identityDir })
       await awaitCertificate(first.node, ACQUIRE_TIMEOUT_MS)
       const original = first.node.tlsCertificate?.cert
       expect(first.acme.issued().length).toBe(1)
@@ -372,6 +414,7 @@ describe('NET-03 — a relay acquires its own TLS certificate, with nobody manag
       const second = await startRig({
         acme: first.acme,
         datastore,
+        identityDir,
         // The same port, because the certificate is bound to the peer and the *name*, and
         // reusing the port keeps the second node's address set identical to the first's.
         port: first.port,

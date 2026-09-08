@@ -1478,7 +1478,89 @@ interface OpenFinding {
  * called them yet — and the barrel line was narrowed instead. They entered the barrel, the
  * register and this number together, in the commit that gave them a caller.
  */
-const UNREACHABLE_CEILING = 118
+/**
+ * **118 -> 126 on 2026-09-04 (Phase 42, AUTH-06, plan 42-01), matched to exactly eight
+ * register rows.**
+ *
+ * `packages/core/src/sealed-secret.ts` put eight callable symbols on `@o2/core`'s barrel in
+ * the commit before this one, and none of them has a caller yet: their consumers are 42-02
+ * (the node tier's seed) and 42-03 (the browser tier's), which are the next two waves of the
+ * same phase. The raise is by exactly eight and the register grew by exactly eight.
+ *
+ * **Why they went on the barrel with no caller, which is the thing this number exists to make
+ * someone justify.** `packages/core/package.json` publishes exactly one export,
+ * `".": "./src/index.ts"`. A module that is not on that barrel is not "unwired for now" — it is
+ * unreachable from `@o2/node` and `@o2/browser` permanently. So the narrowing that the two
+ * `libp2p/` symbols took in the 116 -> 118 raise above, where the barrel line was cut until the
+ * caller arrived, is not available here: cutting it would leave 42-02 and 42-03 with no route
+ * to the module they are written against. The alternative actually weighed and refused was to
+ * hold the whole plan until 42-02 lands, which would put an untested primitive and its first
+ * consumer in one commit.
+ *
+ * **This number comes back DOWN by eight when they wire**, and the eight rows come off with it.
+ * A raise that is not reversed by the wave that justified it is the ceiling absorbing an
+ * arrival nobody classified, which is what the note above this one is about.
+ *
+ * ## LOWERED 126 -> 118 on 2026-09-04 (AUTH-06, plan 42-02) — the reversal, same day
+ *
+ * The sentence directly above is now discharged rather than pending, which is why it is kept.
+ * `packages/node/src/identity-store.ts`'s `loadOrCreateSealedSeed` calls `sealSecret` and
+ * `openSecret`, and `fabric-node.ts` calls it at both identity resolution sites, so the module
+ * is reached from an entry point and the other six symbols are reached through it — `sealSecret`
+ * calls `deriveSealKey` and `sealWithKey`, `openSecret` calls `parseSealedSecret` and constructs
+ * all three refusals. **Eight registered, eight wired, eight rows deleted, and the ceiling back
+ * where it stood before the raise.**
+ *
+ * **Measured, not derived.** Run against the tree before the rows were deleted, the guard named
+ * exactly those eight as stale and read the reported set at 118 against a register of 126.
+ * 126 − 8 also being 118 was refused as the proof.
+ *
+ * **42-02 added barrel exports of its own and this number did not move for them**, which is the
+ * check on this lowering rather than a curiosity. `@o2/libp2p` gained `PASSPHRASE_MIN_LENGTH` (a
+ * constant, never callable), `IdentityProtection` (a type, which by construction has no call
+ * path), `assertUsablePassphrase` — called by `identity-store.ts` — and `WeakPassphraseError`,
+ * constructed by `assertUsablePassphrase`, so both callable arrivals are reachable. `@o2/node`'s
+ * barrel LOST a line in the same change: `loadOrCreateSeed` was deleted, and it had a call site,
+ * so it was never counted here either.
+ *
+ * ## RAISED 119 -> 121 on 2026-09-06 (AUTH-07, Phase 43) — two symbols, and NOT a finding
+ *
+ * `core/generateSealableSubtleKeyPair` and `core/importSealedSubtleKeyPair`. Both are called,
+ * and by exactly one caller: `browser/visitorKeyPair`, which is itself on the `window.o2`
+ * register and has been since 2026-08-17. So they are hidden by the same assignment the walk
+ * cannot follow, in the same position as `core/generateSubtleKeyPair` beside them, and they
+ * are disposed there rather than exempted here.
+ *
+ * They exist because a key that must be **sealed** cannot be generated non-extractable —
+ * sealing needs bytes and such a key has none to give — which is the whole of `AUTH-07`'s
+ * finding about this artefact.
+ *
+ * ## RAISED 118 -> 119 on 2026-09-04 (AUTH-06, plan 42-03) — one symbol, and NOT a finding
+ *
+ * `core/sealedUnderSameKey` is a **`global-object-hop` disposition, not an open finding**, and
+ * the distinction is the whole of why this raise is not the ceiling absorbing unwired work: it
+ * has a real production caller. `browser-node.ts`'s `resolveProtectedSeed` calls it on every
+ * start with a passphrase, to decide whether the key it already derived is the one that opens
+ * the envelope it just read — the alternative being a second 436 ms Argon2id derivation per tab
+ * start. That caller is reached through `BrowserNode.start`, and `browser/BrowserNode` is itself
+ * on {@link GLOBAL_OBJECT_HOP} for exactly the reason this list exists.
+ *
+ * **Not read off the source.** The derived case named it verbatim before this list was touched:
+ * *"these become reachable the moment the window.o2 assignment is traced, so they have a real
+ * production caller and are being counted as unwired — add them to GLOBAL_OBJECT_HOP … expected
+ * [ 'core/sealedUnderSameKey' ] to deeply equal []"*.
+ *
+ * **`core/openWithKey` arrived in the same change and did NOT move this number**, which is the
+ * check on the raise. It has a second caller inside its own package — `openSecret` delegates to
+ * it, so there is one decrypt path rather than two — and that caller is reached from an entry
+ * point directly. A symbol with an in-package caller is not hidden by the hop.
+ *
+ * **This raise does not come back down**, and that is a property of the class rather than an
+ * exemption: a `global-object-hop` entry is hidden by an edge this graph cannot trace, not by
+ * work nobody has done. It comes down if and when the walk learns the `window.o2` assignment,
+ * at which point all of them do.
+ */
+const UNREACHABLE_CEILING = 121
 
 const OPEN_FINDINGS: readonly OpenFinding[] = [
   {
@@ -1915,7 +1997,7 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
     reason:
       'The load-or-mint half of the identity, one hop behind `hostedIdentity`. Separate from ' +
       'it because the SEED is what has to survive an eviction and the derivation is pure — ' +
-      'the same split `packages/node/src/identity-store.ts` makes between `loadOrCreateSeed` ' +
+      'the same split `packages/node/src/identity-store.ts` makes between `loadOrCreateSealedSeed` ' +
       'and `identityFromSeed`. Same closing condition.',
   },
   {
@@ -2107,6 +2189,29 @@ const OPEN_FINDINGS: readonly OpenFinding[] = [
       "`parseAotArgs`'s positional requirement (it refuses `no-input` before any flag is read), " +
       'and nobody has decided to do that.',
   },
+  // ---------------------------------------------------------------------------------------
+  // 2026-09-04 — EIGHT ROWS LEFT THIS REGISTER THE SAME DAY THEY ARRIVED, AUTH-06 / Phase 42.
+  //
+  // `core/sealSecret`, `core/openSecret`, `core/deriveSealKey`, `core/sealWithKey`,
+  // `core/parseSealedSecret`, `core/SecretUnlockError`, `core/SealedSecretVersionError` and
+  // `core/SealedSecretShapeError` were registered by plan 42-01, which landed the primitive one
+  // wave ahead of its consumers. Plan 42-02 is that consumer: `packages/node/src/identity-store.ts`
+  // calls `sealSecret` and `openSecret` from `loadOrCreateSealedSeed`, which `fabric-node.ts`
+  // calls at both identity resolution sites, so the whole module is reached from an entry point.
+  //
+  // **Wiring, not retirement, and the difference is the one the note at the bottom of this
+  // register insists on.** Nothing was deleted and nothing stopped being advertised; two
+  // symbols acquired production call sites and the other six were already called by them.
+  //
+  // **Measured, not derived.** The guard was run against this tree and named exactly these
+  // eight as stale — `holds no stale open finding` printed all eight and `the reported set and
+  // the two registers are the same set` read 118 against 126 — so the ceiling comes down by
+  // eight to 118, which is the number it stood at before 42-01 raised it. 126 − 8 also being
+  // 118 was refused as the proof, per this register's standing habit.
+  //
+  // 42-03 (the browser tier's `idb-identity-store.ts`) therefore has nothing to remove here:
+  // the six transitively-reached symbols came with the node tier's two.
+  // ---------------------------------------------------------------------------------------
   // ---------------------------------------------------------------------------------------
   // THIRTEEN ROWS LEFT THIS REGISTER ON 2026-08-18, and the three routes are not equivalent.
   // Each is named here rather than deleted silently, because a register whose history is
@@ -2611,7 +2716,48 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
 // Closing condition, checkable: this list stops growing for HTML entry points when the graph
 // learns to read `<script type="module" src>` — the same closing condition `demo/nav.ts` and
 // the six surfaces are waiting on, and one nobody has scheduled.
-const ORPHAN_MODULE_CEILING = 32
+//
+// 2026-09-04: 32 → 33, raised by exactly one and named. `packages/node/src/e2e-signin.ts` is
+// the sign-in step thirty-seven e2e fixtures take since `42-04` moved the demo page's front
+// door, and its mechanism is the one this list accepted first: it is
+// `packages/node/src/e2e-browser-launch.ts` again — a test-only module imported by RELATIVE
+// PATH from spec files, which the traced graph does not walk because specs are not production.
+//
+// **Barrel-exporting it was considered and rejected for `capability-fixture.ts`'s stated
+// reason**, which is the same one: putting it in `packages/node/src/index.ts` would take it
+// off this list and put three symbols on the OTHER register — `signInDemoTab`,
+// `signInHarnessTab` and `registerHarnessTab`, none of which any production caller will ever
+// have, because a production page has a visitor pressing the buttons. That trades one honest
+// orphan for three rows that read like unwired features. It would also hand a shipped barrel
+// a module whose whole content is a test passphrase and two Playwright drivers.
+//
+// Closing condition, checkable and with no forecast attached: this entry leaves when
+// `e2e-browser-launch.ts` does — that is, when the graph learns to walk spec files, which
+// nobody has scheduled either.
+//
+// 2026-09-06: 33 -> 34, raised by exactly one and named. `packages/node/src/bin/check-copy.ts`
+// is `38-03`'s send-time checker for recruitment copy that never reaches the tree: a command
+// run as `node --experimental-strip-types`, imported by nothing. Its mechanism is one this
+// list has already accepted three times -- `commit-scope.ts`, `strip-comments.ts` and
+// `mutation-guard.mutate.ts` are all runnable modules deliberately outside {@link ENTRY_POINTS}.
+//
+// **Adding it to `ENTRY_POINTS` was refused by the plan that created it, with its reason**, and
+// the refusal is quoted rather than paraphrased -- `38-03-PLAN.md:292-296`: *"That list is the
+// reachability guard's set of roots, and adding a root changes verdicts across the whole barrel
+// ... If the reachability guard reddens anyway, that is a finding to record and report, not a
+// reason to widen the list."* A root added to make one number smaller would shrink what
+// `unreachableExports` can see, which is this instrument's whole jurisdiction.
+//
+// **The membership swapped while the count was being read, and that is why the entry names the
+// command and not the module.** `banned-vocabulary.ts` landed first and was the thirty-fourth
+// for the window before `check-copy.ts` imported it; the importer is production, so the module
+// left the list and the command took its place. Measured at 34 with `banned-vocabulary.ts`
+// absent from the enumeration -- an earlier reading of 35 was taken with two agents mid-edit and
+// is not the tree.
+//
+// Closing condition, checkable and with no forecast attached: this entry leaves if
+// {@link ENTRY_POINTS} ever admits `packages/node/src/bin/check-copy.ts`.
+const ORPHAN_MODULE_CEILING = 34
 
 /**
  * A production module that reaches **no barrel at all**, named by path.

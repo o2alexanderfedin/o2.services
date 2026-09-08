@@ -70,7 +70,26 @@ import type { FunnelStage } from '@o2/net'
 // `computing-indicator.ts`, and publishing it would add an exported-but-statically-unreachable
 // symbol in front of `reachability-guard.node.test.ts` for the benefit of no consumer.
 import { FUNNEL_ARMING } from '../../browser/src/funnel-reporter.ts'
-import { fixtureViteCacheDir } from './e2e-browser-launch.ts'
+import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
+
+/**
+ * The identity secret the local `wrangler dev` below boots with — AUTH-07 criterion 4.
+ *
+ * Since that criterion the hosted object refuses to open its identity without
+ * `O2_IDENTITY_SECRET` and answers `GET /self` with `500`, so every spec that polls `/self`
+ * for readiness has to supply one. There is deliberately no default in production source — a
+ * default is the empty-DEK defect one criterion over — and no value in `wrangler.jsonc`,
+ * which is tracked.
+ *
+ * **Per-spec test data rather than a shared constant**, in the style of this tree's `TEST_KEY`
+ * and `TURN_SECRET`: this spec passes its own `--persist-to`, so its Durable Object store is
+ * its own and the value only has to be self-consistent across its own restarts. The one thing
+ * that IS load bearing is the length — under twenty characters `assertUsablePassphrase`
+ * refuses and every boot below fails with `WeakPassphraseError`.
+ */
+const IDENTITY_SECRET = 'local-dev-identity-secret-42'
+
 
 const CLOUDFLARE_DIR = fileURLToPath(new URL('../../cloudflare', import.meta.url))
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -140,7 +159,7 @@ async function newArm(): Promise<Arm> {
   const persistDir = await mkdtemp(join(tmpdir(), 'o2-funnel-arm-'))
   const worker: ChildProcess = spawn(
     'npx',
-    ['wrangler', 'dev', '--port', String(port), '--local-protocol', 'http', '--persist-to', persistDir],
+    ['wrangler', 'dev', '--port', String(port), '--local-protocol', 'http', '--var', `O2_IDENTITY_SECRET:${IDENTITY_SECRET}`, '--persist-to', persistDir],
     {
       cwd: CLOUDFLARE_DIR,
       env: { ...process.env, CLOUDFLARE_API_TOKEN: '', WRANGLER_SEND_METRICS: 'false' },
@@ -257,7 +276,7 @@ beforeAll(async () => {
   const url = server.resolvedUrls?.local[0]
   if (url === undefined) throw new Error('vite dev server produced no URL')
   baseUrl = url.endsWith('/') ? url : `${url}/`
-  browser = await chromium.launch()
+  browser = await launchFixtureBrowser(chromium)
 }, 180_000)
 
 afterAll(async () => {
@@ -353,8 +372,10 @@ describe('criterion 2 — one induced failure, one drop counter', () => {
       // about attribution.
       const dead = `/ip4/${HOST}/tcp/${String(DEAD_PORT)}/ws/p2p/${arm.peerId}`
       await visit(arm, dead, async (page) => {
+        // AUTH-06, `42-06`. Signing in enters no funnel stage — `armFunnel` is called from
+        // `api.start` — so what this arm attributes is unchanged.
+        await signInHarnessTab(page)
         await page.evaluate(async ([relay]) => {
-          window.o2.grantConsent()
           try {
             await window.o2.start({ relayAddrs: [relay as string], blockstoreName: 'o2-arm-3' })
           } catch {
@@ -384,8 +405,8 @@ describe('criterion 2 — one induced failure, one drop counter', () => {
 
       const relay = relayAddr(arm)
       await visit(arm, relay, async (page) => {
+        await signInHarnessTab(page)
         await page.evaluate(async ([one]) => {
-          window.o2.grantConsent()
           return window.o2.start({ relayAddrs: [one as string], blockstoreName: 'o2-arm-4' })
         }, [relay])
         // One tab and one relay: no browser-to-browser dial is attempted, so no ICE gathering
@@ -434,11 +455,10 @@ describe('criterion 2 — a third stall stage, which takes two tabs to reach', (
           pages.map(async (page) => {
             await page.goto(pageUrl(arm, relay))
             await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+            await signInHarnessTab(page)
             return page.evaluate(
-              async ([one]) => {
-                window.o2.grantConsent()
-                return window.o2.start({ relayAddrs: [one as string], blockstoreName: 'o2-arm-5' })
-              },
+              async ([one]) =>
+                window.o2.start({ relayAddrs: [one as string], blockstoreName: 'o2-arm-5' }),
               [relay],
             )
           }),
@@ -500,8 +520,8 @@ describe('criterion 2 — a link with no funnel parameter, which is the link tha
 
       const relay = relayAddr(arm)
       await visitUrl(bareLinkUrl(relay), async (page) => {
+        await signInHarnessTab(page)
         await page.evaluate(async ([one]) => {
-          window.o2.grantConsent()
           return window.o2.start({ relayAddrs: [one as string], blockstoreName: 'o2-arm-6' })
         }, [relay])
         await sleep(3_000)

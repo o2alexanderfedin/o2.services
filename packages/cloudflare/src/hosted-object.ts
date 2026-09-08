@@ -132,10 +132,19 @@ export function stubFor<Stub>(
  */
 export class HostedNode {
   readonly #store: DoDatastore
-  #identity: NodeIdentity | undefined
+  readonly #identitySecret: string | undefined
+  #identity: Promise<NodeIdentity> | undefined
 
-  constructor(storage: DurableObjectStorage) {
+  /**
+   * @param identitySecret the platform secret this object's seed is sealed under — AUTH-07
+   * criterion 4. Threaded in rather than read from a global because a Durable Object receives
+   * its bindings as a constructor argument and nothing here may reach for an ambient one.
+   * `undefined` is a configuration this object **refuses**, by name, without minting anything;
+   * see `hosted-identity.ts`'s `HostedIdentitySecretMissingError`.
+   */
+  constructor(storage: DurableObjectStorage, identitySecret: string | undefined) {
     this.#store = new DoDatastore(storage)
+    this.#identitySecret = identitySecret
   }
 
   /** The store this node persists through — the production construction of `DoDatastore`. */
@@ -144,16 +153,25 @@ export class HostedNode {
   }
 
   /**
-   * This node's identity, minted on first call and read from storage on every later one.
+   * This node's identity, opened on first call and read from storage on every later one.
    *
    * Memoised so that a second call within one instantiation cannot re-read and cannot mint —
    * but the memo is NOT what makes the PeerId stable. Stability comes from the store, and the
    * spec proves it by constructing a **second** `HostedNode` over the same storage, which
    * shares no memo with the first. A test that only called this twice on one instance would
    * be asserting the memo.
+   *
+   * **The PROMISE is memoised, not the resolved value, and since AUTH-07 that is load bearing
+   * rather than tidy** — `#fabricOnce` in `worker.ts` already says why in its own words. The
+   * previous shape assigned after awaiting, so two concurrent callers both saw `undefined` and
+   * both ran the load. That was harmless while the load was storage operations only, because a
+   * Durable Object's input gate serialises those. Opening the envelope is an Argon2id
+   * derivation — ~400 ms of work that is *not* a storage operation — so awaiting it opens the
+   * gate, and two concurrent `GET /self` calls on a fresh object could each have derived, each
+   * have minted, and reported two different PeerIds. One promise, one derivation.
    */
   async identity(): Promise<NodeIdentity> {
-    this.#identity ??= await hostedIdentity(this.#store)
-    return this.#identity
+    this.#identity ??= hostedIdentity(this.#store, this.#identitySecret)
+    return await this.#identity
   }
 }

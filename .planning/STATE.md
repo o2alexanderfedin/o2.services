@@ -326,10 +326,115 @@ stopped_at: >-
   STILL OWNER-OWNED, ALL SEVEN IN `.planning/OWNER-ACTIONS.md`: the spending alert FIRST,
   three Durable Objects, a Cloudflare TURN key, the telemetry's legal basis, two devices with
   Telegram, the first invite, and the arm64 dispatch.
-last_updated: "2026-09-03T04:25:00.000Z"
-last_activity: 2026-08-28 — the hosted tier deployed and released four times, the browser client published and fixed, criterion 2 met in full, Phase 29 closed uncounted on criterion 1 alone
+  PHASE 38 WAVES 1 AND 2 ARE EXECUTED AND MERGED, 2026-09-06 — three plans, and what they
+  produced is an INSTRUMENT rather than an answer. The page now notices it is running inside
+  another application's browser by what that application INJECTS, not by what the user-agent
+  string claims: the case titled `RUN-06` fires on a host-injected bridge object with a stock
+  desktop user-agent, which is the one arrangement a string check cannot pass, and the
+  string-only arm is deliberately titled WITHOUT `RUN-06` so the traceability guard can never
+  read a spoofed header as this row's evidence. The page also says, in words, whether the
+  script kept running, was slowed down or was stopped while it was hidden — the observable
+  `38-DEVICE-OBSERVATIONS.md` had itself named as missing. And the recruitment message is now
+  a TRACKED FILE, so the vocabulary and licensing guards already scan it instead of somebody
+  remembering to; copy that never enters the tree is checked by a command sharing the guard's
+  one array of patterns. `RUN-06` moved `Not started` -> `Partial` and entered the re-read
+  register; `DEMO-05` and `DEMO-06` were already `Done` and `DEMO-06` gained a dated amendment
+  because its corpus grew from five prose files to six. **NEITHER CRITERION 1 NOR CRITERION 2
+  IS CLAIMED, and the phase's checkbox is off for one reason**: both say *the real link from a
+  real Telegram message on both iOS and Android*, and that is `38-04`, an owner act.
+  TWO MEASUREMENTS FROM THAT WORK FORECLOSE THINGS AND ARE WORTH MORE THAN THE FEATURE.
+  `navigator.standalone` is `undefined` in stock desktop Chromium and Firefox as well as in a
+  WKWebView — so an ungated signal on it would have read `embedded: true` for every desktop
+  visitor; it is gated on an iOS-shaped user-agent, and the residue is recorded: a desktop
+  browser spoofing an iPhone reads engine-corroborated on what is really a string. And
+  **headless Chromium cannot background a page for itself** — no `visibilitychange` fired and
+  the interval kept its full rate — so the engine-suspension reading does not exist in this
+  harness on any budget. That is why criterion 2 needs two phones rather than a longer timeout.
+  A THIRD FINDING, ABOUT MEASUREMENT ITSELF: a clean `tsc --noEmit` taken while a concurrent
+  agent's file fails to PARSE is not a clean `tsc` — the checker never reaches your file. A
+  type error survived a commit that way and surfaced two tasks later.
+  AND THE NODE LANE'S VERDICT ON 2026-09-06 IS NOT AVAILABLE FROM THIS HOST. Another project
+  on this machine ran its own suite at load average 107-167 against 8 cores. Both arms lose
+  load-sensitive multi-process specs there and the loss SCATTERS: on the feature branch
+  `admission-agents` twice (a different clause each time) and `node-identity` once; on
+  `develop`, with no phase-38 commit in it, `node-identity` once — the same file. The
+  comparative reading is what settles it: the control arm fails too, so the cause is outside
+  these commits. No duration from any of those runs may be quoted, and a quiet-host reading is
+  still owed.
+  PHASE 39 WAVE 1 IS EXECUTED AND MERGED, 2026-09-07 — three plans, and the phase's own gate now
+  says NO-GO in writing. `39-GO-NO-GO.md` is dated and guarded: all seven conditions `RUN-01`
+  names read GO, each citing a file a reader can open plus both ledger lines it was transcribed
+  from, while SEVEN PRECONDITIONS sit in a separate table at NO-GO — explicitly not part of
+  `RUN-01`'s gate, so the document neither widened the requirement nor narrowed it. THE TREE IS
+  GREEN WITH THOSE NO-GO ROWS IN PLACE, which is the property that lets a gate exist before the
+  run instead of being written after it. `RUN-01` moved `Not started` -> `Partial` and entered
+  the re-read register: the record half landed, and *no invite is sent until they all hold* is a
+  clause that can be violated but not completed in advance.
+  THE FUNNEL'S SILENT DROP IS FIXED AT ITS CAUSE. `probeFunnelTarget` asks the derived origin
+  whether it is a collector before sending anything there and validates the BODY rather than the
+  status — a 200 from a static host is exactly the shape that installs a port to nowhere. The
+  defect arm was watched failing FIRST, before the wiring moved. Criterion 2 is STILL OPEN: it
+  asks for the funnel reporting live with a timestamp preceding the invite, and no mechanism
+  satisfies a clause about when something was seen. One cost recorded rather than smoothed over —
+  the probe is not awaited, so a visit that consents, starts and closes inside one round trip now
+  loses its first two stages and its terminal stall.
+  THE RELAY-COUNTER ANOMALY IS EXPLAINED AND IS NOT A DEFECT. 6 714 inbound hop streams against
+  zero relayed seconds and zero relayed bytes: measured on a local workerd with a control arm in
+  the same run, `outboundStopStreams` reaching 1 proves a relayed connection was actually
+  DELIVERED, `relayService.bytes` moved 21 849 over 8 192 bytes of payload, and `traffic.relayed`
+  stayed 0/0 at all four sample points. **A relay has no relayed traffic of its own** — every
+  connection it holds is a direct inbound leg. Phase 32's standing sentence held under
+  measurement. WHAT THIS FORECLOSES IS THE IMPORTANT HALF: neither counter can supply criterion
+  4's distinct-machine count, because both count STREAMS and neither can tell a RESERVE from a
+  CONNECT. `BENCH-06` stays descoped and unmeasured.
+  A MONEY HAZARD WAS FOUND AND CLOSED BEFORE THE FIRST RUN: `wrangler.jsonc` announces the
+  DEPLOYED host, so a local relay left at that value hands its client a circuit address pointing
+  at production. Three reservations, all local, zero requests to the deployed object.
+  AND ONE CORRECTION TO MY OWN WORK, CAUGHT BY A GUARD RATHER THAN BY ME. `RUN-01`'s re-read
+  entry was written with an EMPTY witness list and a paragraph calling it *a measured zero*. The
+  scan had not been run; it was inferred from the shape of the requirement, which is the one
+  thing that field exists to prevent. Four titles in `go-no-go-checklist.node.test.ts` name
+  `RUN-01`. Recorded at the entry rather than fixed silently.
+  PHASE 39 WAVES 2 AND 3 EXECUTED AND MERGED, 2026-09-07. Every plan an agent can run in this
+  phase is done; what remains is four owner acts. A stage now states its expected Durable Object
+  cost BEFORE it is sent and is REFUSED if it cannot — throwing rather than defaulting, which is
+  the shape the 2026-09-03 incident argues for, since a spending alert is a control on money and
+  that was a control on requests. The participant count says what it is in words -- *"N distinct
+  peers -- machine count not measured; peers are tabs, and two tabs on one device are two peers"*
+  -- with a guard that reddens on any published machine claim carrying no named source, whose
+  positive control is shown catching a fixture FIRST because the plant that blinded it left the
+  absence case perfectly green. `RUN-07` moved `Not started` to `Partial`.
+  THE MOST URGENT THING THIS PHASE FOUND IS NOT IN ANY OF ITS CRITERIA. `refuseMisaddressed`
+  refuses EVERY write to an object whose own region is `null` -- any key, correctly addressed or
+  not -- and the deployed `/self` reported `region: null` on 2026-09-04. Measured rather than
+  inferred: a local `workerd` in that configuration refused a correctly-keyed halt twice, body
+  containing `serves no region`, object unmoved. IF THAT STILL HOLDS THERE IS NO KILL SWITCH,
+  while every document says there is one. One request settles it and it is `OWNER-ACTIONS.md`
+  row 9, now the most urgent row on that list.
+  AND A COST FIGURE THIS MILESTONE LEANS ON IS THE WRONG SHAPE, NOT THE WRONG VALUE.
+  `REQUESTS_PER_RESERVATION = 165` is a quotient of one day's DO requests over one run's
+  reservations. Read out of the source: `51 + 164 x minutes` -- 51 to establish, then 164 A
+  MINUTE while the socket is open, dominated by `ConnectionMonitor` opening a fresh
+  `/ipfs/ping/1.0.0` stream every 10 s in BOTH directions, and doubled again because
+  `websocket-to-conn.ts` sends one WebSocket frame per constituent buffer. So 165 is about one
+  peer-minute, a peer that connects and never reserves costs the same, and the driver is
+  CONNECTIONS HELD rather than invitations sent. The obvious lever is not one: reservation TTL is
+  worth 0.07%, `connectionMonitor.pingInterval` -- set nowhere in this repository -- is worth 95%.
+  The constant was documented rather than changed.
+  THE RE-READ REGISTER TOOK THREE RAISES IN ONE SESSION AND THE REPETITION IS THE FINDING.
+  `RUN-06`, `RUN-01` and `RUN-07` all moved to `Partial` and all three are requirements whose
+  remaining half is an ACT only the owner can perform. A phase that builds records and instruments
+  for irreversible acts produces `Partial` rows by construction. Written at the ceiling: if a
+  fourth raise of the same shape arrives, the question is whether `experiment-not-run` needs its
+  own count, not whether the ceiling moves again.
+last_updated: "2026-09-07T10:20:00.000Z"
+last_activity: >-
+  2026-09-07 — Phases 38 and 39 executed as far as agents can take them. Ten plans across two
+  phases, and both phases end at the same place: the instruments exist and the acts are the
+  owner's. RUN-06, RUN-01 and RUN-07 all moved to Partial. The urgent finding is not a criterion
+  -- an object whose region is null refuses every halt, and the deployed one reported null.
 progress:
-  total_phases: 14
+  total_phases: 15
   completed_phases: 0
   total_plans: 1
   completed_plans: 1

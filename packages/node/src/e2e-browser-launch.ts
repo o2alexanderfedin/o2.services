@@ -106,7 +106,7 @@ import { join } from 'node:path'
  * fault is what this file just got caught doing in the other direction.
  */
 
-import type { Browser, BrowserType, LaunchOptions } from 'playwright'
+import type { Browser, BrowserType, LaunchOptions, Page } from 'playwright'
 
 /** Chromium's switch for offering the real host ICE candidate instead of a `.local` name. */
 export const SHOW_LOCAL_ICE_CANDIDATES = '--disable-features=WebRtcHideLocalIpsWithMdns'
@@ -124,20 +124,27 @@ export const FIREFOX_SHOW_LOCAL_ICE_CANDIDATES: Readonly<Record<string, boolean>
  */
 export async function launchFixtureBrowser(
   type: BrowserType,
-  options: LaunchOptions = {},
+  options: LaunchOptions & { readonly online?: boolean } = {},
 ): Promise<Browser> {
+  // Hermetic unless the caller says otherwise — see {@link HERMETIC_PROXY} for the seventeen
+  // cases that bought this. `online: true` is a claim a fixture makes about needing the
+  // internet, and it is one line in that fixture rather than a silent property of all of them.
+  const { online, ...rest } = options
+  const withProxy: LaunchOptions =
+    online === true ? rest : { ...rest, proxy: rest.proxy ?? HERMETIC_PROXY }
+  const opts = withProxy
   if (type.name() === 'chromium') {
-    return type.launch({ ...options, args: [SHOW_LOCAL_ICE_CANDIDATES, ...(options.args ?? [])] })
+    return type.launch({ ...opts, args: [SHOW_LOCAL_ICE_CANDIDATES, ...(opts.args ?? [])] })
   }
   if (type.name() === 'firefox') {
     // Merged under the caller's prefs rather than over them, so a fixture that deliberately
     // sets this pref for its own reasons still wins — the same courtesy `args` gets above.
     return type.launch({
-      ...options,
-      firefoxUserPrefs: { ...FIREFOX_SHOW_LOCAL_ICE_CANDIDATES, ...(options.firefoxUserPrefs ?? {}) },
+      ...opts,
+      firefoxUserPrefs: { ...FIREFOX_SHOW_LOCAL_ICE_CANDIDATES, ...(opts.firefoxUserPrefs ?? {}) },
     })
   }
-  return type.launch(options)
+  return type.launch(opts)
 }
 
 /**
@@ -149,6 +156,43 @@ export async function launchFixtureBrowser(
 export function chromiumFixtureArgs(extra: readonly string[] = []): string[] {
   return [SHOW_LOCAL_ICE_CANDIDATES, ...extra]
 }
+
+/**
+ * A fixture browser reaches the fixture's own server and nothing else.
+ *
+ * **This is the default since 2026-09-08, and it was paid for by a whole e2e lane.** The Nostr
+ * bootstrap fallback landed the night before, and on the next full run **seventeen cases in six
+ * files went red on a quiet host** — `'3 node(s) computing'` where two were expected, `'5'`,
+ * `'7'`, and a page that would not report itself stopped. The cause was not the fixtures: a page
+ * with no `bootstrap.json` and no `?relay=` is exactly what a local fixture looks like, so every
+ * one of those tabs found the fabric's signed document, dialled the **live production relay**,
+ * and joined the real network. **The suite was running against production and reporting real
+ * peers as its own.**
+ *
+ * Blackholing the relay hosts was the first fix and it is not enough: `--host-resolver-rules` is
+ * Chromium's, and `demo-fabric.e2e.test.ts` drives Firefox too. A dead proxy with the loopback
+ * bypassed is engine-independent, and it states the stronger property the lane actually wants —
+ * a fixture is hermetic, and an outbound call it did not intend fails rather than succeeding
+ * quietly. Port 9 is `discard`, which nothing listens on.
+ *
+ * A fixture that genuinely needs the internet — `nostr-bootstrap.e2e.test.ts` reads real relays,
+ * and one `built-bundle` case proves the fallback works — passes `{ online: true }` and says why.
+ */
+export const HERMETIC_PROXY = {
+  server: 'http://127.0.0.1:9',
+  /**
+   * Loopback **and every private range**, because a fixture's own server is not always on
+   * loopback.
+   *
+   * The private ranges were added after `seed-discovery.e2e.test.ts` failed with
+   * `net::ERR_PROXY_CONNECTION_FAILED at http://10.144.82.254:5173/` — that fixture serves the
+   * page from this machine's **LAN address on purpose**, because the thing it models is a second
+   * device joining knowing only a URL, and `127.0.0.1` is not a URL a second device can use. A
+   * bypass list that only knew loopback would have quietly redefined "local" as "the same
+   * process", which is the opposite of what that fixture exists to test.
+   */
+  bypass: 'localhost, 127.0.0.1, ::1, [::1], *.local, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16',
+} as const
 
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -400,6 +444,85 @@ let pruned = false
  * The cost, stated rather than discovered: each invocation now starts from a cold optimiser cache
  * once — about 15 s by the control readings above — instead of inheriting the previous run's.
  */
+/**
+ * Write a pre-AUTH-06 plaintext identity seed into a tab's identity database — AUTH-06.
+ *
+ * ## Why a fixture plants one, and what the tab it produces actually is
+ *
+ * Since AUTH-06 the demo page passes `identityProtection: { kind: 'writes-no-new-secret' }`,
+ * because a visitor is asked for no passphrase and the only alternatives were to write a key
+ * in the clear or to demand a passphrase from somebody who came to look at a page. A cold
+ * visitor's tab is therefore a **different node on every visit**.
+ *
+ * Two fixtures read a property that needs one node across two starts through `window.o2`, and
+ * neither can be handed a passphrase: `TabApi` carries no parameter for one, and
+ * `demo/main.ts` states the rule that forbids adding it — *a page that was found rather than
+ * configured must not be configurable by whatever found it*. `42-04` is where a visitor is
+ * asked and where that changes.
+ *
+ * So the tab those fixtures open is **the one visitor who does still hold a durable identity
+ * under `writes-no-new-secret`: a returning visitor whose browser already held a key from
+ * before AUTH-06.** `IdbIdentityStore.legacyPlaintextSeed` finds it, `BrowserNode` adopts it,
+ * reports `identityIsUnprotected` and says so once on the console, and **does not delete it** —
+ * threat T-42-20, accepted as residue because deleting somebody's identity for want of a
+ * passphrase they were never asked for is worse than the exposure it closes.
+ *
+ * That makes this the **only end-to-end reading of that adopt path in the repository**, which
+ * is coverage arriving rather than a fixture convenience. The expected `console.warn` from the
+ * adopt path is not forwarded by the fixtures' handlers, which pass only `console.error`.
+ *
+ * ## The three ways this goes wrong, each one already met once
+ *
+ * - **Version 1 AND the upgrade.** `indexedDB.open(name, 1)` on a database that does not exist
+ *   creates it — and without `onupgradeneeded` creating the `identity` object store, the store
+ *   that opens it next finds version 1, runs no upgrade, and every transaction throws
+ *   `NotFoundError: 'identity' is not a known object store name`.
+ * - **The seed crosses as JSON.** Playwright serialises `page.evaluate` arguments, so a
+ *   `Uint8Array` arrives as `{"0":…}`. It travels as a number array and is rebuilt in the page,
+ *   the same conversion `capability-harness.ts` records at the same seam.
+ * - **Exactly 32 bytes.** A wrong-length record is returned as stored — deliberately, so a
+ *   corrupted one throws by name rather than becoming a different working identity — and the
+ *   start would then die in `identityFromSeed`, which looks like a defect in the code under
+ *   test rather than in the fixture.
+ *
+ * Call it after the page is open and **before the first start**.
+ */
+export async function plantLegacyIdentitySeed(
+  page: Page,
+  blockstoreName: string,
+  seed: Uint8Array,
+): Promise<void> {
+  if (seed.length !== 32) {
+    throw new Error(`a planted identity seed must be exactly 32 bytes, got ${seed.length}`)
+  }
+  await page.evaluate(
+    async (options: { readonly database: string; readonly bytes: readonly number[] }) => {
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open(options.database, 1)
+        request.onupgradeneeded = (): void => {
+          const db = request.result
+          if (!db.objectStoreNames.contains('identity')) db.createObjectStore('identity')
+        }
+        request.onerror = (): void => reject(request.error ?? new Error('indexedDB.open failed'))
+        request.onsuccess = (): void => {
+          const db = request.result
+          const tx = db.transaction('identity', 'readwrite')
+          tx.objectStore('identity').put(new Uint8Array(options.bytes), 'node-seed')
+          tx.oncomplete = (): void => {
+            db.close()
+            resolve()
+          }
+          tx.onerror = (): void => {
+            db.close()
+            reject(tx.error ?? new Error('the planted put failed'))
+          }
+        }
+      })
+    },
+    { database: `${blockstoreName}-identity`, bytes: [...seed] },
+  )
+}
+
 export function fixtureViteCacheDir(root: string): string {
   pruneStaleFixtureViteCaches(root)
   return join(root, 'node_modules', `${FIXTURE_VITE_CACHE_PREFIX}${String(process.ppid)}`)

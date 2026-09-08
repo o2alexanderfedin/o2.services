@@ -280,6 +280,11 @@ describe.skipIf(LIFTED === undefined)('AOT-04 — a live browser tab runs a tran
           trustAnchors: [anchor!],
           sovereignty: { ownerId: ownerId!, ownerKey: ownerKey!, canExecuteSovereign: true },
           whenSeedIsGone: 'mints-a-new-identity',
+          // AUTH-06 — this file starts one tab, once, and stops it: its subject is an
+          // AOT-lifted module running in a real engine, not identity persistence. A tab
+          // that is thrown away should write no secret, and saying so keeps the fixture
+          // free of an Argon2id derivation it has no use for.
+          identityProtection: { kind: 'writes-no-new-secret' },
         }),
       [submitterAddr, publisher.pub, OWNER_ID, OWNER_KEY],
     )

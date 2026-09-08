@@ -4,6 +4,19 @@ import { join } from 'node:path'
 import { BLOCK_VECTORS, CONFORMANCE_BLOCK_COUNT, checkBlockstoreConformance } from '@o2/net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FsBlockstore } from './fs-blockstore.ts'
+import type { IdentityProtection } from '@o2/libp2p'
+
+/**
+ * AUTH-06 — the two key files this spec puts in a blockstore directory are sealed now, and
+ * sealing needs a passphrase. The subject here is still the block **counter**, so the value
+ * matters only in being at least `PASSPHRASE_MIN_LENGTH` characters; `writes-no-new-secret`
+ * is deliberately NOT used, because a store that persists nothing would leave the directory
+ * empty and the filter would be asserted over files that are not there.
+ */
+const IDENTITY_PROTECTION: IdentityProtection = {
+  kind: 'passphrase',
+  passphrase: 'fs-blockstore-spec-passphrase',
+}
 
 /**
  * DATA-02, Node side.
@@ -85,23 +98,26 @@ describe('AUTH-01 — FsBlockstore.size counts blocks and only blocks', () => {
    */
   it('does not count the identity, provider or certificate files as blocks', async () => {
     const { writeFile, readdir } = await import('node:fs/promises')
-    const { IDENTITY_FILE, PROVIDER_FILE, loadOrCreateSeed } = await import('./identity-store.ts')
+    const { SEALED_IDENTITY_FILE, SEALED_PROVIDER_FILE, IDENTITY_FILE, PROVIDER_FILE, loadOrCreateSealedSeed } =
+      await import('./identity-store.ts')
 
     const dir = join(workdir, 'blocks')
     const store = await FsBlockstore.open(dir)
     for (const vector of BLOCK_VECTORS.slice(0, 3)) await store.put(vector.bytes)
     expect(store.size).toBe(3)
 
-    // Everything this phase writes into a blockstore directory.
-    await loadOrCreateSeed(dir, IDENTITY_FILE)
-    await loadOrCreateSeed(dir, PROVIDER_FILE)
+    // Everything this phase writes into a blockstore directory. **AUTH-06 moved the two
+    // key files to `.enc` names and this reads the production writer rather than restating
+    // the names**, so a filter that stopped excluding them would still be caught here.
+    await loadOrCreateSealedSeed(dir, SEALED_IDENTITY_FILE, IDENTITY_FILE, IDENTITY_PROTECTION)
+    await loadOrCreateSealedSeed(dir, SEALED_PROVIDER_FILE, PROVIDER_FILE, IDENTITY_PROTECTION)
     await writeFile(join(dir, '.certificate.json'), '{}')
 
     // An assertion that the filter did NOT count something is only meaningful next to
     // proof the something is there — otherwise a test that deleted the file would pass.
     const entries = await readdir(dir)
-    expect(entries).toContain(IDENTITY_FILE)
-    expect(entries).toContain(PROVIDER_FILE)
+    expect(entries).toContain(SEALED_IDENTITY_FILE)
+    expect(entries).toContain(SEALED_PROVIDER_FILE)
     expect(entries).toContain('.certificate.json')
 
     const reopened = await FsBlockstore.open(dir)
@@ -128,12 +144,12 @@ describe('AUTH-01 — FsBlockstore.size counts blocks and only blocks', () => {
   })
 
   it('keeps a block retrievable across the reopen the count is read from', async () => {
-    const { IDENTITY_FILE, loadOrCreateSeed } = await import('./identity-store.ts')
+    const { SEALED_IDENTITY_FILE, IDENTITY_FILE, loadOrCreateSealedSeed } = await import('./identity-store.ts')
 
     const dir = join(workdir, 'blocks')
     const store = await FsBlockstore.open(dir)
     const cid = await store.put(BLOCK_VECTORS[0]!.bytes)
-    await loadOrCreateSeed(dir, IDENTITY_FILE)
+    await loadOrCreateSealedSeed(dir, SEALED_IDENTITY_FILE, IDENTITY_FILE, IDENTITY_PROTECTION)
 
     const reopened = await FsBlockstore.open(dir)
     expect(await reopened.get(cid)).toEqual(BLOCK_VECTORS[0]!.bytes)

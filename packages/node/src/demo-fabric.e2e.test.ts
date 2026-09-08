@@ -19,6 +19,7 @@ import type { Region } from '../../browser/src/demo-regions.ts'
 import { ATTESTATION_HOOK, absenceSentences, p6, p7, p8 } from './demo-region-properties.ts'
 import type { DomRegion } from './demo-region-properties.ts'
 import { fixtureViteCacheDir, launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -413,19 +414,29 @@ async function openTab(name: string, join: boolean): Promise<Page> {
   page.on('console', (message) => {
     if (message.type() === 'error') process.stderr.write(`[${name}] console: ${message.text()}\n`)
   })
-  await page.goto(`${baseUrl}${PAGE}?relay=${encodeURIComponent(relayAddr)}`)
+  // **The non-joining tab is opened with NO `?relay=`, and that is `42-04`'s doing.** Since
+  // `42-04` unlocking starts a node by itself wherever relay discovery found an address, so a
+  // tab that took the relay in its query string and then merely declined to press `#join`
+  // would have a node anyway — and every reading the `stopped` arm takes is about a tab that
+  // has none. Measured rather than reasoned about: with the relay left in, that arm reported
+  // 33 regions carrying a live figure where the catalogue's stopped sentence belongs, and the
+  // two-tab count went to three because the third tab had reserved as well.
+  //
+  // Giving discovery nothing to find is what a tab that has not joined now IS: `#state`
+  // settles on `blocked`, `window.o2.activity()` stays `null`, and nothing on the fabric
+  // surface has anything to say. That is the state this arm was always about.
+  const query = join ? `?relay=${encodeURIComponent(relayAddr)}` : ''
+  await page.goto(`${baseUrl}${PAGE}${query}`)
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
   // BROW-01 has no test-only bypass: a harness consents by pressing the button a visitor
   // presses, and joins by pressing the button a visitor presses.
   await page.click('#allow')
-  await page.waitForSelector('#main', { state: 'visible', timeout: 30_000 })
-  await page.waitForFunction(
-    () => document.getElementById('join')?.hasAttribute('disabled') === false,
-    null,
-    { timeout: 60_000 },
-  )
+  // `42-04` moved the door: `#allow` reveals `#signin`, and `#main` is what UNLOCK reveals.
+  await signInDemoTab(page)
   if (join) {
-    await page.click('#join')
+    // **No `#join` click since `42-04`.** The relay arrives in this page's query string, so
+    // `revealMain` starts the node on unlock and disables the control while it does. The
+    // wait is unchanged; only the press that used to precede it is gone.
     await page.waitForFunction(
       () => document.getElementById('state')?.dataset['tone'] === 'live',
       null,

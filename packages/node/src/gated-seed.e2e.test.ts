@@ -91,9 +91,11 @@ import type { Browser, BrowserType, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { PublicKeyHex } from '@o2/core'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
-import { nodeKeyForPeerId } from '@o2/libp2p'
+import { identityFromSeed, nodeKeyForPeerId } from '@o2/libp2p'
+import type { IdentityProtection } from '@o2/libp2p'
 import { RpcRecordIndex, encodeRequest, parseResponse } from '@o2/net'
-import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { launchFixtureBrowser, plantLegacyIdentitySeed } from './e2e-browser-launch.ts'
+import { signInHarnessTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 import { SeedServer } from './seed-server.ts'
 
@@ -320,11 +322,23 @@ async function certificateIssuerOf(peerId: string): Promise<PublicKeyHex | null>
  * life is to mint a key and stop: it meets no peer, and stating the open literal would put
  * another open site in the repository-wide posture census for a node that never had a door.
  */
+/**
+ * AUTH-06 — stated because `startProvider` below restarts the provider on its own directory
+ * and refuses if the issuer key moved.
+ *
+ * Plan 42-02 made `FabricNodeOptions.identityProtection` default to `writes-no-new-secret`, so
+ * a node told nothing persists no secret and mints a fresh provider key on every start. The
+ * refusal four lines below would then fire for a reason about identity rather than about the
+ * gate this file measures. Persistence is asked for; the refusal is left as strict as it was.
+ */
+const PERSISTS: IdentityProtection = { kind: 'passphrase', passphrase: 'gated-seed-spec-passphrase' }
+
 async function startProvider(): Promise<void> {
   const minting = await FabricNode.start({
     relayAdmission: new Set<PublicKeyHex>(),
     startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'provider'),
+    identityProtection: PERSISTS,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: TRUST_ANCHORS,
     issuesCertificates: 'issues-without-an-aggregate-budget',
@@ -338,6 +352,7 @@ async function startProvider(): Promise<void> {
     relayAdmission: new Set<PublicKeyHex>([providerIssuer]),
     startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'provider'),
+    identityProtection: PERSISTS,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: TRUST_ANCHORS,
     issuesCertificates: 'issues-without-an-aggregate-budget',
@@ -427,10 +442,13 @@ async function openTab(engine: string, type: BrowserType): Promise<{ browser: Br
   await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
   // BROW-01 has no test-only bypass: a harness consents for the same reason a visitor clicks
   // the button, and `discoverRelays` is gated behind it because reading `/bootstrap.json` is
-  // a network request.
-  await page.evaluate(() => {
-    window.o2.grantConsent()
-  })
+  // a network request. AUTH-06, `42-06`: it signs in for the same reason too, because
+  // `window.o2.start` refuses with `SignedOutError` until somebody has opened their own
+  // envelope — and it refuses BEFORE the identity store is touched, which is why `42-03`'s
+  // claim that its planted seed survived `42-04` was false. Registering here opens the
+  // DEFAULT identity database; the seed this file plants lives under its own
+  // `blockstoreName`, so `startTabNode` still adopts exactly the seed that was planted.
+  await signInHarnessTab(page)
   return { browser, page }
 }
 
@@ -494,6 +512,20 @@ async function startTabNode(page: Page, blockstoreName: string, enrol: boolean):
       userKey: [...USER_PRIVATE_KEY],
     },
   )
+}
+
+/**
+ * One pre-AUTH-06 seed per engine — see the case docblock and `plantLegacyIdentitySeed`.
+ *
+ * Distinct per engine so that a reader of a failure knows which profile it came from, and
+ * so that the three never collapse into one identity if the fixture is ever changed to share
+ * a profile. Exactly 32 bytes each; all-identical bytes is a valid ed25519 seed and the
+ * repository's other fixtures use the same shape (`new Uint8Array(32).fill(63)`).
+ */
+const PLANTED_SEEDS: Readonly<Record<string, Uint8Array>> = {
+  chromium: new Uint8Array(32).fill(11),
+  firefox: new Uint8Array(32).fill(13),
+  webkit: new Uint8Array(32).fill(17),
 }
 
 describe('AUTH-02 — the door a browser tab actually meets is a seed, and it can be closed', () => {
@@ -606,6 +638,20 @@ describe('AUTH-02 — the door a browser tab actually meets is a seed, and it ca
      * 5. **the transition is one node** — the same peer id from the same origin's seed.
      * 6. **the enrolment is real and it came from the separated provider** — the certificate
      *    issuer read off the fabric's own `records` request.
+     *
+     * ## AUTH-06, 2026-09-04 — which visitor this tab now is, and why it is planted
+     *
+     * Reading 5 needs one node across two starts through `window.o2`, and since AUTH-06 the
+     * demo passes `writes-no-new-secret`: a *cold* visitor is asked for no passphrase, writes
+     * no key, and is a different node on every visit. So this tab is the one visitor who does
+     * still hold a durable identity — **a returning visitor whose browser already held a key
+     * from before AUTH-06**, adopted rather than deleted (threat T-42-20). The seed is planted
+     * before the first start and `plantLegacyIdentitySeed`'s docblock carries the reasoning.
+     *
+     * Nothing about readings 1-4 or 6 changes, and no assertion moved. What changed is how the
+     * identity got into the store, and the line under the plant pins it: the first arm's peer
+     * id must be the one the planted seed implies, so a mis-planted seed fails as *the adoption
+     * never happened* rather than as a bare id mismatch two arms later.
      */
     it(`${name} — the same tab id is absent from the seed's store unenrolled and present in it enrolled`, async () => {
       let browser: Browser | undefined
@@ -622,8 +668,27 @@ describe('AUTH-02 — the door a browser tab actually meets is a seed, and it ca
       const { page } = opened
       const store = `gated-seed-${name}`
       try {
+        // AUTH-06 — see this case's docblock. The tab is a returning pre-AUTH-06 visitor,
+        // because that is the only visitor `writes-no-new-secret` leaves with an identity
+        // that survives a start. Planted before the first start, per engine so no two
+        // profiles share one.
+        //
+        // Read into ONE local rather than looked up twice: the plant and the assertion below
+        // must be the same bytes, and two lookups is two places for that to stop being true.
+        const planted = PLANTED_SEEDS[name]
+        if (planted === undefined) throw new Error(`no planted seed declared for ${name}`)
+        await plantLegacyIdentitySeed(page, store, planted)
+
         // ---- arm A: no certificate. ------------------------------------------------------
         const unenrolled = await startTabNode(page, store, false)
+
+        // The adoption happened, and this is what says so. Without it a planting mistake
+        // would surface as arm B disagreeing with arm A, which names the wrong thing.
+        expect(
+          unenrolled,
+          `${name}'s tab did not adopt the planted pre-AUTH-06 seed — it minted instead, which is `
+            + 'what a tab with no stored key does and is not what this case is reading',
+        ).toBe((await identityFromSeed(planted)).peerId)
 
         await until(
           async () => (await page.evaluate(() => window.o2.peers())).includes(seed.node.peerId),

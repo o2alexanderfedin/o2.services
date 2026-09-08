@@ -10,6 +10,7 @@ import type { Browser, BrowserContext, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -364,11 +365,11 @@ async function openEnrolledTab(
     { timeout: 30_000 },
   )
   await page.click('#allow')
-  await page.waitForFunction(
-    () => document.getElementById('main')?.hasAttribute('hidden') === false,
-    null,
-    { timeout: 30_000 },
-  )
+  // `42-04` moved the door: `#allow` reveals `#signin`, and `#main` is what UNLOCK reveals.
+  // The `start` below is still the harness's own, and it still supplies the relay — this
+  // page is served with no `?relay=`, so `revealMain` finds nothing to dial and starts
+  // nothing on unlock. What signing in supplies is the passphrase `start` now requires.
+  await signInDemoTab(page)
 
   const peerId = await page.evaluate(
     async (options) =>

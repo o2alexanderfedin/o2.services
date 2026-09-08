@@ -10,6 +10,8 @@ import { chromium } from 'playwright'
 import type { Browser } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { NOSTR_BOOTSTRAP_RELAYS } from '../../browser/src/nostr-bootstrap.ts'
+import { signInDemoTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
 
 /**
@@ -110,9 +112,11 @@ async function consent(page: import('playwright').Page): Promise<void> {
     timeout: 30_000,
   })
   await page.click('#allow')
-  await page.waitForFunction(() => document.getElementById('main')?.hasAttribute('hidden') === false, null, {
-    timeout: 30_000,
-  })
+  // `42-04` moved the door: `#allow` reveals `#signin`, and `#main` is what UNLOCK reveals.
+  // This file runs against the BUILT bundle, so it is also where `#signin` is proved to
+  // survive bundling — the section, its controls and the inline module script's relative
+  // imports all have to resolve off the emitted files for this call to return at all.
+  await signInDemoTab(page)
 }
 
 describe('BROW-01 — nothing runs, and nothing is contacted, before consent', () => {
@@ -271,8 +275,20 @@ describe('BROW-01 — nothing runs, and nothing is contacted, before consent', (
     await page.waitForTimeout(1_000)
 
     expect(requested.filter((url) => url.includes('bootstrap.json'))).toEqual([])
-    expect(await page.isDisabled('#join')).toBe(true)
     expect(await page.evaluate(() => window.o2.activity())).toBeNull()
+    // `#join` is still disabled, and it is still inside a `#main` that was never revealed.
+    expect(await page.isDisabled('#join')).toBe(true)
+    expect(await page.isVisible('#main')).toBe(false)
+    // **And this is where *you cannot start* now lives — `42-04`.** A visitor who declines
+    // lands on `#signin` with the whole entry surface frozen, rather than on a blank page:
+    // the screen says nothing is running and says why, and neither control can be pressed.
+    // Reading a disabled `#join` inside a hidden `#main` is true but says nothing a visitor
+    // could see, so the reading a visitor could see is asserted beside it.
+    expect(await page.isVisible('#signin')).toBe(true)
+    expect(await page.isDisabled('#signin-passphrase')).toBe(true)
+    expect(await page.isDisabled('#signin-register')).toBe(true)
+    expect(await page.isDisabled('#signin-login')).toBe(true)
+    expect(await page.textContent('#signin-headline')).toBe('Nothing is running')
 
     await page.close()
   }, 180_000)
@@ -340,7 +356,16 @@ describe('the built bundle on a static host', () => {
   }, 180_000)
 
   it('reports that no relay is reachable, instead of looking broken', async () => {
+    // **This case models a host with NOTHING, and since 2026-09-07 that takes an extra arm.**
+    // `nostr-bootstrap.ts` gave the page a third place to look, so a static host with no
+    // `bootstrap.json` no longer means no relay — measured against this very bundle, such a page
+    // answers `source: 'nostr'` with the live relay's address in ~700 ms, and this case failed
+    // with `expected 'nostr' to be 'none'` the moment the fallback was wired to both call sites.
+    // That is the feature working. The state this case is about is reached by the shared
+    // `browser`, which `launchFixtureBrowser` makes hermetic — see `HERMETIC_PROXY`.
     const page = await browser.newPage()
+    const sockets: string[] = []
+    page.on('websocket', (socket) => sockets.push(socket.url()))
     await page.goto(baseUrl)
     await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
     await consent(page)
@@ -349,6 +374,15 @@ describe('the built bundle on a static host', () => {
     const discovery = await page.evaluate(async () => window.o2.discoverRelays())
     expect(discovery.source).toBe('none')
     expect(discovery.relayAddrs).toEqual([])
+
+    // **The anti-vacuity arm.** Without it this case passes just as well on a build where the
+    // fallback was deleted, or never ran — and *"nothing was found"* would be indistinguishable
+    // from *"nothing was looked for"*. The page must have TRIED the pinned relays and failed.
+    expect(
+      sockets.filter((url) => NOSTR_BOOTSTRAP_RELAYS.some((relay) => url.startsWith(relay))),
+      `the page opened ${JSON.stringify(sockets)} — it did not attempt the signed fallback at ` +
+        'all, so this empty reading says nothing about a host where the fallback is unreachable',
+    ).not.toEqual([])
 
     // And the page says so, in those words, with the Start button unavailable.
     await page.waitForFunction(
@@ -364,6 +398,47 @@ describe('the built bundle on a static host', () => {
     await page.close()
   }, 180_000)
 
+  it('joins from the SIGNED FALLBACK when the origin has nothing — the same host, relays reachable', async (ctx) => {
+    // The other half of the case above, and the one that says the fallback is a feature rather
+    // than a code path: the identical static host, the identical bundle, no `bootstrap.json` —
+    // and a relay address, because `packages/browser/src/nostr-bootstrap.ts` found the fabric's
+    // own signed document on a relay this project does not run.
+    // **`online: true`, and it is the only browser in this file that gets it.** Every other
+    // fixture here is hermetic by default so that the suite cannot dial production — see
+    // `HERMETIC_PROXY`, which seventeen red cases paid for. This one case is about the fallback
+    // actually reaching a public relay, so it says so in one line rather than the whole file
+    // being quietly online.
+    const online = await launchFixtureBrowser(chromium, { online: true })
+    const page = await online.newPage()
+    await page.goto(baseUrl)
+    await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+    await consent(page)
+
+    const discovery = await page.evaluate(async () => window.o2.discoverRelays())
+    if (discovery.source === 'none') {
+      // Public relays are somebody else's servers. A case that reddened the suite when one of
+      // them was down would be a case that gets deleted — but the skip is LOUD, because a skip
+      // that reads as a pass is how a guard stops guarding.
+      ctx.skip(
+        `no pinned relay served the bootstrap document — ${NOSTR_BOOTSTRAP_RELAYS.join(', ')}. ` +
+          'This case measured NOTHING this run.',
+      )
+      await page.close()
+      await online.close()
+      return
+    }
+
+    // **`'nostr'` and not `'origin'`.** The provenance is reported rather than assumed, and it
+    // was `'origin'` in the first wiring — a document from `nos.lol` announced as this page's
+    // own host, on a host that had 404ed twice.
+    expect(discovery.source).toBe('nostr')
+    expect(discovery.relayAddrs.length).toBeGreaterThan(0)
+    for (const addr of discovery.relayAddrs) expect(addr.startsWith('/dns4/')).toBe(true)
+
+    await page.close()
+    await online.close()
+  }, 180_000)
+
   it('takes a relay from ?relay= and joins with it', async () => {
     const relayAddr = relay.browserDialableAddrs[0]!
     const page = await browser.newPage()
@@ -375,11 +450,11 @@ describe('the built bundle on a static host', () => {
     expect(discovery.source).toBe('query')
     expect(discovery.relayAddrs).toEqual([relayAddr])
 
-    // The button is offered, and pressing it produces a real reservation.
-    await page.waitForFunction(() => document.getElementById('join')?.hasAttribute('disabled') === false, null, {
-      timeout: 30_000,
-    })
-    await page.click('#join')
+    // **Unlocking produces a real reservation — `42-04`.** The press this case used to make
+    // is gone rather than replaced: `revealMain` offers `#join` and then starts the node
+    // itself, because this page was served with a relay in its query string, so the control
+    // is disabled again before a harness could reach it. What the case reads is unchanged —
+    // a `live` tone off the built bundle, and a reservation the relay actually granted.
     await page.waitForFunction(
       () => document.getElementById('state')?.dataset['tone'] === 'live',
       null,

@@ -137,7 +137,15 @@ import {
   projectPrimeCount,
   readPrimeCount,
 } from '@o2/demo'
-import { SEED_BYTES, audienceKeyOf, identityFromSeed, parseKeyHex, peerIdForNodeKey } from '@o2/libp2p'
+import {
+  PASSPHRASE_MIN_LENGTH,
+  SEED_BYTES,
+  audienceKeyOf,
+  identityFromSeed,
+  parseKeyHex,
+  peerIdForNodeKey,
+} from '@o2/libp2p'
+import type { IdentityProtection } from '@o2/libp2p'
 import {
   MIN_SOVEREIGN_COMBINE_REPLICAS,
   RemoteExecutor,
@@ -156,6 +164,36 @@ import { ReservationWatcher } from '../reservation-watch.ts'
 const { values } = parseArgs({
   options: {
     dir: { type: 'string' },
+    /**
+     * AUTH-06 — the path of a file holding the passphrase that seals this node's identity
+     * seed and, where it holds one, its provider signing key.
+     *
+     * **A path and never a literal, and that is not caution.** `argv` is world-readable
+     * through `ps` on this platform: every account on the host can read the full command
+     * line of every process. `readUserSeed` below established the pattern for key material
+     * arriving by file path in this binary, and this follows it exactly.
+     *
+     * `O2_IDENTITY_PASSPHRASE` is accepted as an alternative for a supervisor that injects
+     * secrets as environment variables. Giving both is refused rather than resolved by a
+     * precedence rule — see the check below.
+     *
+     * **Omitting it does not refuse.** A process with no passphrase starts under
+     * `writes-no-new-secret`: it writes no identity to disk and is a different node on its
+     * next start, which it says on stderr once. Refusing instead would break every spawned
+     * agent in this repository that passes `--dir` and does not care about identity, and a
+     * node that persists nothing is exactly what AUTH-06 wants from a node with no
+     * passphrase.
+     */
+    'identity-passphrase-file': { type: 'string' },
+    /**
+     * Registered ONLY so it can be refused by name, and it is not a flag.
+     *
+     * Without this entry `parseArgs` throws `ERR_PARSE_ARGS_UNKNOWN_OPTION`, which tells an
+     * operator that the flag is unknown and nothing about **why** this binary will never
+     * have it. The refusal below states the reason — `ps` — so the next person who reaches
+     * for it learns the constraint rather than the spelling.
+     */
+    'identity-passphrase': { type: 'string' },
     // The TCP port this node binds, and **deliberately without a default** — which is
     // the whole mechanism rather than a tidy-up.
     //
@@ -664,7 +702,7 @@ const { values } = parseArgs({
     // it.
     //
     // **It is separate from `--dir` because a peer id is not job state.** `--dir` also holds
-    // this node's identity seed (`fabric-node.ts`, search `loadOrCreateSeed`), so two
+    // this node's identity seed (`fabric-node.ts`, search `loadOrCreateSealedSeed`), so two
     // processes pointed at one `--dir` are one peer id wearing two processes. A *second
     // requestor* that inherits the first one's identity is a weaker claim than the criterion
     // makes, so the hand-off is staged on the store alone and each process keeps its own
@@ -762,7 +800,7 @@ const { values } = parseArgs({
 })
 
 const USAGE =
-  'usage: agent.ts --dir <blockstore-dir> [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--admit-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--inbound-threshold <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...] [--coordinate <shards> [--coordinate-n <n>] [--lease-ms <ms>] [--job-store <dir>] [--resume-from <cid> ...]] [--sovereign-owner <seed-path> --sovereign-row <row-path> ... (paired, at least twice)]\n'
+  'usage: agent.ts --dir <blockstore-dir> [--identity-passphrase-file <path>] [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--admit-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--inbound-threshold <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...] [--coordinate <shards> [--coordinate-n <n>] [--lease-ms <ms>] [--job-store <dir>] [--resume-from <cid> ...]] [--sovereign-owner <seed-path> --sovereign-row <row-path> ... (paired, at least twice)]\n'
 
 /**
  * The one exit-2 path, extended rather than duplicated.
@@ -777,6 +815,30 @@ function refuse(reason: string): never {
 }
 
 if (values.dir === undefined) refuse('--dir is required')
+
+// AUTH-06 — a passphrase never arrives on argv, and this says why rather than only no.
+//
+// `ps` exposes the full command line of every process to every local account, so a flag
+// taking a literal would publish the one secret this phase exists to keep. The flag is
+// registered above purely so this sentence can be reached; without the registration
+// `parseArgs` refuses it as unknown and the reason goes unsaid.
+if (values['identity-passphrase'] !== undefined) {
+  refuse(
+    'there is no --identity-passphrase, deliberately: argv is world-readable through ps on this '
+      + 'platform, so no flag on this binary takes a passphrase literal. Pass a path with '
+      + '--identity-passphrase-file <path>, or set O2_IDENTITY_PASSPHRASE.',
+  )
+}
+
+// Two sources, one value. Refused rather than resolved by precedence: if the two disagree,
+// one of them is not the passphrase this node will use, and a node that silently picked
+// would seal an identity behind a secret its operator does not think it has.
+if (values['identity-passphrase-file'] !== undefined && process.env['O2_IDENTITY_PASSPHRASE'] !== undefined) {
+  refuse(
+    '--identity-passphrase-file and O2_IDENTITY_PASSPHRASE were both given; drop one rather than '
+      + 'leaving this process to guess which of them is the passphrase you meant',
+  )
+}
 
 // Exit 2 rather than a default, and the reason is the same one `--operator-id`'s own
 // comment gives: both of these become fields of a statement a provider signs. A default
@@ -1014,12 +1076,12 @@ if (sovereignOwners.length > 0) {
  * authorised this process to act for it. Both name a **user** key, which is why one reader
  * serves both; an operator who mistyped one path needs to be told which one.
  *
- * A wrong-length file is exit 2 for the same reason `loadOrCreateSeed` throws on one:
+ * A wrong-length file is exit 2 for the same reason `loadOrCreateSealedSeed` throws on one:
  * reinterpreting a truncated file as a key would enrol this node under a user key nobody
  * holds, and the only symptom would be a certificate naming a stranger.
  *
  * The bytes are copied out of Node's `Buffer` pool rather than handed on as a view into a
- * shared slab — the same reason `loadOrCreateSeed` and `FsBlockstore.get` copy.
+ * shared slab — the same reason `loadOrCreateSealedSeed` and `FsBlockstore.get` copy.
  */
 async function readUserSeed(path: string, flag = '--user-key'): Promise<Uint8Array> {
   let raw: Buffer
@@ -1035,6 +1097,76 @@ async function readUserSeed(path: string, flag = '--user-key'): Promise<Uint8Arr
   seed.set(raw)
   return seed
 }
+
+/**
+ * AUTH-06 — the passphrase this node seals its long-lived secrets under, or the stated
+ * promise to write none.
+ *
+ * Read from a **file path** or from the environment, never from argv, for the reason the
+ * flag's own comment gives: `ps` publishes a command line to every account on the host.
+ *
+ * **Exactly one trailing newline is stripped**, because every way an operator produces such
+ * a file — a text editor, a heredoc, `echo` — appends one, and a passphrase that silently
+ * included it would open nothing on a machine where the operator typed it without.
+ * Anything beyond that one newline is kept: leading and interior whitespace are characters
+ * an operator may have meant, and a binary that trimmed them would derive a different key
+ * from the file it was handed.
+ *
+ * An empty result is refused by name rather than treated as absence. A zero-length file is
+ * an operator who meant to supply a passphrase and supplied nothing, and starting under
+ * `writes-no-new-secret` there would be this binary deciding on their behalf that their
+ * identity does not need to survive.
+ */
+async function readIdentityProtection(): Promise<IdentityProtection> {
+  const fromEnvironment = process.env['O2_IDENTITY_PASSPHRASE']
+  const path = values['identity-passphrase-file']
+
+  let passphrase: string
+  if (path !== undefined) {
+    let raw: string
+    try {
+      raw = await readFile(path, 'utf8')
+    } catch (cause) {
+      refuse(
+        `--identity-passphrase-file ${path} could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
+      )
+    }
+    passphrase = raw.endsWith('\n') ? raw.slice(0, -1) : raw
+    if (passphrase.length === 0) {
+      refuse(`--identity-passphrase-file ${path} is empty; a passphrase of no characters seals nothing`)
+    }
+  } else if (fromEnvironment !== undefined) {
+    passphrase = fromEnvironment
+    if (passphrase.length === 0) {
+      refuse('O2_IDENTITY_PASSPHRASE is set and empty; a passphrase of no characters seals nothing')
+    }
+  } else {
+    // **Not a refusal, and the cost is stated rather than left to be discovered.** A node
+    // that persists nothing is exactly what AUTH-06 asks of a node with no passphrase; what
+    // it is not is a node whose peer id survives, and an operator who expected persistence
+    // would otherwise learn that from a peer that stopped recognising them.
+    process.stderr.write(
+      `agent.ts: no identity passphrase was given, so this process writes no identity to ${values.dir} and `
+        + 'will be a different node on its next start. Pass --identity-passphrase-file <path> (or set '
+        + 'O2_IDENTITY_PASSPHRASE) to keep this peer id across restarts.\n',
+    )
+    return { kind: 'writes-no-new-secret' }
+  }
+
+  // Refused here, before `FabricNode.start`, rather than inside the store: a length refusal
+  // arriving out of `start()` would reach an operator as a failed node rather than as a
+  // rejected input, and this binary's contract for a bad input is exit 2 with the usage line.
+  if (passphrase.length < PASSPHRASE_MIN_LENGTH) {
+    refuse(
+      `the identity passphrase is ${String(passphrase.length)} characters and at least `
+        + `${String(PASSPHRASE_MIN_LENGTH)} are required — the floor @libp2p/keychain enforces against `
+        + 'NIST SP 800-132',
+    )
+  }
+  return { kind: 'passphrase', passphrase }
+}
+
+const identityProtection = await readIdentityProtection()
 
 const enrollment =
   values['provider-addr'] === undefined
@@ -1333,6 +1465,10 @@ node = await FabricNode.start({
   // belongs with whatever else this entry point next learns to say, not smuggled in here.
   startReporting: 'reports-its-own-start',
   blockstoreDir: values.dir,
+  // AUTH-06 — resolved above, before this call, so a refused passphrase is exit 2 with the
+  // usage line rather than a node that failed to start. One value covers both secrets this
+  // directory holds; `fabric-node.ts` threads the same binding to the provider key.
+  identityProtection,
   listen,
   trustAnchors,
   // AUTH-04: absence is "this process issues no certificates", and presence carries the
@@ -1419,7 +1555,20 @@ node = await FabricNode.start({
   // everything it acquired before it rejected, which is the guarantee that lets this be one
   // line rather than a shutdown sequence.
 }).catch((cause: unknown): never => {
-  process.stderr.write(`agent.ts: ${cause instanceof Error ? cause.message : String(cause)}\n`)
+  // **The error's own NAME as well as its message, since 2026-09-04 (AUTH-06).**
+  //
+  // A parent process holding only this pipe cannot otherwise tell WHICH refusal it got. The
+  // message is prose and may be reworded; the class name is the thing a caller can branch on
+  // and the thing a spec can assert. `SealedIdentityUnlockError` is the first refusal whose
+  // identity has to survive a process boundary — `identity-at-rest.node.test.ts` reads it
+  // here to show that a wrong passphrase refuses BY NAME rather than merely failing — and
+  // every other error on this path gains the same legibility for free.
+  //
+  // Additive for existing readers: every assertion in this repository against this line is a
+  // `toContain`, and the message it was matching is still on it, one prefix later.
+  process.stderr.write(
+    `agent.ts: ${cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)}\n`,
+  )
   process.exit(1)
 })
 

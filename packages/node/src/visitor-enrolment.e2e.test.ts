@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcessByStdio } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,9 +10,12 @@ import { chromium, firefox, webkit } from 'playwright'
 import type { Browser, BrowserType, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { PublicKeyHex } from '@o2/core'
+import type { IdentityProtection } from '@o2/libp2p'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
+import { E2E_PASSPHRASE, signInDemoTab } from './e2e-signin.ts'
 import { FabricNode } from './fabric-node.ts'
+import { stripComments } from './strip-comments.ts'
 
 /**
  * A **visitor** enrols — AUTH-01, AUTH-02, AUTH-04.
@@ -110,6 +113,8 @@ import { FabricNode } from './fabric-node.ts'
 
 const SEED = fileURLToPath(new URL('./bin/seed.ts', import.meta.url))
 const PAGE_PATH = '/packages/browser/demo/index.html'
+/** The repository root, for the one assertion below that reads committed source. */
+const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /**
  * The test-only harness page, served by the SAME seed process on the SAME port.
@@ -252,11 +257,23 @@ function directWsAddr(node: FabricNode): string {
  * this is an established property rather than an assumption — and the issuer key has to be
  * known *before* the seed is spawned, because it goes on the seed's argv.
  */
+/**
+ * AUTH-06 — stated because the fixture below restarts provider on its own directory and
+ * refuses if the issuer key moved.
+ *
+ * Plan 42-02 made `FabricNodeOptions.identityProtection` default to `writes-no-new-secret`, so
+ * a node told nothing persists no secret and mints a fresh provider key on every start. The
+ * refusal a few lines down would then fire for a reason about identity rather than about the
+ * gate this file measures. Persistence is asked for; the refusal is left as strict as it was.
+ */
+const PERSISTS: IdentityProtection = { kind: 'passphrase', passphrase: 'visitor-enrolment-spec-passphrase' }
+
 async function startProvider(): Promise<void> {
   const minting = await FabricNode.start({
     relayAdmission: new Set<PublicKeyHex>(),
     startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'provider'),
+    identityProtection: PERSISTS,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: TRUST_ANCHORS,
     issuesCertificates: 'issues-without-an-aggregate-budget',
@@ -270,6 +287,7 @@ async function startProvider(): Promise<void> {
     relayAdmission: new Set<PublicKeyHex>([providerIssuer]),
     startReporting: 'reports-its-own-start',
     blockstoreDir: join(workdir, 'provider'),
+    identityProtection: PERSISTS,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: TRUST_ANCHORS,
     issuesCertificates: 'issues-without-an-aggregate-budget',
@@ -517,6 +535,13 @@ async function harnessStart(tab: Page, blockstoreName: string): Promise<string> 
           .then((issuer) => (issuer === null ? [] : [issuer])),
         sovereignty: { ownerId: '', canExecuteSovereign: false },
         whenSeedIsGone: 'mints-a-new-identity',
+        // AUTH-06 — the subject of both arms is which issuer this origin's own storage
+        // names, which is read off the stored CERTIFICATE and not off the seed. The
+        // certificate is deliberately not sealed, so it survives a `writes-no-new-secret`
+        // tab exactly as it survived before; the two arms use two different store names and
+        // neither asserts a peer id across a start. See the amended note at the demo→harness
+        // hand-off above for what this changes and what it does not.
+        identityProtection: { kind: 'writes-no-new-secret' },
       }),
     [blockstoreName, KERNEL_TRUST_ANCHOR, seedRelayAddr] as const,
   )
@@ -640,6 +665,158 @@ describe('a --admit-issuer seed states its door and its way through it', () => {
   }, 60_000)
 })
 
+/**
+ * Whether this origin's visitor-key database holds a key pair — read from the page, in the
+ * page's own vocabulary, without going near `visitorKeyPair()`.
+ *
+ * **It must not call the minting function to find out whether minting happened.** That would
+ * mint one, and the case below would then pass on its own instrument. `indexedDB.databases()`
+ * is not used either: it is absent in some engines and returns stale entries in others, so
+ * the database is opened at its known version with `onupgradeneeded` refused — an open that
+ * would have had to CREATE the store is reported as "nothing is here" rather than creating it.
+ */
+async function visitorKeyIsStored(page: Page): Promise<boolean> {
+  return page.evaluate(async () => {
+    return await new Promise<boolean>((resolve) => {
+      const request = indexedDB.open('o2-visitor')
+      request.onupgradeneeded = () => {
+        // The database did not exist, or has no store. Abort rather than create it.
+        request.transaction?.abort()
+        resolve(false)
+      }
+      request.onerror = () => resolve(false)
+      request.onsuccess = () => {
+        const db = request.result
+        if (!db.objectStoreNames.contains('visitor')) {
+          db.close()
+          resolve(false)
+          return
+        }
+        const read = db.transaction('visitor').objectStore('visitor').get('user-key-pair')
+        read.onsuccess = () => {
+          const value: unknown = read.result
+          db.close()
+          resolve(
+            typeof value === 'object'
+            && value !== null
+            && 'privateKey' in value
+            && (value as { privateKey: unknown }).privateKey instanceof CryptoKey,
+          )
+        }
+        read.onerror = () => {
+          db.close()
+          resolve(false)
+        }
+      }
+    })
+  })
+}
+
+describe.each(ENGINES)(
+  'AUTH-07 criterion 1 — a visitor who has not signed in cannot cause a key to be minted, in $name',
+  ({ name, type }) => {
+    /**
+     * **The defect this reproduces was introduced by `42-07` and found by reading, not by a
+     * test — so it is made to HAPPEN here before anything is changed to prevent it.**
+     *
+     * `42-07` let a visitor reveal `#main` without unlocking, so they could look at the page
+     * before choosing a passphrase. `#enrol`'s visibility is `enrolEl.hidden = offer.accepted`
+     * and nothing about it consults sign-in, so on an origin that advertises an enrolment
+     * provider — which is exactly what this file's fixture is — the control whose handler
+     * calls `visitorKeyPair()` is reachable with **no passphrase in existence to seal the
+     * result under**.
+     *
+     * That is the owner's rule broken at its weakest point: not a key we forgot to encrypt,
+     * but a key minted where there is nothing to encrypt it with.
+     *
+     * **Why this file and not `signin-journey.e2e.test.ts`.** That file's fixture serves an
+     * origin naming no provider, so `#enrol-offer` stays hidden and the control is
+     * unreachable there for a reason that has nothing to do with sign-in. A case sited there
+     * would have passed while the defect stood — which is how it stood.
+     */
+    it('does not reach the control that mints a key while merely looking around', async () => {
+      let browser: Browser | undefined
+      let page: Page | undefined
+      try {
+        browser = await launchFixtureBrowser(type)
+        page = await browser.newPage()
+        page.on('pageerror', (error) => {
+          process.stderr.write(`[${name}] page error: ${error.message}\n`)
+        })
+        await page.goto(pageUrl)
+        await page.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
+
+        await page.locator('#allow').click()
+        await page.waitForSelector('#signin', { state: 'visible', timeout: 60_000 })
+
+        // **The positive control for the absence below, and it runs first.** Nothing has been
+        // minted yet, and the reader says so — so a reader that always answered `false` is
+        // not what makes the later assertion pass.
+        expect(
+          await visitorKeyIsStored(page),
+          'a key was already stored before the visitor did anything, so this reader cannot '
+            + 'distinguish minted from not-minted and the case below proves nothing',
+        ).toBe(false)
+
+        // The way in that `42-07` added. Not a test-only bypass: the page's own control.
+        await page.locator('#signin-lookaround').click()
+        await page.waitForSelector('#main', { state: 'visible', timeout: 60_000 })
+        await page.waitForSelector('#lookaround-notice', { state: 'visible', timeout: 30_000 })
+
+        // The origin really does advertise a provider, or the refusal below would be a
+        // refusal about the fixture rather than about sign-in.
+        const offer = await page.evaluate(async () => window.o2.enrolmentOffer())
+        expect(
+          offer.offered,
+          'this fixture must advertise an enrolment provider, or an unreachable #enrol proves '
+            + 'nothing about sign-in',
+        ).toBe(true)
+
+        // **The reading.** The control that mints a key must not be operable by somebody who
+        // holds no passphrase. Visibility and enabledness are both read, because either one
+        // alone leaves a way through.
+        const reachable =
+          (await page.locator('#enrol').isVisible()) && (await page.locator('#enrol').isEnabled())
+        expect(
+          reachable,
+          'a visitor who is only looking around can operate #enrol, whose handler calls '
+            + 'visitorKeyPair() — so a private key is minted with no passphrase anywhere to '
+            + 'seal it under, which is the owner\'s rule broken at its weakest point',
+        ).toBe(false)
+
+        // **The GUARANTEE, read separately from the courtesy, because a hidden control and a
+        // refusing act are different claims and only the second is a property of the system.**
+        // A surface that only hid the control would still be one console call from the same
+        // key — so the act the control would have called is called directly.
+        const refusal = await page.evaluate(async () => {
+          try {
+            await window.o2.acceptEnrolment()
+            return 'DID NOT REFUSE'
+          } catch (error) {
+            return error instanceof Error ? error.name : String(error)
+          }
+        })
+        expect(
+          refusal,
+          'acceptEnrolment did not refuse a visitor holding no passphrase — so hiding #enrol '
+            + 'is the whole of the protection, and the protection is one console call wide',
+        ).toBe('SignedOutError')
+
+        // And the property both of them stand for, read at the store rather than at either:
+        // whatever the surface does and whatever the act does, nothing may have been written.
+        expect(
+          await visitorKeyIsStored(page),
+          'a visitor key exists after a look-around visit, so something minted one without a '
+            + 'passphrase',
+        ).toBe(false)
+      } finally {
+        await page?.close().catch(() => {})
+        await browser?.close().catch(() => {})
+      }
+    }, 120_000)
+  },
+)
+
 describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ name, type }) => {
   it(
     'is offered the provider, accepts it, holds a certificate, and is admitted',
@@ -664,6 +841,10 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
 
         // ---- The visitor's first click. The real consent control, not `grantConsent()`.
         await page.locator('#allow').click()
+        // ---- The visitor's SECOND act — AUTH-06, `42-06`. `#allow` reveals `#signin`, and
+        // `#main`, which holds `#enrol-offer`, is what UNLOCK reveals. The real controls
+        // again: `signInDemoTab` fills the page's own field and presses its own button.
+        await signInDemoTab(page)
 
         // ---- B2: the page references `enrollmentProvider`. Before 2026-08-17 this element
         // did not exist and `grep -c enrol` over `index.html` returned 1, on an unrelated
@@ -688,19 +869,19 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
         expect(before.accepted, 'nothing may be accepted before the visitor accepts it').toBe(false)
         expect(before.heldIssuer, 'a tab that never enrolled holds no certificate').toBeUndefined()
 
-        // ---- The visitor's second click. THIS is the whole of what B1 was missing: an
+        // ---- The visitor's next click. THIS is the whole of what B1 was missing: an
         // explicit action, on a control that exists, taking no argument from anybody.
+        //
+        // Since `42-04` this tab already has a node by now — unlocking started one — and the
+        // `#enrol` handler restarts it rather than leaving the visitor to, because the
+        // sentence on the button promised an enrolled tab. So the third click this case used
+        // to make is gone: what it did, the handler now does.
         await page.locator('#enrol').click()
         await expect
           .poll(async () => page?.evaluate(async () => (await window.o2.enrolmentOffer()).accepted), {
             timeout: 60_000,
           })
           .toBe(true)
-
-        // ---- The visitor's third click: start the node. `autoStart` still passes no
-        // `enrollment` — go and read it. What reaches `BrowserNode` is the decision above,
-        // read back out of this origin's own storage by `api.start`.
-        await page.locator('#join').click()
 
         // The certificate, read from the tab's own store through `enrolledIssuer`. This is
         // the arm that says the enrolment ROUND TRIP completed: a decision alone would be
@@ -733,6 +914,137 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
           await advertised(),
           'the uncertificated stranger must still be out while the enrolled tab is in',
         ).not.toContain(strangerNode?.peerId ?? '')
+
+        // ---- T-42-27 — the two credentials meet HERE, so their separation is read here.
+        //
+        // This tab now holds both: a passphrase it registered with, and a certificate a real
+        // provider signed. The threat is the first reaching the second.
+        //
+        // **Which of the two available forms this file could reach, stated because the plan
+        // asked.** The stronger one — assert the passphrase against the request payloads the
+        // enrolment sent — is **out of reach here**, and not for want of trying: the enrolment
+        // round trip is a libp2p stream over a WebSocket to the seed, so `page.on('request')`
+        // sees one WebSocket upgrade and no frames, and a Noise-encrypted payload would say
+        // nothing about the plaintext anyway. What IS in reach is the second form the plan
+        // names, and a storage reading beside it.
+        //
+        // Form one: the source. `requireSignIn()` is the only way to obtain the held
+        // passphrase, and it must have exactly ONE call site — the `identityProtection`
+        // field. A second call site anywhere is the whole of this threat.
+        const glue = await readFile(join(ROOT, 'packages/browser/demo/main.ts'), 'utf8')
+        // The declaration is excluded by NAME rather than by shape: `function requireSignIn():
+        // string {` contains the substring `requireSignIn()` — `():` opens with it — which the
+        // first draft of this assertion did not see, and it reported two call sites where
+        // there is one. Comment lines are excluded too; a docblock naming the function is not
+        // a route the passphrase can travel.
+        const callSites = glue
+          .split('\n')
+          .map((line, index) => ({ line: line.trim(), number: index + 1 }))
+          .filter(
+            (entry) =>
+              entry.line.includes('requireSignIn()') &&
+              !entry.line.startsWith('*') &&
+              !entry.line.startsWith('//') &&
+              !entry.line.startsWith('function requireSignIn('),
+          )
+        expect(
+          callSites.map((entry) => `${String(entry.number)}: ${entry.line}`),
+          'the held passphrase is obtained at more than one site in demo/main.ts, so this ' +
+            'assertion can no longer say where it goes',
+        ).toHaveLength(1)
+        // **AMENDED 2026-09-06 (`AUTH-07`), and amended by TIGHTENING rather than by moving a
+        // literal.** This read `.toBe("identityProtection: { kind: 'passphrase', passphrase:
+        // requireSignIn() },")` and went red when a second persister arrived — the visitor's
+        // own key, whose whole PKCS#8 had been measured lying in a Chromium profile in the
+        // clear. The property it guards did not change: the passphrase is still obtained at
+        // exactly one site. What changed is that the site is now the body of a named function
+        // whose only job is to build the object both persisters take.
+        //
+        // Matching one literal would have to be relaxed once per persister until it said
+        // nothing, so it is replaced by two readings that are **strictly stronger than the
+        // one they retire**: where the passphrase is obtained, and — new — every place the
+        // raw binding can be read at all.
+        expect(
+          callSites[0]?.line,
+          'the one call to requireSignIn() is not the identityProtection factory — the '
+            + 'passphrase now reaches somewhere else, and T-42-27 is about exactly that',
+        ).toBe("return { kind: 'passphrase', passphrase: requireSignIn() }")
+
+        // The factory exists and is what that line belongs to. Without this the assertion
+        // above would pass on any function that happened to return the same object literal.
+        expect(
+          glue,
+          'the one call site is not inside a function named identityProtection, so what it '
+            + 'hands the passphrase to is no longer the shared protection object',
+        ).toContain('function identityProtection(): IdentityProtection {')
+
+        // **The new half, and it bounds the blast radius rather than one call.** The raw
+        // string binding may be touched in five places and no others: its declaration, the
+        // two accessors, the unlock that sets it, and the sign-out that clears it. A sixth
+        // is a new route the passphrase can travel, whatever it is called — which is what
+        // this whole case is about and what a single-literal match could never have seen.
+        const rawReads = stripComments(glue)
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line.includes('heldPassphrase'))
+        expect(
+          rawReads,
+          'the raw passphrase binding is touched somewhere new in demo/main.ts — every read '
+            + 'of it must go through requireSignIn() or signedIn(), or T-42-27 cannot say '
+            + 'where the passphrase goes',
+        ).toEqual([
+          'let heldPassphrase: string | null = null',
+          'const held = heldPassphrase',
+          'return heldPassphrase !== null',
+          'heldPassphrase = passphrase',
+          'heldPassphrase = null',
+        ])
+
+        // Form two: what this origin actually wrote. Every value in every object store of
+        // every database this tab holds, searched for the passphrase — with the positive
+        // control the search needs, because an absence assertion over an empty dump cannot
+        // fail. The control is the provider's own issuer key, which the enrolment DID store.
+        const dump = await page.evaluate(async () => {
+          const names = (await indexedDB.databases()).map((entry) => entry.name ?? '')
+          const out: string[] = []
+          for (const name of names) {
+            if (name === '') continue
+            const db = await new Promise<IDBDatabase | null>((resolve) => {
+              const request = indexedDB.open(name)
+              request.onsuccess = (): void => resolve(request.result)
+              request.onerror = (): void => resolve(null)
+            })
+            if (db === null) continue
+            for (const store of Array.from(db.objectStoreNames)) {
+              const values = await new Promise<unknown[]>((resolve) => {
+                const request = db.transaction(store, 'readonly').objectStore(store).getAll()
+                request.onsuccess = (): void => resolve(request.result as unknown[])
+                request.onerror = (): void => resolve([])
+              })
+              for (const value of values) {
+                out.push(
+                  value instanceof Uint8Array || value instanceof ArrayBuffer
+                    ? new TextDecoder().decode(value as never)
+                    : typeof value === 'string'
+                      ? value
+                      : JSON.stringify(value),
+                )
+              }
+            }
+            db.close()
+          }
+          return out.join('\u0000')
+        })
+        expect(
+          dump.includes(providerIssuer),
+          'the positive control failed: this origin does not hold the certificate the ' +
+            'enrolment obtained, so the absence below is an absence from an empty search',
+        ).toBe(true)
+        expect(
+          dump.includes(E2E_PASSPHRASE),
+          'the passphrase this visitor registered with is somewhere in this origin storage — ' +
+            'T-42-27. It is held in page memory for one visit and nothing may write it down',
+        ).toBe(false)
       } finally {
         await page?.close().catch(() => {})
         await browser?.close().catch(() => {})
@@ -797,6 +1109,11 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
         await tab.goto(pageUrl)
         await tab.waitForFunction(() => typeof window.o2 !== 'undefined', null, { timeout: 60_000 })
         await tab.locator('#allow').click()
+        // AUTH-06, `42-06` — the act between the gate and the surfaces. It is also what
+        // starts this tab's node, which is why the `#join` press that stood below is gone:
+        // `#enrol` restarts the running node so that it enrols, and `#join` would be a press
+        // on a control the page has already spent.
+        await signInDemoTab(tab)
         await tab.locator('#enrol-offer').waitFor({ state: 'visible', timeout: 60_000 })
         await tab.locator('#enrol').click()
         await expect
@@ -804,7 +1121,6 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
             timeout: 60_000,
           })
           .toBe(true)
-        await tab.locator('#join').click()
         await expect
           .poll(
             async () => tab.evaluate(async () => (await window.o2.enrolmentOffer()).heldIssuer),
@@ -817,9 +1133,17 @@ describe.each(ENGINES)('a visitor enrols this tab by clicking, in $name', ({ nam
         // a no-op against `node === null` and would leave the start running into a page this
         // case is about to navigate away from. See {@link untilNodeRunning}.
         //
-        // Released before a second node starts on the same identity store. A tab's identity
-        // lives in IndexedDB rather than in the tab, so the harness restart below reloads
-        // THIS node rather than minting a second one.
+        // Released before a second node starts on the same identity store.
+        //
+        // **AMENDED 2026-09-04 (AUTH-06).** This read *"a tab's identity lives in IndexedDB
+        // rather than in the tab, so the harness restart below reloads THIS node rather than
+        // minting a second one."* That is no longer true and was never what this case reads:
+        // a visitor is asked for no passphrase, so a demo tab now writes no seed at all and
+        // the harness start below is a different node. What the arms below actually depend
+        // on is the stored **certificate**, which is public material and deliberately not
+        // sealed — `pinnedFor` reads its `issuer` and nothing here compares a peer id across
+        // a start. `42-04` is where a visitor is asked and where the identity becomes durable
+        // again.
         await untilNodeRunning(tab)
         await tab.evaluate(async () => window.o2.stop())
 

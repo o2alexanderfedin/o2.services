@@ -18,6 +18,7 @@
     "@libp2p/utils": "7.3.0",
     "@libp2p/websockets": "10.1.17",
     "@multiformats/multiaddr": "13.0.3",
+    "@o2/core": "*",
     "@o2/libp2p": "*",
     "@o2/net": "*",
     "datastore-core": "12.0.1",
