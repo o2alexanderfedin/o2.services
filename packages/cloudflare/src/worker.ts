@@ -121,6 +121,8 @@ import { MAX_FUNNEL_BODY_BYTES, funnelDimensionsFrom } from './funnel-collector.
 import { cloudflareTurnMinter, mintTurnCredential, sharedSecretMinter } from './turn-credential.ts'
 import type { TurnMintFailure, TurnMinter } from './turn-credential.ts'
 import { turnUrlsFor } from './turn-regions.ts'
+import { hostedEnrolment } from './hosted-enrolment.ts'
+import type { PublicKeyHex } from '@o2/core'
 import { parseFunnelReport } from '@o2/net'
 import type { FunnelPopulation, FunnelTotals } from '@o2/net'
 import type { HibernationCapableState } from './hibernatable-socket.ts'
@@ -287,6 +289,33 @@ export interface HostedEnv {
    * `turn-provider-join.e2e.test.ts` points it at a local stub. A deployment leaves it unset.
    */
   readonly O2_TURN_API_BASE?: string
+  /**
+   * AUTH-01 — certificates this object will sign per hour, whoever asks. **The on-switch.**
+   *
+   * Absent, empty, zero or unparseable all mean **this object issues no certificates**, and
+   * they mean it identically on purpose: a provider that cannot state what bounds it must not
+   * sign. There is deliberately no separate enable flag, because a flag plus a number permits
+   * the one state nobody wants — issuing, unbounded, because the second variable was forgotten.
+   *
+   * **Global, not per user**, which is the owner's instruction of 2026-09-09 and also the only
+   * bound that means anything: `enrollment.ts` measured that a per-user limit is rotated around
+   * for free, since a fresh user key is one `ed25519.keygen()`.
+   *
+   * A `var` rather than a secret — it is a policy number, not a credential, and an operator
+   * reading `wrangler.jsonc` should be able to see what this node's issuance is bounded at.
+   * Above `MAX_AGGREGATE_BUDGET` it is refused BY NAME rather than clamped; see
+   * `hosted-enrolment.ts` for why the retained history is what sets that ceiling.
+   *
+   * **What to know before choosing a number.** A certificate lives one hour
+   * (`DEFAULT_CERTIFICATE_LIFETIME_MS`), so an enrolled node re-enrols every window and steady
+   * state is roughly *the active cohort per hour*, not the invite burst. Below the cohort size
+   * this refuses honest volunteers; far above it, an attacker mints that many identities an
+   * hour. And because issuance is unauthenticated by design, anyone who can dial this node can
+   * consume the whole window — which on a fabric with ONE provider denies honest enrolment for
+   * the rest of that hour. That trade is the owner's, and `.planning/OWNER-ACTIONS.md` states
+   * it where the number is chosen.
+   */
+  readonly O2_MAX_ISSUED_PER_WINDOW?: string
   /**
    * Comma-separated issuer public keys whose certificates admit a caller to the TURN minter.
    *
@@ -487,6 +516,52 @@ export class BootstrapObject {
    * with no reader. Held as the PROMISE rather than the resolved value so that two concurrent
    * upgrades cannot each start one.
    */
+  /**
+   * AUTH-01's budget as a spreadable field — absent when this deployment issues nothing.
+   *
+   * A conditional spread rather than an `undefined` value, on the rule the TURN options a few
+   * hundred lines up already follow: absence must be a field that is not there, so a reader can
+   * see that "issues nothing" is a state this deployment was found in rather than a number that
+   * came back empty. `hostedEnrolment` throws on a budget above the tier's ceiling, and the
+   * throw belongs here — at the point an operator's variable is read — rather than inside a
+   * network stack's construction.
+   */
+  /**
+   * Who this object accepts a certificate from — AUTH-01 joined to NET-12.
+   *
+   * ## Its own issuer key is DERIVED into this set, never configured
+   *
+   * Whatever `O2_TRUSTED_ISSUERS` names, plus **this node's own `nodeKey` when it issues**.
+   * That is the `SERVED_BY`→region idiom applied to a value that must not be transcribed: a
+   * deployment that signs certificates and does not trust them would refuse every node it
+   * itself enrolled, which is a configuration mistake with no symptom an operator could read —
+   * the tab's request is well-formed, the certificate verifies against its own issuer, and the
+   * gate still says `untrusted-issuer`.
+   *
+   * **The fail-closed property survives, and that is why the union is conditional.** A
+   * deployment that issues nothing and names nobody still pins the EMPTY set and still refuses
+   * everyone: an unconfigured gate stays closed. Only issuance opens it, and only to the
+   * certificates this object signed itself.
+   *
+   * Memoised because reaching the fabric unseals the identity seed, which is Argon2id — the
+   * mint path did not touch identity at all before this, and re-deriving a key per credential
+   * request would put a deliberately expensive KDF on a route a tab calls per connection.
+   */
+  async #pinnedIssuers(): Promise<ReadonlySet<PublicKeyHex>> {
+    const configured = commaSeparated(this.#env.O2_TRUSTED_ISSUERS)
+    if (this.#issuanceBudget().maxIssuedPerWindow === undefined) return new Set(configured)
+    this.#ownIssuer ??= this.#fabricOnce().then((fabric) => fabric.identity.nodeKey)
+    return new Set([...configured, await this.#ownIssuer])
+  }
+
+  #issuanceBudget(): { maxIssuedPerWindow?: number } {
+    const enrolment = hostedEnrolment(this.#env.O2_MAX_ISSUED_PER_WINDOW)
+    return enrolment.issues ? { maxIssuedPerWindow: enrolment.maxIssuedPerWindow } : {}
+  }
+
+  /** This object's own issuer key, unsealed once. See {@link BootstrapObject.#pinnedIssuers}. */
+  #ownIssuer: Promise<PublicKeyHex> | undefined
+
   #fabricOnce(): Promise<HostedFabric> {
     this.#fabric ??= this.#relayLogOnce().then(async (relayLog) =>
       createHostedFabric({
@@ -496,6 +571,11 @@ export class BootstrapObject {
         announce: announcedAddresses(this.#env.ANNOUNCE_MULTIADDRS),
         traffic: this.#traffic,
         relayLog,
+        // AUTH-01 — absent means this object issues no certificates, which is the whole of the
+        // on-switch. `hostedEnrolment` refuses a budget above the tier's storage ceiling by
+        // name rather than clamping it, so an operator who asks for more than this tier can
+        // honour is told, instead of quietly getting less than they configured.
+        ...this.#issuanceBudget(),
       }),
     )
     return this.#fabric
@@ -888,7 +968,7 @@ export class BootstrapObject {
     }
 
     const result = await mintTurnCredential(body, {
-      pinnedIssuers: new Set(commaSeparated(this.#env.O2_TRUSTED_ISSUERS)),
+      pinnedIssuers: await this.#pinnedIssuers(),
       now: Date.now(),
       minter: selectTurnMinter(this.#env),
       // NET-12 criterion 2's built half. Per-region URLs when the deployment declares them,
@@ -1020,6 +1100,22 @@ export class BootstrapObject {
         region: this.#regionOnce(),
         operatorKey: this.#env.O2_ADMISSION_KEY,
       }),
+      // AUTH-01 — whether this object issues certificates, and at what rate.
+      //
+      // **A field so that a publisher can PROBE rather than assume**, which is the lesson this
+      // repository paid for twice this month: `funnelEndpointFromRelay` derived an origin that
+      // was right for this Worker and wrong for a self-hosted seed, so the funnel looked
+      // configured and collected nothing. `deploy-pages.sh` reads this before it writes
+      // `enrollmentProvider` into the document every visitor fetches, so a page never offers a
+      // joiner an enrolment that the node it names would refuse.
+      //
+      // The budget is reported, not hidden: it is a policy number rather than a credential, and
+      // a volunteer who wants to know how many identities this provider will sign in an hour is
+      // entitled to the same answer an operator has.
+      enrolment: {
+        ...this.#issuanceBudget(),
+        issues: this.#issuanceBudget().maxIssuedPerWindow !== undefined,
+      },
     }, { headers: SELF_CORS_HEADERS })
   }
 

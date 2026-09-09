@@ -158,6 +158,30 @@ echo "   running $NODE_VERSION"
 
 RELAY_ADDR="${ANNOUNCE}/p2p/${PEER_ID}"
 
+# AUTH-01 — does that node actually ISSUE certificates?
+#
+# **Probed, never assumed, and the reason is a defect this repository has already paid for.**
+# `funnelEndpointFromRelay` derived an origin that is correct for the deployed Worker and wrong
+# for a self-hosted seed, so the funnel looked configured and silently collected nothing. The
+# same shape is available here: publishing `enrollmentProvider` because the address is derivable
+# would offer every visitor an enrolment that the node named might refuse — and a visitor who
+# accepts an offer that cannot be honoured has spent the one thing this cohort has, its
+# willingness, on a dialogue that ends in "this node issues no certificates".
+#
+# So the node is asked. `GET /self` reports `enrolment.issues`, and only a true answer puts the
+# field in the document every visitor fetches. A node that issues nothing publishes a document
+# with no offer in it, which is exactly the state the page already knows how to render.
+case "$SELF" in
+  *'"issues":true'*) ENROLMENT_PROVIDER="$RELAY_ADDR" ;;
+  *) ENROLMENT_PROVIDER="" ;;
+esac
+if [ -n "$ENROLMENT_PROVIDER" ]; then
+  echo "   enrols  yes — the document will offer $ENROLMENT_PROVIDER"
+else
+  echo "   enrols  NO — no enrolment will be offered, and a visitor holds no certificate."
+  echo "           Without one the TURN rung refuses them: see .planning/OWNER-ACTIONS.md row 3."
+fi
+
 # ---------------------------------------------------------------------------
 # The gate, before the build. A red tree cannot be published past.
 # ---------------------------------------------------------------------------
@@ -183,13 +207,24 @@ mkdir -p "$PUBLIC"
 # known when a static file is written, and guessing them would publish addresses that are wrong
 # by the time anybody loads the page — peers are found through the relay and the DHT once the
 # tab is connected, which is the mechanism that is supposed to do this.
-cat > "$PUBLIC/bootstrap.json" <<JSON
+if [ -n "$ENROLMENT_PROVIDER" ]; then
+  cat > "$PUBLIC/bootstrap.json" <<JSON
+{
+  "relayAddrs": ["$RELAY_ADDR"],
+  "seedPeerId": "$PEER_ID",
+  "peerAddrs": ["$RELAY_ADDR"],
+  "enrollmentProvider": "$ENROLMENT_PROVIDER"
+}
+JSON
+else
+  cat > "$PUBLIC/bootstrap.json" <<JSON
 {
   "relayAddrs": ["$RELAY_ADDR"],
   "seedPeerId": "$PEER_ID",
   "peerAddrs": ["$RELAY_ADDR"]
 }
 JSON
+fi
 cat "$PUBLIC/bootstrap.json"
 
 say "Building the browser client"
