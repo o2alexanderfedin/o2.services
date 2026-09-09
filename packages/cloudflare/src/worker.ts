@@ -118,7 +118,8 @@ import {
   writeFunnelJournal,
 } from './funnel-journal.ts'
 import { MAX_FUNNEL_BODY_BYTES, funnelDimensionsFrom } from './funnel-collector.ts'
-import { mintTurnCredential, sharedSecretMinter } from './turn-credential.ts'
+import { cloudflareTurnMinter, mintTurnCredential, sharedSecretMinter } from './turn-credential.ts'
+import type { TurnMintFailure, TurnMinter } from './turn-credential.ts'
 import { turnUrlsFor } from './turn-regions.ts'
 import { parseFunnelReport } from '@o2/net'
 import type { FunnelPopulation, FunnelTotals } from '@o2/net'
@@ -243,8 +244,49 @@ export interface HostedEnv {
    * Optional, and absence **refuses the mint by name** (`turn-not-configured`) rather than
    * minting a credential every TURN server would reject. A deployment that is not configured
    * should say so, not look broken.
+   *
+   * **This is the `coturn` shared secret and NOT a Cloudflare API credential.** The two are not
+   * interchangeable and putting the wrong one here is the single most expensive mistake this
+   * route affords: the HMAC would be well-formed, the mint would succeed, and every Cloudflare
+   * TURN server would answer `401` — reaching a tab as a network fault. {@link O2_TURN_KEY_ID}
+   * and {@link O2_TURN_API_SECRET} are the other scheme, and they are separately named for
+   * exactly this reason. See `turn-credential.ts`'s AMENDED block.
    */
   readonly O2_TURN_SECRET?: string
+  /**
+   * Cloudflare's TURN key id — NET-12, the provider-backed scheme.
+   *
+   * **Not a secret**: it is the public half of the pair and it appears in the request path. It
+   * is declared here rather than in `wrangler.jsonc` anyway, so that both halves of one scheme
+   * are set by one act and neither can be half-configured.
+   */
+  readonly O2_TURN_KEY_ID?: string
+  /**
+   * Cloudflare's API credential, from `wrangler secret put O2_TURN_API_SECRET` — NET-12.
+   *
+   * The Bearer credential `cloudflareTurnMinter` presents. Holding it lets somebody mint TURN
+   * credentials on this account, which costs the account relayed traffic; it does not let them
+   * join the fabric, forge a certificate, or read anybody's data.
+   *
+   * **Both this and {@link O2_TURN_KEY_ID} must be present for the provider scheme to engage.**
+   * One without the other is a half-configured deployment, and this route treats it as no
+   * provider at all rather than guessing at the missing half.
+   */
+  readonly O2_TURN_API_SECRET?: string
+  /**
+   * Where credentials are asked for. Absent means Cloudflare's own endpoint.
+   *
+   * **This exists so the worker's own wiring can be measured.** Everything else about the
+   * provider scheme is unit-testable with an injected `fetch`, but the join — env vars to
+   * minter to region lookup to status code — lives in the deployed class, which is *"the only
+   * part of this file that no local spec can reach"*. Without this var the only way to exercise
+   * that join would be to dial `rtc.live.cloudflare.com` from the e2e lane, which
+   * `hermetic-fixtures.node.test.ts` exists to forbid and which would make a test suite's
+   * greenness depend on somebody else's uptime.
+   *
+   * `turn-provider-join.e2e.test.ts` points it at a local stub. A deployment leaves it unset.
+   */
+  readonly O2_TURN_API_BASE?: string
   /**
    * Comma-separated issuer public keys whose certificates admit a caller to the TURN minter.
    *
@@ -826,10 +868,12 @@ export class BootstrapObject {
    * class is the one part of this package no local spec can reach, so nothing worth asserting
    * lives here.
    *
-   * A refusal answers **400** rather than 401/403 for every gate failure except a missing
-   * secret, and the reason is deliberate: distinguishing *your certificate is not trusted* from
+   * A refusal answers **400** rather than 401/403 for every gate failure the caller could have
+   * caused, and the reason is deliberate: distinguishing *your certificate is not trusted* from
    * *your signature is wrong* by status code would let an unauthenticated caller map the gate.
-   * The named reason is in the body for a legitimate caller to read.
+   * The named reason is in the body for a legitimate caller to read. The refusals that are
+   * **this deployment's** fault answer `5xx` instead — see {@link turnRefusalStatus}, which is a
+   * function rather than a ternary because the set stopped being two-valued on 2026-09-09.
    */
   async #mintTurnCredential(request: Request): Promise<Response> {
     const raw = await request.text()
@@ -843,11 +887,10 @@ export class BootstrapObject {
       return new Response('not a TURN credential request', { status: 400, headers: TURN_CORS_HEADERS })
     }
 
-    const secret = this.#env.O2_TURN_SECRET
     const result = await mintTurnCredential(body, {
       pinnedIssuers: new Set(commaSeparated(this.#env.O2_TRUSTED_ISSUERS)),
       now: Date.now(),
-      minter: secret === undefined || secret === '' ? null : sharedSecretMinter(secret),
+      minter: selectTurnMinter(this.#env),
       // NET-12 criterion 2's built half. Per-region URLs when the deployment declares them,
       // the shared list otherwise — a design that survives either answer to a topology question
       // nobody here has measured, because the region tag rides in the credential either way.
@@ -861,7 +904,7 @@ export class BootstrapObject {
     if (!result.ok) {
       return Response.json(
         { ok: false, kind: result.failure.kind, reason: result.reason },
-        { status: result.failure.kind === 'turn-not-configured' ? 503 : 400, headers: TURN_CORS_HEADERS },
+        { status: turnRefusalStatus(result.failure.kind), headers: TURN_CORS_HEADERS },
       )
     }
     return Response.json({ ok: true, ...result.grant }, { headers: TURN_CORS_HEADERS })
@@ -1136,6 +1179,57 @@ const TURN_CORS_HEADERS: Readonly<Record<string, string>> = {
  * shared list; see `turn-regions.ts` for why that fallback is correctness rather than
  * convenience.
  */
+/**
+ * Which credential scheme this deployment runs, or `null` for neither — NET-12.
+ *
+ * ## The precedence is a decision, and `turn-minter-selection.test.ts` holds it
+ *
+ * **The provider pair wins when both are set.** Two schemes can be configured at once and only
+ * one can answer, so the tie has to be broken somewhere; it is broken toward Cloudflare because
+ * that scheme cannot be half-right. It brings its own endpoints, so it cannot be paired with a
+ * stale `O2_TURN_URLS` naming a `coturn` that has been turned off — which is the likelier
+ * accident on this deployment, whose shared secret predates the API pair. An operator running
+ * their own TURN server says so by not setting the pair.
+ *
+ * Both halves of the pair are required together. Half a pair is not a fallback to the other
+ * scheme and it is not a guess at the missing half: it is no provider, and the mint then refuses
+ * as `turn-not-configured` — by name, which is the whole point of that refusal existing.
+ */
+export function selectTurnMinter(env: HostedEnv): TurnMinter | null {
+  const keyId = env.O2_TURN_KEY_ID
+  const apiSecret = env.O2_TURN_API_SECRET
+  if (keyId !== undefined && keyId !== '' && apiSecret !== undefined && apiSecret !== '') {
+    const apiBase = env.O2_TURN_API_BASE
+    return cloudflareTurnMinter({
+      keyId,
+      apiSecret,
+      // Spread rather than passed as `undefined`: the minter's default is Cloudflare's own
+      // endpoint, and handing it an explicit `undefined` would work today only because
+      // `?? CLOUDFLARE_TURN_API_BASE` happens to catch it. An absent var must not reach the
+      // minter at all — `wrangler dev` injects `''` for one, which is the same case.
+      ...(apiBase === undefined || apiBase === '' ? {} : { apiBase }),
+    })
+  }
+  const secret = env.O2_TURN_SECRET
+  if (secret !== undefined && secret !== '') return sharedSecretMinter(secret)
+  return null
+}
+
+/**
+ * The status a refusal answers under — whose fault it was, in one number.
+ *
+ * `400` for everything a caller could have caused, undifferentiated on purpose (see
+ * `#mintTurnCredential`). `503` for a deployment that is not configured to answer this request,
+ * and `502` for a provider that would not. **A caller who presented a valid certificate and a
+ * valid signature must never see `400`**: it tells them to fix a request that was correct, and
+ * on this route it would send a tab looking for a bug it does not have.
+ */
+export function turnRefusalStatus(kind: TurnMintFailure['kind']): number {
+  if (kind === 'turn-not-configured' || kind === 'no-urls-for-region') return 503
+  if (kind === 'provider-refused') return 502
+  return 400
+}
+
 function perRegionTurnUrls(env: HostedEnv): Partial<Record<HostedObjectName, string>> {
   return {
     ...(env.O2_TURN_URLS_US === undefined ? {} : { 'bootstrap-us': env.O2_TURN_URLS_US }),

@@ -28,6 +28,16 @@ import type { HostedObjectName } from './hosted-object.ts'
  * region. The measurement that would settle the topology question is a probe from two
  * continents, and this milestone cannot take it.
  *
+ * **AMENDED 2026-09-09 — the attribution sentence above holds for ONE of the two schemes.** It
+ * was written when `sharedSecretMinter` was the only minter, and it is still exactly true of it:
+ * that username is `expiry:region:nodeKey` and a `coturn` log line is attributable to an
+ * identity a certificate named. `cloudflareTurnMinter` cannot put anything into its username —
+ * the provider issues it, 64 opaque hex characters, measured — so on that path attribution is
+ * the provider's and not this fabric's. What survives on both is that the region is **checked**
+ * here before anything is minted, and that `grant.region` rides back to the caller; that is a
+ * client-side tag, which is a weaker claim than a server-side one and is stated as such.
+ * See `turn-credential.ts`'s AMENDED block, consequence 2.
+ *
  * ## What criterion 2 still lacks — TWO things, not one
  *
  * The criterion asks for *a cross-continent pair observed using its own region's rung rather
@@ -89,7 +99,24 @@ export function turnRegions(config: {
   })
 }
 
-/** Thrown-free lookup: the URLs for `region`, or `null` when it is not a declared name. */
+/**
+ * Thrown-free lookup: the URLs for `region`, or `null` when it is not a declared name.
+ *
+ * ## CORRECTED 2026-09-09 — `null` and `[]` had been fused, and the fusion was a trap
+ *
+ * This returned `null` for a declared region carrying no URLs as well as for an undeclared name,
+ * with the stated reason *"absent configuration must refuse by name upstream, not hand out a
+ * credential for nowhere"*. **The refusal was right and the name it refused under was wrong**,
+ * and it stopped being merely untidy the moment a second credential scheme existed: Cloudflare's
+ * API answers with its own endpoints, so a deployment holding only the API key pair declares no
+ * URLs at all — and every mint would have come back `unknown-region`, telling a correctly
+ * configured tab that `bootstrap-us` is not a region. A deployment mistake would have presented
+ * as a client error, on the one path nobody exercises until strangers are on it.
+ *
+ * So this function answers the LOOKUP question only: `null` is *not a declared name*, `[]` is
+ * *declared, and this deployment names no URLs of its own*. Whether `[]` is fatal is the
+ * minter's question, and `turn-credential.ts` puts it there.
+ */
 export function turnUrlsFor(
   region: string,
   config: {
@@ -100,7 +127,7 @@ export function turnUrlsFor(
   // The same value check `stubFor` applies, and for its stated reason: *"a name that arrived
   // from a request is a `string`, and the only thing that can refuse it is a value check."*
   const found = turnRegions(config).find((entry) => entry.name === region)
-  if (found === undefined || found.urls.length === 0) return null
+  if (found === undefined) return null
   return found.urls
 }
 

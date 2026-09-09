@@ -82,6 +82,49 @@ proved against a local `workerd` with a stand-in key before the real one is need
 
 **What to say back:** the Key ID, and confirmation the secret is set.
 
+### AMENDED 2026-09-09 — the key exists, and the remaining act is smaller and different
+
+The application was created (**`round-band-959b`**) and both halves are banked in `.secrets/`
+and in the login keychain. The engineering behind the seam is written and measured, so what is
+left of this row is three acts, in order:
+
+1. **Rotate the API credential before anything else.** The value was pasted into a session
+   transcript, and a transcript is storage. Delete the application in the dashboard, create a
+   fresh one, and write the new value straight into `.secrets/O2_TURN_API_SECRET` — not through
+   a chat window. The key id is not a secret and does not need this treatment.
+
+2. **Set both on the deployed object.** From `packages/cloudflare/`:
+
+       npx wrangler secret put O2_TURN_API_SECRET --name o2-bootstrap
+       npx wrangler secret put O2_TURN_KEY_ID --name o2-bootstrap
+
+   Both, or neither engages — half a pair is treated as no provider at all, deliberately, and
+   the mint then refuses by name rather than guessing at the missing half.
+
+3. **Read the verdict back**, from any machine:
+
+       curl -s -X POST https://o2-bootstrap.af-4a0.workers.dev/turn-credential \
+         -H 'Content-Type: application/json' --data '{"bad":true}'
+
+   A deployment with the pair set answers **400 `malformed-request`** — the gate refusing a
+   body, which means it got as far as the gate. **503 `turn-not-configured`** means neither
+   scheme is configured and the secrets did not take. **502 `provider-refused`** means the pair
+   is set and Cloudflare rejected it, which is the wrong-credential case and reads its status
+   back in the body.
+
+**The naming trap, because it is the expensive mistake this row now affords.** `O2_TURN_SECRET`
+is a *different value in a different scheme* — the shared secret a `coturn` we run would hold.
+Cloudflare issues its own credentials and verifies only those, measured on 2026-09-09. Setting
+the API credential under the old name mints a well-formed credential every Cloudflare TURN
+server answers `401` to, and a tab reads that as a network fault rather than as a deployment
+that is not configured.
+
+**Still not carried after all three:** no real `RTCPeerConnection` has yet carried a pair over
+a Cloudflare-issued credential. Every `typ relay` observation in this repository is against a
+local `coturn`. The reading that closes it is two devices that cannot reach each other
+directly — the office guest wi-fi pair is exactly the case — connecting once the secrets are
+live.
+
 ---
 
 ## 4. The telemetry's legal basis — Phases 35 and 37
