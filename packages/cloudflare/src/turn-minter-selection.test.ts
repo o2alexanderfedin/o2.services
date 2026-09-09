@@ -56,6 +56,19 @@ describe('NET-12 — which minter a deployment gets', () => {
         O2_TURN_SECRET: 'a-coturn-secret',
         O2_TURN_KEY_ID: 'a-key-id',
         O2_TURN_API_SECRET: 'a-credential',
+        // **Without this line the case below POSTs a fabricated Bearer to
+        // `rtc.live.cloudflare.com` on every node-lane run, CI included.** Caught in review on
+        // the day it was written, and it is the `hermetic-fixtures.node.test.ts` class one lane
+        // over: that guard covers a fixture BROWSER reaching the internet and does not see a
+        // `fetch` a node-lane spec makes for itself. What makes it worse than a slow test is
+        // that it is outcome-stable — Cloudflare's 401 and an offline `ECONNREFUSED` both land
+        // on `provider-refused` — so the case would pass either way and never say it was
+        // dialling anyone.
+        //
+        // Port 9 is `discard`, the same convention `HERMETIC_PROXY` uses, so the refusal is
+        // immediate. It also pays for itself: this is the only node-lane reading that the
+        // `apiBase` spread inside `selectTurnMinter` happens at all.
+        O2_TURN_API_BASE: 'http://127.0.0.1:9/v1/turn/keys',
       }),
     )
     expect(minter).not.toBeNull()
@@ -68,7 +81,7 @@ describe('NET-12 — which minter a deployment gets', () => {
       urls: ['turn:a-coturn.invalid:3478'],
     })
     // The shared-secret minter would have answered `ok` with `1800000600:bootstrap-us:aa` from
-    // that non-empty URL list. The provider one tries to reach a host this test cannot dial and
+    // that non-empty URL list. The provider one tries to reach the discard port above and
     // refuses by name. Either way it is NOT a shared-secret grant, which is the claim.
     expect(outcome.ok).toBe(false)
     if (outcome.ok) return

@@ -101,6 +101,16 @@ import type { CertificateFailure, NodeCertificate, PublicKeyHex } from '@o2/core
  * this module wrote specifically to stop that. The two schemes therefore get two names in the
  * environment, and `worker.ts` says which wins.
  *
+ * **And the adapter itself was then run against that endpoint once, which is a different claim
+ * from the probe.** The `curl` above proved the API; it did not prove this code reads it.
+ * `cloudflareTurnMinter` was invoked with the real pair on 2026-09-09 and answered `ok`: a
+ * 64-character `username` and `credential`, **five** URLs, `turns:turn.cloudflare.com:443`
+ * among them, and `urls.some(u => u.startsWith('stun:'))` **false** — so
+ * {@link providerTurnEntry} skipped the credential-less STUN entry on a real response and not
+ * only on a fixture. Nothing in the test lanes repeats that call: the node lane injects a
+ * `fetch` and the e2e lane points `O2_TURN_API_BASE` at a loopback stub, because a suite whose
+ * greenness depends on somebody else's uptime is a suite that reports the weather.
+ *
  * So {@link cloudflareTurnMinter} does not mint. It **asks**, and hands on what it is given.
  * Three consequences, recorded rather than smoothed over:
  *
