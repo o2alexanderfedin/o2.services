@@ -589,7 +589,21 @@ describe('the call graph: a path through functions, not through modules', () => 
     // handler `fetch`, and a Durable Object's request handler is `fetch` as well. Renaming
     // either to dodge this bound would distort a platform contract to please a guard — the
     // objection this case's own history already records twice.
-    expect(built.collisions.length).toBeLessThanOrEqual(17)
+    // **17 -> 18 on 2026-09-09, and it is the `ed25519-backend.ts#verify` shape read forwards.**
+    // The eighteenth is `packages/cloudflare/src/turn-credential.ts#mint`: that module now holds
+    // TWO implementations of one `TurnMinter` seam — `sharedSecretMinter` for the `coturn`
+    // scheme and `cloudflareTurnMinter` for the provider's — and each returns an object literal
+    // whose method is `mint`. `declaredNameOf` counts an object-literal shorthand method, so two
+    // of them in one file is a collision by exactly the mechanism the note above records for
+    // three `verify(...)` adapters. Measured, not predicted: the collision list was printed and
+    // this is the only entry that is new.
+    //
+    // **Neither name is ours to choose here either.** The seam's method is `mint` because the
+    // interface says so, and an interface with one implementation named `mint` and another named
+    // `mintViaProvider` is not one seam. Renaming to dodge this bound would distort a design to
+    // please a guard, which is the objection this case's history already records three times.
+    expect(built.collisions.length).toBeLessThanOrEqual(18)
+    expect(built.collisions).toContain('packages/cloudflare/src/turn-credential.ts#mint')
     expect(built.collisions).toContain('packages/core/src/discovery.ts#providers')
     // The entries that moved the bound, pinned by name so a future raise cannot hide behind them.
     expect(built.collisions).toContain('packages/core/src/ed25519-backend.ts#signEd25519')

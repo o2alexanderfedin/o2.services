@@ -58,9 +58,20 @@ describe('NET-12 — each declared region has its own rung', () => {
     expect(isDeclaredRegion('bootstrap-eu')).toBe(true)
   })
 
-  it('answers null when a declared region has no URLs at all, rather than an empty rung', () => {
-    // Absent configuration must refuse by name upstream, not hand out a credential for nowhere.
-    expect(turnUrlsFor('bootstrap-us', {})).toBeNull()
+  it('answers an EMPTY LIST for a declared region with no URLs — not null, which means undeclared', () => {
+    // CORRECTED 2026-09-09. This case asserted `toBeNull()` and the assertion was wrong in a way
+    // that only a second credential scheme could reveal: a deployment holding Cloudflare's API
+    // key pair declares no URLs of its own, so every mint came back `unknown-region` — telling a
+    // correctly configured tab that `bootstrap-us` is not a region. The refusal was right; the
+    // NAME was wrong, and a deployment mistake wore a client-error name.
+    //
+    // The two answers are now distinct, and the distinction is the whole point: `null` is *not a
+    // declared name*, `[]` is *declared, and this deployment names none*. Whether `[]` is fatal
+    // belongs to the minter — `turn-credential.test.ts` holds both halves of that.
+    expect(turnUrlsFor('bootstrap-us', {})).toEqual([])
+    expect(turnUrlsFor('bootstrap-us', {})).not.toBeNull()
+    // And the contrast, in the same case, so neither can drift alone.
+    expect(turnUrlsFor('bootstrap-atlantis', {})).toBeNull()
   })
 })
 

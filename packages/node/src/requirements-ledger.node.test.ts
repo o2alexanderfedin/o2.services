@@ -1695,10 +1695,30 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // a calendar, Phase 39 criterion 4, not a spec anybody can write. The row's own layer
   // records the reading; one stale word (`unscheduled`) was corrected there, and the
   // retired hardware premise still standing in two sibling documents is named.
+  //
+  // **RE-READ BY HAND 2026-09-09 AT 15 DAYS OUTSTANDING, BOUND 14 — THE ROW STANDS UNCHANGED.**
+  // The promise came due a second time and this is the reading rather than a renewal. All three
+  // witnesses re-run together on a quiet host: `EXIT=0` read on the line immediately after the
+  // command, **3 files, 51 tests, none skipped**, `real 6.72 / user 20.96 / sys 4.18`, load/core
+  // 1.80 before and 1.84 after against a ceiling of 4.00. Compared with the 2026-08-25 reading
+  // — 3 files, 51 tests, `real 6.42 / user 17.96 / sys 3.75` — the same corpus is intact and no
+  // witness has drifted.
+  //
+  // **Ticking it is still the overclaim this entry exists to prevent.** The same-machine half
+  // was never the question; the distinct-machine half needs devices somebody else owns, on more
+  // than one continent, and its named closer is Phase 39 criterion 4 — the public run, which has
+  // not been made. Nothing in the fortnight since changed that: TURN moved (`NET-12`, this file,
+  // 2026-09-09), which is one of the run's blockers rather than the run.
+  //
+  // **One thing about this row's own history is worth carrying forward.** Its retired premise
+  // was *no second machine*, and that was false for a year — the gate was never hardware, it was
+  // having something to give a few hundred willing testers. The current blockers are of the same
+  // kind: they are about access and about a credential, not about a machine. So the clock moves
+  // and `because` does not.
   {
     id: 'BENCH-06',
     because: 'experiment-not-run',
-    reread: '2026-08-25',
+    reread: '2026-09-09',
     witnesses: [
       'packages/bench/src/harness.test.ts',
       'packages/node/src/bench-fabric.node.test.ts',
@@ -1776,18 +1796,48 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     // documentation, and the runbook's first step is a spending alert rather than an
     // engineering one — the `HOST-10` ordering this milestone has already lost once.
     //
-    // **The promise:** re-read this row when Phase 33 has sited the three objects AND a cohort
-    // exists on two continents. A same-region substitute does not discharge it. Everything that
-    // COULD be measured locally was, and the witnesses below are what measured it.
+    // **RE-READ 2026-09-09, AND THE SECOND LEG ABOVE IS HALF DISCHARGED.** Kept rather than
+    // rewritten, because what it says about the *discipline* is the reason the adapter is now
+    // trustworthy. The owner created a Cloudflare TURN application, and the probe that paragraph
+    // demanded was taken before a line was written: `POST …/credentials/generate-ice-servers`
+    // answered **201** with `iceServers` as an ARRAY whose first entry is STUN with no
+    // credentials and whose second carries a 64-character opaque `username` and `credential`.
+    //
+    // **The probe changed the design rather than confirming it**, which is the whole argument
+    // for taking it. The username has no `expiry:` prefix, so Cloudflare is NOT running RFC
+    // 5766's long-term credential mechanism: there is no shared secret to HMAC over, and the API
+    // credential placed in `O2_TURN_SECRET` would have minted a well-formed credential that
+    // every Cloudflare TURN server answers `401` to — reaching a tab as a **network fault** and
+    // walking past the `turn-not-configured` refusal written to prevent exactly that. So
+    // `cloudflareTurnMinter` asks rather than mints, the two schemes have two names in the
+    // environment, and the join is measured through a real workerd against a loopback stub.
+    //
+    // **A third thing was found by asking what a real visitor's tab does, and it was the one
+    // that mattered.** The rung was reachable only through `?turn=`, which is not in the
+    // circulated link — so no visitor had ever asked for a credential, and the entire built
+    // half was inert in production. `demo/main.ts` now derives the endpoint from the relay the
+    // tab already dials, the way the kill switch's is derived.
+    //
+    // **What is still NOT carried, and neither half is substitutable.** (1) No real
+    // `RTCPeerConnection` has ever carried a pair over a Cloudflare-issued credential — every
+    // `typ relay` observation in the witnesses below is against a local `coturn`, and the
+    // lifetime is enforced by that server's clock and not by Cloudflare's. (2) The
+    // cross-continent observation still needs three sited objects AND clients on two continents.
+    //
+    // **The promise, restated:** re-read when a live Cloudflare-issued credential has carried a
+    // real pair, and again when Phase 33 has sited the three objects AND a cohort exists on two
+    // continents. A same-region substitute discharges neither.
     id: 'NET-12',
     because: 'experiment-not-run',
-    reread: '2026-09-02',
+    reread: '2026-09-09',
     witnesses: [
       'packages/browser/src/ice-configuration-library.node.test.ts',
       'packages/browser/src/ice-configuration.test.ts',
       'packages/browser/src/turn-credentials.test.ts',
       'packages/cloudflare/src/turn-credential.e2e.test.ts',
       'packages/cloudflare/src/turn-credential.test.ts',
+      'packages/cloudflare/src/turn-minter-selection.test.ts',
+      'packages/cloudflare/src/turn-provider-join.e2e.test.ts',
       'packages/cloudflare/src/turn-regions-source.node.test.ts',
       'packages/cloudflare/src/turn-regions.test.ts',
       'packages/cloudflare/src/turn-sharding.e2e.test.ts',
