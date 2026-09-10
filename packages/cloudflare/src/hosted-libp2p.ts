@@ -55,6 +55,7 @@ import { yamux } from '@chainsafe/libp2p-yamux'
 import { circuitRelayServer, circuitRelayTransport } from '@libp2p/circuit-relay-v2'
 import { hostedProvider, serveHostedRequests } from './hosted-enrolment.ts'
 import type { HostedProvider } from './hosted-enrolment.ts'
+import type { PublicKeyHex } from '@o2/core'
 import { identify, identifyPush } from '@libp2p/identify'
 import { kadDHT, passthroughMapper } from '@libp2p/kad-dht'
 import { keychain } from '@libp2p/keychain'
@@ -431,6 +432,13 @@ export interface HostedFabricInit {
    * bound real on a tier whose objects are evicted between requests.
    */
   readonly maxIssuedPerWindow?: number
+  /**
+   * User keys that enrol in the reserved lane — AUTH-01.
+   *
+   * Empty by default, and the empty set is the honest default: a reserved key is a **policy**
+   * exception an operator states, not something a deployment should acquire by accident.
+   */
+  readonly reservedUserKeys?: ReadonlySet<PublicKeyHex>
 }
 
 /**
@@ -566,6 +574,7 @@ export async function createHostedFabric(init: HostedFabricInit): Promise<Hosted
           store: datastore,
           providerPrivateKey: identity.seed,
           maxIssuedPerWindow: init.maxIssuedPerWindow,
+          ...(init.reservedUserKeys === undefined ? {} : { reserved: init.reservedUserKeys }),
         })
   rpc.serve(
     serveHostedRequests({

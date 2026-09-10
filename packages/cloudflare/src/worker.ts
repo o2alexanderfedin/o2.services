@@ -317,6 +317,28 @@ export interface HostedEnv {
    */
   readonly O2_MAX_ISSUED_PER_WINDOW?: string
   /**
+   * AUTH-01 — user keys that enrol without queueing behind everybody else.
+   *
+   * Comma-separated hex public keys. A request proven to hold one of these private halves
+   * neither reads nor consumes the shared window, so **draining the public budget cannot lock
+   * the operator out of their own fabric**. It stays bounded by the per-user limit
+   * (`DEFAULT_MAX_PER_WINDOW`, 64 an hour), which this lane does not touch.
+   *
+   * **Pinning a public key grants nothing to whoever merely knows it.** `EnrollmentAuthority`
+   * verifies both possession proofs BEFORE either budget is read, so a request naming a
+   * reserved key without its private half is refused `bad-owner-proof` and never reaches the
+   * lane. That ordering is what makes this safe, and it is a reading of `enrollment.ts` rather
+   * than an assumption about it.
+   *
+   * **One key per device, not one per person.** A visitor's user key is generated in the
+   * browser, per origin, non-extractable — so a laptop and a phone hold different keys and each
+   * is pinned separately. The page can report its own (`enrolledUserKey`).
+   *
+   * A `var` rather than a secret: these are public keys, and an operator reading
+   * `wrangler.jsonc` should be able to see which identities are exempt from the queue.
+   */
+  readonly O2_RESERVED_USER_KEYS?: string
+  /**
    * Comma-separated issuer public keys whose certificates admit a caller to the TURN minter.
    *
    * **This is the fabric membership set**, and before Phase 34 this tier had nothing of the
@@ -576,6 +598,10 @@ export class BootstrapObject {
         // name rather than clamping it, so an operator who asks for more than this tier can
         // honour is told, instead of quietly getting less than they configured.
         ...this.#issuanceBudget(),
+        // Not a conditional spread, unlike the budget above, and the difference is meant: an
+        // empty set is a real and correct answer here — nobody is exempt — whereas an absent
+        // budget means something else entirely.
+        reservedUserKeys: new Set(commaSeparated(this.#env.O2_RESERVED_USER_KEYS)),
       }),
     )
     return this.#fabric

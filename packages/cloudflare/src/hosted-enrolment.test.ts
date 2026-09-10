@@ -2,7 +2,7 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { MemoryDatastore } from 'datastore-core'
 import { Key } from 'interface-datastore'
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_ISSUANCE_WINDOW_MS, requestEnrollment, toHex } from '@o2/core'
+import { DEFAULT_ISSUANCE_WINDOW_MS, DEFAULT_MAX_PER_WINDOW, requestEnrollment, toHex } from '@o2/core'
 import type { PendingEnrollment, PublicKeyHex } from '@o2/core'
 import { encodeRequest, parseResponse } from '@o2/net'
 import {
@@ -48,6 +48,7 @@ const PROVIDER_SEED = new Uint8Array(32).fill(41)
 const NODE_SEED = new Uint8Array(32).fill(43)
 const USER_SEED = new Uint8Array(32).fill(47)
 const OTHER_USER_SEED = new Uint8Array(32).fill(53)
+const THIRD_USER_SEED = new Uint8Array(32).fill(59)
 const NOW = 1_800_000_000_000
 
 function keyOf(seed: Uint8Array): PublicKeyHex {
@@ -359,5 +360,105 @@ describe('AUTH-01 — the durable ledger itself', () => {
 
   it('is stored under a key nothing else in this tier writes', () => {
     expect(ISSUANCE_JOURNAL_KEY.toString()).toBe(new Key('/journal/issuance').toString())
+  })
+})
+
+describe('AUTH-01 — the reserved lane: the operator does not queue behind the cohort', () => {
+  /** A provider whose reserved set holds exactly the owner's user key. */
+  function withReserved(store: MemoryDatastore, budget: number, reserved: PublicKeyHex[]) {
+    return hostedProvider({
+      store,
+      providerPrivateKey: PROVIDER_SEED,
+      maxIssuedPerWindow: budget,
+      reserved: new Set(reserved),
+    })
+  }
+
+  it('ISSUES to a reserved key after the shared window is exhausted', async () => {
+    // The whole request, in one case: the public budget is one, a stranger spends it, and the
+    // owner still gets a certificate. Without the lane this is a refusal and the owner waits an
+    // hour for a fabric they run.
+    const store = new MemoryDatastore()
+    const handler = serveHostedRequests({
+      reservations: () => [],
+      provider: withReserved(store, 1, [keyOf(USER_SEED)]),
+      now: () => NOW,
+    })
+    // A stranger drains it.
+    expect((await enrolOnce(handler, await requestFrom(OTHER_USER_SEED))).ok).toBe(true)
+    // A second stranger is refused, which is what says the budget really is spent.
+    const drained = await enrolOnce(handler, await requestFrom(THIRD_USER_SEED))
+    expect(drained.ok, 'the shared budget was not actually exhausted, so this case proves nothing').toBe(false)
+    // The owner is not.
+    const owner = await enrolOnce(handler, await requestFrom(USER_SEED))
+    expect(owner.ok, owner.reason).toBe(true)
+  })
+
+  it('does not SPEND the shared window either, so the exemption is not paid for by the cohort', async () => {
+    // The other half, and it has to be the other half: a reserved key exempt from the budget
+    // that still consumed it would be the operator quietly making everybody else wait.
+    const store = new MemoryDatastore()
+    const handler = serveHostedRequests({
+      reservations: () => [],
+      provider: withReserved(store, 1, [keyOf(USER_SEED)]),
+      now: () => NOW,
+    })
+    expect((await enrolOnce(handler, await requestFrom(USER_SEED))).ok).toBe(true)
+    // The single public slot is still there afterwards.
+    const stranger = await enrolOnce(handler, await requestFrom(OTHER_USER_SEED))
+    expect(stranger.ok, 'the reserved enrolment consumed the cohort’s only slot').toBe(true)
+  })
+
+  it('CANNOT be used by somebody who merely knows the reserved public key', async () => {
+    // The control that makes the two cases above safe rather than merely convenient. A reserved
+    // key is public — it appears in every certificate it ever obtained — so the exemption must
+    // rest on the private half. `EnrollmentAuthority` verifies both possession proofs before it
+    // reads any budget, so this is refused at the proof and never reaches the lane.
+    const store = new MemoryDatastore()
+    const handler = serveHostedRequests({
+      reservations: () => [],
+      provider: withReserved(store, 1, [keyOf(USER_SEED)]),
+      now: () => NOW,
+    })
+    // A request legitimately signed by somebody else, with the reserved key pasted over it.
+    const stolen = { ...(await requestFrom(OTHER_USER_SEED)), userKey: keyOf(USER_SEED) }
+    const forged = await enrolOnce(handler, stolen)
+    expect(forged.ok, 'a reserved lane was entered by naming a public key').toBe(false)
+
+    // And the shared budget is untouched by the attempt: a refusal spends nobody's window, so
+    // this cannot be used to drain the cohort either.
+    const stranger = await enrolOnce(handler, await requestFrom(THIRD_USER_SEED))
+    expect(stranger.ok, stranger.reason).toBe(true)
+  })
+
+  it('leaves an unpinned deployment exactly as it was', async () => {
+    // The default is the empty set, and an exemption must be something an operator states
+    // rather than something a deployment acquires. Same budget of one, nobody pinned.
+    const store = new MemoryDatastore()
+    const handler = serveHostedRequests({
+      reservations: () => [],
+      provider: withReserved(store, 1, []),
+      now: () => NOW,
+    })
+    expect((await enrolOnce(handler, await requestFrom(OTHER_USER_SEED))).ok).toBe(true)
+    expect((await enrolOnce(handler, await requestFrom(USER_SEED))).ok).toBe(false)
+  })
+
+  it('is still bounded — a reserved key does not mint without limit', async () => {
+    // What the lane grants is freedom from CONTENTION, not from bounds. The per-user window is
+    // untouched by any of this, so a leaked reserved key is capped at `DEFAULT_MAX_PER_WINDOW`.
+    // Asserted against the constant's own value rather than re-derived from the module.
+    expect(DEFAULT_MAX_PER_WINDOW).toBe(64)
+    const store = new MemoryDatastore()
+    const handler = serveHostedRequests({
+      reservations: () => [],
+      provider: withReserved(store, 1, [keyOf(USER_SEED)]),
+      now: () => NOW,
+    })
+    let granted = 0
+    for (let attempt = 0; attempt < DEFAULT_MAX_PER_WINDOW + 2; attempt += 1) {
+      if ((await enrolOnce(handler, await requestFrom(USER_SEED))).ok) granted += 1
+    }
+    expect(granted).toBe(DEFAULT_MAX_PER_WINDOW)
   })
 })
