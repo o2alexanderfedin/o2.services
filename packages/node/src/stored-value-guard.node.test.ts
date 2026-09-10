@@ -566,6 +566,20 @@ const REGISTER: readonly StoreEntry[] = [
     ],
   },
   {
+    file: 'packages/cloudflare/src/hosted-enrolment.ts',
+    media: [],
+    persists: 2,
+    named: 1,
+    secretShaped: 0,
+    holds: [
+      {
+        value: 'issuance timestamps — one row for everybody, one row per enrolling user key',
+        kind: 'not-a-secret',
+        why: 'numbers only, and nothing else is written: the certificate is handed to the joiner and never stored here. **What the per-user row DOES carry is a public key in its storage key**, which is the joiner`s own user key — the same value that appears in every certificate this node signs and in the certificate the joiner then presents to any peer. It identifies a fabric member, not a person: it is chosen by the visitor, held non-extractably in their browser, and named by nothing this node stores. The rows exist so a global rate limit survives the object being evicted, which is what makes the limit a bound rather than a comment; both are compacted to two windows and neither grows with history.',
+      },
+    ],
+  },
+  {
     file: 'packages/cloudflare/src/hosted-identity.ts',
     media: [],
     persists: 2,
@@ -1095,9 +1109,30 @@ const REGISTER: readonly StoreEntry[] = [
  * accept; the two moving together is the one it exists to stop. Closing condition, checkable:
  * nothing, because a reader on the filesystem is a permanent member — this entry records why the
  * count moved, not a debt to be paid off.
+ *
+ * **51 -> 52 on 2026-09-09, and this one IS a store rather than a reader — the pairing the
+ * paragraph above calls the case this ceiling exists to stop.** It is raised anyway, with the
+ * decision stated: `hosted-enrolment.ts` writes two rows of issuance timestamps to Durable
+ * Object storage, and both persist sites move with it.
+ *
+ * The reason the store had to exist rather than be avoided: the hosted tier began issuing
+ * certificates, bounded by a global rate limit the owner asked for, and **a rate limit whose
+ * history does not survive an eviction is not a rate limit**. Phase 17 measured that defeat
+ * directly — a second provider process starts with an empty history and accepts the same key
+ * again immediately — and a Durable Object is evicted between requests as a matter of course.
+ * So the alternative to this store was a bound that reported itself and enforced nothing, which
+ * is the failure class this whole file exists to make visible.
+ *
+ * What it holds is numbers, plus one public key per row *in the key name*, and the register
+ * entry states what that key is and is not. Closing condition, checkable: none — a provider that
+ * throttles keeps a history, so this is a permanent member.
  */
-const STORE_CEILING = 51
-const PERSIST_SITE_CEILING = 73
+const STORE_CEILING = 52
+// **73 -> 75 on 2026-09-09, and the two sites are the pair named in the block above.** Both are
+// in `hosted-enrolment.ts`'s `flush`: one `put` for the aggregate issuance row and one for the
+// asking user key's. They move together with `STORE_CEILING` because this is a store arriving
+// and not a reader — see that block for why a rate limit that forgets on eviction is not one.
+const PERSIST_SITE_CEILING = 75
 
 /** The register, rendered the same way the walk is, so one `toEqual` compares both. */
 function declared(): readonly string[] {

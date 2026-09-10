@@ -127,6 +127,53 @@ live.
 
 ---
 
+## 3b. The issuance throttle — a number only the owner can choose
+
+| | |
+|---|---|
+| **Act** | Set `O2_MAX_ISSUED_PER_WINDOW` on the deployed object |
+| **Cost** | None directly. It is the dial between refusing honest volunteers and letting an attacker mint identities |
+| **Why not an agent** | It trades two harms against each other and both land on the owner |
+| **Unblocks** | Every visitor's certificate, and therefore the TURN rung above |
+
+**Set it and enrolment turns on; leave it and this object signs nothing.** There is deliberately
+no separate switch: a provider that cannot state what bounds it does not sign, so the one state
+that cannot be reached by forgetting a variable is *issuing, unbounded*.
+
+    cd packages/cloudflare
+    npx wrangler deploy --var O2_MAX_ISSUED_PER_WINDOW:600
+
+Read it back with `curl -s https://o2-bootstrap.af-4a0.workers.dev/self` — `enrolment.issues`
+must be `true` and `enrolment.maxIssuedPerWindow` must be the number set. `deploy-pages.sh`
+**probes that field** before it writes `enrollmentProvider` into the document every visitor
+fetches, so a page never offers an enrolment the node would refuse.
+
+**The arithmetic to choose by, because the intuition is wrong.** A certificate lives **one hour**
+(`DEFAULT_CERTIFICATE_LIFETIME_MS`), so every enrolled node re-enrols every window: steady state
+is roughly *the active cohort per hour*, not the size of the invite burst. A few hundred testers,
+plus a person's device and tab fan-out, sits in the high hundreds. Below that, honest volunteers
+are refused; the ceiling this tier accepts is **2048**, and above it the deploy is refused by
+name rather than clamped.
+
+**And the cost that is not about money, stated at full size.** Enrolment is unauthenticated by
+design — `enrollment.ts` records that as an owner decision of 2026-08-02 — so **anyone who can
+dial this node can consume the whole window**, at one `ed25519.keygen()` per attempt, and thereby
+deny honest enrolment for the rest of that hour. That acceptance assumed *"several independent
+providers coexist by construction"*. **Today there is one.** So the throttle bounds an attacker's
+identities and simultaneously hands them a way to lock the cohort out for an hour. A bigger number
+buys more identities for them and fewer refusals for volunteers; a smaller one, the reverse. There
+is no value that avoids both, and picking one is this row.
+
+**What makes the bound real rather than decorative:** the issuance history is written to Durable
+Object storage, so a window survives the object being evicted. An in-process one would reset on
+every eviction — Phase 17 measured exactly that defeat — and
+`hosted-enrolment.test.ts` throws the provider away and rebuilds it over the same store to prove
+this one does not.
+
+**What to say back:** the number, and confirmation `/self` reports it.
+
+---
+
 ## 4. The telemetry's legal basis — Phases 35 and 37
 
 | | |

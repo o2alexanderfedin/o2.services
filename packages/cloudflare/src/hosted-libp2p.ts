@@ -53,6 +53,8 @@
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { circuitRelayServer, circuitRelayTransport } from '@libp2p/circuit-relay-v2'
+import { hostedProvider, serveHostedRequests } from './hosted-enrolment.ts'
+import type { HostedProvider } from './hosted-enrolment.ts'
 import { identify, identifyPush } from '@libp2p/identify'
 import { kadDHT, passthroughMapper } from '@libp2p/kad-dht'
 import { keychain } from '@libp2p/keychain'
@@ -72,7 +74,7 @@ import {
   providerRecordPolicy,
 } from '@o2/libp2p'
 import { Libp2pTransport, RelayServiceLog, TrafficSplitCounter, keychainProtectionFor, reservedPeerIds, trafficSplitMetrics } from '@o2/libp2p'
-import { RpcEndpoint, serveReservations } from '@o2/net'
+import { RpcEndpoint } from '@o2/net'
 import type { ProviderRecordPolicy } from '@o2/libp2p'
 import type { NodeIdentity } from '@o2/libp2p'
 import type { PeerInfoMapper, Selectors, Validators } from '@libp2p/kad-dht'
@@ -420,6 +422,15 @@ export interface HostedFabricInit {
    * history; it can only produce a node whose totals start from this instance.
    */
   readonly relayLog?: RelayServiceLog
+  /**
+   * AUTH-01 — the aggregate certificates-per-window budget, or nothing.
+   *
+   * **The budget IS the on-switch**, and there is deliberately no second flag: a provider that
+   * cannot state what bounds it does not sign. See `hosted-enrolment.ts`'s header for the
+   * owner instruction this shape comes from and for why a durable ledger is what makes the
+   * bound real on a tier whose objects are evicted between requests.
+   */
+  readonly maxIssuedPerWindow?: number
 }
 
 /**
@@ -463,6 +474,13 @@ export interface HostedFabric {
   readonly libp2p: Libp2p
   readonly sweep: ExpirySweep
   readonly identity: NodeIdentity
+  /**
+   * AUTH-01 — this object's enrolment provider, or the named absence.
+   *
+   * Exposed for the reason `rpc` above is: a spec asks the object the question a joiner asks,
+   * rather than asserting that a handler was installed. `issuer` is what `worker.ts` pins.
+   */
+  readonly provider: HostedProvider | 'issues-no-certificates'
   /**
    * NET-03 — the endpoint answering `{kind:'reservations'}`, and nothing else.
    *
@@ -521,7 +539,9 @@ export async function createHostedFabric(init: HostedFabricInit): Promise<Hosted
   // **Why not `serveAgent`.** Its options require an `executor` and a `blockstore` with no
   // named opt-out (`agent.ts:395-399`), so wiring it here would construct a WASM executor on
   // a node whose whole job is to relay — the "capability shipped while we are in the file"
-  // that `worker.ts`'s header refuses. `serveReservations` is that one branch alone.
+  // that `worker.ts`'s header refuses. `serveHostedRequests` is that one branch, plus AUTH-01's
+  // two enrolment frames added on 2026-09-09 by owner ruling — still no executor, no blockstore
+  // and no combine, so this stays a relay that also certifies rather than becoming a worker.
   //
   // **Why `Libp2pTransport` rather than a `libp2p.handle` of our own.** The framing, the
   // per-peer backlog budgets and `runOnLimitedConnection: true` on both ends are the wire's,
@@ -532,8 +552,29 @@ export async function createHostedFabric(init: HostedFabricInit): Promise<Hosted
   // store, because libp2p declares a `relay:reservation` event and never dispatches it, so a
   // value taken once goes stale in exactly the long-lived process this is.
   const rpc = new RpcEndpoint(await Libp2pTransport.start(libp2p))
-  rpc.serve(serveReservations(() => reservedPeerIds(libp2p.services['relay'])))
-  return { libp2p, sweep, identity, datastore, traffic, relayLog, rpc }
+  // AUTH-01 — built ONCE and held for this object's life, because the enrolment exchange is two
+  // round trips and the nonce minted by the first lives in the authority's own heap. An
+  // authority rebuilt per request would refuse the second leg every time. See
+  // `hosted-enrolment.ts` for how the *history* is nevertheless loaded per request.
+  //
+  // The signing key is this node's own identity seed, so the issuer a certificate names is the
+  // `nodeKey` already published on `GET /self` — a derivation, not a fifth secret to transcribe.
+  const provider =
+    init.maxIssuedPerWindow === undefined
+      ? ('issues-no-certificates' as const)
+      : hostedProvider({
+          store: datastore,
+          providerPrivateKey: identity.seed,
+          maxIssuedPerWindow: init.maxIssuedPerWindow,
+        })
+  rpc.serve(
+    serveHostedRequests({
+      reservations: () => reservedPeerIds(libp2p.services['relay']),
+      provider,
+      ...(init.now === undefined ? {} : { now: init.now }),
+    }),
+  )
+  return { libp2p, sweep, identity, datastore, traffic, relayLog, rpc, provider }
 }
 
 /**

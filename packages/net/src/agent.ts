@@ -1017,7 +1017,7 @@ async function combineAdmitted(
  * rule: this is an answer about the request, and it names the one next action that works —
  * ask for another challenge. `error` stays reserved for facts about the answering node.
  */
-function certifyFreshly(
+export function certifyFreshly(
   authority: EnrollmentAuthority,
   request: EnrollmentRequest,
   now: number,
