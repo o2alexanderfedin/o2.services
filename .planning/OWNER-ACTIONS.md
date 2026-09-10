@@ -172,6 +172,28 @@ this one does not.
 
 **What to say back:** the number, and confirmation `/self` reports it.
 
+### The operator does not queue behind the cohort
+
+The throttle above is global, which means whoever drains the window this hour also stops **you**
+enrolling a new device. `O2_RESERVED_USER_KEYS` is the exemption: a comma-separated list of hex
+user keys that neither read nor consume the shared window.
+
+    npx wrangler deploy --var O2_RESERVED_USER_KEYS:<your user key>[,<another>]
+
+**One key per device, not one per person.** A user key is generated inside the browser, per
+origin, and cannot be extracted — so a laptop and a phone hold different ones and each is listed
+separately. The page knows its own; read it from the running tab.
+
+**Listing a public key gives nothing away, and that is a reading rather than a hope.**
+`EnrollmentAuthority` verifies both possession proofs **before** it consults either budget, so a
+request naming a reserved key without its private half is refused `bad-owner-proof` and never
+reaches the lane. The exemption rests on the private half, which never leaves the device.
+
+**What it does NOT lift:** the per-user limit, 64 an hour. So a reserved key that leaked mints at
+most that, and rotating it is one edit to this variable. And the exemption is not paid for by
+anybody — a reserved enrolment does not spend the shared window either, so listing yourself does
+not make the cohort wait longer.
+
 ---
 
 ## 4. The telemetry's legal basis — Phases 35 and 37

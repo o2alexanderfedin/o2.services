@@ -214,11 +214,33 @@ export class UnboundIssuanceError extends Error {
  */
 export class HostedIssuance implements IssuanceLedger {
   readonly #store: Datastore
+  readonly #reserved: ReadonlySet<PublicKeyHex>
   #current: LoadedIssuance | null = null
   #recorded = false
 
-  constructor(store: Datastore) {
+  constructor(store: Datastore, reserved: ReadonlySet<PublicKeyHex> = new Set()) {
     this.#store = store
+    this.#reserved = reserved
+  }
+
+  /**
+   * Whether the key this request is bound to runs in the reserved lane — AUTH-01.
+   *
+   * **Unforgeable, and that rests on a measured ordering rather than on hope.**
+   * `EnrollmentAuthority.enrol` verifies `proofOfPossession` and then `ownerProof` **before**
+   * it consults either budget: a request naming a reserved `userKey` without the private half
+   * is refused `bad-owner-proof` and never reaches this method's effect at all. So pinning a
+   * PUBLIC key here grants nothing to anyone who merely knows it, which is everyone — it
+   * appears in every certificate that key ever obtained.
+   *
+   * What it does grant, to whoever holds the private half: a lane that neither reads nor
+   * consumes the shared window. That is the point — the operator must not be locked out of
+   * their own fabric by whoever drained the public budget this hour — and it is also the whole
+   * of the exposure. A leaked reserved key mints at `DEFAULT_MAX_PER_WINDOW` an hour and no
+   * more, because the per-user limit is untouched by any of this; rotation is one variable.
+   */
+  #isReserved(): boolean {
+    return this.#reserved.has(this.#require().userKey)
   }
 
   bind(loaded: LoadedIssuance): void {
@@ -246,12 +268,20 @@ export class HostedIssuance implements IssuanceLedger {
   }
 
   issuedToAnybody(): readonly number[] {
-    return this.#require().anybody
+    // A reserved key does not see the shared window, so the aggregate budget cannot refuse it.
+    // Returning an empty history rather than a larger limit is deliberate: a bigger number
+    // would still be spent by whoever got there first, and "I do not want to wait" is a claim
+    // about contention, not about size.
+    return this.#isReserved() ? [] : this.#require().anybody
   }
 
   record(userKey: PublicKeyHex, at: number): void {
     const loaded = this.#require()
-    loaded.anybody.push(at)
+    // The other half of the lane, and it must be the other half: a reserved key that did not
+    // READ the shared window but still WROTE to it would spend the cohort's budget while being
+    // exempt from it — the operator quietly making everybody else wait, which is the inverse of
+    // the thing being asked for.
+    if (!this.#isReserved()) loaded.anybody.push(at)
     if (userKey === loaded.userKey) loaded.forUser.push(at)
     this.#recorded = true
   }
@@ -262,6 +292,15 @@ export class HostedIssuance implements IssuanceLedger {
     const loaded = this.#require()
     const encode = (values: readonly number[]): Uint8Array =>
       new TextEncoder().encode(JSON.stringify(values))
+    // Written unconditionally, and the reserved lane is NOT guarded a second time here.
+    //
+    // **That second guard existed and was deleted, because it made the property unplantable.**
+    // With a guard in both `record` and this line, either one alone held the claim — so a
+    // single-line plant left the suite green and the case that names the property could not
+    // see it. Measured, both ways, before this line was changed. The semantics live in
+    // `record` (*a reserved key does not consume the shared window*), so that is where the one
+    // guard is; by the time execution reaches here `loaded.anybody` is byte-identical to what
+    // was loaded, and writing it back is a no-op rather than a leak.
     await this.#store.put(ISSUANCE_JOURNAL_KEY, encode(loaded.anybody))
     await this.#store.put(issuanceKeyFor(loaded.userKey), encode(loaded.forUser))
   }
@@ -287,8 +326,10 @@ export function hostedProvider(parts: {
   readonly store: Datastore
   readonly providerPrivateKey: Uint8Array
   readonly maxIssuedPerWindow: number
+  /** User keys that run in the reserved lane. See {@link HostedIssuance} for what it grants. */
+  readonly reserved?: ReadonlySet<PublicKeyHex>
 }): HostedProvider {
-  const ledger = new HostedIssuance(parts.store)
+  const ledger = new HostedIssuance(parts.store, parts.reserved ?? new Set())
   const authority = new EnrollmentAuthority({
     providerPrivateKey: parts.providerPrivateKey,
     maxIssuedPerWindow: parts.maxIssuedPerWindow,
