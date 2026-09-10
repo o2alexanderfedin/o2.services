@@ -41,7 +41,7 @@ import type { RpcHandler, RpcReply } from '@o2/net'
  * `'remembers-only-within-this-process'` must be asked for **by name**. A Durable Object is
  * evicted between requests as a matter of course, so taking that sentinel here would reset the
  * window on every eviction and the global budget would bound nothing at all, with nothing
- * anywhere failing. {@link DurableIssuance} is therefore not an optimisation; it is the
+ * anywhere failing. {@link HostedIssuance} is therefore not an optimisation; it is the
  * difference between a throttle and a comment describing one.
  *
  * ## Synchronous port, asynchronous storage — the one real design problem
@@ -54,7 +54,7 @@ import type { RpcHandler, RpcReply } from '@o2/net'
  *
  * So the storage read happens **before** the authority is called and the write **after**:
  * {@link loadIssuance} reads, `enrol` runs synchronously against what was read, and
- * {@link DurableIssuance.flush} persists what it recorded. That is the same read-modify-write
+ * {@link HostedIssuance.flush} persists what it recorded. That is the same read-modify-write
  * shape `funnel-journal.ts` and `relay-service-journal.ts` already use on this tier, and it is
  * safe here for the reason it is safe there: a Durable Object runs one request at a time by the
  * platform's own input-gate rule, so no second request can interleave between the read and the
@@ -145,71 +145,24 @@ async function readTimestamps(store: Datastore, key: Key, now: number): Promise<
   }
 }
 
-/**
- * A ledger loaded from storage, recorded into in memory, and written back afterwards.
- *
- * Synchronous on the read side because the port requires it — see this file's header. The
- * asynchrony is pushed to {@link loadIssuance} before and {@link flush} after, which is the only
- * arrangement that keeps `EnrollmentAuthority.enrol` synchronous.
- */
-export class DurableIssuance implements IssuanceLedger {
-  readonly #store: Datastore
-  readonly #userKey: PublicKeyHex
-  readonly #anybody: number[]
-  readonly #forUser: number[]
-  #recorded = false
-
-  constructor(parts: {
-    readonly store: Datastore
-    readonly userKey: PublicKeyHex
-    readonly anybody: number[]
-    readonly forUser: number[]
-  }) {
-    this.#store = parts.store
-    this.#userKey = parts.userKey
-    this.#anybody = parts.anybody
-    this.#forUser = parts.forUser
-  }
-
-  issuedTo(userKey: PublicKeyHex): readonly number[] {
-    // Loaded for ONE user key, because that is the only one an enrolment request can ask
-    // about — the request names it. A question about a different key is answered with no
-    // history rather than with this key's, which would be the wrong answer in the direction
-    // that over-issues.
-    return userKey === this.#userKey ? this.#forUser : []
-  }
-
-  issuedToAnybody(): readonly number[] {
-    return this.#anybody
-  }
-
-  record(userKey: PublicKeyHex, at: number): void {
-    this.#anybody.push(at)
-    if (userKey === this.#userKey) this.#forUser.push(at)
-    this.#recorded = true
-  }
-
-  /** Persist what was recorded. A no-op when nothing was, so a refused request writes nothing. */
-  async flush(): Promise<void> {
-    if (!this.#recorded) return
-    const encode = (values: readonly number[]): Uint8Array =>
-      new TextEncoder().encode(JSON.stringify(values))
-    await this.#store.put(ISSUANCE_JOURNAL_KEY, encode(this.#anybody))
-    await this.#store.put(issuanceKeyFor(this.#userKey), encode(this.#forUser))
-  }
+/** One request's history, as plain data. Loaded before the authority runs; see the header. */
+export interface LoadedIssuance {
+  readonly userKey: PublicKeyHex
+  readonly anybody: number[]
+  readonly forUser: number[]
 }
 
-/** Read both rows for one asking key. The `await`s that the port may not contain. */
+/** Read both rows for one asking key. The `await`s that the synchronous port may not contain. */
 export async function loadIssuance(
   store: Datastore,
   userKey: PublicKeyHex,
   now: number,
-): Promise<DurableIssuance> {
+): Promise<LoadedIssuance> {
   const [anybody, forUser] = await Promise.all([
     readTimestamps(store, ISSUANCE_JOURNAL_KEY, now),
     readTimestamps(store, issuanceKeyFor(userKey), now),
   ])
-  return new DurableIssuance({ store, userKey, anybody, forUser })
+  return { userKey, anybody, forUser }
 }
 
 /** An authority asked to issue with no history loaded — a bug, and never a silent one. */
@@ -223,7 +176,7 @@ export class UnboundIssuanceError extends Error {
 }
 
 /**
- * The ledger the one long-lived authority holds, whose backing is swapped per request.
+ * The ledger the one long-lived authority holds, whose contents are swapped per request.
  *
  * ## Why the authority is built once and the history per request
  *
@@ -239,6 +192,14 @@ export class UnboundIssuanceError extends Error {
  *
  * So the authority holds this, and this holds whatever was loaded for the request in flight.
  *
+ * ## One class, not two
+ *
+ * A first draft had this delegate to a second object that also implemented
+ * {@link IssuanceLedger}. `reachability.node.test.ts` reddened on three name collisions in one
+ * file and it was right to: two implementations of a three-method interface, one of which only
+ * forwarded, is duplication with a wrapper around it. The loaded history is plain data
+ * ({@link LoadedIssuance}) and this is the only ledger.
+ *
  * ## Why swapping is safe here and would not be everywhere
  *
  * A Durable Object processes one request at a time — the platform's input-gate rule — so there
@@ -252,31 +213,57 @@ export class UnboundIssuanceError extends Error {
  * instruction rules out. A throw reaches the RPC handler's catch and answers an error frame.
  */
 export class HostedIssuance implements IssuanceLedger {
-  #current: DurableIssuance | null = null
+  readonly #store: Datastore
+  #current: LoadedIssuance | null = null
+  #recorded = false
 
-  bind(loaded: DurableIssuance): void {
+  constructor(store: Datastore) {
+    this.#store = store
+  }
+
+  bind(loaded: LoadedIssuance): void {
     this.#current = loaded
+    this.#recorded = false
   }
 
   clear(): void {
     this.#current = null
+    this.#recorded = false
   }
 
-  #require(): DurableIssuance {
+  #require(): LoadedIssuance {
     if (this.#current === null) throw new UnboundIssuanceError()
     return this.#current
   }
 
   issuedTo(userKey: PublicKeyHex): readonly number[] {
-    return this.#require().issuedTo(userKey)
+    const loaded = this.#require()
+    // Loaded for ONE user key, because that is the only one an enrolment request can ask
+    // about — the request names it. A question about a different key is answered with no
+    // history rather than with this key's, which would be the wrong answer in the direction
+    // that over-issues.
+    return userKey === loaded.userKey ? loaded.forUser : []
   }
 
   issuedToAnybody(): readonly number[] {
-    return this.#require().issuedToAnybody()
+    return this.#require().anybody
   }
 
   record(userKey: PublicKeyHex, at: number): void {
-    this.#require().record(userKey, at)
+    const loaded = this.#require()
+    loaded.anybody.push(at)
+    if (userKey === loaded.userKey) loaded.forUser.push(at)
+    this.#recorded = true
+  }
+
+  /** Persist what was recorded. A no-op when nothing was, so a refused request writes nothing. */
+  async flush(): Promise<void> {
+    if (!this.#recorded) return
+    const loaded = this.#require()
+    const encode = (values: readonly number[]): Uint8Array =>
+      new TextEncoder().encode(JSON.stringify(values))
+    await this.#store.put(ISSUANCE_JOURNAL_KEY, encode(loaded.anybody))
+    await this.#store.put(issuanceKeyFor(loaded.userKey), encode(loaded.forUser))
   }
 }
 
@@ -284,7 +271,7 @@ export class HostedIssuance implements IssuanceLedger {
 export interface HostedProvider {
   readonly authority: EnrollmentAuthority
   readonly ledger: HostedIssuance
-  load(userKey: PublicKeyHex, now: number): Promise<DurableIssuance>
+  load(userKey: PublicKeyHex, now: number): Promise<LoadedIssuance>
 }
 
 /**
@@ -301,7 +288,7 @@ export function hostedProvider(parts: {
   readonly providerPrivateKey: Uint8Array
   readonly maxIssuedPerWindow: number
 }): HostedProvider {
-  const ledger = new HostedIssuance()
+  const ledger = new HostedIssuance(parts.store)
   const authority = new EnrollmentAuthority({
     providerPrivateKey: parts.providerPrivateKey,
     maxIssuedPerWindow: parts.maxIssuedPerWindow,
@@ -388,11 +375,10 @@ export function serveHostedRequests(parts: {
       // read, and what it recorded is written back after. No `await` sits inside the port —
       // see this file's header for the recorded argument that would otherwise be invalidated.
       const now = clock()
-      const loaded = await provider.load(request.request.userKey, now)
-      provider.ledger.bind(loaded)
+      provider.ledger.bind(await provider.load(request.request.userKey, now))
       try {
         const answered = certifyFreshly(provider.authority, request.request, now)
-        await loaded.flush()
+        await provider.ledger.flush()
         return encodeResponse(answered)
       } finally {
         // Unbound again whatever happened, so a later call that somehow reached the authority

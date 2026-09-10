@@ -11,6 +11,7 @@ import {
   MAX_AGGREGATE_BUDGET,
   RETAINED_ISSUANCE_MS,
   UnboundIssuanceError,
+  HostedIssuance,
   hostedEnrolment,
   hostedProvider,
   issuanceKeyFor,
@@ -269,30 +270,34 @@ describe('AUTH-01 — the GLOBAL throttle, measured by exhausting it', () => {
 describe('AUTH-01 — the durable ledger itself', () => {
   it('writes nothing when a request was refused, so a refusal costs no storage', async () => {
     const store = new MemoryDatastore()
-    const loaded = await loadIssuance(store, keyOf(USER_SEED), NOW)
-    await loaded.flush()
+    const ledger = new HostedIssuance(store)
+    ledger.bind(await loadIssuance(store, keyOf(USER_SEED), NOW))
+    await ledger.flush()
     expect(await store.has(ISSUANCE_JOURNAL_KEY)).toBe(false)
   })
 
   it('records into both rows and reads them back after a rebuild', async () => {
     const store = new MemoryDatastore()
     const userKey = keyOf(USER_SEED)
-    const loaded = await loadIssuance(store, userKey, NOW)
-    loaded.record(userKey, NOW)
-    await loaded.flush()
+    const ledger = new HostedIssuance(store)
+    ledger.bind(await loadIssuance(store, userKey, NOW))
+    ledger.record(userKey, NOW)
+    await ledger.flush()
 
-    const reread = await loadIssuance(store, userKey, NOW)
+    const reread = new HostedIssuance(store)
+    reread.bind(await loadIssuance(store, userKey, NOW))
     expect(reread.issuedToAnybody()).toEqual([NOW])
     expect(reread.issuedTo(userKey)).toEqual([NOW])
   })
 
   it('answers no history for a key it was not loaded for — the direction that cannot over-issue', async () => {
     const store = new MemoryDatastore()
-    const loaded = await loadIssuance(store, keyOf(USER_SEED), NOW)
+    const ledger = new HostedIssuance(store)
+    ledger.bind(await loadIssuance(store, keyOf(USER_SEED), NOW))
     // Returning this key's history for another key would UNDER-count the other key's use, which
     // is the over-issuing direction. An empty answer is the safe one, and the aggregate budget
     // is what actually bounds an attacker anyway.
-    expect(loaded.issuedTo(keyOf(OTHER_USER_SEED))).toEqual([])
+    expect(ledger.issuedTo(keyOf(OTHER_USER_SEED))).toEqual([])
   })
 
   it('compacts what it retains, and retains MORE than the authority’s window and never less', async () => {
@@ -308,7 +313,7 @@ describe('AUTH-01 — the durable ledger itself', () => {
     const loaded = await loadIssuance(store, userKey, NOW)
     // The entry the authority would still count is kept; so is one it would not, because the
     // rule `IssuanceLedger` states is retain more, never less. Only the genuinely ancient goes.
-    expect(loaded.issuedToAnybody()).toEqual([insideRetention, insideAuthorityWindow])
+    expect(loaded.anybody).toEqual([insideRetention, insideAuthorityWindow])
     expect(RETAINED_ISSUANCE_MS).toBeGreaterThan(DEFAULT_ISSUANCE_WINDOW_MS)
   })
 
@@ -316,7 +321,7 @@ describe('AUTH-01 — the durable ledger itself', () => {
     const store = new MemoryDatastore()
     await store.put(ISSUANCE_JOURNAL_KEY, new TextEncoder().encode('{not json'))
     const loaded = await loadIssuance(store, keyOf(USER_SEED), NOW)
-    expect(loaded.issuedToAnybody()).toEqual([])
+    expect(loaded.anybody).toEqual([])
   })
 
   it('keeps the aggregate row small at the ceiling — MEASURED, not reasoned about', async () => {

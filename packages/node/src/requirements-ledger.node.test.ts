@@ -1824,9 +1824,20 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     // lifetime is enforced by that server's clock and not by Cloudflare's. (2) The
     // cross-continent observation still needs three sited objects AND clients on two continents.
     //
+    // **RE-READ AGAIN THE SAME DAY, and the row moved for a reason no earlier reading had.**
+    // The blocker above was named as the certificate gate meeting an unenrolled cohort; the
+    // owner ruled to make enrolment real rather than loosen the gate. The hosted tier now issues
+    // certificates over AUTH-01's two frames, bounded by a **global** rate limit whose history
+    // is written to Durable Object storage — because a limit that forgets on eviction is the
+    // Phase 17 defeat, not a limit. `hosted-enrolment.e2e.test.ts` measures the whole chain in
+    // one run against a real workerd: enrol over libp2p, the certificate names that workerd as
+    // its issuer, the same object mints TURN against it, and the next enrolment is refused.
+    //
     // **The promise, restated:** re-read when a live Cloudflare-issued credential has carried a
     // real pair, and again when Phase 33 has sited the three objects AND a cohort exists on two
-    // continents. A same-region substitute discharges neither.
+    // continents. A same-region substitute discharges neither. Neither is touched by the
+    // enrolment work — what changed is that a visitor can now hold the certificate the rung
+    // asks for, once the owner sets the budget (`OWNER-ACTIONS.md` row 3b).
     id: 'NET-12',
     because: 'experiment-not-run',
     reread: '2026-09-09',
@@ -1835,6 +1846,7 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
       'packages/browser/src/ice-configuration.test.ts',
       'packages/browser/src/turn-credentials.test.ts',
       'packages/cloudflare/src/turn-credential.e2e.test.ts',
+      'packages/cloudflare/src/hosted-enrolment.e2e.test.ts',
       'packages/cloudflare/src/turn-credential.test.ts',
       'packages/cloudflare/src/turn-minter-selection.test.ts',
       'packages/cloudflare/src/turn-provider-join.e2e.test.ts',
