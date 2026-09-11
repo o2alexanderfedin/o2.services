@@ -611,9 +611,66 @@ const NODE_MEASUREMENT = {
    * the 2026-08-26 full retake and this pass did not re-establish them; see
    * `crossCheckedFiles` for what it did cross-check, what it did not, and for a discrepancy
    * between those fields and their own prose that this pass found while reading them.
+   *
+   * **257 -> 263 on 2026-09-10 (Phase 39 — NET-12's provider scheme and AUTH-01's hosted
+   * issuance), DERIVED and not adjusted.**
+   *
+   * Three routes sharing no code, and the LISTS were diffed rather than the counts:
+   *
+   * | route | what it models | reading |
+   * |---|---|---|
+   * | `npx vitest list --project node --filesOnly` | the runner's own collection | **263** |
+   * | `git ls-files`, filtered by the project's suffixes | the index | **263** |
+   * | `find packages` for `*.test.ts` under a `src` path | the filesystem | **263** |
+   *
+   * `diff` is empty in both pairwise directions — identical lists, not counts that agree.
+   * The filesystem route needed one exclusion the other two do not: `__screenshots__`
+   * directories hold files whose names end `.test.ts` and which are build output, not specs.
+   * That is a property of the walk rather than of the tree, and it is recorded because an
+   * unexplained 293 against 263 is exactly the kind of disagreement a reader should not have
+   * to rediscover.
+   *
+   * **Six node-lane files arrived and none left, and every one is named** — the discipline
+   * the 248 -> 257 entry above adopted after a sixth file went unnamed:
+   * `packages/browser/src/nostr-bootstrap.test.ts`,
+   * `packages/cloudflare/src/hosted-enrolment.test.ts`,
+   * `packages/cloudflare/src/turn-minter-selection.test.ts`,
+   * `packages/node/src/hermetic-fixtures.node.test.ts`,
+   * `packages/node/src/nostr-publish.node.test.ts` and
+   * `packages/node/src/deploy-preserves-enrolment.node.test.ts`. `257 + 6 = 263` agrees with
+   * all three routes, which is the arithmetic check on the naming rather than a substitute
+   * for it.
+   *
+   * Three `.e2e.` files also arrived and move nothing, because `relative()` in
+   * `slow-specs.node.test.ts` filters that suffix out of the population the drift assertion
+   * reads: `packages/browser/src/nostr-bootstrap.e2e.test.ts`,
+   * `packages/cloudflare/src/turn-provider-join.e2e.test.ts` and
+   * `packages/cloudflare/src/hosted-enrolment.e2e.test.ts`.
+   *
+   * **`tests` 3 687 -> 3 796, read off a run rather than derived.** `npx vitest run --project
+   * node` collected `Test Files (263)` and `Tests 3793 passed | 2 skipped (3796)` — and 263 is
+   * the check on the derivation above, because a config saying 263 while the runner collects
+   * 264 is the same defect one number later. The single red in that run was this very drift
+   * assertion, which is the entry being written; nothing else failed.
+   *
+   * **No duration is moved by this pass and none may be quoted from it.** The run's own
+   * banner printed **HOST WAS OVERSUBSCRIBED** — load/core 0.70 before, 5.57 after against a
+   * ceiling of 4.00, foreign work arriving mid-run — and says in terms that every duration in
+   * it is void. A count is not affected by contention; a wall clock is nothing else. The span
+   * table was not retaken, so `wallClockMs`, `unitWallClockMs`, `load` and the shadow counts
+   * all stand where they were.
+   *
+   * **`unitFiles` 176 -> 182 and `unitTests` 2 966 -> 3 068, both read off a run.** The first
+   * is not a choice: `slow-specs.node.test.ts` asserts `unitFiles === files - excludedInNode`,
+   * so it moves by the same six or the guard reddens — which it did, at `expected 176 to be
+   * 182`, and that is the check on the six rather than a second statement of them. The second
+   * was measured rather than left: `O2_UNIT_ONLY=1 npx vitest run --project node` collected
+   * `Test Files (182)` and `Tests (3068)` on a host its own banner called quiet. It is
+   * recorded here because inventing a total nobody counted is the defect this table exists to
+   * prevent, and so is leaving one stale beside a number that moved.
    */
-  files: 257,
-  tests: 3687,
+  files: 263,
+  tests: 3796,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
@@ -924,8 +981,8 @@ const NODE_MEASUREMENT = {
    * Phase 39's six still in it, which is the intended shape: the fast loop loses the file
    * that spawns two `workerd` processes and keeps every guard.
    */
-  unitFiles: 176,
-  unitTests: 2966,
+  unitFiles: 182,
+  unitTests: 3068,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
   unitWallClockMs: 10_240,

@@ -254,9 +254,27 @@ backgrounding. Yes/no per line is enough.
 | **Act** | Send the first invite |
 | **Cost** | **Irreversible.** Public hosting is public disclosure; EPO and China have no patent grace period, so this forfeits those rights permanently |
 | **Why not an agent** | The disclosure gate is the owner's by ruling, and a Telegram-recruited cohort of a few hundred is spendable exactly once |
-| **Waits on** | Its own criterion 1 — a dated checklist with named evidence for all seven of `BROW-06`…`BROW-10`, `RUN-02`, `RUN-03`. A row with no named evidence is a no-go, not a judgement call |
+| **Waits on** | Its own criterion 1 — a dated checklist with named evidence for all seven of `BROW-06`…`BROW-10`, `RUN-02`, `RUN-03`. A row with no named evidence is a no-go, not a judgement call. **And rows 10 to 13 below, in that order** |
 
 Phase 40's two published figures are physically downstream of this and of nothing else.
+
+**AMENDED — the gate and the procedure live elsewhere and are not restated here.** The gate is
+`39-GO-NO-GO.md`: **no invite until all seven conditions read `GO`**, and until every row in its
+preconditions section is either `GO` or consciously accepted *with the acceptance written into the
+row*. A precondition quietly left unread is the thing that section exists to make impossible.
+
+The stages, the sizes and the stop rule are `39-RUNBOOK.md` § 2 and § 5. This is not one act but a
+repeating one: **send a stage, read, decide, send the next.** Between every pair of stages, read
+all four of `39-RUNBOOK.md` § 4, in order —
+
+1. **the funnel**, and confirm `schemaDigest` has not moved from the pre-invite reading;
+2. **the coarse arrival signal**, cross-referenced against it;
+3. **the Durable Object request count**, which is the meter that actually binds — Workers requests
+   are not the constraint, DO requests are, and every WebSocket message is one;
+4. **the verdict**, which is a decision to send the next stage or to stop.
+
+A stage whose expected request cost was not stated **before** it was sent is a stage that must not
+be sent; the comparison afterwards is what makes the number a measurement rather than a hope.
 
 ---
 
@@ -606,3 +624,146 @@ list instead of `"all"` to stop only certain client builds.
 | `"operable":true` | The switch exists. **This is the current state.** |
 | `"operable":false` | **STOP.** `reason` names which half is missing. Do not invite anyone |
 | no `killSwitch` field at all | An older build is serving — the deploy did not land |
+
+
+---
+
+# The run, as a sequence
+
+Rows 10 to 14 are the public run, and they are an **order** rather than a menu. Each one is
+blocked by the one above it, and two of them are ordered for a reason that costs something if it
+is ignored.
+
+| # | act | why it sits here |
+|---|---|---|
+| 10 | rule on what a peer may announce about its machine | must precede 11 — the release re-asks every returning visitor **once regardless**, and a decision taken after it costs a **second** re-ask of a cohort that is spendable once |
+| 3b | set the issuance budget | must precede 11 — `deploy-pages.sh` probes `/self` before it writes `enrollmentProvider`, so a client published against a node that issues nothing offers no enrolment, and no visitor can hold the certificate the TURN rung asks for |
+| 11 | cut the release | puts the tree's disclosure in front of visitors, and is the disclosure gate itself |
+| 12 | the Telegram remainder | a device that participates once is a cohort spent once |
+| 13 | the pre-invite funnel reading | must come after 11 and before 14 — criterion 2 asks for a reading whose **timestamp precedes the invite** |
+| 14 | the first invite, in stages | everything above is its gate |
+
+Row 15, the mid-run kill-switch exercise, happens **inside** 14, at a stage boundary.
+
+---
+
+## 10. What a peer may announce about its machine — `BENCH-06`
+
+| | |
+|---|---|
+| **Act** | Choose one of the three routes in `39-PARTICIPANT-COUNT.md` § 3 |
+| **Cost** | Route (a) costs a disclosure version bump and a re-ask. Routes (b) and (c) cost nothing and leave the distinct-machine half unmeasured |
+| **Why not an agent** | It changes what the page promises a visitor. `packages/browser/src/disclosure.ts:241` promises *"no identifiers beyond the key named below"*, and that promise is the thing being widened |
+| **Unblocks** | Criterion 4's distinct-machine half, partially — the rest waits on the run itself |
+
+**Decide this BEFORE row 11.** The release cut re-asks every returning visitor once whatever you
+choose, so a decision taken now rides a re-ask that is already owed. Taken afterwards it costs a
+second one, from a few hundred people who will grant it once.
+
+One correction worth carrying into the choice, because it changes what the cheap route buys: a
+browser peer id is per **origin**, not per tab. Ten tabs on one laptop are one peer id, so
+distinct peer ids already count distinct browser profiles rather than tabs — much closer to a
+machine count than this row originally assumed. Published as a pair of bounds (profiles
+over-count, countries under-count) it brackets the real number honestly and costs no disclosure
+change and no extra byte on the wire.
+
+**What to say back:** which route, in one word.
+
+---
+
+## 11. Cut the release — the disclosure gate
+
+| | |
+|---|---|
+| **Act** | `scripts/deploy-hosted.sh --live`, then `scripts/deploy-pages.sh --live` |
+| **Cost** | **Irreversible.** Public hosting is public disclosure; EPO and China have no patent grace period |
+| **Why not an agent** | `DEMO-04`'s ruling makes deployment a separately-triggered gate, never an automatic consequence of a phase completing |
+| **Waits on** | Rows 10 and 3b |
+
+Carry the issuance budget through the deploy — `O2_MAX_ISSUED_PER_WINDOW=<n> scripts/deploy-hosted.sh --live`.
+A deploy replaces the Worker's vars, so a budget set by an earlier standalone deploy would be
+dropped by this one. The script refuses rather than doing that silently, and names the variable.
+
+**Read back, with its positive control, because an absence needs one.** Find the bundle:
+
+    curl -s https://o2alexanderfedin.github.io/o2.services/ | grep -o 'assets/[a-zA-Z0-9._-]*\.js'
+
+then on that bundle:
+
+    grep -c "What does this page report about my visit"   # expect 1 — the telemetry ground question
+    grep -c "This page can use your processor"            # expect 1 — the control that proves the grep sees the bundle
+
+**Both read `1` today**, on `assets/index-Wa6lCgcZ.js`, measured 2026-09-10. An earlier version of
+this row told you to grep for *"your permission, and nothing else"* and expect `1`; that needle is
+**retired**. It is version 6's wording and the tree is on version 8, so it reads `0` on a page
+that is perfectly current — an absence that means a sentence was rewritten, not that it is
+missing. That is the exact mistake the funnel row in `39-GO-NO-GO.md` records being made once.
+
+Also read `GET /self`: `version` must be the one just deployed, and `enrolment.issues` must be
+`true` if you set a budget.
+
+**What to say back:** the two grep counts, the version `/self` reports, and `enrolment.issues`.
+
+---
+
+## 12. The Telegram remainder — `RUN-06`
+
+| | |
+|---|---|
+| **Act** | Per device, one iOS and one Android: open the real link from a real Telegram message, let the node start, then **switch away from Telegram while the phone stays awake and the screen is on**, wait one minute, come back |
+| **Cost** | None. Not a disclosure event — the link is already public |
+| **Why not an agent** | Criterion 1 rejects a green obtained from a spoofed user-agent by name. The check *is* the engine |
+| **Unblocks** | `RUN-06`, and with it criterion 1's gate |
+
+Record four answers per device: (1) is the node still connected on return; (2) if not, does it
+reconnect without a reload; (3) did the tab's own indicator survive; (4) reload once — is consent
+remembered?
+
+`38-DEVICE-OBSERVATIONS.md` already covers a **sleeping** phone waking. What is missing is
+backgrounding while the device stays awake, which is the ordinary case.
+
+**What means no-go:** a device on which the node neither survives nor reconnects. That is a cohort
+that participates once.
+
+**What to say back:** the four answers, per device.
+
+---
+
+## 13. The pre-invite funnel reading — criterion 2's evidence
+
+| | |
+|---|---|
+| **Act** | `curl -s https://o2-bootstrap.af-4a0.workers.dev/funnel` and paste the whole response, with a UTC timestamp, into `39-PRE-INVITE-READING.md` |
+| **Cost** | None |
+| **Why not an agent** | It must be taken **after** row 11 and **before** row 14, and only you control that ordering |
+| **Unblocks** | Criterion 2 |
+
+Criterion 2 asks for a funnel *"reporting live at the moment the first invite is sent, observable
+in its own record with a timestamp preceding the invite — not stood up afterwards from stored
+events."* A reading taken before the release is a reading of a different build; one taken after
+the invite is the thing the criterion refuses. Hence the position.
+
+Check `schemaDigest` reads `3911527f1a04abee`. A different digest means the schema moved and every
+between-stage comparison would be against a different shape.
+
+**What to say back:** the file is written, and the digest matched.
+
+---
+
+## 14. The mid-run kill-switch exercise — criterion 5
+
+| | |
+|---|---|
+| **Act** | The six steps in `39-KILL-SWITCH-DURING-RUN.md` § 3, at a stage boundary during the run |
+| **Cost** | A deliberate, brief, **cohort-global** halt — production has one region today, so there is no such thing as halting a slice of it |
+| **Why not an agent** | It is an operator-key write to production |
+| **Unblocks** | Criterion 5 |
+
+**The un-halt is part of the act**, not a follow-up. The exercise is not complete until the fabric
+is admitting again and that has been read back.
+
+**What means stop:** no observed transition within three poll intervals; or the status page and
+`/self` disagreeing; or a keyless write succeeding. Any of the three means the control is not
+doing what it reports, and the run pauses rather than continuing with a switch nobody has seen work.
+
+**What to say back:** the observed window in milliseconds, and the final `halted` value.

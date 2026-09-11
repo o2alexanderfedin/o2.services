@@ -236,6 +236,76 @@ fi
 # ---------------------------------------------------------------------------
 # The gate. Before the deploy, in this order, and a failure stops everything.
 # ---------------------------------------------------------------------------
+# AUTH-01 — the enrolment vars, and the trap they exist to close
+# ---------------------------------------------------------------------------
+#
+# **`wrangler deploy` replaces a Worker's vars with what THIS invocation declares.** `--var`
+# merges with `wrangler.jsonc`'s `vars` (measured 2026-08-27, recorded above) — it does not merge
+# with what a *previous deploy* happened to set. So a budget set by a standalone
+# `wrangler deploy --var O2_MAX_ISSUED_PER_WINDOW:600` survives exactly until the next release,
+# and then vanishes.
+#
+# **What that failure looks like, which is why it is worth a section.** Issuance turns off
+# silently. `deploy-pages.sh` then probes `/self`, reads `enrolment.issues: false`, and publishes
+# a `bootstrap.json` with no `enrollmentProvider` in it — correctly, because the node really has
+# stopped issuing. Every visitor after that holds no certificate, so the TURN rung refuses them
+# all, and the whole chain reads as "TURN is broken" with nothing anywhere saying a variable was
+# dropped by a deploy two steps earlier.
+#
+# So the values travel with the deploy, out of the environment, exactly as the region does.
+ENROLMENT_VARS=""
+if [ -n "${O2_MAX_ISSUED_PER_WINDOW:-}" ]; then
+  ENROLMENT_VARS="--var O2_MAX_ISSUED_PER_WINDOW:$O2_MAX_ISSUED_PER_WINDOW"
+fi
+if [ -n "${O2_RESERVED_USER_KEYS:-}" ]; then
+  ENROLMENT_VARS="$ENROLMENT_VARS --var O2_RESERVED_USER_KEYS:$O2_RESERVED_USER_KEYS"
+fi
+
+# **Refuse to silently switch issuance OFF.** If the deployed object is issuing today and this
+# invocation carries no budget, the deploy would turn it off — so it stops and names the variable
+# instead. Turning issuance off deliberately is `O2_MAX_ISSUED_PER_WINDOW=0`, which is explicit
+# and reads as a decision rather than as an omission.
+#
+# A pre-flight that cannot READ only warns, on `require_configured_secrets`' stated reasoning: the
+# read-back after the deploy measures the same property directly.
+#
+# **Placed BEFORE the gate, unlike the secrets pre-flight.** A refusal that arrives after five
+# minutes of typecheck and unit tests is the same refusal, later — and this one needs nothing the
+# gate produces, only the deployed node's own answer.
+refuse_to_drop_enrolment() {
+  local host before
+  # **Only a live deploy can drop anything.** A dry run replaces no vars, so refusing there would
+  # be a network call and a refusal bought for nothing — and it would reach every scratch-repository
+  # case in `hosted-tier-deploy.node.test.ts`, which rehearses this script against fixtures that
+  # have no deployed node behind them.
+  [ "$LIVE" = 1 ] || return 0
+  host="$(announced_host)"
+  [ -n "$host" ] || return 0
+  before="$(curl -sS --fail --max-time 20 "https://${host}/self" 2>/dev/null || true)"
+  [ -n "$before" ] || { say "⚠️  could not read the node before deploying — the enrolment pre-flight is skipped."; return 0; }
+  case "$before" in
+    *'"issues":true'*) ;;
+    *) return 0 ;;
+  esac
+  if [ -z "${O2_MAX_ISSUED_PER_WINDOW:-}" ]; then
+    echo "" >&2
+    echo "❌ REFUSED: this node is issuing certificates today and this deploy carries no budget." >&2
+    echo "" >&2
+    echo "   A deploy replaces the Worker's vars. Going ahead would turn issuance OFF, and the" >&2
+    echo "   next client publish would then offer no enrolment — so no visitor could hold the" >&2
+    echo "   certificate the TURN rung asks for, and nothing would say why." >&2
+    echo "" >&2
+    echo "   Carry it:   O2_MAX_ISSUED_PER_WINDOW=<n> $0 $*" >&2
+    echo "   Or mean it: O2_MAX_ISSUED_PER_WINDOW=0 $0 $*" >&2
+    echo "" >&2
+    echo "   Nothing was deployed." >&2
+    exit 1
+  fi
+}
+
+refuse_to_drop_enrolment
+
+# ---------------------------------------------------------------------------
 
 if [ "$SKIP_TESTS" = 1 ]; then
   # Loud, not silent. A skipped gate is a decision somebody has to be able to see in the log.
@@ -262,7 +332,7 @@ else
   # `--var` added a var rather than replacing the file's.
   say "3/3  the bundle builds"
   ( cd "$PACKAGE" && WRANGLER_SEND_METRICS=false npx wrangler deploy --dry-run \
-      --var "O2_VERSION:$VERSION" --var "O2_REGION:$REGION" --outdir="$(mktemp -d)" )
+      --var "O2_VERSION:$VERSION" --var "O2_REGION:$REGION" $ENROLMENT_VARS --outdir="$(mktemp -d)" )
 fi
 
 # ---------------------------------------------------------------------------
@@ -369,7 +439,7 @@ fi
 
 say "Deploying for real"
 ( cd "$PACKAGE" && WRANGLER_SEND_METRICS=false npx wrangler deploy \
-    --var "O2_VERSION:$VERSION" --var "O2_REGION:$REGION" )
+    --var "O2_VERSION:$VERSION" --var "O2_REGION:$REGION" $ENROLMENT_VARS )
 
 # ---------------------------------------------------------------------------
 # The read-back. A changed PeerId is a failure, not a note.
@@ -467,6 +537,27 @@ fi
 # bindings. So it fails LOUD and leaves the deployment standing. In CI that reddens the job and
 # `publish-client` never runs, which is the right coupling and not a side effect: a client is not
 # put in front of visitors while the node behind it cannot be stopped.
+# AUTH-01 — and the same read-back discipline applied to the thing a deploy can silently drop.
+#
+# Fails LOUD rather than rolling back, on `killSwitch.operable`'s stated reasoning: rolling back
+# would revert a good build without arming anything, because the previous version has the same
+# problem. In CI this reddens the job so `publish-client` never runs — which is the right
+# coupling, since a client published against a node that stopped issuing offers visitors an
+# enrolment nothing can honour.
+AFTER_ISSUES="$(printf '%s' "$AFTER" | grep -c '"issues":true' || true)"
+if [ -n "${O2_MAX_ISSUED_PER_WINDOW:-}" ] && [ "${O2_MAX_ISSUED_PER_WINDOW}" != "0" ]; then
+  if [ "$AFTER_ISSUES" = "0" ]; then
+    echo "" >&2
+    echo "❌ this deploy carried O2_MAX_ISSUED_PER_WINDOW=$O2_MAX_ISSUED_PER_WINDOW and the node" >&2
+    echo "   reports it is NOT issuing. The var did not arrive, or it was refused as above the" >&2
+    echo "   tier's ceiling. The deployment stands; enrolment does not." >&2
+    exit 1
+  fi
+  say "Enrolment: the node reports it is issuing."
+else
+  say "Enrolment: not configured — this node issues no certificates, and the published client will offer none."
+fi
+
 AFTER_REGION="$(extract_field region "$AFTER")"
 if [ "$AFTER_REGION" != "$REGION" ]; then
   echo "" >&2
