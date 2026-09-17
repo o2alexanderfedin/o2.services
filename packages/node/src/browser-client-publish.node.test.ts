@@ -142,6 +142,34 @@ describe('the publish is a script, runnable from a terminal and from a workflow'
     expect(WORKFLOW).toContain('needs: deploy')
   })
 
+  it('carries the issuance budget into the node deploy, or the release publishes a client nobody can enrol with', () => {
+    // **This was absent until 2026-09-17 and the whole chain is silent.** `wrangler deploy`
+    // replaces a Worker's vars with what the invocation declares, so a budget set by an earlier
+    // standalone deploy is dropped by a release that does not carry one. The node then reports
+    // `enrolment.issues: false`; `deploy-pages.sh` reads that and correctly publishes a
+    // `bootstrap.json` with no `enrollmentProvider` (asserted two cases below); every visitor
+    // afterwards holds no certificate, and the TURN rung refuses all of them. Nothing at any
+    // step says a variable went missing — the symptom appears two jobs away from the cause,
+    // which is why it needs a guard rather than a comment.
+    //
+    // Asserted on the node job's `env:` rather than anywhere in the file, because the value has
+    // to reach THAT step: `deploy-hosted.sh` is what passes it to `wrangler`, and a variable
+    // declared on the publish job below would read as configured while changing nothing.
+    const nodeJob = WORKFLOW.slice(
+      WORKFLOW.indexOf('scripts/deploy-hosted.sh --live'),
+      WORKFLOW.indexOf('publish-client:'),
+    )
+    expect(nodeJob, 'the node deploy step is no longer where this guard looks').toContain('run:')
+    expect(nodeJob).toContain('O2_MAX_ISSUED_PER_WINDOW: ${{ vars.O2_MAX_ISSUED_PER_WINDOW }}')
+
+    // And the script must still be the thing that refuses an empty one, so an unconfigured
+    // repository variable stops the release rather than quietly deploying a node that issues
+    // nothing. `hosted-tier-deploy.node.test.ts` owns the refusal's own behaviour; this reads
+    // only that the two halves are wired to each other.
+    const deployScript = readFileSync(`${ROOT}/scripts/deploy-hosted.sh`, 'utf8')
+    expect(deployScript).toContain('this node is issuing certificates today and this deploy carries no budget')
+  })
+
   it('refuses a plaintext WebSocket, which every HTTPS visitor would reject as mixed content', () => {
     // Measured, not reasoned: `bootstrapInfoFor` emits `/tcp/<port>/ws` — correct for the
     // `laptop.local` seed it was written for, unusable from a page GitHub Pages serves over
