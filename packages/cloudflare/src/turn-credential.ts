@@ -74,6 +74,61 @@ import type { CertificateFailure, NodeCertificate, PublicKeyHex } from '@o2/core
  * three times on the DHT. The seam is {@link TurnMinter}; the runbook's first engineering step
  * is *probe the credentials endpoint with the real key and record the observed response shape*,
  * and the adapter is written against that observation, not before it.
+ *
+ * ## AMENDED 2026-09-09 — the second adapter now exists, and the paragraph above is why it can
+ * ## be trusted
+ *
+ * CORRECTION 4 is kept rather than rewritten, because the discipline it states is the whole
+ * reason {@link cloudflareTurnMinter} is worth having: it was written **after** the probe it
+ * demanded, against an observed response and not against a vendor page. The owner created a
+ * Cloudflare TURN application on 2026-09-09 and the probe was taken the same day:
+ *
+ *     POST https://rtc.live.cloudflare.com/v1/turn/keys/<key id>/credentials/generate-ice-servers
+ *     Authorization: Bearer <API credential>        body: {"ttl": 3600}
+ *     → 201  {"iceServers": [ … ]}
+ *
+ * **What came back is not what this module was built for.** `iceServers` was an ARRAY of two
+ * entries: one carrying `urls: ["stun:stun.cloudflare.com:3478"]` and no credentials at all, and
+ * one carrying five `turn:`/`turns:` forms — including `turns:turn.cloudflare.com:443` — beside
+ * a `username` and a `credential` of **64 hex characters each**. The username has no `expiry:`
+ * prefix, so this is not RFC 5766's long-term credential form: Cloudflare's TURN server verifies
+ * credentials **it** issued, and there is no shared secret for this module to HMAC over.
+ *
+ * That matters more than a shape difference. Putting the API credential into `O2_TURN_SECRET`
+ * would have produced a well-formed HMAC credential that every Cloudflare TURN server answers
+ * `401` to — a credential that reaches a tab, is installed into `RTCPeerConnection`, and fails
+ * as a **network fault**. It would have walked straight past the `turn-not-configured` refusal
+ * this module wrote specifically to stop that. The two schemes therefore get two names in the
+ * environment, and `worker.ts` says which wins.
+ *
+ * **And the adapter itself was then run against that endpoint once, which is a different claim
+ * from the probe.** The `curl` above proved the API; it did not prove this code reads it.
+ * `cloudflareTurnMinter` was invoked with the real pair on 2026-09-09 and answered `ok`: a
+ * 64-character `username` and `credential`, **five** URLs, `turns:turn.cloudflare.com:443`
+ * among them, and `urls.some(u => u.startsWith('stun:'))` **false** — so
+ * {@link providerTurnEntry} skipped the credential-less STUN entry on a real response and not
+ * only on a fixture. Nothing in the test lanes repeats that call: the node lane injects a
+ * `fetch` and the e2e lane points `O2_TURN_API_BASE` at a loopback stub, because a suite whose
+ * greenness depends on somebody else's uptime is a suite that reports the weather.
+ *
+ * So {@link cloudflareTurnMinter} does not mint. It **asks**, and hands on what it is given.
+ * Three consequences, recorded rather than smoothed over:
+ *
+ * 1. **The region stops choosing the URL on this path.** Cloudflare answers with its own
+ *    endpoints, and a credential is only valid at them. The region is still checked — an
+ *    undeclared name is still refused by name — but it is now an *admission* question alone.
+ *    `turn-regions.ts` was re-split for this: `null` means undeclared, `[]` means declared with
+ *    no URLs of the deployment's own, and only a minter that needs them refuses `[]`.
+ * 2. **Attribution moves to the provider.** The shared-secret username carries
+ *    `expiry:region:nodeKey`, so an allocation in a `coturn` log is attributable to an identity
+ *    the certificate named. Cloudflare's username is opaque and this module cannot put anything
+ *    into it, so on this path server-side attribution is **theirs, not ours**. `grant.region`
+ *    still rides back to the caller; that is a client-side tag and is not the same claim.
+ * 3. **The lifetime is a claim on this path, not a measurement.** `turn-fallback.e2e.test.ts`
+ *    arms C and D observe a real TURN server enforcing an expiry, and they run against `coturn`
+ *    with the shared-secret scheme. Nothing here has watched Cloudflare refuse an expired
+ *    credential, and the `ttl` this module sends is not echoed in the response. Do not restate
+ *    the measured-enforcement property for this path without a live observation of it.
  */
 
 /** How far a request's own timestamp may sit from the worker's clock. */
@@ -135,6 +190,22 @@ export type TurnMintFailure =
   | { readonly kind: 'stale-request'; readonly skewMs: number }
   | { readonly kind: 'unknown-region'; readonly region: string }
   | { readonly kind: 'turn-not-configured' }
+  /**
+   * The region is declared and this deployment names no TURN URLs for it, under a minter that
+   * needs them. Distinct from `turn-not-configured` on purpose: the secret is present and the
+   * URLs are not, which is a different line of the deployment to go and look at.
+   */
+  | { readonly kind: 'no-urls-for-region'; readonly region: string }
+  /**
+   * The gate opened and the credential provider would not supply one.
+   *
+   * **This is not the caller's fault and must not be answered `400`.** A tab that presented a
+   * valid certificate and a valid signature has done everything right; a `401` from Cloudflare
+   * means this deployment's API credential is wrong, and a `5xx` or a socket failure means the
+   * provider is having a bad minute. Both are the operator's to read, which is why the detail
+   * travels with the refusal.
+   */
+  | { readonly kind: 'provider-refused'; readonly detail: string }
 
 /** What a caller gets when the gate lets it through. */
 export interface TurnCredentialGrant {
@@ -150,19 +221,48 @@ export type TurnMintResult =
   | { readonly ok: false; readonly failure: TurnMintFailure; readonly reason: string }
 
 /**
- * The seam CORRECTION 4 names.
+ * What a minter answers.
  *
- * {@link sharedSecretMinter} is the only implementation, because it is the only one that can be
- * measured without a key nobody here holds. A Cloudflare implementation goes here — behind this
- * same type — after the runbook's step 3 records what that provider actually answers.
+ * A minter can fail, and the two that exist fail for reasons a caller must be able to tell
+ * apart from *your request was wrong*. `mint` therefore returns a verdict rather than throwing
+ * or resolving to a grant it could not build — the same shape the rest of this module uses, and
+ * the reason `TurnMintFailure` gained two members on 2026-09-09.
+ */
+export type TurnMintOutcome =
+  | { readonly ok: true; readonly grant: TurnCredentialGrant }
+  | {
+      readonly ok: false
+      readonly kind: 'no-urls-for-region' | 'provider-refused'
+      readonly detail: string
+    }
+
+/**
+ * The seam CORRECTION 4 names — now with both implementations behind it.
+ *
+ * {@link sharedSecretMinter} speaks `coturn`'s `use-auth-secret` scheme and is the one every
+ * arm of `turn-fallback.e2e.test.ts` measures against a real TURN server.
+ * {@link cloudflareTurnMinter} asks Cloudflare's API instead, and was written against the
+ * response recorded in this file's AMENDED block rather than against their documentation.
+ *
+ * `now` is supplied rather than read, because a minter that needs a relative lifetime — which
+ * Cloudflare's does, it takes a `ttl` in seconds — must not reach for a clock the gate did not
+ * choose. `worker.ts` passes the same `Date.now()` the freshness window was checked against.
  */
 export interface TurnMinter {
   mint(fields: {
     readonly nodeKey: PublicKeyHex
     readonly region: string
+    readonly now: number
     readonly expiresAt: number
+    /**
+     * The URLs this deployment declares for the region — possibly empty.
+     *
+     * A minter that builds a credential FOR those URLs refuses an empty list; a minter whose
+     * provider answers with its own endpoints ignores this entirely. Which of the two is in
+     * force is the minter's own knowledge and is not a flag the gate carries.
+     */
     readonly urls: readonly string[]
-  }): Promise<TurnCredentialGrant>
+  }): Promise<TurnMintOutcome>
 }
 
 /** Base64 without assuming Node's `Buffer` — workerd has neither `Buffer` nor `node:` by default. */
@@ -188,6 +288,17 @@ function base64(bytes: Uint8Array): string {
 export function sharedSecretMinter(secret: string): TurnMinter {
   return {
     async mint(fields) {
+      // This scheme mints a credential FOR a set of servers the deployment names, so an empty
+      // list is not a credential with no address — it is no credential at all. Refusing here
+      // rather than upstream keeps the knowledge with the minter that has it: the provider-backed
+      // minter is handed the same empty list and is right to ignore it.
+      if (fields.urls.length === 0) {
+        return {
+          ok: false,
+          kind: 'no-urls-for-region',
+          detail: `"${fields.region}" is declared but this deployment names no TURN URLs for it, and the shared-secret scheme mints a credential for named servers`,
+        }
+      }
       const expirySeconds = Math.floor(fields.expiresAt / 1000)
       const username = `${String(expirySeconds)}:${fields.region}:${fields.nodeKey}`
       const key = await crypto.subtle.importKey(
@@ -199,11 +310,155 @@ export function sharedSecretMinter(secret: string): TurnMinter {
       )
       const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(username))
       return {
-        username,
-        credential: base64(new Uint8Array(mac)),
-        urls: [...fields.urls],
-        expiresAt: fields.expiresAt,
-        region: fields.region,
+        ok: true,
+        grant: {
+          username,
+          credential: base64(new Uint8Array(mac)),
+          urls: [...fields.urls],
+          expiresAt: fields.expiresAt,
+          region: fields.region,
+        },
+      }
+    },
+  }
+}
+
+/** Where Cloudflare issues TURN credentials. Overridable so a spec can point it at a stub. */
+export const CLOUDFLARE_TURN_API_BASE = 'https://rtc.live.cloudflare.com/v1/turn/keys'
+
+/**
+ * One entry of a provider's `iceServers`, narrowed to what this module reads.
+ *
+ * Everything is `unknown` because it arrived over the network from somebody else's server. The
+ * probe on 2026-09-09 returned `urls` as an array of strings, and the vendor's own example shows
+ * a single object rather than a list; {@link providerTurnEntry} accepts both rather than betting
+ * on which — a tolerance, not a guess, and the array form is the one that was measured.
+ */
+interface ProviderIceServer {
+  readonly urls?: unknown
+  readonly username?: unknown
+  readonly credential?: unknown
+}
+
+/**
+ * The one entry of a provider answer that carries a credential, or `null`.
+ *
+ * The measured response held two entries and the first was **STUN with no credentials at all**,
+ * so "take `iceServers[0]`" would have shipped a rung with `undefined` in both fields. Selecting
+ * by *carries a username and a credential* is what makes that impossible, and it drops the STUN
+ * entry for free — this fabric ships its own STUN list from `ice-configuration.ts` and does not
+ * want a second opinion mixed into a TURN rung.
+ */
+function providerTurnEntry(
+  payload: unknown,
+): { readonly urls: string[]; readonly username: string; readonly credential: string } | null {
+  if (typeof payload !== 'object' || payload === null) return null
+  const iceServers = (payload as { readonly iceServers?: unknown }).iceServers
+  const entries: unknown[] = Array.isArray(iceServers) ? iceServers : [iceServers]
+  for (const entry of entries) {
+    if (typeof entry !== 'object' || entry === null) continue
+    const { urls, username, credential } = entry as ProviderIceServer
+    if (typeof username !== 'string' || typeof credential !== 'string') continue
+    if (username === '' || credential === '') continue
+    const listed: unknown[] = Array.isArray(urls) ? urls : [urls]
+    const list = listed.filter((url): url is string => typeof url === 'string' && url !== '')
+    if (list.length === 0) continue
+    return { urls: list, username, credential }
+  }
+  return null
+}
+
+/**
+ * Ask Cloudflare for a credential rather than minting one — see this file's AMENDED block.
+ *
+ * The key id is not a secret and the API credential is; both are read off the environment by
+ * `worker.ts` and neither appears in a refusal, because a refusal is handed to a caller who has
+ * only proved fabric membership. What a caller learns on failure is the status and a truncated
+ * body, which is what an operator needs and nothing more.
+ *
+ * A non-2xx, an unparseable body and a socket failure all land on `provider-refused` with their
+ * own detail. None of them throws: the gate above has already decided this caller is entitled to
+ * an answer, and an exception here would surface as a 500 that says nothing.
+ */
+export function cloudflareTurnMinter(config: {
+  readonly keyId: string
+  readonly apiSecret: string
+  readonly fetchImpl?: typeof fetch
+  readonly apiBase?: string
+}): TurnMinter {
+  const call = config.fetchImpl ?? fetch
+  const base = config.apiBase ?? CLOUDFLARE_TURN_API_BASE
+  return {
+    async mint(fields) {
+      // Seconds, from the gate's own clock and the lifetime it chose — never from `Date.now()`
+      // here. `Math.max(1, …)` because a ttl of 0 would be a credential born dead, and the one
+      // path that could produce it is a caller-supplied lifetime of under a second.
+      const ttl = Math.max(1, Math.round((fields.expiresAt - fields.now) / 1000))
+      let response: Response
+      try {
+        response = await call(
+          `${base}/${encodeURIComponent(config.keyId)}/credentials/generate-ice-servers`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${config.apiSecret}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ttl }),
+          },
+        )
+      } catch (cause) {
+        return {
+          ok: false,
+          kind: 'provider-refused',
+          detail: `could not reach the credential provider: ${cause instanceof Error ? cause.message : String(cause)}`,
+        }
+      }
+
+      const text = await response.text()
+      if (!response.ok) {
+        // Truncated: the body is somebody else's and an unbounded one would go into a response
+        // this worker hands to a caller from outside.
+        return {
+          ok: false,
+          kind: 'provider-refused',
+          detail: `the credential provider answered ${String(response.status)}: ${text.slice(0, 200)}`,
+        }
+      }
+
+      let payload: unknown
+      try {
+        payload = JSON.parse(text)
+      } catch {
+        return {
+          ok: false,
+          kind: 'provider-refused',
+          detail: `the credential provider answered ${String(response.status)} with a body that is not JSON`,
+        }
+      }
+
+      const entry = providerTurnEntry(payload)
+      if (entry === null) {
+        return {
+          ok: false,
+          kind: 'provider-refused',
+          detail: 'the credential provider answered without an iceServers entry carrying a username and a credential',
+        }
+      }
+
+      return {
+        ok: true,
+        grant: {
+          username: entry.username,
+          credential: entry.credential,
+          // The provider's own endpoints, NOT `fields.urls`. A credential it issued is valid at
+          // its servers and nowhere else, so handing back a deployment-declared list here would
+          // pair a working credential with an address it does not work at.
+          urls: entry.urls,
+          // A claim, not an observation — consequence 3 of the AMENDED block.
+          expiresAt: fields.expiresAt,
+          region: fields.region,
+        },
       }
     },
   }
@@ -214,7 +469,16 @@ export interface TurnMintContext {
   readonly pinnedIssuers: ReadonlySet<PublicKeyHex>
   readonly now: number
   readonly minter: TurnMinter | null
-  /** The region's TURN URLs, or `null` when the region is not one this deployment declares. */
+  /**
+   * The region's TURN URLs, or `null` when the region is not one this deployment declares.
+   *
+   * **An empty array is a legal answer and means something different from `null`** — the region
+   * is declared and the deployment names no URLs of its own. Whether that is fatal belongs to
+   * the minter: the shared-secret scheme refuses it, the provider-backed one brings its own
+   * endpoints and ignores it. Before 2026-09-09 the two were fused into `null`, which made a
+   * Cloudflare-only deployment refuse **every** mint as `unknown-region` — a configuration
+   * mistake wearing a client-error name.
+   */
   readonly urlsForRegion: (region: string) => readonly string[] | null
   readonly lifetimeMs?: number
 }
@@ -331,5 +595,28 @@ export async function mintTurnCredential(
   }
 
   const expiresAt = context.now + (context.lifetimeMs ?? CREDENTIAL_LIFETIME_MS)
-  return { ok: true, grant: await context.minter.mint({ nodeKey, region: request.region, expiresAt, urls }) }
+  const outcome = await context.minter.mint({
+    nodeKey,
+    region: request.region,
+    now: context.now,
+    expiresAt,
+    urls,
+  })
+  if (!outcome.ok) {
+    // The minter's own refusal, carried through under its own name. Both members of that closed
+    // set are the OPERATOR's to read: this caller presented a certificate and a signature that
+    // both verified, so nothing it can change would help.
+    return outcome.kind === 'provider-refused'
+      ? {
+          ok: false,
+          failure: { kind: 'provider-refused', detail: outcome.detail },
+          reason: outcome.detail,
+        }
+      : {
+          ok: false,
+          failure: { kind: 'no-urls-for-region', region: request.region },
+          reason: outcome.detail,
+        }
+  }
+  return { ok: true, grant: outcome.grant }
 }

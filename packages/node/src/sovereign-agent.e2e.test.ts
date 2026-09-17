@@ -387,8 +387,6 @@ async function standUp(): Promise<Fixture> {
       (provider.handshake['multiaddrs'] as string[])[0] as string,
       '--user-key',
       seedPath,
-      '--operator-id',
-      `${name}-ops`,
       // A pinned trust anchor, deliberately not derived by the binary — see `--owner-key`.
       '--owner-key',
       userKey,
@@ -523,7 +521,13 @@ describe('AUTH-03/MR-02/VER-09 — bin/agent.ts coordinates a sovereign job over
     // description ends *"not independently verified"*, so the obvious refusal of the
     // strongest label is a substring of the correct line — `sovereign-arm.node.test.ts`
     // records that as the reason its own assertion is an equality, and the same trap is here.
-    const expectedReading = `owner-attested (replicas 1, operators 1) — ${describeAttestation('owner-attested')}`
+    //
+    // **The third count arrived on 2026-09-16, VER-12**, and it is carried here rather than
+    // dropped from the comparison: `strengthReading` prints an issuer count beside the other
+    // two now, and an equality that stopped reproducing the whole parenthetical would be a
+    // reading of a prefix rather than of the line. One authority is the honest figure for this
+    // leg — the coordinator pins one issuer, which the case two rows down asserts it must.
+    const expectedReading = `owner-attested (replicas 1, operators 1, issuers 1) — ${describeAttestation('owner-attested')}`
     //
     // **The reading is asserted BEFORE the status**, deliberately: `strengthReading` renders
     // a shard that established nothing as `none established (…) — <the fabric's own reason>`,

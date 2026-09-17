@@ -189,7 +189,6 @@ describe('provider records — the fabric sets the lifetime, and a foreign recor
       const holder = await start('holder', {
         enrollment: {
           userPrivateKey: USER_KEY,
-          operatorId: 'holder-ops',
           providerAddr: keeper.multiaddrs[0] as string,
         },
       })

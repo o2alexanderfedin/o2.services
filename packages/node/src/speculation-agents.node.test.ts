@@ -654,6 +654,62 @@ const PAIRED_INDEX = PUBLIC_SHARDS
 const SOLO_INDEX = PUBLIC_SHARDS + 1
 
 /**
+ * The fixture's account of time, and it exists to close a **measured** defect rather than
+ * as a style preference.
+ *
+ * Every span this file records — `log`'s `startedAt` and `settledAt`, the arm timers, the
+ * freeze and thaw instants — is `performance.now()`, which is the **monotonic** clock. The
+ * scheduler's `judgedAt` is `JobClock`'s, and the default `JobClock` is `Date.now()`, which
+ * is the **wall** clock. Criterion 3 below compares one against the other, and the comparison
+ * was unsound: `performance.timeOrigin` relates the two sources **only at process start**,
+ * and they diverge afterwards.
+ *
+ * **Measured on this host, 2026-09-14.** Sampling the wall clock at the instant it ticks over
+ * to a new integer millisecond and reading the monotonic clock there gives an offset that
+ * grows linearly at **3.075 ppm** — about 20 us at 7 s and 63 us at 18 s of process life.
+ * Replaying criterion 3's exact comparison in a bare loop, with the wall-clock read taken
+ * **first**, inverted **3.3 %** of 79.8 million adjacent pairs, by as much as 73.8 us at 20 s.
+ * The spec itself failed roughly 1 run in 13, on a host its own banner called quiet, with
+ * inversions of 24 us and 84 us. See
+ * `.planning/debug/speculation-judgedat-ordering-intermittent.md`.
+ *
+ * **Why a clock and not a tolerance band.** A band would have to be wider than the drift,
+ * which grows without bound in a long run, and criterion 3's whole point is that the invariant
+ * holds with no band. Recording the wrapper's instant with `Date.now()` instead would be worse
+ * still: that clock is integer-milliseconds, the real gap between the judgement and the
+ * dispatch it causes is tens of microseconds, and the comparison would collapse to
+ * `floor(a) <= floor(b)` — true for every input, an instrument that can no longer fail.
+ *
+ * So the fixture supplies **the log's own source**, and criterion 3 then compares two raw
+ * `performance.now()` readings with no arithmetic between them.
+ *
+ * **Why not `performance.timeOrigin + performance.now()`, which would have kept the epoch
+ * basis.** It was written that way first and then measured: the round trip — adding the origin
+ * and subtracting it again — rounds at 1.788e12, where a double's step is 2^-12 ms ~ 0.24 us.
+ * The same probe that found the drift reported **0.122 us** of residual inversion on that form.
+ * Five thousand times below the 0.642 ms gap this fixture actually shows, and still not zero —
+ * and the invariant below claims to hold with no tolerance band at all. Dropping the origin
+ * removes the arithmetic rather than shrinking its error.
+ *
+ * **Safe against everything else `submitJob` does with this clock**, checked rather than
+ * assumed: the certificate window is judged by a separate `Date.now()` read this port never
+ * reaches (`packages/core/src/job/submit.ts:2618`, *"this module reads the wall clock, once"*);
+ * every other read is elapsed-time or a lease this module granted itself, which is
+ * basis-independent; and the one absolute-looking use, a checkpoint's `at`, belongs to a sink
+ * this fixture does not have — both arms pass `'checkpoints-nothing'`, whose log writes nothing.
+ */
+const FIXTURE_CLOCK = {
+  now: (): number => performance.now(),
+  sleep: (ms: number): Promise<void> =>
+    new Promise<void>((resolve) => {
+      // Unref'd for the reason the platform default states: an abandoned wait must not be why
+      // a process outlives the job. No `in` check and no assertion — the platform default
+      // carries both because it also runs in a browser, and this file does not.
+      setTimeout(resolve, ms).unref()
+    }),
+}
+
+/**
  * Submit the job. The **only** things that differ between the arms are `executors` and
  * the `speculation` dial.
  *
@@ -693,9 +749,11 @@ async function runJob(
     fabric.requestor.store,
     // CHURN-03 — the arm under test is `speculation`; checkpointing is stated identically
     // on both sides so it cannot be what the comparison measures.
+    // `clock` on both arms, identically — see {@link FIXTURE_CLOCK}. It puts `judgedAt` on the
+    // same source as every span in `log`, which criterion 3 compares it against.
     speculation === undefined
-      ? { checkpoints: 'checkpoints-nothing' }
-      : { speculation, checkpoints: 'checkpoints-nothing' },
+      ? { checkpoints: 'checkpoints-nothing', clock: FIXTURE_CLOCK }
+      : { speculation, checkpoints: 'checkpoints-nothing', clock: FIXTURE_CLOCK },
   )
   expect(result.ok).toBe(true)
   if (!result.ok) throw new Error(`the job was refused: ${JSON.stringify(result.error)}`)
@@ -1450,30 +1508,61 @@ describe('CHURN-02 / criterion 3 — a straggler is duplicated mid-run across re
      * shard's own instant is the faithful one and the job-wide minimum was a second
      * approximation stacked on the first.
      *
-     * **One basis conversion, and it is not cosmetic.** `judgedAt` is on `JobClock`'s
-     * clock, whose default is `Date.now()` — epoch milliseconds. Every span in `log` is
-     * `performance.now()`, counted from this process's time origin. `performance.timeOrigin`
-     * is exactly the distance between the two origins, so subtracting it puts the
-     * scheduler's instant into the log's basis and every comparison below stays where it
-     * already was. Comparing the two unconverted would not be imprecise, it would be
-     * meaningless.
+     * **No basis conversion, and its absence is the fix.** `judgedAt` is on `JobClock`'s
+     * clock, and {@link FIXTURE_CLOCK} makes that clock the one every span in `log` already
+     * uses. Both sides of every comparison below are raw `performance.now()` readings, so
+     * there is nothing between them to be right or wrong about.
+     *
+     * **AMENDED 2026-09-14 — there used to be a conversion here, the sentence justifying it
+     * was false, and converting was not enough anyway.** It read *"`performance.timeOrigin`
+     * is exactly the distance between the two origins"*, and the line subtracted it. It is
+     * the distance **at process start** and not afterwards: with the default `JobClock`,
+     * which is what this fixture used until today, `judgedAt` comes from the wall clock and
+     * `startedAt` from the monotonic one, and the two sources **diverge** — measured on this
+     * host at **3.075 ppm**, about 20 us at 7 s and 63 us at 18 s. Replaying the comparison
+     * below in a bare loop, with the wall-clock read taken first, inverted **3.3 %** of 79.8
+     * million adjacent pairs. The spec failed about 1 run in 13 on a quiet host, and the
+     * oversubscription banner would have closed it as weather. Converting the **basis** is not
+     * converting the **source**. {@link FIXTURE_CLOCK} now supplies the log's own source, so
+     * the conversion is gone rather than corrected — which is what makes the invariant below
+     * true as stated. Working:
+     * `.planning/debug/speculation-judgedat-ordering-intermittent.md`.
      */
     const reconstructedAt = Math.min(...duplicates.map((d) => d.startedAt))
     expect(
       tracked.judgedAt,
       `the tracked shard was speculated, so the scheduler judged it and must say when:\n${describeShards(on)}`,
     ).not.toBeNull()
-    const judgedAt =
-      tracked.judgedAt === null ? reconstructedAt : tracked.judgedAt - performance.timeOrigin
-    // **The invariant, and it has no tolerance band because it is true by construction.**
-    // The decision is taken before `dispatchCopy` is called, and the wrapper's `startedAt`
-    // is recorded after that dispatch has reached it. A published instant at or after the
-    // dispatch it caused would mean the field is reporting the consequence again — which is
-    // precisely the defect this replaces, and is what a plant here should redden on.
+    const judgedAt = tracked.judgedAt === null ? reconstructedAt : tracked.judgedAt
+    // **The invariant, and it has no tolerance band because it is true by construction** —
+    // now that {@link FIXTURE_CLOCK} puts both sides on one clock source. The decision is
+    // taken before `dispatchCopy` is called, and the wrapper's `startedAt` is recorded after
+    // that dispatch has reached it. A published instant later than the dispatch it caused
+    // would mean the field is reporting the consequence again, which is precisely the defect
+    // this replaces.
+    //
+    // **What a plant here does and does not redden on — measured 2026-09-14, and the earlier
+    // wording was wrong.** It read *"at or after"*. **"At" does not redden**: this is
+    // `toBeLessThanOrEqual`, so an instant reconstructed from the dispatch compares equal and
+    // passes. Nor does moving the read to immediately *after* `dispatchCopy`: that function
+    // does not await, and the wrapper stamps `startedAt` only after its own `await freeze()`,
+    // so a clock read there still lands first — planted, and it stayed green. What the case
+    // does see is a publication later than the wrapper's stamp. The threshold is the
+    // asynchronous gap between the two, which **varies**: a planted `+0.05 ms` stayed green in
+    // a run whose gap was 0.642 ms, and a planted `+1 ms` reddened this case with
+    // *"expected 10504.839111328125 to be less than or equal to 10504.480791"*. That variable
+    // gap is also why the drift defect this replaced failed only about 1 run in 13 rather than
+    // every time.
+    const marginUs = (trackedDuplicate.startedAt - judgedAt) * 1000
     expect(
       judgedAt,
       `the judgement must precede the dispatch it caused: judged at ${String(Math.round(judgedAt))} ` +
-        `against a duplicate dispatched at ${String(Math.round(trackedDuplicate.startedAt))}`,
+        `against a duplicate dispatched at ${String(Math.round(trackedDuplicate.startedAt))}, ` +
+        // The margin in microseconds, because both figures above round to the same millisecond
+        // and the reading that matters is the distance between them. A negative margin larger
+        // than a few hundred microseconds is a real out-of-order publication; anything smaller
+        // means the two sides have drifted apart again — check that `clock` is still supplied.
+        `margin ${marginUs.toFixed(1)} us`,
     ).toBeLessThanOrEqual(trackedDuplicate.startedAt)
     const completedByJudgement = log
       .filter(

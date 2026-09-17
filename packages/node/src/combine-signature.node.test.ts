@@ -111,7 +111,6 @@ async function enrol(seed: number, issuerSeed: Uint8Array = PROVIDER_SEED): Prom
     issuance: 'remembers-only-within-this-process',
   }).enrol(
     await requestEnrollment(nodeSeed, USER_SEED, {
-      operatorId: `operator-${seed}`,
       discoverability: 'via-relay',
       relayIds: [],
     }),

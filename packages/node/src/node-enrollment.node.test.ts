@@ -4,7 +4,8 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { verifyCertificate } from '@o2/core'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { operatorIdFor, toHex, verifyCertificate } from '@o2/core'
 import type { NodeCertificate } from '@o2/core'
 import { SEED_BYTES, identityFromSeed } from '@o2/libp2p'
 import type { IdentityProtection } from '@o2/libp2p'
@@ -128,7 +129,6 @@ describe('AUTH-01 — a node obtains its certificate before start() returns', ()
       blockstoreDir: join(workdir, 'applicant'),
       enrollment: {
         userPrivateKey: USER_SEED,
-        operatorId: 'harbour-ops',
         providerAddr: addrOf(provider),
       },
     })
@@ -137,7 +137,10 @@ describe('AUTH-01 — a node obtains its certificate before start() returns', ()
     expect(certificate).not.toBeNull()
     expect(certificate?.nodeKey).toBe(applicant.nodeKey)
     expect(certificate?.issuer).toBe(provider.issuerKey)
-    expect(certificate?.operatorId).toBe('harbour-ops')
+    // Derived by the provider from the public half of `USER_SEED` — VER-11. This node was
+    // started with no operator name of any kind: `FabricNodeOptions.enrollment` has no such
+    // field since 2026-09-16.
+    expect(certificate?.operatorId).toBe(operatorIdFor(toHex(ed25519.getPublicKey(USER_SEED))))
     expect(certificate?.expiresAt).toBeGreaterThan(Date.now())
 
     // The user key is DERIVED from the private key inside `requestEnrollment`, never
@@ -170,7 +173,6 @@ describe('AUTH-01 — a node obtains its certificate before start() returns', ()
       blockstoreDir: join(workdir, 'direct'),
       enrollment: {
         userPrivateKey: USER_SEED,
-        operatorId: 'harbour-ops',
         providerAddr: addrOf(provider),
       },
     })
@@ -197,7 +199,6 @@ describe('AUTH-01 — a node obtains its certificate before start() returns', ()
       relayAddrs: [addrOf(provider)],
       enrollment: {
         userPrivateKey: USER_SEED,
-        operatorId: 'harbour-ops',
         providerAddr: addrOf(provider),
       },
     })
@@ -213,7 +214,6 @@ describe('AUTH-01 — a node obtains its certificate before start() returns', ()
       blockstoreDir: dir,
       enrollment: {
         userPrivateKey: USER_SEED,
-        operatorId: 'harbour-ops',
         providerAddr: addrOf(provider),
       },
     })
@@ -256,7 +256,6 @@ describe('AUTH-01 — a node told to enrol that cannot enrol does not start', ()
         rpcTimeoutMs: 10_000,
         enrollment: {
           userPrivateKey: USER_SEED,
-          operatorId: 'harbour-ops',
           providerAddr: addrOf(notAProvider),
         },
       }),
@@ -297,7 +296,6 @@ describe('AUTH-01 — a node told to enrol that cannot enrol does not start', ()
       rpcTimeoutMs: 10_000,
       enrollment: {
         userPrivateKey: USER_SEED,
-        operatorId: 'harbour-ops',
         providerAddr: nowhere,
       },
     }).then(
@@ -341,7 +339,7 @@ describe('AUTH-01 — a persisted, unexpired certificate is reused on restart', 
 
     const first = await start({
       blockstoreDir: dir,
-      enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr },
+      enrollment: { userPrivateKey: USER_SEED, providerAddr },
     })
     const issued = first.certificate
     // `not.toBeNull()` alone would pass against `undefined`, which is what an unbuilt
@@ -354,7 +352,7 @@ describe('AUTH-01 — a persisted, unexpired certificate is reused on restart', 
 
     const restarted = await start({
       blockstoreDir: dir,
-      enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr },
+      enrollment: { userPrivateKey: USER_SEED, providerAddr },
     })
     expect(restarted.certificate).toStrictEqual(issued)
     expect(restarted.certificate?.issuedAt).toBe(issued?.issuedAt)
@@ -372,7 +370,7 @@ describe('AUTH-01 — a persisted, unexpired certificate is reused on restart', 
 
     const first = await start({
       blockstoreDir: dir,
-      enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr },
+      enrollment: { userPrivateKey: USER_SEED, providerAddr },
     })
     await stop(first)
 
@@ -384,7 +382,7 @@ describe('AUTH-01 — a persisted, unexpired certificate is reused on restart', 
 
     const restarted = await start({
       blockstoreDir: dir,
-      enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr },
+      enrollment: { userPrivateKey: USER_SEED, providerAddr },
     })
     expect(restarted.certificate?.issuedAt).toBeGreaterThan(planted.issuedAt)
     expect(restarted.certificate?.expiresAt).toBeGreaterThan(Date.now())
@@ -405,7 +403,7 @@ describe('AUTH-01 — a persisted, unexpired certificate is reused on restart', 
     const donorDir = join(workdir, 'donor')
     const donor = await start({
       blockstoreDir: donorDir,
-      enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr },
+      enrollment: { userPrivateKey: USER_SEED, providerAddr },
     })
     const donorKey = donor.nodeKey
     await stop(donor)
@@ -420,7 +418,7 @@ describe('AUTH-01 — a persisted, unexpired certificate is reused on restart', 
 
     const node = await start({
       blockstoreDir: dir,
-      enrollment: { userPrivateKey: OTHER_USER_SEED, operatorId: 'harbour-ops', providerAddr },
+      enrollment: { userPrivateKey: OTHER_USER_SEED, providerAddr },
     })
     expect(node.certificate?.nodeKey).toBe(ownKey)
     expect(node.certificate?.nodeKey).not.toBe(donorKey)

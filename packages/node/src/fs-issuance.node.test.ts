@@ -82,7 +82,7 @@ async function enrolOnce(
     await requestEnrollment(
       new Uint8Array(SEED_BYTES).fill(nodeSeedByte),
       new Uint8Array(SEED_BYTES).fill(userSeedByte),
-      { operatorId: 'issuance-ops', discoverability: 'seed', relayIds: [] },
+      { discoverability: 'seed', relayIds: [] },
     ),
     at,
   )

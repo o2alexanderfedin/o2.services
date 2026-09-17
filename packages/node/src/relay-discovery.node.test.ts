@@ -142,7 +142,7 @@ describe('NET-05 — a relay is found through the keyspace, not only through a f
       const providerAddr = provider.multiaddrs[0] as string
 
       const relay = await start('relay', {
-        enrollment: { userPrivateKey: USER_KEY, operatorId: 'relay-ops', providerAddr },
+        enrollment: { userPrivateKey: USER_KEY, providerAddr },
       })
       expect(relay.certificate, 'the relay enrolled without a certificate').not.toBeNull()
       expect(
@@ -153,7 +153,6 @@ describe('NET-05 — a relay is found through the keyspace, not only through a f
       const seeker = await start('seeker', {
         enrollment: {
           userPrivateKey: new Uint8Array(32).fill(0x42),
-          operatorId: 'seeker-ops',
           providerAddr,
         },
       })

@@ -7,6 +7,7 @@ import {
   EnrollmentAuthority,
   UserKeyMismatchError,
   challengeAnswerBytes,
+  operatorIdFor,
   possessionChallenge,
   requestEnrollment,
   resolveReplicaSets,
@@ -54,10 +55,9 @@ function authority(
   })
 }
 
-async function enrol(auth: EnrollmentAuthority, seed: number, opts: { operatorId?: string; relayIds?: string[]; at?: number } = {}) {
+async function enrol(auth: EnrollmentAuthority, seed: number, opts: { relayIds?: string[]; at?: number } = {}) {
   const node = keypair(seed)
   const request = await requestEnrollment(node.priv, alice.priv, {
-    operatorId: opts.operatorId ?? 'alice-op',
     discoverability: (opts.relayIds ?? ['relay-1']).length > 0 ? 'via-relay' : 'seed',
     relayIds: opts.relayIds ?? ['relay-1'],
   })
@@ -77,7 +77,6 @@ async function underFreshUser(auth: EnrollmentAuthority, which: number, at: numb
     userKey: user.pub,
     result: auth.enrol(
       await requestEnrollment(node.priv, user.priv, {
-        operatorId: `op-${which}`,
         discoverability: 'seed',
         relayIds: [],
       }),
@@ -130,7 +129,7 @@ describe('AUTH-01 — the private key never leaves the device', () => {
 
     // Nothing in the request carries a secret. If a provider could issue without
     // proof, it could impersonate every node it ever enrolled.
-    const request = await requestEnrollment(node.priv, alice.priv, { operatorId: 'o', discoverability: 'seed', relayIds: [] })
+    const request = await requestEnrollment(node.priv, alice.priv, { discoverability: 'seed', relayIds: [] })
     expect(Object.values(request).some((v) => v === toHex(node.priv))).toBe(false)
   })
 
@@ -140,7 +139,7 @@ describe('AUTH-01 — the private key never leaves the device', () => {
     const attacker = keypair(3)
 
     // The attacker claims the victim's public key but signs with their own.
-    const forged = await requestEnrollment(attacker.priv, alice.priv, { operatorId: 'o', discoverability: 'seed', relayIds: [] })
+    const forged = await requestEnrollment(attacker.priv, alice.priv, { discoverability: 'seed', relayIds: [] })
     const result = auth.enrol({ ...forged, nodeKey: victim.pub }, NOW)
 
     expect(result.ok).toBe(false)
@@ -228,7 +227,6 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
     const auth = authority()
     const node = keypair(81)
     const request = await requestEnrollment(node.priv, alice.priv, {
-      operatorId: 'alice-op',
       discoverability: 'seed',
       relayIds: [],
     })
@@ -243,7 +241,6 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
     const auth = authority()
     const node = keypair(82)
     const request = await requestEnrollment(node.priv, alice.priv, {
-      operatorId: 'alice-op',
       discoverability: 'seed',
       relayIds: [],
       // @ts-expect-error userKey comes from the signer, never supplied
@@ -293,7 +290,6 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
 
     await expect(
       requestEnrollment(keypair(83).priv, liar, {
-        operatorId: 'alice-op',
         discoverability: 'seed',
         relayIds: [],
       }),
@@ -303,7 +299,6 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
     // key pairs needs to know which one the request was about.
     await expect(
       requestEnrollment(keypair(83).priv, liar, {
-        operatorId: 'alice-op',
         discoverability: 'seed',
         relayIds: [],
       }),
@@ -317,7 +312,6 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
       sign: async (message) => ed25519.sign(message, rogue.priv),
     }
     const request = await requestEnrollment(keypair(83).priv, honest, {
-      operatorId: 'rogue-op',
       discoverability: 'seed',
       relayIds: [],
     })
@@ -352,7 +346,6 @@ describe('AUTH-04 — a certificate names the user who consented to it', () => {
     expect(signer.userKey).toHaveLength(64)
 
     const request = await requestEnrollment(keypair(84).priv, signer, {
-      operatorId: 'visitor-op',
       discoverability: 'via-relay',
       relayIds: ['relay-1'],
     })
@@ -406,11 +399,13 @@ describe('AUTH-02 — verification is offline', () => {
 
   it('refuses a certificate altered after signing', async () => {
     const auth = authority()
-    const { result } = await enrol(auth, 6, { operatorId: 'honest-op' })
+    const { result } = await enrol(auth, 6)
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
-    // Changing the operator would defeat quorum diversity if it went unnoticed.
+    // Changing the operator would defeat quorum diversity if it went unnoticed — and since
+    // VER-11 the value is the issuer's, so this is the tamper that would undo the derivation
+    // AFTER signing, which is the only route left once a provider refuses to sign it.
     const tampered: NodeCertificate = { ...result.certificate, operatorId: 'attacker-op' }
     const verdict = verifyCertificate(tampered, new Set([auth.issuerKey]), NOW)
     expect(verdict.ok).toBe(false)
@@ -467,10 +462,10 @@ describe('AUTH-04 — enrollment is rate-limited per user key', () => {
     const auth = authority({ maxPerWindow: 1 })
     const bob = keypair(50)
 
-    const first = await requestEnrollment(keypair(30).priv, alice.priv, { operatorId: 'a', discoverability: 'seed', relayIds: [] })
+    const first = await requestEnrollment(keypair(30).priv, alice.priv, { discoverability: 'seed', relayIds: [] })
     expect(auth.enrol(first, NOW).ok).toBe(true)
 
-    const second = await requestEnrollment(keypair(31).priv, bob.priv, { operatorId: 'b', discoverability: 'seed', relayIds: [] })
+    const second = await requestEnrollment(keypair(31).priv, bob.priv, { discoverability: 'seed', relayIds: [] })
     expect(auth.enrol(second, NOW).ok).toBe(true)
 
     expect(auth.issuedWithin(alice.pub, NOW)).toBe(1)
@@ -699,7 +694,6 @@ describe('AUTH-04 — the issuance history belongs to the host, not to the autho
 
     const result = auth.enrol(
       await requestEnrollment(keypair(133).priv, alice.priv, {
-        operatorId: 'alice-op',
         discoverability: 'seed',
         relayIds: [],
       }),
@@ -824,7 +818,6 @@ describe('AUTH-01 — an enrolment challenge is minted once and spent once', () 
   async function answering(auth: EnrollmentAuthority, seed: number, at: number) {
     const node = keypair(seed)
     const pending = await requestEnrollment(node.priv, alice.priv, {
-      operatorId: 'alice-op',
       discoverability: 'seed',
       relayIds: [],
     })
@@ -835,7 +828,6 @@ describe('AUTH-01 — an enrolment challenge is minted once and spent once', () 
   it('refuses a request that answers no challenge, and states the window it needed', async () => {
     const auth = authority()
     const pending = await requestEnrollment(keypair(200).priv, alice.priv, {
-      operatorId: 'alice-op',
       discoverability: 'seed',
       relayIds: [],
     })
@@ -978,6 +970,147 @@ describe('AUTH-01 — an enrolment challenge is minted once and spent once', () 
  * because a default that silently switched on would triple the certificate's cost on the
  * wire for every node in the fabric.
  */
+describe("VER-11 — the operator identity is the issuer's to decide", () => {
+  /**
+   * The field `composeQuorum` counts parties by, and who gets to say what it is.
+   *
+   * ## Why these cases exist, and what was here before them
+   *
+   * **Nothing was.** Until 2026-09-16 `EnrollmentAuthority.enrol` copied `request.operatorId`
+   * into the certificate verbatim (`enrollment.ts:1356`), checked nothing, and had nothing to
+   * check it against. `NodeCertificate` calls that field *"the unit of quorum diversity"*;
+   * `classifyAttestation` returned `'independent'` the moment two certificates carried two
+   * different strings. So an applicant chose, unchecked, how many parties a quorum believed it
+   * was talking to — and no case in this repository asserted otherwise, because every fixture
+   * supplied a name and got that name back.
+   *
+   * The first case below is the one that would have caught it.
+   *
+   * The past tense in that paragraph is load-bearing as of 2026-09-16, VER-12: two different
+   * operator strings no longer reach `'independent'` on their own. The label now needs two
+   * certificate authorities as well, and two operators under one authority read
+   * `'single-issuer'`. That does not weaken anything argued here — this hole was about who
+   * decides the operator field, and it is closed by the same check whatever label sits above
+   * it — but the sentence describing the old behaviour must not read as a description of the
+   * current one.
+   *
+   * ## Why they are hand-rolled rather than built through `requestEnrollment`
+   *
+   * `requestEnrollment` now derives the field itself, so a request built through it can never
+   * carry a mismatched one. A case built that way would pass **with the check removed**: the
+   * mutation reverting `:1356` to `request.operatorId` would copy an already-correct value and
+   * produce a byte-identical certificate. That is a blind instrument, and this repository has
+   * paid for enough of them to say so in the file rather than in a plan.
+   *
+   * These cases therefore build the request object by hand — every proof genuine, only the
+   * `operatorId` chosen — which is exactly what a client that wanted a name of its own would
+   * send.
+   */
+  const bob = keypair(90)
+
+  /** A real request for `node`, signed by `alice`, carrying whatever operator name is asked for. */
+  async function requestNaming(node: { priv: Uint8Array; pub: string }, operatorId: string) {
+    const built = await requestEnrollment(node.priv, alice.priv, {
+      discoverability: 'seed',
+      relayIds: [],
+    })
+    return { ...built, operatorId }
+  }
+
+  it('gives one user key one operator identity, whatever name each request asks for', async () => {
+    const auth = authority()
+    const node = keypair(91)
+
+    // Both requests carry alice's key and alice's `ownerProof`. They differ in one string.
+    const honest = auth.enrol(await requestNaming(node, operatorIdFor(alice.pub)), NOW)
+    const renamed = auth.enrol(await requestNaming(bob, 'datacentre-two'), NOW)
+
+    // **Asserted as the SET of operator identities the two requests yielded, and the shape is
+    // deliberate.** Criterion 2's words are *"two requests carrying the same user key and
+    // different requested operator names yield certificates with the same operatorId"*. Under
+    // refuse-on-mismatch that is one issued certificate and one refusal — one identity, one
+    // member. Under the provider this replaced it was two certificates carrying two names, so
+    // the set has two members and the failure message SAYS WHAT WENT WRONG rather than
+    // reporting a boolean: `[ 'datacentre-two', 'visitor:197f…' ]`. An `expect(ok).toBe(false)`
+    // placed first would have thrown before this line and hidden it.
+    const issued = [honest, renamed].flatMap((r) => (r.ok ? [r.certificate.operatorId] : []))
+    expect([...new Set(issued)]).toHaveLength(1)
+
+    expect(honest.ok).toBe(true)
+    if (!honest.ok) return
+    // A literal, not `operatorIdFor(alice.pub)`. The derivation is what is under test here, so
+    // an expectation computed by calling it would move with any change to it and could never
+    // fail — the failure mode this repository records as "an assertion that reuses the value it
+    // tests". `alice` is `keypair(42)`, a seed of thirty-two 42s, and this is the first sixteen
+    // characters of the hex of its public half.
+    expect(honest.certificate.operatorId).toBe('visitor:197f6b23e16c8532')
+
+    // Refused rather than quietly re-badged: a certificate says what its applicant asked for,
+    // or the applicant was told no.
+    expect(renamed.ok).toBe(false)
+    if (renamed.ok) return
+    expect(renamed.refusal.kind).toBe('operator-id-not-derivable')
+  })
+
+  it('names both the value it was sent and the only value it would sign', async () => {
+    const auth = authority()
+    const result = auth.enrol(await requestNaming(keypair(92), 'datacentre-two'), NOW)
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    if (result.refusal.kind !== 'operator-id-not-derivable') {
+      throw new Error(`expected operator-id-not-derivable, got ${result.refusal.kind}`)
+    }
+    // Both, because neither alone is actionable: one says what was rejected, the other says
+    // what to send instead.
+    expect(result.refusal.supplied).toBe('datacentre-two')
+    expect(result.refusal.derived).toBe('visitor:197f6b23e16c8532')
+    expect(result.reason).toContain('datacentre-two')
+    expect(result.reason).toContain('visitor:197f6b23e16c8532')
+  })
+
+  it('refuses before the per-user window, so a misconfigured client is told what is wrong', async () => {
+    // A provider with one certificate left in its window, already spent. A mismatched request
+    // must still hear about the mismatch: `rate-limited` would send it away to wait and come
+    // back with the identical defect.
+    const auth = authority({ maxPerWindow: 1 })
+    expect((await enrol(auth, 93)).result.ok).toBe(true)
+
+    const result = auth.enrol(await requestNaming(keypair(94), 'datacentre-two'), NOW)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.refusal.kind).toBe('operator-id-not-derivable')
+  })
+
+  it('certifies a client that derives its own identity, which is every client in this tree', async () => {
+    // Criterion 3. `requestEnrollment` derives the field, and the browser's `visitorOperatorId`
+    // calls the identical function — so a real visitor enrolling through the shipped path meets
+    // this provider and is issued, not refused. Built through the builder ON PURPOSE here: this
+    // case is about the client path agreeing with the provider, which is the one property the
+    // hand-rolled shape above cannot read.
+    const auth = authority()
+    const { result } = await enrol(auth, 95)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.certificate.operatorId).toBe('visitor:197f6b23e16c8532')
+  })
+
+  it('gives two different users two different operator identities', async () => {
+    // The other half of the first case, and the reason derivation is not a demotion: two real
+    // parties still read as two. A fixture that wants two operators supplies two owners, which
+    // is what "two operators" has always meant.
+    const auth = authority()
+    const fromAlice = auth.enrol(await requestNaming(keypair(96), operatorIdFor(alice.pub)), NOW)
+    const built = await requestEnrollment(keypair(97).priv, bob.priv, { discoverability: 'seed', relayIds: [] })
+    const fromBob = auth.enrol(built, NOW)
+
+    expect(fromAlice.ok && fromBob.ok).toBe(true)
+    if (!fromAlice.ok || !fromBob.ok) return
+    expect(fromAlice.certificate.operatorId).not.toBe(fromBob.certificate.operatorId)
+  })
+})
+
 describe('X509-01 — a provider can issue the profile\'s X.509 form alongside the envelope', () => {
   function x509Authority(): EnrollmentAuthority {
     return new EnrollmentAuthority({
@@ -1000,7 +1133,7 @@ describe('X509-01 — a provider can issue the profile\'s X.509 form alongside t
   })
 
   it('issues a form its own verifier accepts, carrying the envelope\'s fields', async () => {
-    const { node, result } = await enrol(x509Authority(), 221, { operatorId: 'alice-op', relayIds: ['relay-2', 'relay-1'] })
+    const { node, result } = await enrol(x509Authority(), 221, { relayIds: ['relay-2', 'relay-1'] })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const { x509 } = result.certificate
@@ -1018,7 +1151,10 @@ describe('X509-01 — a provider can issue the profile\'s X.509 form alongside t
     if (!decoded.ok) return
     expect(decoded.certificate.subjectPublicKey).toBe(node.pub)
     expect(decoded.certificate.userKey).toBe(alice.pub)
-    expect(decoded.certificate.operatorId).toBe('alice-op')
+    // The envelope's own value, because what this case reads is whether the DER form carries
+    // the fields the envelope carries. Where that value COMES FROM is a different property
+    // and has its own cases — see 'VER-11 — the operator identity is the issuer's to decide'.
+    expect(decoded.certificate.operatorId).toBe(operatorIdFor(alice.pub))
     expect(decoded.certificate.discoverability).toBe('via-relay')
     expect(decoded.certificate.relayIds).toEqual(['relay-1', 'relay-2'])
     expect(decoded.certificate.version).toBe(2)

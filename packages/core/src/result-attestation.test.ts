@@ -52,7 +52,6 @@ async function enrolled(
   const node = keypair(seed)
   const result = authorityFor(issuer).enrol(
     await requestEnrollment(node.priv, alice.priv, {
-      operatorId: `op-${seed}`,
       discoverability: 'via-relay',
       relayIds: ['relay-1'],
     }),

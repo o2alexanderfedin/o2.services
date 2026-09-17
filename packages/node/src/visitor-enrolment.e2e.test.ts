@@ -615,7 +615,6 @@ beforeAll(async () => {
     trustAnchors: TRUST_ANCHORS,
     enrollment: {
       userPrivateKey: MEMBER_USER_PRIVATE_KEY,
-      operatorId: MEMBER_OPERATOR_ID,
       providerAddr,
     },
   })
@@ -632,7 +631,24 @@ afterAll(async () => {
   await strangerNode?.stop().catch(() => {})
   await stopSeed()
   await provider?.stop().catch(() => {})
-  await rm(workdir, { recursive: true, force: true })
+  /*
+   * **`maxRetries`, and the error it answers was observed here.** A full `e2e` lane on
+   * 2026-09-15, on a host its own banner called quiet, failed this whole FILE at the suite
+   * level with `ENOTEMPTY: directory not empty, rmdir '<workdir>/member/.datastore'` —
+   * after all 11 of its cases had passed. A teardown race reported as a red file.
+   *
+   * The remedy is `issuance-rate.node.test.ts`', verbatim in shape, because the error is
+   * verbatim, and this is the third file to need it after `admission-agents` and
+   * `fs-blockstore`: Node retries EBUSY, EMFILE, ENFILE, ENOTEMPTY and EPERM with a linear
+   * backoff, and only when `recursive` is set. What is waited out is the tail of a
+   * shutdown — `member` is the node whose store is still being written when the `stop()`
+   * above has already resolved.
+   *
+   * It does NOT settle why a write can land after `FabricNode.stop()` resolves: `stop()`
+   * closes the rpc, the pool, the verifier, the transport and libp2p, and closes neither
+   * store. That is a question about `fabric-node.ts` and it is now open in four files.
+   */
+  await rm(workdir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 }, 180_000)
 
 describe('a --admit-issuer seed states its door and its way through it', () => {
@@ -733,6 +749,36 @@ describe.each(ENGINES)(
      * origin naming no provider, so `#enrol-offer` stays hidden and the control is
      * unreachable there for a reason that has nothing to do with sign-in. A case sited there
      * would have passed while the defect stood — which is how it stood.
+     *
+     * ## The plant, and it stayed GREEN — measured 2026-09-14, reported rather than accepted
+     *
+     * `AUTH-07`'s row requires this defect to be *made to happen and then made impossible*, so
+     * the fix was removed: `requireSignedIn()` deleted from `demo/main.ts`'s `acceptEnrolment`,
+     * one line, the exact state `42-07` left. **All three engines still passed**, and the
+     * `refusal` reading still came back `SignedOutError` on every one of them — probed
+     * directly rather than inferred.
+     *
+     * **The cause is a second guard, and finding it is the useful part.** `acceptEnrolment`
+     * reaches `visitorKeyPair(identityProtection())`, and `identityProtection()` is
+     * `{ kind: 'passphrase', passphrase: requireSignIn() }` (`demo/main.ts:520-522`) — which
+     * throws the same `SignedOutError` from one call deeper. So the guarantee is held TWICE
+     * and either alone suffices. That is a real property of the system and it is why the key
+     * assertion cannot redden on this plant.
+     *
+     * **What this does NOT mean.** It does not mean the explicit `requireSignedIn()` is
+     * redundant and can be deleted. The two guards refuse at different depths and the
+     * difference is visible to a visitor: the explicit one refuses *before* the origin and
+     * browser checks and before `acceptEnrolment(store, …)` writes the enrolment record, which
+     * `enrolment-consent.ts:198-206` does unconditionally. Without it a look-around visitor
+     * gets no key — the property this case asserts — but the store does carry an accepted
+     * enrolment they never completed. `visitorKeyIsStored` reads the KEY and not that record,
+     * so this file cannot see that difference, and it is named here rather than left for the
+     * next reader to rediscover by planting.
+     *
+     * **The plant that WOULD redden this case** is one that removes both: delete
+     * `requireSignedIn()` here AND make `identityProtection()` hand back a passphrase without
+     * asking. That was not done, because the second half is a change to a function four other
+     * call sites depend on, and a plant is not licence to rewrite the thing being measured.
      */
     it('does not reach the control that mints a key while merely looking around', async () => {
       let browser: Browser | undefined
@@ -809,6 +855,36 @@ describe.each(ENGINES)(
           'a visitor key exists after a look-around visit, so something minted one without a '
             + 'passphrase',
         ).toBe(false)
+
+        // **The OTHER store, and it is what the green plant above sent me looking for.**
+        //
+        // `acceptEnrolment(store, …)` writes the enrolment record BEFORE the key is minted
+        // (`enrolment-consent.ts:198-206`, an unconditional `store.write`). The deeper guard
+        // in `identityProtection()` refuses after that write, so removing the explicit
+        // `requireSignedIn()` leaves a look-around visitor with no key — which the assertion
+        // above correctly reports — and an accepted enrolment they never completed. Reading
+        // only the key cannot tell those apart, which is exactly why the plant stayed green.
+        //
+        // So this reads the record too. It is not a second opinion on the same fact: it is the
+        // half of the store the explicit guard is the only thing protecting.
+        expect(
+          await page.evaluate(() => {
+            try {
+              return window.localStorage.getItem('o2:enrolment')
+            } catch {
+              // Storage denied. Nothing was written because nothing could be — which is not
+              // this case's subject, and reporting `null` here says the same thing a clean
+              // store says. The distinction that matters is measured on an origin that can
+              // store, which every engine in this fixture can.
+              return null
+            }
+          }),
+          'the store holds an accepted enrolment after a look-around visit: the visitor never '
+            + 'unlocked, no key was minted, and yet this origin now records that they accepted '
+            + 'enrolment. The write happens before the key mint, so only the explicit '
+            + 'requireSignedIn() in acceptEnrolment stands between a look-around and a record '
+            + 'of a decision nobody made',
+        ).toBeNull()
       } finally {
         await page?.close().catch(() => {})
         await browser?.close().catch(() => {})

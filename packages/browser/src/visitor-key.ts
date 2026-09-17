@@ -276,29 +276,29 @@ export async function visitorKeyPair(
 }
 
 /**
- * Who the fabric should treat as running this machine — the `operatorId` an enrolment
- * request carries.
+ * `visitorOperatorId(keyPair)` STOOD HERE and is gone — VER-11, 2026-09-16.
  *
- * **Derived from the visitor's own public key, and that is a correctness requirement rather
- * than a convenience.** `operatorId` is the unit of quorum anti-affinity: `composeQuorum`
- * spreads a quorum across operators because three nodes run by one operator are one failure
- * domain and one attacker. A visitor's tabs *are* one failure domain — one person, one
- * device, one browser profile — so they must report one operator, and the stable thing they
- * all share is exactly this key.
+ * **It was deleted rather than kept, and the reachability guard is what said so.** The
+ * function derived `visitor:<userKey[0:16]>` for this tab to send as its enrolment
+ * `operatorId`. A provider now derives that value itself, from the user key the request
+ * already proves, so there is no field on the enrolment path for this page to fill in —
+ * `demo/main.ts#visitorEnrolmentOption` stopped calling it in the same change and nothing
+ * else ever did. `reachability-guard.node.test.ts` caught it immediately: a symbol
+ * disposed `global-object-hop` that no longer becomes reachable when the hop is traced is
+ * one whose entry names the wrong cause.
  *
- * **The origin cannot name it, which is the point.** Taking `operatorId` from
- * `/bootstrap.json` would let whatever served the page decide how a visitor's node counts
- * toward diversity — a page that was found rather than configured, configuring the fabric's
- * view of whoever found it. Derivation makes that unrepresentable: there is no parameter.
+ * **Its argument was not deleted with it — it was promoted.** The docblock read: *"Taking
+ * `operatorId` from `/bootstrap.json` would let whatever served the page decide how a
+ * visitor's node counts toward diversity — a page that was found rather than configured,
+ * configuring the fabric's view of whoever found it. Derivation makes that unrepresentable:
+ * there is no parameter."* That was this tier's local discipline while the provider it
+ * enrolled against enforced nothing. It is now `@o2/core`'s `operatorIdFor`, which the
+ * provider applies to every applicant, and the spelling that survived is this one's —
+ * because this one is deployed.
  *
- * The public half only. It is 32 bytes the certificate is about to publish as `userKey`
- * anyway, so the prefix reveals nothing new; it is truncated because an `operatorId` is
- * compared for equality and never parsed, and a shorter one is legible in a log line.
+ * What a caller wanting this tab's operator identity does instead: read it off the
+ * certificate, which is where a provider's decision belongs.
  */
-export async function visitorOperatorId(keyPair: CryptoKeyPair): Promise<string> {
-  const signer = await subtleUserSigner(keyPair)
-  return `visitor:${signer.userKey.slice(0, 16)}`
-}
 
 /**
  * Forget this visitor's key.

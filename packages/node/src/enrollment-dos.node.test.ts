@@ -87,7 +87,6 @@ const NOW = 1_800_000_000_000
  */
 async function freshRequest(): Promise<PendingEnrollment> {
   return await requestEnrollment(ed25519.utils.randomSecretKey(), ed25519.utils.randomSecretKey(), {
-    operatorId: 'op-attacker',
     discoverability: 'seed',
     relayIds: [],
   })

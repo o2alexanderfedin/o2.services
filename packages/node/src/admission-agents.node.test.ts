@@ -465,8 +465,6 @@ async function standUp(): Promise<Fixture> {
             directAddrOf(under),
             '--user-key',
             await writeUserKey(name, fill),
-            '--operator-id',
-            `${name}-ops`,
           ]),
     ])
 
@@ -537,7 +535,26 @@ beforeEach(async () => {
 afterEach(async () => {
   await Promise.all(nodes.splice(0).map((node) => node.stop().catch(() => {})))
   await Promise.all(agents.splice(0).map((agent) => stopAgent(agent).catch(() => {})))
-  await rm(workdir, { recursive: true, force: true })
+  /*
+   * **`maxRetries`, and the error it answers was observed here.** A `--project node` sweep on
+   * 2026-09-15 reddened in this file with `ENOTEMPTY: directory not empty, rmdir
+   * '<workdir>/reader/.datastore'`, on a host its own banner called quiet. Nothing the spec
+   * claims failed — this is teardown, and it is the second of two distinct failure modes this
+   * file carried; the other was an unsynchronised stderr read, fixed at its own site.
+   *
+   * The remedy is `issuance-rate.node.test.ts`', verbatim in shape, because the error is
+   * verbatim: Node retries EBUSY, EMFILE, ENFILE, ENOTEMPTY and EPERM with a linear backoff,
+   * and only when `recursive` is set. What is waited out is the tail of a shutdown.
+   *
+   * **Two things this does NOT do, named rather than left to be rediscovered.** It does not
+   * settle why a write can land after `FabricNode.stop()` resolves — `stop()` closes the rpc,
+   * the pool, the verifier, the transport and libp2p, and closes neither store; that is a
+   * question about `fabric-node.ts`. And the `.catch(() => {})` above still swallows a stop
+   * failure, so a node that failed to stop presents here as a confusing removal error rather
+   * than as itself. `issuance-rate.node.test.ts` records those failures instead; this file
+   * does not, and that is a gap in the diagnostic, not in the fixture.
+   */
+  await rm(workdir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 }, 60_000)
 
 describe('criterion 8 — the three clauses, across real processes, in three arms', () => {
@@ -1107,6 +1124,21 @@ describe('criterion 8 — the three clauses, across real processes, in three arm
     // simply arrived after it was taken. What the stranger's own process is asked is now the
     // gate-shaped question — it was refused there, and says so — rather than "no relay
     // anywhere", which is no longer a statement about admission.
+    //
+    // **Waited for, not read on arrival — this line was an unsynchronised read and it made
+    // the file intermittent.** The only `until` in this case waits for the OUTSIDER to appear
+    // in the open provider's advertisement; nothing anywhere waited for the STRANGER to print
+    // its refusal. So the assertion passed whenever the stranger's stderr happened to win a
+    // race it was never entered into, and on a quiet host it lost: the reading collected was
+    // the child's `ExperimentalWarning` and nothing else. The wait is the same one this file
+    // already performs twice for the same string, and putting it here makes three sites say
+    // the same thing rather than two saying it and one assuming it.
+    await until(
+      () => stranger.stderr().includes('relay reservation refused: PERMISSION_DENIED'),
+      RESERVATION_BUDGET_MS,
+      'the gate-refused arm to name its refusal on stderr',
+      () => ({ stderr: stranger.stderr() }),
+    )
     expect(stranger.stderr()).toContain('relay reservation refused: PERMISSION_DENIED')
   }, PROCESS_TEST_TIMEOUT)
 })

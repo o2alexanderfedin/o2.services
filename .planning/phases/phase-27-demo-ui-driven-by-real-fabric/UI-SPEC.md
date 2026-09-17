@@ -651,7 +651,7 @@ The surface with no workload of its own: it renders the cross-cutting readings.
 | F5 | `fabric/relayed-only` | reading | `connectDiscoveredPeers().relayedOnly`, `.stalled` | `Not known: no discovery round has run.` | `Not known: this tab's node is stopped.` | `Every peer this tab holds can carry a job.` |
 | F6 | `fabric/attestation-strength` | reading | last run's `attestation.strength`, or the absence arm's `kind` | `Not established: no job has been run in this tab.` | `Not established: this tab's node is stopped.` | §5.1 |
 | F7 | `fabric/attestation-description` | reading | `attestation.description`, **verbatim** | as F6 | as F6 | §5.1's `reason`, verbatim |
-| F8 | `fabric/attestation-counts` | reading | `attestation.replicas`, `.operators`, `.sharedRelay` | as F6 | as F6 | absence arm: `.agreeing` and `.verified` |
+| F8 | `fabric/attestation-counts` | reading | `attestation.replicas`, `.operators`, `.issuers`, `.sharedRelay` | as F6 | as F6 | absence arm: `.agreeing` and `.verified` |
 | F9 | `fabric/egress-frames` | reading | last run's `egress.entries.length` | `Nothing measured: no job has been run in this tab.` | `Nothing measured: this tab's node is stopped.` | — |
 | F10 | `fabric/egress-bytes` | reading | `egress.totalBytes` | as F9 | as F9 | — |
 | F11 | `fabric/egress-withheld` | reading | `egress.violations` — §5.2, figure and sentence in **one** region | as F9 | as F9 | — |

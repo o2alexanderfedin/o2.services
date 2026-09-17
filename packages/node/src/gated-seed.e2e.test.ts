@@ -400,7 +400,6 @@ beforeAll(async () => {
     trustAnchors: TRUST_ANCHORS,
     enrollment: {
       userPrivateKey: USER_PRIVATE_KEY,
-      operatorId: OPERATOR_ID,
       providerAddr,
     },
   })
@@ -495,7 +494,6 @@ async function startTabNode(page: Page, blockstoreName: string, enrol: boolean):
                 // 24-05 measured that this works because enrolment is a plain dial with no
                 // reservation in its path. The seed publishes it; this file no longer passes it.
                 providerAddr: enrollmentProvider,
-                operatorId: options.operatorId,
                 userPrivateKey: options.userKey,
               },
             }

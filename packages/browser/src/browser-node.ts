@@ -573,7 +573,7 @@ export interface BrowserNodeOptions {
    */
   readonly enrollment?: {
     readonly userPrivateKey: Uint8Array | CryptoKeyPair
-    readonly operatorId: string
+    // `operatorId` was here — VER-11, 2026-09-16 — the operator identity is derived by the issuer from the user key it holds a proof for, so there is no field here to state it and no way for a caller to state it wrongly.
     readonly providerAddr: string
   }
   /**
@@ -816,7 +816,6 @@ async function resolveCertificate(parts: {
       ? enrollment.userPrivateKey
       : await subtleUserSigner(enrollment.userPrivateKey)
   const request = await requestEnrollment(identity.seed, user, {
-    operatorId: enrollment.operatorId,
     discoverability: canRelay ? 'seed' : 'via-relay',
     relayIds: canRelay ? [] : [...relayPeerIds],
   })

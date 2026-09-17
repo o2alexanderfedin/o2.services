@@ -147,7 +147,7 @@ async function startTab(options: {
   pin: readonly string[] | 'from-this-origins-enrolment'
 }): Promise<string> {
   return page.evaluate(
-    async ([blockstoreName, anchor, relayAt, providerAt, operatorId, userKey, enrol, pin, passphrase]) =>
+    async ([blockstoreName, anchor, relayAt, providerAt, userKey, enrol, pin, passphrase]) =>
       window.o2capability.start({
         relayAddrs: [relayAt as string],
         blockstoreName: blockstoreName as string,
@@ -172,7 +172,6 @@ async function startTab(options: {
           ? {
               enrollment: {
                 userPrivateKey: userKey as number[],
-                operatorId: operatorId as string,
                 providerAddr: providerAt as string,
               },
             }
@@ -183,7 +182,6 @@ async function startTab(options: {
       publisher.pub,
       relayAddr,
       providerAddr,
-      OPERATOR_ID,
       [...USER_PRIVATE_KEY],
       options.enrol,
       options.pin === 'from-this-origins-enrolment' ? options.pin : [...options.pin],
@@ -253,7 +251,6 @@ beforeAll(async () => {
     trustAnchors: [publisher.pub],
     enrollment: {
       userPrivateKey: USER_PRIVATE_KEY,
-      operatorId: OPERATOR_ID,
       providerAddr,
     },
   })

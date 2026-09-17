@@ -2757,7 +2757,21 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
 //
 // Closing condition, checkable and with no forecast attached: this entry leaves if
 // {@link ENTRY_POINTS} ever admits `packages/node/src/bin/check-copy.ts`.
-const ORPHAN_MODULE_CEILING = 34
+//
+// 2026-09-13 (Phase 33, plan 04): 34 -> 35, raised by exactly one and named.
+// `packages/node/src/location-claims.ts` is HOST-07's term list, placement-verb set and
+// matcher — the vocabulary `location-claims.node.test.ts` scans the tree with. Its mechanism
+// is the one this list has already accepted for `banned-vocabulary.ts`'s window and for
+// `commit-scope.ts`/`strip-comments.ts`/`mutation-guard.mutate.ts`: a module whose only
+// importer is its own `.node.test.ts` spec, which the traced graph does not walk because
+// specs are not production. Exported separately from the spec on `banned-vocabulary.ts`'s own
+// stated reason — the matcher must be provable independently of where a file happens to live —
+// which is exactly what makes it unreachable from any production entry point.
+//
+// Closing condition, checkable and with no forecast attached: this entry leaves if a
+// production module ever imports `location-claims.ts` directly, the way `check-copy.ts`
+// eventually did for `banned-vocabulary.ts`.
+const ORPHAN_MODULE_CEILING = 35
 
 /**
  * A production module that reaches **no barrel at all**, named by path.

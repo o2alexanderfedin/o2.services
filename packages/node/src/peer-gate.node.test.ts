@@ -112,11 +112,11 @@ describe('AUTH-02 — the block source reads the verified subset', () => {
     const p2 = await start({ blockstoreDir: join(workdir, 'p2'), issuesCertificates: 'issues-without-an-aggregate-budget' })
     const a = await start({
       blockstoreDir: join(workdir, 'a'),
-      enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr: addrOf(p1) },
+      enrollment: { userPrivateKey: USER_SEED, providerAddr: addrOf(p1) },
     })
     const c = await start({
       blockstoreDir: join(workdir, 'c'),
-      enrollment: { userPrivateKey: OTHER_USER_SEED, operatorId: 'trawler-ops', providerAddr: addrOf(p2) },
+      enrollment: { userPrivateKey: OTHER_USER_SEED, providerAddr: addrOf(p2) },
     })
 
     const cidOnA = await a.store.put(new Uint8Array([0xa0, 0xa1, 0xa2]))
@@ -159,11 +159,11 @@ describe('AUTH-02 — the block source reads the verified subset', () => {
     const p2 = await start({ blockstoreDir: join(workdir, 'p2'), issuesCertificates: 'issues-without-an-aggregate-budget' })
     const a = await start({
       blockstoreDir: join(workdir, 'a'),
-      enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr: addrOf(p1) },
+      enrollment: { userPrivateKey: USER_SEED, providerAddr: addrOf(p1) },
     })
     const c = await start({
       blockstoreDir: join(workdir, 'c'),
-      enrollment: { userPrivateKey: OTHER_USER_SEED, operatorId: 'trawler-ops', providerAddr: addrOf(p2) },
+      enrollment: { userPrivateKey: OTHER_USER_SEED, providerAddr: addrOf(p2) },
     })
     const b = await start({
       blockstoreDir: join(workdir, 'b'),

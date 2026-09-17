@@ -1314,7 +1314,7 @@ export const REGIONS: readonly Region[] = [
     id: 'fabric/attestation-counts', // F8
     surface: 'fabric',
     kind: 'reading',
-    source: 'TabApi.runColouring().attestation.replicas with .operators and .sharedRelay',
+    source: 'TabApi.runColouring().attestation.replicas with .operators, .issuers and .sharedRelay',
     absence: {
       initial: 'Not established: no job has been run in this tab.',
       stopped: "Not established: this tab's node is stopped.",

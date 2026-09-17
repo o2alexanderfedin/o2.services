@@ -190,6 +190,13 @@ const ATTESTATION_LINE = /^--sovereign attestation: (.+)$/
  * user key and pinning data to one owner removes the second independent executor — and the
  * requestor holds a certificate for exactly the one node it placed on.
  *
+ * **A THIRD count arrived on 2026-09-16, VER-12** — the driver now prints how many certificate
+ * authorities vouched for the replicas, because the strength beside it turns on that number as
+ * well as on the operator count. It is `1` for the same reason the other two are: this rig
+ * enrols every worker with one provider. Carried in the equality rather than dropped from it —
+ * an equality that reproduced only part of the line would be reading a prefix, and the argument
+ * below for why this is an equality at all applies to every byte of it.
+ *
  * **The counts are per-SHARD and did not move when the leg went from one row to two on
  * 2026-08-14.** A strength is computed for each shard on its own, so a second owner-pinned
  * row alongside the first changes neither `replicas 1` nor `operators 1`; the driver still
@@ -197,7 +204,7 @@ const ATTESTATION_LINE = /^--sovereign attestation: (.+)$/
  * "the receipt still reads one replica" look contradictory until the per-shard scope is
  * named — and a reader who assumed otherwise would 'fix' this constant and break it.
  */
-const EXPECTED_RECEIPT = `owner-attested (replicas 1, operators 1) — ${describeAttestation('owner-attested')}`
+const EXPECTED_RECEIPT = `owner-attested (replicas 1, operators 1, issuers 1) — ${describeAttestation('owner-attested')}`
 
 /** The driver's own report of a rung that threw. Reached when the leg refuses to report a zero. */
 const EXCLUDED_LINE = /^\s*excluded: --sovereign:/
@@ -499,16 +506,21 @@ describe('the --sovereign leg runs, and says what it dispatched', () => {
       // **The reading VER-09 was held open for.** Every strength this driver had printed
       // before today was of a *public* rung; this one is of a shard the requestor pinned to
       // an owner, placed on the single node holding that owner's row. `classifyAttestation`
-      // computes the label from what the requestor could account for, so the three numbers
-      // have to agree with each other: one replica, one operator, and the weakest of the
-      // three labels.
+      // computes the label from what the requestor could account for, so the numbers have to
+      // agree with each other: one replica, one operator, one certificate authority, and the
+      // weakest label. **Four labels since 2026-09-16, VER-12**, and the authority count is
+      // the third of them printed on this line — the sentence above said "three labels" and
+      // that number moved, not the argument.
       // An equality over the whole line, not a `toContain` on the label. Three reasons, and
       // the third is the one that decided it:
       //
       // 1. `owner-attested` is a **prefix** of nothing and a **substring** of nothing, but
       //    its own description ends *"not independently verified"* — so a naive
       //    `not.toContain('independent')` written to refuse the strongest label would fail
-      //    against the correct line. An equality cannot be got wrong that way.
+      //    against the correct line. An equality cannot be got wrong that way. **A fourth
+      //    label in 2026-09-16's VER-12 strengthens this rather than dating it**: a substring
+      //    refusal would now need to enumerate four sentences and would still collide with
+      //    this one, which an equality never has to do.
       // 2. The counts are what make the label mean anything. `owner-attested` beside
       //    `replicas 2` is a different claim about a different job, and a substring match
       //    over the label alone reads both as the same pass.

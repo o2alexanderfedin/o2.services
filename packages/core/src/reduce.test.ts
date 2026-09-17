@@ -696,7 +696,6 @@ describe('VER-08/09/10 — what a combine produced and what its producer signed 
       issuance: 'remembers-only-within-this-process',
     }).enrol(
       await requestEnrollment(nodeSeed, alice, {
-        operatorId: `op-${seed}`,
         discoverability: 'via-relay',
         relayIds: ['relay-1'],
       }),

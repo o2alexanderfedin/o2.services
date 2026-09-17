@@ -92,6 +92,14 @@ export interface ProbeOutcome {
    * The errno of a spawn that failed, or `ETIMEDOUT` when `spawnSync` killed the client at
    * its budget. Measured on this host: a `spawnSync` timeout reports
    * `code: 'ETIMEDOUT'`, `status: null`, `signal: 'SIGTERM'`.
+   *
+   * **AMENDED 2026-09-15 -- that reading is of a client that DIES of SIGTERM, and it was
+   * quoted as though it were a property of the timeout.** A child that holds the signal
+   * reports `code: 'ETIMEDOUT'` with `status: 0` and `signal: null`, after a wait as long
+   * as the child chose to live -- 30 055 ms against a 3 000 ms budget, measured. The
+   * timeout is a deadline only because {@link runProbe} now passes `killSignal: 'SIGKILL'`;
+   * the row for a wedged daemon in this module's own header is true for the same reason
+   * and was not, before that line existed.
    */
   readonly errno: string | null
   /** What the client printed, trimmed — the daemon's OS, or an image id. */
@@ -239,6 +247,17 @@ function runProbe(
   const ran = spawnSync(command, [...argv], {
     encoding: 'utf8',
     timeout: timeoutMs,
+    // **`timeout` alone is not a deadline.** `spawnSync` sends `killSignal` when the budget
+    // runs out and then waits for the child to ACTUALLY go, so a client that ignores the
+    // signal is waited out in full. Measured 2026-09-15 on this host: a child holding
+    // SIGTERM through a 3 000 ms budget returned at 30 055 ms -- and reported `status: 0`,
+    // which is why {@link classifyReach} reads `errno` before it reads a status. SIGKILL
+    // cannot be held, and the same child returned at 3 004 ms.
+    //
+    // Every budget in this module rests on this line. `docker-gate.node.test.ts` drives a
+    // stub that refuses SIGTERM and requires the probe back inside three budgets; the two
+    // wedged-socket cases there cannot cover it, because the real client dies of SIGTERM.
+    killSignal: 'SIGKILL',
     ...(options.env === undefined ? {} : { env: { ...options.env } }),
   })
   return {

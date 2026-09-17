@@ -185,7 +185,7 @@ async function openEnrolledTab(name: string, minterPort: number): Promise<Tab> {
   // presses the two controls — see `signInHarnessTab`.
   await signInHarnessTab(page)
   const peerId = await page.evaluate(
-    async ([address, store, userKey, operatorId]) => {
+    async ([address, store, userKey]) => {
       return window.o2.start({
         relayAddrs: [address as string],
         blockstoreName: store as string,
@@ -193,16 +193,14 @@ async function openEnrolledTab(name: string, minterPort: number): Promise<Tab> {
         // certificate signed by a real issuer. Nothing here is a fixture.
         enrollment: {
           userPrivateKey: userKey as number[],
-          operatorId: operatorId as string,
           providerAddr: address as string,
         },
       })
     },
-    [relayAddr, `o2-e2e-${name}`, Array.from(visitorKey), `phase-34-${name}`] as [
+    [relayAddr, `o2-e2e-${name}`, Array.from(visitorKey)] as [
       string,
       string,
       number[],
-      string,
     ],
   )
   return { page, peerId }

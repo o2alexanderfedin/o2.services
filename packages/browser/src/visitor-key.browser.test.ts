@@ -1,5 +1,5 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { subtleUserSigner } from '@o2/core'
+import { operatorIdFor, subtleUserSigner } from '@o2/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { IdentityProtection } from '@o2/libp2p'
 import { openDB } from 'idb'
@@ -9,7 +9,6 @@ import {
   canHoldVisitorKey,
   forgetVisitorKey,
   visitorKeyPair,
-  visitorOperatorId,
 } from './visitor-key.ts'
 
 /**
@@ -129,9 +128,14 @@ describe('the visitor key survives a session, which was unmeasured until now', (
   })
 
   it('derives one stable operator id from it, so one person is one operator', async () => {
+    // **Read through `@o2/core`'s `operatorIdFor` since VER-11, 2026-09-16** — this file's
+    // `visitorOperatorId` was a wrapper around it and was deleted when its last caller went.
+    // The property is unchanged and is still this tier's to hold: the *key* is what must be
+    // stable across reloads, and the operator identity is stable because it is a function of
+    // that key. What moved is who computes it — the provider now does, from the same key.
     const db = freshDb('operator')
-    const first = await visitorOperatorId(await visitorKeyPair(SEALED_UNDER, db))
-    const second = await visitorOperatorId(await visitorKeyPair(SEALED_UNDER, db))
+    const first = operatorIdFor((await subtleUserSigner(await visitorKeyPair(SEALED_UNDER, db))).userKey)
+    const second = operatorIdFor((await subtleUserSigner(await visitorKeyPair(SEALED_UNDER, db))).userKey)
     expect(second, 'quorum anti-affinity is by operator, and one device is one operator').toBe(first)
     expect(first.startsWith('visitor:'), 'the derived form must be legible in a log line').toBe(true)
   })

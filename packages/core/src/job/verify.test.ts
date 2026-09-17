@@ -111,7 +111,6 @@ async function attesting(inner: Executor, seed: number): Promise<{ executor: Exe
     issuance: 'remembers-only-within-this-process',
   }).enrol(
     await requestEnrollment(nodeSeed, OWNER, {
-      operatorId: `op-${inner.nodeId}`,
       discoverability: 'via-relay',
       relayIds: ['relay-1'],
     }),

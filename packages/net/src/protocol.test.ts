@@ -420,7 +420,6 @@ describe('what a node said about its own result survives the wire', async () => 
     issuance: 'remembers-only-within-this-process',
   }).enrol(
     await requestEnrollment(nodeSeed, userSeed, {
-      operatorId: 'acme-ops',
       discoverability: 'via-relay',
       // Two, so an encoder that dropped or reordered the list has something to drop.
       relayIds: ['relay-b', 'relay-a'],

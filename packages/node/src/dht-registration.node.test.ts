@@ -158,7 +158,6 @@ describe('registration — a node’s records reach the keyspace, not just its o
       const alpha = await start('alpha', {
         enrollment: {
           userPrivateKey: USER_KEY,
-          operatorId: 'alpha-ops',
           providerAddr: provider.multiaddrs[0] as string,
         },
       })
@@ -227,7 +226,6 @@ describe('registration — a node’s records reach the keyspace, not just its o
       const alpha = await start('alpha', {
         enrollment: {
           userPrivateKey: USER_KEY,
-          operatorId: 'alpha-ops',
           providerAddr: provider.multiaddrs[0] as string,
         },
       })
@@ -259,7 +257,6 @@ describe('provider announcement — a block this node holds becomes findable', (
       const alpha = await start('alpha', {
         enrollment: {
           userPrivateKey: USER_KEY,
-          operatorId: 'alpha-ops',
           providerAddr: provider.multiaddrs[0] as string,
         },
       })
@@ -315,7 +312,6 @@ describe('peer routing — a node finds one it was never told about', () => {
     const alpha = await start('alpha', {
       enrollment: {
         userPrivateKey: USER_KEY,
-        operatorId: 'alpha-ops',
         providerAddr: provider.multiaddrs[0] as string,
       },
     })

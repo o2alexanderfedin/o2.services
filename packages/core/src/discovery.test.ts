@@ -64,7 +64,6 @@ async function node(
   const userPrivateKey = options.userPrivateKey ?? alice.priv
   const enrolled = auth.enrol(
     await requestEnrollment(key.priv, userPrivateKey, {
-      operatorId: options.operatorId ?? `op-${seed}`,
       discoverability: 'seed',
       relayIds: [],
     }),

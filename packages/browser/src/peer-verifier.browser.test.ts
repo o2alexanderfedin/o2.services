@@ -67,7 +67,6 @@ async function certificateFor(
   })
   const result = authority.enrol(
     await requestEnrollment(subjectSeed, USER_SEED, {
-      operatorId: 'harbour-ops',
       discoverability: 'seed',
       relayIds: [],
     }),

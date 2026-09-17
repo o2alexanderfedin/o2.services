@@ -33,7 +33,12 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  await rm(workdir, { recursive: true, force: true })
+  // Same `ENOTEMPTY ... rmdir` this tree already answers in `issuance-rate.node.test.ts` and
+  // now in `admission-agents.node.test.ts`; observed here in the 2026-09-15 `--project node`
+  // sweep. `maxRetries` is Node's own remedy for that error class and fires only when
+  // `recursive` is set. See those two files for why the question under it — a write landing
+  // after a store's owner has stopped — is named there rather than answered.
+  await rm(workdir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 })
 
 describe('DATA-02 — FsBlockstore conformance', () => {

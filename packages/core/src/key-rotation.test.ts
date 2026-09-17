@@ -47,7 +47,6 @@ async function issue(
 ): Promise<NodeCertificate> {
   const outcome = auth.enrol(
     await requestEnrollment(nodeSeed, userSeed, {
-      operatorId: 'ops',
       discoverability: 'seed',
       relayIds: [],
       ...(nextKeyCommitment === undefined ? {} : { nextKeyCommitment }),

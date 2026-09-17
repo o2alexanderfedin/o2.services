@@ -297,12 +297,10 @@ describe('AUTH-02 — criterion 2, with both provider processes dead', () => {
     const a = await spawnAgent('a', [
       '--provider-addr', p1.multiaddrs[0] as string,
       '--user-key', aUserKey,
-      '--operator-id', 'harbour-ops',
     ])
     const c = await spawnAgent('c', [
       '--provider-addr', p2.multiaddrs[0] as string,
       '--user-key', cUserKey,
-      '--operator-id', 'trawler-ops',
     ])
     expect(a.certificate?.issuer).toBe(p1.issuerKey)
     expect(c.certificate?.issuer).toBe(p2.issuerKey)

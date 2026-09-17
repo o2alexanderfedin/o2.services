@@ -63,8 +63,9 @@ import {
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /**
- * The six modules the fabric is entered through — five from `v1.0-MILESTONE-AUDIT.md`, and
- * `packages/cloudflare/src/worker.ts` added 2026-08-26 with Phase 29's hosted tier.
+ * The eight modules the fabric is entered through — five from `v1.0-MILESTONE-AUDIT.md`,
+ * `packages/cloudflare/src/worker.ts` added 2026-08-26 with Phase 29's hosted tier, and
+ * `worker-eu.ts` / `worker-sam.ts` added 2026-09-13 with Phase 33's two further regions.
  *
  * A list of **modules**, deliberately: not a tier list, and not keyed on node kind.
  * `packages/browser/demo/main.ts` sits here on exactly the same footing as the three
@@ -86,6 +87,15 @@ const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
  * that sentence. It is also not a tier: `packages/browser/demo/main.ts` sits here on the same
  * footing, and a rule that read differently per node kind was written once and retracted.
  *
+ * **The seventh and eighth are the sixth's own argument applied to two more files.**
+ * `worker-eu.ts` and `worker-sam.ts` are `wrangler.eu.jsonc` and `wrangler.sam.jsonc`'s own
+ * `"main"` — each is a deployed Worker's actual entry, on the identical footing as
+ * `worker.ts`'s own. They import nothing production imports and would otherwise read as
+ * orphan modules — a shape the orphan-module ceiling in `reachability-guard.node.test.ts`
+ * caught the moment they were added, exactly as it is designed to. Neither creates a Cloudflare
+ * resource by existing; the objects they would serve are `waits on owner act 2`
+ * (`.planning/OWNER-ACTIONS.md` row 2).
+ *
  * **Three further modules are runnable and are deliberately absent**:
  * `packages/node/src/mutation-guard.mutate.ts` (`npm run test:mutations`),
  * `tools/aot/bench-lifted.ts` and `tools/aot/measure-wasi.ts`. The reading that makes their
@@ -99,6 +109,8 @@ export const ENTRY_POINTS: readonly string[] = [
   'tools/aot/cli.ts',
   'packages/browser/demo/main.ts',
   'packages/cloudflare/src/worker.ts',
+  'packages/cloudflare/src/worker-eu.ts',
+  'packages/cloudflare/src/worker-sam.ts',
 ]
 
 /**

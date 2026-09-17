@@ -337,7 +337,7 @@ async function openTab(engine: string, type: BrowserType): Promise<{ browser: Br
 /** Start the tab's node, with or without an enrolment, and hand back its peer id. */
 async function startTabNode(page: Page, blockstoreName: string, enrol: boolean): Promise<string> {
   return page.evaluate(
-    async ([store, anchor, relay, operatorId, userKey, shouldEnrol, passphrase]) =>
+    async ([store, anchor, relay, userKey, shouldEnrol, passphrase]) =>
       window.o2capability.start({
         // The **only** address this tab is ever given, and it is the door's. A page handed a
         // peer list out of band is not reading admission.
@@ -357,7 +357,6 @@ async function startTabNode(page: Page, blockstoreName: string, enrol: boolean):
           ? {
               enrollment: {
                 userPrivateKey: userKey as number[],
-                operatorId: operatorId as string,
                 // Co-located: the same address as `relayAddrs` above. The door a peer is
                 // refused at is the door it must enrol through.
                 providerAddr: relay as string,
@@ -365,7 +364,7 @@ async function startTabNode(page: Page, blockstoreName: string, enrol: boolean):
             }
           : {}),
       }),
-    [blockstoreName, publisher.pub, doorAddr, OPERATOR_ID, [...USER_PRIVATE_KEY], enrol, SPEC_PASSPHRASE] as const,
+    [blockstoreName, publisher.pub, doorAddr, [...USER_PRIVATE_KEY], enrol, SPEC_PASSPHRASE] as const,
   )
 }
 

@@ -34,7 +34,6 @@ async function enrolled(seed: number): Promise<ResultSigner> {
     issuance: 'remembers-only-within-this-process',
   }).enrol(
     await requestEnrollment(nodeSeed, alice, {
-      operatorId: `op-${seed}`,
       discoverability: 'via-relay',
       relayIds: ['relay-1'],
     }),

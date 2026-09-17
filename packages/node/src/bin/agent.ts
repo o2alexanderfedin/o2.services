@@ -357,8 +357,10 @@ const { values } = parseArgs({
     // organisation several nodes belong to, and it is signed into `NodeCertificate.userKey`
     // by a provider and derived from for `CapabilityRecord.sovereignFor`. Minting one to
     // cover a typo'd path would enrol this node under a user nobody controls and report
-    // success — a placeholder written into a signed statement, which is the same hole
-    // `--operator-id` has no default for.
+    // success — a placeholder written into a signed statement. Since VER-11 this file is
+    // also what settles `NodeCertificate.operatorId`: the provider derives that field from
+    // the public half of this key, so a typo'd path now misstates two fields of the
+    // certificate rather than one.
     //
     // **A path is not a secret, but the file it names is.** Only the bytes are sensitive
     // and they never reach argv.
@@ -370,13 +372,13 @@ const { values } = parseArgs({
     // than typed separately into `--owner-id`. One value, three readers, no way for them
     // to disagree. See `--owner-id` above for the collision that made this necessary.
     'user-key': { type: 'string' },
-    // AUTH-01: who runs this hardware. Required whenever `--provider-addr` is given and
-    // deliberately without a default, because it is signed into the certificate as
-    // `NodeCertificate.operatorId` and is the unit of quorum diversity: a silent default
-    // would make every node one operator, or every node its own, and Phase 19 would
-    // inherit an anti-affinity rule that means nothing. Nothing verifies that the operator
-    // id is *true*; what is enforced is that somebody *stated* it.
-    'operator-id': { type: 'string' },
+    // `--operator-id` WAS HERE, and is gone — VER-11, 2026-09-16. Its comment ended
+    // *"Nothing verifies that the operator id is true; what is enforced is that somebody
+    // stated it"*, which was accurate and was the defect: the field `composeQuorum` uses to
+    // decide whether two results came from two parties was chosen by the party being
+    // characterised. A provider now derives it from the user key it has a proof for, so
+    // there is nothing here for an operator to state and therefore nothing to state
+    // wrongly. `--user-key` is the one remaining half of this pair.
     // AUTH-02: issuer keys this node pins, repeatable. A peer whose certificate chains to
     // one of these is verified and may be asked for a block; every other connected peer is
     // excluded by name, with a verdict this node can state.
@@ -800,7 +802,7 @@ const { values } = parseArgs({
 })
 
 const USAGE =
-  'usage: agent.ts --dir <blockstore-dir> [--identity-passphrase-file <path>] [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path> --operator-id <id>] [--trusted-issuer <hex> ...] [--admit-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--inbound-threshold <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...] [--coordinate <shards> [--coordinate-n <n>] [--lease-ms <ms>] [--job-store <dir>] [--resume-from <cid> ...]] [--sovereign-owner <seed-path> --sovereign-row <row-path> ... (paired, at least twice)]\n'
+  'usage: agent.ts --dir <blockstore-dir> [--identity-passphrase-file <path>] [--port <n>] [--owner-id <id — the enrolled user key when --user-key is given> [--owner-key <hex>] [--can-execute-sovereign]] [--trust-anchor <hex> ...] [--issues-certificates --max-issued-per-window <n>] [--provider-addr <multiaddr> --user-key <path>] [--trusted-issuer <hex> ...] [--admit-issuer <hex> ...] [--peer-addr <multiaddr> ...] [--max-concurrent-tasks <n>] [--inbound-threshold <n>] [--duty-cycle <n>] [--relay-addr <multiaddr> ...] [--coordinate <shards> [--coordinate-n <n>] [--lease-ms <ms>] [--job-store <dir>] [--resume-from <cid> ...]] [--sovereign-owner <seed-path> --sovereign-row <row-path> ... (paired, at least twice)]\n'
 
 /**
  * The one exit-2 path, extended rather than duplicated.
@@ -840,14 +842,16 @@ if (values['identity-passphrase-file'] !== undefined && process.env['O2_IDENTITY
   )
 }
 
-// Exit 2 rather than a default, and the reason is the same one `--operator-id`'s own
-// comment gives: both of these become fields of a statement a provider signs. A default
-// for either would write a placeholder into that statement, and `operatorId` is the unit
-// of quorum diversity — a silent default would make every node one operator, or every node
-// its own. Refusing to start is the only honest answer to a half-configured enrollment.
+// Exit 2 rather than a default: `--user-key` becomes a field of a statement a provider
+// signs, and a default would write a placeholder into it. Refusing to start is the only
+// honest answer to a half-configured enrollment.
+//
+// **One check where there were two** — the `--operator-id` half went with the flag. It is
+// not that the operator identity stopped mattering; it is that this process no longer has
+// an opinion about it. The value is derived from the key `--user-key` names, so supplying
+// that one file now settles both fields, and the two can no longer disagree.
 if (values['provider-addr'] !== undefined) {
   if (values['user-key'] === undefined) refuse('--provider-addr requires --user-key <path>')
-  if (values['operator-id'] === undefined) refuse('--provider-addr requires --operator-id <id>')
 }
 
 // AUTH-04: the two halves of a provider's configuration travel together or the process
@@ -1173,7 +1177,6 @@ const enrollment =
     ? undefined
     : {
         userPrivateKey: await readUserSeed(values['user-key'] as string),
-        operatorId: values['operator-id'] as string,
         providerAddr: values['provider-addr'],
       }
 
@@ -2104,15 +2107,37 @@ if (values.coordinate !== undefined) {
    * renewal probe spent going unanswered. So it is never *below* the lease, and a reading
    * below the lease would mean a shard was taken off a node that still held it.
    */
-  function expiries(
+  /**
+   * Losses of one kind, with the time the lease was actually held.
+   *
+   * **Parameterised by kind on 2026-09-15, and the reason is a measurement.** It filtered
+   * `expired` only, and `lease-expiry.e2e.test.ts` read the result as *the* record of what a
+   * silenced holder lost. A SIGKILLed holder's socket closes, so its outstanding dispatches
+   * can come back inside the lease and be given up as `surrendered` instead — measured across
+   * eleven runs at anywhere from none of twelve to **all** of them. An emission that carries
+   * one kind and not the other therefore reports a whole class of loss as no loss at all, and
+   * on the all-surrender run it left the consuming spec reading an empty array: `Math.max(...[])`
+   * is `-Infinity`, so an assertion about how long leases were held passed without looking at
+   * anything. The docblock above says this exists so an operator can see *"which shards lost a
+   * lease"* — a surrendered shard lost one.
+   */
+  function lossesOfKind(
     history: readonly LeaseEvent[],
+    kind: 'expired' | 'surrendered',
   ): readonly { taskId: string; nodeId: string; generation: number; heldMs: number | null }[] {
     const grantedAt = new Map<string, number>()
     for (const event of history) {
       if (event.kind === 'granted') grantedAt.set(`${event.taskId}#${String(event.generation)}`, event.at)
     }
     return history
-      .filter((event) => event.kind === 'expired')
+      .filter(
+        // A type predicate rather than a bare comparison: narrowing by a literal is something
+        // TypeScript does for free and narrowing by a VARIABLE is not, so without this the two
+        // shapes stay a union with `LeaseEvent`'s kinds that carry neither `nodeId` nor
+        // `generation`. Both kinds named here do carry them — see `lease.ts`.
+        (event): event is Extract<LeaseEvent, { readonly kind: 'expired' | 'surrendered' }> =>
+          event.kind === kind,
+      )
       .map((event) => {
         const at = grantedAt.get(`${event.taskId}#${String(event.generation)}`)
         return {
@@ -2211,7 +2236,8 @@ if (values.coordinate !== undefined) {
                 tally[event.kind] = (tally[event.kind] ?? 0) + 1
                 return tally
               }, {}),
-              expired: expiries(result.job.leaseHistory),
+              expired: lossesOfKind(result.job.leaseHistory, 'expired'),
+              surrendered: lossesOfKind(result.job.leaseHistory, 'surrendered'),
             },
             speculationMultiplier: result.job.speculationMultiplier,
             shards: result.job.shards.map((shard) => ({
@@ -2413,9 +2439,15 @@ if (sovereignOwners.length > 0) {
         attestation.reason
       )
     }
+    // The issuer count is printed beside the other two because the strength above it now
+    // turns on both dimensions at once. With only replicas and operators on the line, a
+    // reader who sees the middle label cannot tell whether the shortfall was in how many
+    // operators answered or in how many certificate authorities stood behind them — and
+    // telling those two apart on the surface is the whole of ROADMAP criterion 5.
     return (
       `${attestation.strength} (replicas ${attestation.replicas},` +
-      ` operators ${attestation.operators.length}) — ${attestation.description}`
+      ` operators ${attestation.operators.length},` +
+      ` issuers ${attestation.issuers.length}) — ${attestation.description}`
     )
   }
 

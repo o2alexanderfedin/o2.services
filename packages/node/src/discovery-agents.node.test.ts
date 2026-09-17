@@ -338,8 +338,6 @@ async function standUp(holderArgs: readonly string[] = []): Promise<Fixture> {
       under.multiaddrs[0] as string,
       '--user-key',
       await writeUserKey(name, fill),
-      '--operator-id',
-      `${name}-ops`,
       ...extra,
     ])
 

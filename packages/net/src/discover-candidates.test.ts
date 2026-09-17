@@ -5,6 +5,7 @@ import {
   MemoryNetwork,
   SelfRecordIndex,
   WasmExecutor,
+  operatorIdFor,
   publicNodes,
   publishCapabilities,
   requestEnrollment,
@@ -96,7 +97,6 @@ async function fabricOf(options: {
     const issuer = options.rogueIssuer?.(i) === true ? rogue : authority
     const enrolled = issuer.enrol(
       await requestEnrollment(priv, userPriv, {
-        operatorId: `op-${i}`,
         discoverability: 'seed',
         relayIds: [],
       }),
@@ -365,7 +365,13 @@ describe('AUTH-05 — the certificate that qualified a node survives into the de
       expect(carried.issuer).toBe(signed?.issuer)
       expect(carried.signature).toBe(signed?.signature)
       // And the three fields the quorum machinery reads, which the discard threw away.
-      expect(carried.operatorId).toBe('op-0')
+      // Derived by the provider from the certificate's OWN `userKey` — VER-11. Read `'op-0'`
+      // until then, when each node asked for a name of its own and the provider signed it.
+      // Not circular: `carried` is the certificate that came back over the fabric, and this
+      // asserts the provider applied the derivation to the key it certified. What the case is
+      // about is that the descriptor carries the SIGNED certificate rather than a rebuild —
+      // and a rebuild is exactly what would put a requested name here instead.
+      expect(carried.operatorId).toBe(operatorIdFor(carried.userKey))
       expect(carried.discoverability).toBe('seed')
       expect(carried.relayIds).toStrictEqual([])
     } finally {

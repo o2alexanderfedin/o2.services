@@ -463,7 +463,14 @@ describe('the signature check applies to most of the ledger, not to a corner of 
       // pin the exact inversion instead: `expected 'composed' to be 'not-composed'` is
       // rule 2 gone, `expected 'independent' to be 'owner-domain'` is one operator read as
       // two, and the `'agreed'`/`'insufficient'` pair is the shortfall dial inverted in
-      // each direction. `M45` is the exception and says so in its own `why`: the run that
+      // each direction. [`M42`'s signature was **observed** against the expression as it
+      // stood before 2026-09-16, and VER-12 moved the label that expression returns — a
+      // re-sited plant was watched producing `expected 'single-issuer' to be 'owner-domain'`
+      // instead. The ledger keeps the string it saw rather than a guessed replacement,
+      // because the cheap layer compares a `rendered-at-runtime` signature against nothing
+      // and an unobserved sentence there would be worse than a dated observed one. The
+      // reasoning this paragraph gives for pinning assertion strings over titles is
+      // unaffected: what moved is one recorded label, not the argument for recording it.] `M45` is the exception and says so in its own `why`: the run that
       // observed it recorded `expected false to be true` and nothing sharper, which is the
       // weakest signature in this ledger and is written down as one rather than dressed
       // up. `M51`'s signature is a template-literal title assembled per file at run time,

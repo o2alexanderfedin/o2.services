@@ -1017,7 +1017,7 @@ async function combineAdmitted(
  * rule: this is an answer about the request, and it names the one next action that works —
  * ask for another challenge. `error` stays reserved for facts about the answering node.
  */
-function certifyFreshly(
+export function certifyFreshly(
   authority: EnrollmentAuthority,
   request: EnrollmentRequest,
   now: number,
@@ -1418,6 +1418,66 @@ export function serveAgent(options: AgentOptions): void {
         })
       }
 
+      const egress = options.egress
+
+      // **The node's own fact, consulted before anything else — issue #15.**
+      //
+      // Every other gate on this path branches on `task.label`, which the DISPATCHER chose:
+      // `authorizeCapability` returns before verifying a chain when the label is not
+      // `'sovereign'` (`capability-authorizer.ts:109`), `takeSovereignHold` registers no tap
+      // for the same reason, and `guardSovereignty` becomes a pass-through. So a frame saying
+      // `'public'` over somebody else's pinned bytes met no gate at all, and the executor read
+      // the CID unconditionally — the node refused to HAND OVER the block on the `block`
+      // branch and computed over it here instead, which is the same disclosure by a longer
+      // route, one steerable slice at a time through `partitionIndex`.
+      //
+      // **A label is a request; the durable set is a fact.** This is the same lookup the
+      // `block` branch makes, and that branch's own comment is the reasoning: *"sovereignty is
+      // a property of the bytes, not of whether a job happens to be running over them."* The
+      // conclusion was drawn there and not here.
+      //
+      // **Placed above admission, above `takeSovereignHold` and above the executor — and the
+      // first of those three is load-bearing in a way the other two are not.** The ordering
+      // against the executor is the obvious one: a refusal after execution would already have
+      // run the module against the owner's data, the same argument the authorisation block
+      // below states for itself. The ordering against *admission* is the one that was got
+      // wrong first. This gate returns early, and the admission table is claimed above it and
+      // released in a `finally` below it, around the executor — so sited between the two,
+      // every refusal would consume a slot and never give it back. `capacity.release` names
+      // that outcome itself: a node "indistinguishable from a working node for exactly
+      // `slots` tasks and then refuses everything forever". A gate closing a disclosure hole
+      // would have opened a denial-of-service one, reachable by the same stranger with the
+      // same frame. Sited here it claims nothing, so it can leak nothing.
+      //
+      // For the same reason it also sits above `pending.reserve` on the ceremony arm, which
+      // is claimed even earlier.
+      //
+      // **It covers `commit` as well as `exec`, because this branch serves both** — see the
+      // branch's own opening comment. That is not incidental: a commit slipping past would
+      // run the module over the owner's bytes and file the answer here, and `reveal` hands it
+      // to the peer that committed, which is the sender. Disclosure in full, one round later.
+      //
+      // **What this does NOT do.** It does not authorise a correctly-labelled sovereign
+      // dispatch; that is the chain's job, unchanged below. It refuses a dispatch whose label
+      // disagrees with what this node knows about the bytes, and it refuses **by name** rather
+      // than silently promoting the task to sovereign — a quiet promotion would hide from the
+      // sender that their label was wrong, and `egress refused: ` is already this tree's
+      // vocabulary for exactly this fact.
+      //
+      // A node that keeps no durable set (`'forgets-sovereignty-between-jobs'`, or no egress
+      // registry at all) cannot know, and is left exactly as it was: this gate can only refuse
+      // on a positive reading. Closing that arm is a separate decision about what the fabric
+      // does under partial knowledge, and it is not made here.
+      if (egress !== 'holds-no-registrations' && egress.sovereignCids !== 'forgets-sovereignty-between-jobs') {
+        const inputCid = request.task.inputCid.toString()
+        if (request.task.label !== 'sovereign' && egress.sovereignCids.has(inputCid)) {
+          return encodeResponse({
+            kind: 'error',
+            reason: `egress refused: ${inputCid} on ${executor.nodeId} is sovereign, and this dispatch is labelled ${request.task.label}`,
+          })
+        }
+      }
+
       // Claimed before the executor runs, for the reason `PendingCommitments.reserve`
       // states: a node already holding its limit of unrevealed answers declines the work
       // rather than performing it and then finding nowhere to put the result.
@@ -1489,7 +1549,6 @@ export function serveAgent(options: AgentOptions): void {
       // returned here. A dispatch that declares nothing gets `null` and has nothing
       // to give back — which is the state that used to be unrepresentable, and the
       // reason one public exec could strip a sovereign payload's guard.
-      const egress = options.egress
       const hold =
         egress === 'holds-no-registrations'
           ? null

@@ -1,0 +1,66 @@
+{
+  // The `eu` region's deploy configuration — Phase 33, `HOST-06`.
+  //
+  // **NOTHING HERE DEPLOYS ANYTHING.** The only wrangler invocation this repository permits is
+  // `--dry-run`, asserted by `hosted-tier-deploy.node.test.ts`. Creating the object this
+  // configuration describes is an owner act — `.planning/OWNER-ACTIONS.md` row 2.
+  //
+  // Every key below either repeats `wrangler.jsonc`'s own reason (cited rather than restated at
+  // length) or differs from it for a stated reason of its own. The differences are exactly:
+  // `name`, `main`, and `ANNOUNCE_MULTIADDRS`'s host.
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+
+  // Deliberately unrelated to anything already in the account, on `wrangler.jsonc`'s reason —
+  // repeated rather than pasted, because a comment quoting the owner's forbidden prefix would
+  // fail the guard over that literal.
+  "name": "o2-bootstrap-eu",
+  "main": "src/worker-eu.ts",
+
+  // Same pinned build `wrangler.jsonc` carries.
+  "compatibility_date": "2026-08-25",
+  // Same reason `wrangler.jsonc` states: measured selected regardless of this flag, kept for
+  // parity with the `us` configuration's build.
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Criterion 5 — stated rather than defaulted, `wrangler.jsonc`'s reason.
+  "preview_urls": false,
+
+  // Same reason `wrangler.jsonc` states — the dialable address this key serves.
+  "workers_dev": true,
+
+  // One namespace, because there is one class, shared with the `us` and `sam` configurations —
+  // `wrangler.jsonc`'s reason.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BOOTSTRAP",
+        "class_name": "BootstrapObject"
+      }
+    ]
+  },
+
+  // Same backend `wrangler.jsonc` uses — `DoDatastore`'s reason.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["BootstrapObject"]
+    }
+  ],
+
+  // What THIS script's own object would announce to the fabric, once created — Phase 30's
+  // reason for the key existing, `wrangler.jsonc`'s reason for it never being empty. Each
+  // configuration's host is exactly its own `"name"` plus `.af-4a0.workers.dev`, the same
+  // account subdomain `wrangler.jsonc` already reads it from — one deploy per region is enough
+  // to learn it, and it need not be learned twice.
+  //
+  // **No `O2_REGION` var here, deliberately.** `scripts/deploy-hosted.sh` DERIVES that label
+  // from this configuration's own `main` module's `SERVED_BY` constant rather than reading it
+  // from a var — see that script's own docblock on why a second place to write the region is
+  // the defect a deployed node with `region: null` already cost this project once.
+  "vars": {
+    "ANNOUNCE_MULTIADDRS": "/dns4/o2-bootstrap-eu.af-4a0.workers.dev/tcp/443/tls/ws"
+  },
+
+  // Off, `wrangler.jsonc`'s reason — a build in this repository reports nothing outward.
+  "send_metrics": false
+}

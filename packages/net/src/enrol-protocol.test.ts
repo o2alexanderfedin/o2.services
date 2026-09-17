@@ -51,7 +51,6 @@ function authority(seed: Uint8Array = provider.priv): EnrollmentAuthority {
  */
 async function buildRequest(): Promise<EnrollmentRequest> {
   const pending = await requestEnrollment(node.priv, user.priv, {
-    operatorId: 'op-a',
     discoverability: 'via-relay',
     relayIds: ['12D3KooWRelayOne', '12D3KooWRelayTwo'],
   })

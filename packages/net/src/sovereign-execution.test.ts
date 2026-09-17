@@ -1,6 +1,7 @@
 import { ed25519 } from '@noble/curves/ed25519.js'
 import {
   EnrollmentAuthority,
+  LocalCapacity,
   MemoryBlockstore,
   MemoryNetwork,
   MemoryRecordIndex,
@@ -10,6 +11,7 @@ import {
   encodeCanonical,
   executeVerified,
   guardSovereignty,
+  operatorIdFor,
   planWithOffers,
   publishCapabilities,
   requestEnrollment,
@@ -33,6 +35,7 @@ import {
   rpcAdmission,
   serveAgent,
 } from './index.ts'
+import type { SovereignCids } from './index.ts'
 
 /**
  * Phase 6 criterion 6 — owner-domain execution, end to end, with the tap watching.
@@ -135,9 +138,9 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
 
   const certificates: NodeCertificate[] = []
 
-  const enrol = async (priv: Uint8Array, userPriv: Uint8Array, operatorId: string): Promise<NodeCertificate> => {
+  const enrol = async (priv: Uint8Array, userPriv: Uint8Array): Promise<NodeCertificate> => {
     const result = authority.enrol(
-      await requestEnrollment(priv, userPriv, { operatorId, discoverability: 'seed', relayIds: [] }),
+      await requestEnrollment(priv, userPriv, { discoverability: 'seed', relayIds: [] }),
       NOW,
     )
     if (!result.ok) throw new Error(`fixture enrolment failed: ${result.reason}`)
@@ -148,9 +151,12 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
   for (let i = 0; i < options.ownerNodes; i++) {
     const priv = new Uint8Array(32).fill(90 + i)
     const nodeId = toHex(ed25519.getPublicKey(priv))
-    // Same operator for both: one person's own machines are one operator, which is
-    // exactly why their agreement is owner-domain and not independent.
-    const certificate = await enrol(priv, aliceUserPriv, 'alice-op')
+    // Same operator for both, and since 2026-09-16 that is **structural rather than a
+    // convention this fixture keeps**: the provider derives `operatorId` from the user key
+    // (VER-11), so passing one `aliceUserPriv` is what makes these one operator. It used to
+    // be a string both calls happened to repeat. One person's own machines are one operator,
+    // which is exactly why their agreement is owner-domain and not independent.
+    const certificate = await enrol(priv, aliceUserPriv)
     const capabilities = publishCapabilities(priv, {
       features: ['bulk-memory'],
       sovereignFor: [aliceUserKey],
@@ -206,7 +212,7 @@ async function ownerFabric(options: { module: Uint8Array<ArrayBuffer>; ownerNode
   // Bob's node: provides the block, cleared for nobody.
   const bobPriv = new Uint8Array(32).fill(99)
   const foreignKey = toHex(ed25519.getPublicKey(bobPriv))
-  const bobCertificate = await enrol(bobPriv, bobUserPriv, 'bob-op')
+  const bobCertificate = await enrol(bobPriv, bobUserPriv)
   const bobRpc = new RpcEndpoint(network.connect(foreignKey), { timeoutMs: 5_000 })
   const bobStore = new MemoryBlockstore()
   await bobStore.put(await sovereignBytes())
@@ -344,7 +350,7 @@ describe('criterion 6 — an owner’s own nodes verify each other', () => {
       const receipt = attestationReceipt(aliceSet?.certificates ?? [])
       expect(receipt.strength).toBe('owner-domain')
       expect(receipt.replicas).toBe(2)
-      expect(receipt.operators).toEqual(['alice-op'])
+      expect(receipt.operators).toEqual([operatorIdFor(fabric.aliceUserKey)])
       expect(receipt.description).toContain('not across operators')
     } finally {
       fabric.close()
@@ -605,7 +611,38 @@ describe('a hold survives an exec that never took one', () => {
   const OWNER = 'alice-user-key'
 
   /** One serving node, plus a client endpoint pointed at it. */
-  async function servingNode(options: { readonly sovereignInputsHoldsIt: boolean }) {
+  /**
+   * An in-memory {@link SovereignCids}, which the fixture below can give a node so it is one
+   * that KEEPS the durable set rather than one that forgets between jobs.
+   *
+   * `has` is synchronous by the interface's own requirement — it sits on the `block` branch's
+   * hot path, and both shipped adapters load the set at open and keep it in memory.
+   */
+  function memorySovereignCids(): SovereignCids {
+    const held = new Set<string>()
+    return {
+      add: async (cid: string): Promise<void> => {
+        held.add(cid)
+      },
+      has: (cid: string): boolean => held.has(cid),
+    }
+  }
+
+  async function servingNode(options: {
+    readonly sovereignInputsHoldsIt: boolean
+    /**
+     * Whether this node keeps the durable sovereign set. Default `false` keeps every case
+     * written before 2026-09-15 on exactly the arrangement it was written against.
+     */
+    readonly keepsSovereignCids?: boolean
+    /**
+     * The admission table to serve with. Default `'accepts-every-offer'` keeps every case
+     * written before 2026-09-15 on exactly the arrangement it was written against — and it is
+     * also why no case before that one could see a leaked slot: a table that accepts
+     * everything has nothing to leak.
+     */
+    readonly capacity?: LocalCapacity
+  }) {
     const network = new MemoryNetwork()
     const nodeId = 'server'
 
@@ -614,10 +651,20 @@ describe('a hold survives an exec that never took one', () => {
     const served = new MemoryBlockstore()
     const moduleCid = await served.put(MODULE_ECHOES_INPUT)
     const inputCid = await served.put(await sovereignBytes())
+    // A second input the node holds and has NOT recorded as sovereign — the arm that keeps the
+    // refusal above from being satisfied by a node that refuses everything.
+    const publicInputCid = await served.put(new Uint8Array([7, 7, 7, 7]))
 
     // The node's LOCAL-ONLY tier, which is what declares a payload sovereign.
     const sovereignInputs = new MemoryBlockstore()
     if (options.sovereignInputsHoldsIt) await sovereignInputs.put(await sovereignBytes())
+
+    // The durable set — the node's own record of which bytes are sovereign, independent of
+    // whether a job is running. `'forgets-sovereignty-between-jobs'` stays the default so the
+    // cases written before this one are unchanged.
+    const durableCids: SovereignCids | 'forgets-sovereignty-between-jobs' =
+      options.keepsSovereignCids === true ? memorySovereignCids() : 'forgets-sovereignty-between-jobs'
+    if (durableCids !== 'forgets-sovereignty-between-jobs') await durableCids.add(inputCid.toString())
 
     const guard = new EgressGuard(network.connect(nodeId), OWNER)
     const rpc = new RpcEndpoint(guard, { timeoutMs: 5_000 })
@@ -629,12 +676,12 @@ describe('a hold survives an exec that never took one', () => {
         canExecuteSovereign: true,
       }),
       blockstore: served,
-      egress: { guard, sovereignInputs, sovereignCids: 'forgets-sovereignty-between-jobs' },
+      egress: { guard, sovereignInputs, sovereignCids: durableCids },
 
       authorize: 'serves-unauthenticated',
       index: 'serves-no-records',
       enroll: 'issues-no-certificates',
-      capacity: 'accepts-every-offer',
+      capacity: options.capacity ?? 'accepts-every-offer',
       ledger: 'keeps-no-ledger',
       reservations: 'relays-for-nobody',
       onDispatch: 'reports-no-dispatch',
@@ -656,18 +703,217 @@ describe('a hold survives an exec that never took one', () => {
       return reply
     }
 
+    /**
+     * The same dispatch as `exec`, on the frame that withholds its answer.
+     *
+     * `serveAgent` serves both from ONE branch — its own comment says "`exec` and `commit`
+     * share this branch, because a commit **is** an exec whose answer is withheld" — so this
+     * exists to hold that sharing in place rather than to exercise a second code path. If the
+     * branch is ever split, the case using this goes red, which is the only warning a reader
+     * would get that a gate written once now needs writing twice.
+     */
+    const commit = async (task: Task) => {
+      const reply = parseResponse(await clientRpc.request(nodeId, encodeRequest({ kind: 'commit', task })))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      return reply
+    }
+
     return {
       nodeId,
       guard,
       moduleCid,
       inputCid,
+      publicInputCid,
       exec,
+      commit,
       close: () => {
         rpc.close()
         clientRpc.close()
       },
     }
   }
+
+  /**
+   * The gate the `block` branch has and the `exec` branch did not — issue #15.
+   *
+   * ## What was wrong
+   *
+   * A node refused to **hand over** a sovereign block and would **compute over it and return
+   * the answer** to anyone who asked. `sovereignCids` was consulted in exactly one place, the
+   * `block` branch, and every gate on the `exec` path branched on `task.label` — a value the
+   * DISPATCHER chooses. `label: 'public'` therefore switched off the capability chain
+   * (`capability-authorizer.ts:109` returns before verifying), registered no egress tap, and
+   * made `guardSovereignty` a pass-through. The executor then read the CID unconditionally.
+   *
+   * The attacker also chooses `partitionIndex` / `partitionCount`, so the output can be steered
+   * to reveal the input a slice at a time.
+   *
+   * ## What this case asserts, and why it is aimed HERE
+   *
+   * At the **refusal**, not at a hold beside it. That distinction is the reason the defect
+   * survived: the case below this one performs the same dispatch and asserts
+   * `expect(publicReply?.kind).toBe('exec')` — that it goes through — because it is about hold
+   * bookkeeping. Read quickly it looks like coverage of this surface; it is a committed
+   * demonstration of the opposite. An instrument one degree off the property is how a gap
+   * outlives the tree's habit of naming its own gaps.
+   *
+   * ## The principle
+   *
+   * The node decides on **a fact it holds** — is this CID in the durable sovereign set — and
+   * never on a claim attached to the frame. `agent.ts`'s `block` branch already wrote the
+   * reasoning down: *"sovereignty is a property of the bytes, not of whether a job happens to
+   * be running over them."* That conclusion was drawn there and not here.
+   */
+  it('refuses a public exec over a CID the node knows is sovereign', async () => {
+    const node = await servingNode({ sovereignInputsHoldsIt: true, keepsSovereignCids: true })
+    try {
+      const reply = await node.exec({
+        moduleCid: node.moduleCid,
+        inputCid: node.inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+        // The whole attack: a label the sender chose, over bytes the node knows are not theirs.
+        label: 'public',
+      })
+
+      // An `error` response, not an `exec` outcome. A refusal that arrived as a failed
+      // execution would be indistinguishable from a module that happened not to run.
+      expect(
+        reply?.kind,
+        'a public exec naming a CID this node holds in its sovereign set was ADMITTED — the ' +
+          'node refuses to hand these bytes over and computed over them instead, which is the ' +
+          'same disclosure by a longer route',
+      ).toBe('error')
+      if (reply?.kind !== 'error') return
+
+      // By name, in the vocabulary the `block` branch already uses for this exact fact, so an
+      // operator greps once and finds both.
+      expect(reply.reason).toContain('egress refused')
+      expect(reply.reason).toContain(node.inputCid.toString())
+    } finally {
+      node.close()
+    }
+  })
+
+  /**
+   * The paired positive, and it is what stops the case above from passing for the wrong reason.
+   *
+   * A node that refused every exec would satisfy the refusal perfectly. This one is the same
+   * arrangement with one thing changed — a CID the node has NOT recorded as sovereign — and it
+   * must still run. Without it the gate could be a blanket refusal and both cases would be green.
+   */
+  /**
+   * The refusal must not cost the node a slot it never gives back.
+   *
+   * The gate added for #15 returns early, and on this path an early return is not free: the
+   * admission table is claimed *above* it and released in a `finally` *below* it, around the
+   * executor. A refusal that returns in between is admitted-and-never-released — and
+   * `agent.ts` already says in words what that produces, on the very block that hands the slot
+   * out: a node "indistinguishable from a working node for exactly `slots` tasks and then
+   * refuses everything forever".
+   *
+   * So the fix for a disclosure defect would have installed a denial-of-service one, reachable
+   * by the same stranger, needing nothing but the CID. `maxConcurrent: 1` makes one refused
+   * frame enough to prove it.
+   *
+   * Two readings, because either alone is weak. `inFlight` is the direct one and says the slot
+   * is gone the moment the refusal returns. The second dispatch is the consequence, and it is
+   * what a node operator would actually see.
+   */
+  it('gives the admission slot back when it refuses a public exec over sovereign bytes', async () => {
+    const capacity = new LocalCapacity({ nodeId: 'server', maxConcurrent: 1 })
+    const node = await servingNode({ sovereignInputsHoldsIt: true, keepsSovereignCids: true, capacity })
+    try {
+      const refused = await node.exec({
+        moduleCid: node.moduleCid,
+        inputCid: node.inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'public',
+      })
+      expect(refused?.kind, 'the refusal under test did not happen, so nothing here is about slots').toBe('error')
+
+      // The consequence first, because it is the reading an operator would actually get, and
+      // because a mutant has to be able to reach it: asserted after the slot count, it would
+      // never run on any tree where the slot count is already wrong.
+      const admitted = await node.exec({
+        moduleCid: node.moduleCid,
+        inputCid: node.publicInputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'public',
+      })
+      expect(
+        admitted?.kind,
+        'a legitimate exec arriving after a refused one was turned away — the node has been ' +
+          'shut by its own gate, which is a denial of service a stranger reaches with one frame',
+      ).toBe('exec')
+
+      // The direct reading of the same fact, from inside the table.
+      expect(
+        capacity.inFlight,
+        'a slot is still held after this node finished with both frames. Two separate faults ' +
+          'reach this line and it was watched failing on each: a gate sited between the offer ' +
+          'and the release, and a release removed from the `finally` altogether',
+      ).toBe(0)
+    } finally {
+      node.close()
+    }
+  })
+
+  /**
+   * The same refusal on the frame that withholds its answer.
+   *
+   * `exec` and `commit` are served from one branch today, so this is green the moment the gate
+   * exists — and that is the point of writing it rather than a reason not to. A commit that
+   * slipped past the gate would run the module over the owner's bytes and file the answer
+   * locally; the requestor then collects it in round two, where `reveal` binds the handle to
+   * the peer that committed — which is the attacker. Disclosure in full, one round later.
+   *
+   * It therefore fails if anyone ever splits the branch and carries only `exec`'s gate across.
+   */
+  it('refuses a public commit over a CID the node knows is sovereign', async () => {
+    const node = await servingNode({ sovereignInputsHoldsIt: true, keepsSovereignCids: true })
+    try {
+      const reply = await node.commit({
+        moduleCid: node.moduleCid,
+        inputCid: node.inputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'public',
+      })
+
+      expect(
+        reply?.kind,
+        'a public COMMIT over sovereign bytes was admitted — the module ran over the owner\'s ' +
+          'data and the answer is now filed on this node, collectable by the sender in round two',
+      ).toBe('error')
+      if (reply?.kind !== 'error') return
+      expect(reply.reason).toContain('egress refused')
+    } finally {
+      node.close()
+    }
+  })
+
+  it('still runs a public exec over a CID it has not recorded as sovereign', async () => {
+    const node = await servingNode({ sovereignInputsHoldsIt: false, keepsSovereignCids: true })
+    try {
+      const reply = await node.exec({
+        moduleCid: node.moduleCid,
+        inputCid: node.publicInputCid,
+        partitionIndex: 0,
+        partitionCount: 1,
+        label: 'public',
+      })
+      expect(
+        reply?.kind,
+        'a public exec over an unregistered CID was refused, so the gate above is a blanket ' +
+          'refusal rather than a reading of the sovereign set',
+      ).toBe('exec')
+    } finally {
+      node.close()
+    }
+  })
 
   it('is not released by an unrelated public exec naming the same input', async () => {
     const node = await servingNode({ sovereignInputsHoldsIt: true })
@@ -686,6 +932,13 @@ describe('a hold survives an exec that never took one', () => {
         partitionCount: 2,
         label: 'public',
       })
+      // **Still `'exec'`, and beside the #15 refusal above that is worth one sentence.**
+      // This node is built with `keepsSovereignCids` at its default — it keeps no durable
+      // sovereign set — so the gate added for #15 has no fact to read and cannot fire here by
+      // construction. It was verified by reading this fixture call, not inferred from the
+      // green. A reader who meets the two cases in file order and wonders why one dispatch is
+      // refused and the next admitted has the answer in the argument, not in the gate. That
+      // arm is tracked as its own open question.
       expect(publicReply?.kind).toBe('exec')
 
       // The hold the public exec never took is still held.

@@ -254,7 +254,14 @@ const GLOBAL_OBJECT_HOP: readonly string[] = [
   'browser/revokeConsent',
   'browser/revokeEnrolment',
   'browser/visitorKeyPair',
-  'browser/visitorOperatorId',
+  // `browser/visitorOperatorId` stood here from 2026-08-17 until 2026-09-16, and its entry is
+  // gone rather than rewritten — the same disposal `core/checkpointsInto` got below, for the
+  // mirror-image reason. That symbol stopped being *hidden*; this one stopped *existing*. It
+  // derived the `operatorId` a tab sent at enrolment; under VER-11 the provider derives that
+  // field itself, so `main.ts#visitorEnrolmentOption` stopped calling it and nothing else ever
+  // did. **This guard is what found that**, in the commit that removed the caller: a symbol
+  // disposed `global-object-hop` that no longer becomes reachable when the hop is traced is
+  // one whose entry names the wrong cause, which is exactly what the derived case said.
   // `core/checkpointsInto` stood here from 2026-08-16 until 2026-08-18 and its entry is gone
   // rather than rewritten, because the symbol is no longer hidden by anything. It was on this
   // list for one reason: its only caller was `main.ts#runColouring`, behind the `window.o2`

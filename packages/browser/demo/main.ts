@@ -132,7 +132,6 @@ import {
   revokeConsent,
   revokeEnrolment,
   visitorKeyPair,
-  visitorOperatorId,
 } from '@o2/browser'
 import type {
   GrantedConsent,
@@ -991,7 +990,6 @@ export async function signinFacts(): Promise<{
  */
 async function visitorEnrolmentOption(providerAddr: string): Promise<{
   readonly userPrivateKey: CryptoKeyPair
-  readonly operatorId: string
   readonly providerAddr: string
 } | null> {
   // A non-secure origin cannot hold a key the page is unable to read, and a key the page
@@ -1000,9 +998,13 @@ async function visitorEnrolmentOption(providerAddr: string): Promise<{
   // origin that has since lost `crypto.subtle` must not turn into a page that will not load.
   if (!canHoldVisitorKey()) return null
   const keyPair = await visitorKeyPair(identityProtection())
+  // `operatorId: await visitorOperatorId(keyPair)` was returned here until 2026-09-16.
+  // Nothing is lost: the provider derives that value from the public half of this very key
+  // pair, by the same function `visitorOperatorId` calls (VER-11). This page used to supply
+  // it as a courtesy and the provider took it on trust; it now supplies the key and the
+  // provider does the deriving, which is the half of the exchange that was missing.
   return {
     userPrivateKey: keyPair,
-    operatorId: await visitorOperatorId(keyPair),
     providerAddr,
   }
 }
@@ -1775,8 +1777,41 @@ async function aggregateTotalFrom(
  * `demo-regions.ts` and counted by `UI_SPEC_TALLY`; putting a TURN status on screen would
  * make this change own `REGIONS`, all three tally fields and UI-SPEC §4.x and §12. Nothing in
  * NET-12 asks for one.
+ *
+ * ## AMENDED 2026-09-09 — `?turn=` alone meant nobody ever asked
+ *
+ * This read `?turn=` and nothing else, and the parameter is not in the circulated link. So the
+ * whole rung — the gate, the minter, the holder, the rotation — was reachable only by a visitor
+ * who knew to add a query parameter, which is nobody. **That is the `wired is not used` shape
+ * this repository has now caught four times**, and it was found the way the others were: by
+ * asking what a real visitor's tab actually does, after the owner ran the demo on a laptop with
+ * a phone listening on the same office guest wi-fi and nothing executed on the phone.
+ *
+ * That pair had no direct path and could not have had one — a guest network isolates its
+ * clients, so both host candidates are unusable, and both sit behind one NAT with the same
+ * reflexive address, so the STUN candidates would need hairpinning the access point does not
+ * do. Only a relay outside that network can carry them. The live funnel puts it at **32 % of
+ * sessions** (`direct: 15` against `control-only: 7`), and guest wi-fi is offices, cafés,
+ * hotels and universities.
+ *
+ * So the endpoint is now DERIVED from the relay this tab was given, exactly as the kill
+ * switch's is a few hundred lines below — *"the endpoint comes from the relay address this tab
+ * was given rather than from a second configuration knob, so the object it polls is the object
+ * it dials."* `?turn=` still wins when present, because the harness arms depend on pointing at
+ * a stand-in.
+ *
+ * **Why this needs no probe, unlike the funnel's derivation.** `funnelEndpointFromRelay` has a
+ * recorded defect of exactly this shape: it derives an origin that is right for the deployed
+ * Worker and wrong for a self-hosted seed, which serves libp2p WebSocket on that port and
+ * answers 400 — so the funnel *looks* configured and collects nothing, silently. The same
+ * derivation here fails **loudly and into a designed path**: a seed answers 404 or 400 to
+ * `POST /turn-credential`, `turnCredentialHolder` reports the refusal through `onFailure` and
+ * answers `null`, and `iceConfiguration` turns `null` into the explicit STUN list — which is
+ * the same configuration the tab had before this change, tested by `turn-fallback.e2e.test.ts`
+ * as a first-class arm. A funnel that drops reports is a measurement that lies; a TURN endpoint
+ * that refuses is a rung that is not there, which the page already knows how to be.
  */
-function turnOptionsFromQuery(): {
+function turnOptions(relayAddrs: readonly string[]): {
   turnEndpoint?: string
   turnRegion?: string
   iceRelayOnly?: boolean
@@ -1786,13 +1821,25 @@ function turnOptionsFromQuery(): {
   const endpoint = query.get('turn')
   const region = query.get('turnRegion')
   const margin = Number(query.get('turnRefreshMargin') ?? '')
+  // The same derivation the kill switch takes, and deliberately the same function: two ways of
+  // turning a relay multiaddr into an origin would be two things to keep in step, and this one
+  // already refuses an address it has no origin for rather than inventing one.
+  const derived = relayAddrs
+    .map((addr) => switchEndpointFor(addr))
+    .find((origin): origin is string => origin !== null)
+  const chosen =
+    endpoint !== null && endpoint !== ''
+      ? endpoint
+      : derived === undefined
+        ? null
+        : `${derived}/turn-credential`
   // `iceTransportPolicy` is read INDEPENDENTLY of `?turn=`, and that independence is the point.
   // An earlier draft returned early when no endpoint was present, which silently dropped the
   // policy — and the arm that exists to prove a pair CANNOT connect without TURN then connected
   // directly and reported the floor as broken. A floor arm needs the policy precisely when it
   // has no rung.
   return {
-    ...(endpoint === null || endpoint === '' ? {} : { turnEndpoint: endpoint }),
+    ...(chosen === null ? {} : { turnEndpoint: chosen }),
     ...(region === null || region === '' ? {} : { turnRegion: region }),
     ...(query.get('iceTransportPolicy') === 'relay' ? { iceRelayOnly: true } : {}),
     ...(Number.isFinite(margin) && margin > 0 ? { turnRefreshMarginMs: margin } : {}),
@@ -2032,7 +2079,7 @@ const api: TabApi = {
         // `?iceTransportPolicy=relay` makes a direct candidate impossible BY POLICY. It exists
         // for the harness that proves the rung carries a pair when no direct candidate is
         // usable, and it must never become a default — a tab that can pair directly must.
-        ...turnOptionsFromQuery(),
+        ...turnOptions(options.relayAddrs),
         // SCHED-03's predicate, sourced from RUN-02's remote sliced flag.
         //
         // **A tab with no readable relay origin gets `false` forever, and that is the correct
@@ -2185,8 +2232,11 @@ const api: TabApi = {
         //     with `extractable: false`, and **the script this origin served cannot read
         //     it**; measured in chromium, firefox and webkit. There is no parameter,
         //     anywhere on this path, through which key material could be supplied.
-        //   - `operatorId` — derived from that key. Not readable from `/bootstrap.json`
-        //     even if it were published there, because nothing reads it from there.
+        //   - `operatorId` — **no longer sent at all, and the objection is answered more
+        //     strongly than it was.** This page used to derive it from the key above and
+        //     hand it over; since VER-11 the provider derives it from the same key, so
+        //     there is no field on this path for an origin to fill in even wrongly. It was
+        //     already unreadable from `/bootstrap.json`; it is now unstateable.
         //
         // And the decision itself is `acceptEnrolment`, which takes **no arguments at all**.
         // An origin can cause this page to render an offer. It cannot cause the offer to be
@@ -2202,7 +2252,6 @@ const api: TabApi = {
           : {
               enrollment: {
                 userPrivateKey: new Uint8Array(options.enrollment.userPrivateKey),
-                operatorId: options.enrollment.operatorId,
                 providerAddr: options.enrollment.providerAddr,
               },
             }),

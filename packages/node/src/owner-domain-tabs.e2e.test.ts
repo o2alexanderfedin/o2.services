@@ -148,9 +148,18 @@ import { FabricNode } from './fabric-node.ts'
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const PAGE = 'packages/browser/demo/index.html'
 
-/** The three sentences the kernel owns. Compared against, never transcribed. */
+/**
+ * The four sentences the kernel owns. Compared against, never transcribed.
+ *
+ * **`SINGLE_ISSUER` arrived on 2026-09-16, VER-12**, and it is not decoration: every group
+ * below that enumerates these constants is asking one of two questions — *did the page show a
+ * strength at all* or *did the page show none* — and both stop meaning what they meant the
+ * moment a label exists that no group names. Three of four is a page that could display the
+ * new sentence and be read as displaying nothing.
+ */
 const OWNER_ATTESTED = describeAttestation('owner-attested')
 const OWNER_DOMAIN = describeAttestation('owner-domain')
+const SINGLE_ISSUER = describeAttestation('single-issuer')
 const INDEPENDENT = describeAttestation('independent')
 
 /** The value a descriptor carries when nothing is known about whose node it is. */
@@ -762,10 +771,13 @@ describe('VER-10 criterion 5 — a page reads owner-domain for a sovereign shard
       expect(replicas).not.toContain('no agreement')
       expect(attestation).toContain(OWNER_DOMAIN)
 
-      // And the two comparisons that make it a reading rather than a constant. `independent`
-      // is what an unshared key would produce — two operators — and `owner-attested` is what
-      // a run that lost a replica would produce. Both are excluded in the same run.
+      // And the comparisons that make it a reading rather than a constant. An unshared key
+      // would produce two operators — which since VER-12 reads `single-issuer` on a
+      // one-provider fabric and `independent` only with a second authority behind it, so
+      // **both** are excluded rather than only the stronger one — and `owner-attested` is what
+      // a run that lost a replica would produce. All are excluded in the same run.
       expect(attestation).not.toContain(INDEPENDENT)
+      expect(attestation).not.toContain(SINGLE_ISSUER)
       expect(attestation).not.toContain(OWNER_ATTESTED)
     },
     CASE_TIMEOUT_MS,

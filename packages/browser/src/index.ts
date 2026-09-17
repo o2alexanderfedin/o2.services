@@ -104,7 +104,6 @@ export {
   InsecureOriginError,
   VISITOR_DB,
   visitorKeyPair,
-  visitorOperatorId,
 } from './visitor-key.ts'
 
 // Stopping for real, and bounding an untrusted guest — BROW-04, SCHED-06.

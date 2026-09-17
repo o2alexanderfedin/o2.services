@@ -121,13 +121,23 @@ async function mintFor(nodeKey: string): Promise<Record<string, unknown>> {
   mintedNodeKeys.add(nodeKey)
   const lifetimeMs =
     mintMode === 'already-expired' ? -120_000 : mintMode === 'short-lived' ? SHORT_LIFETIME_MS : 600_000
-  const grant = await sharedSecretMinter(coturn.secret).mint({
+  // `now` and `expiresAt` are BOTH supplied, and from the same clock reading. The minter takes
+  // the pair because the provider-backed scheme added on 2026-09-09 needs a relative ttl and
+  // must not reach for a clock the gate did not choose; the shared-secret scheme this stub uses
+  // reads only `expiresAt`, and passing a matching pair keeps the arms below measuring the
+  // lifetime they name rather than a skew between two `Date.now()` calls.
+  const now = Date.now()
+  const outcome = await sharedSecretMinter(coturn.secret).mint({
     nodeKey,
     region: 'bootstrap-us',
-    expiresAt: Date.now() + lifetimeMs,
+    now,
+    expiresAt: now + lifetimeMs,
     urls: coturn.urls,
   })
-  return { ok: true, ...grant }
+  // The shared-secret minter refuses only an empty URL list, and `coturn.urls` is never empty
+  // here — so this is a guard against a future change, not a path these arms take.
+  if (!outcome.ok) throw new Error(`the stub minter refused: ${outcome.detail}`)
+  return { ok: true, ...outcome.grant }
 }
 
 /** An unauthenticated TURN Allocate, for the open-relay reading. */

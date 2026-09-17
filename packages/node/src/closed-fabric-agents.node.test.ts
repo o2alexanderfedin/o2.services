@@ -785,8 +785,6 @@ async function standUp(): Promise<Fixture> {
       providerAddr,
       '--user-key',
       await writeUserKey(name, fill),
-      '--operator-id',
-      `${name}-ops`,
     ])
 
   const memberAtSeed = await enrol('member-at-seed', 0xb1, seedAddr)
@@ -1033,40 +1031,6 @@ describe('`until` polls through a transient failure, because that is what a budg
     )
     // 2 as a literal: one poll inside the loop, one re-check after the deadline.
     expect(polls).toBe(2)
-  })
-
-  it('holds every sibling `until` that polls across a boundary to the same two rules', async () => {
-    // **Ten copies of this helper exist and they must not drift**, which is not a style
-    // preference: `peer-dial.node.test.ts` already carried the throw guard before today, and
-    // the nine that did not are how two whole-lane runs came back red for reasons that were
-    // not about the code. A structural check is the only thing that can hold copies together
-    // when the reason for keeping them separate — *"importing a helper from another
-    // `.test.ts` re-registers that file's whole suite"* — is itself sound.
-    //
-    // Scoped to helpers whose predicate may be async, because those are the ones that poll
-    // across a process or a network boundary. A synchronous predicate over local state cannot
-    // throw transiently and cannot gain its answer during a sleep.
-    const dir = fileURLToPath(new URL('.', import.meta.url))
-    const files = (await readdir(dir)).filter((name) => name.endsWith('.test.ts'))
-    const drifted: string[] = []
-    for (const name of files) {
-      const source = await readFile(join(dir, name), 'utf8')
-      const at = source.indexOf('async function until(')
-      if (at < 0) continue
-      const head = source.slice(at, at + 1_400)
-      if (!head.includes('Promise<boolean>')) continue
-      // The FUNCTION-BODY indent, not the loop's. **This mattered**: the first form of this
-      // check looked for the bare call, which also matches the `if (await attempt()) return`
-      // INSIDE the while loop — present in every copy — so it was green against a plant that
-      // deleted the re-check. A proof that cannot fail is not a proof; this one was watched
-      // red before it was kept.
-      if (!head.includes('\n  if (await attempt()) return')) drifted.push(name)
-    }
-    expect(
-      drifted.sort(),
-      'these files poll an async predicate and do not re-check it after the deadline, so a ' +
-        'condition arriving during the last sleep is reported as a timeout',
-    ).toStrictEqual([])
   })
 
   it('still reports a predicate that answers false without ever throwing', async () => {

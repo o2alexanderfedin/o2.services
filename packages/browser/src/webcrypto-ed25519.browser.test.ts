@@ -194,7 +194,6 @@ describe('a visitor owner key the page cannot read, carried through enrolment', 
 
     const signer = await subtleUserSigner(pair)
     const request = await requestEnrollment(NODE_SEED, signer, {
-      operatorId: 'visitor-op',
       discoverability: 'via-relay',
       relayIds: ['relay-1'],
     })
@@ -221,7 +220,6 @@ describe('a visitor owner key the page cannot read, carried through enrolment', 
     const crossed = await subtleUserSigner({ privateKey: first.privateKey, publicKey: second.publicKey })
     await expect(
       requestEnrollment(NODE_SEED, crossed, {
-        operatorId: 'visitor-op',
         discoverability: 'seed',
         relayIds: [],
       }),

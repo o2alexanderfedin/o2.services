@@ -395,13 +395,19 @@ export interface FabricNodeOptions {
    * anyway is a node whose identity claim is silently absent — the shape
    * `.planning/PROJECT.md` records as a hole.
    *
-   * **One object rather than three optional fields**, and that is the whole point: every
-   * field here is required whenever *any* of them is given, so the requirement is a fact
-   * about the type rather than a runtime check somebody can forget. A default for either
-   * of the last two would write a placeholder into a signed statement, and `operatorId` is
-   * the unit of quorum diversity (`enrollment.ts`) — a silent default would make every
-   * node one operator, or every node its own, and Phase 19 would inherit a meaningless
-   * anti-affinity rule.
+   * **One object rather than two optional fields**, and that is the whole point: every
+   * field here is required whenever *either* is given, so the requirement is a fact about
+   * the type rather than a runtime check somebody can forget. A default for `providerAddr`
+   * would write a placeholder into a signed statement.
+   *
+   * **`operatorId` was a third field here and is gone — VER-11, 2026-09-16.** Its removal
+   * is not a simplification: the paragraph above used to argue that a silent default for it
+   * *"would make every node one operator, or every node its own, and Phase 19 would inherit
+   * a meaningless anti-affinity rule"*. That argument was right about defaults and blind to
+   * the larger case — a **stated** value was equally unverified, because the provider
+   * copied whatever it was given. The field is now derived by the issuer from the user key
+   * it holds a proof for, so this object cannot express it and a caller cannot get it
+   * wrong.
    *
    * **Something that can *sign*, not a `userKey` hex string, and the difference is
    * load-bearing.** `EnrollmentAuthority.enrol` requires an `ownerProof`: the *user's*
@@ -448,7 +454,6 @@ export interface FabricNodeOptions {
    */
   readonly enrollment?: {
     readonly userPrivateKey: Uint8Array | CryptoKeyPair
-    readonly operatorId: string
     readonly providerAddr: string
   }
   /**
@@ -1295,7 +1300,6 @@ async function resolveCertificate(parts: {
       ? enrollment.userPrivateKey
       : await subtleUserSigner(enrollment.userPrivateKey)
   const request = await requestEnrollment(identity.seed, user, {
-    operatorId: enrollment.operatorId,
     discoverability: canRelay ? 'seed' : 'via-relay',
     relayIds: canRelay ? [] : [...relayPeerIds],
   })

@@ -202,9 +202,18 @@ const OWNER_OPERATOR = 'one-owner-two-machines'
 const TAB_OPERATOR = 'harbour-road-volunteers'
 const STRANGER_OPERATOR = 'somebody-elses-fleet'
 
-/** The three sentences the kernel owns. Compared against, never transcribed. */
+/**
+ * The four sentences the kernel owns. Compared against, never transcribed.
+ *
+ * **`SINGLE_ISSUER` arrived on 2026-09-16, VER-12**, and it is not decoration: every group
+ * below that enumerates these constants is asking one of two questions — *did the page show a
+ * strength at all* or *did the page show none* — and both stop meaning what they meant the
+ * moment a label exists that no group names. Three of four is a page that could display the
+ * new sentence and be read as displaying nothing.
+ */
 const OWNER_ATTESTED = describeAttestation('owner-attested')
 const OWNER_DOMAIN = describeAttestation('owner-domain')
+const SINGLE_ISSUER = describeAttestation('single-issuer')
 const INDEPENDENT = describeAttestation('independent')
 
 /** The claim the page asserted on every run, true only sometimes. */
@@ -367,7 +376,6 @@ async function startEnrolled(
         blockstoreName: options.store,
         enrollment: {
           userPrivateKey: options.userPrivateKey,
-          operatorId: options.operatorId,
           providerAddr: options.providerAddr,
         },
       }),
@@ -453,9 +461,16 @@ async function runTheLadder(page: Page, budgetMs: number): Promise<string> {
   return (await page.textContent('#run-report')) ?? ''
 }
 
-/** Neither of the two stronger sentences, asserted wherever a weaker one is expected. */
+/**
+ * None of the three stronger sentences, asserted wherever a weaker one is expected.
+ *
+ * Two until 2026-09-16, VER-12. The helper existed precisely so the enumeration lived in one
+ * place and could not go partial at four call sites independently — which is what it bought
+ * when a third strong label landed.
+ */
 function readsNoStrongerLabel(report: string): void {
   expect(report).not.toContain(OWNER_DOMAIN)
+  expect(report).not.toContain(SINGLE_ISSUER)
   expect(report).not.toContain(INDEPENDENT)
 }
 
@@ -472,7 +487,7 @@ function readingOf(label: string, report: string): {
 } {
   return {
     label,
-    strength: [OWNER_ATTESTED, OWNER_DOMAIN, INDEPENDENT].some((line) => report.includes(line)),
+    strength: [OWNER_ATTESTED, OWNER_DOMAIN, SINGLE_ISSUER, INDEPENDENT].some((line) => report.includes(line)),
     unaccounted: report.includes('this requestor holds no certificate for it'),
   }
 }
@@ -657,9 +672,11 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
     expect(report).toContain('1 operator')
 
     // **VER-10's actual sentence.** Two replicas agreed, both certificates check out, and
-    // everything `classifyAttestation` needs for `independent` is present EXCEPT a second
-    // operator. The page must not round up.
+    // everything `classifyAttestation` needs for a stronger label is present EXCEPT a second
+    // operator — which since VER-12 is one of two things missing, the other being a second
+    // certificate authority. The page must not round up to either label above `owner-domain`.
     expect(report).not.toContain(INDEPENDENT)
+    expect(report).not.toContain(SINGLE_ISSUER)
     // Nor down: `owner-attested` is the one-replica claim and this run placed two.
     expect(report).not.toContain(OWNER_ATTESTED)
 
@@ -896,6 +913,7 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
     // rather than rounding a refusal up into a weak agreement.
     expect(replicas).toContain('no agreement')
     expect(attestation).not.toContain(OWNER_DOMAIN)
+    expect(attestation).not.toContain(SINGLE_ISSUER)
     expect(attestation).not.toContain(INDEPENDENT)
   }, 900_000)
 
@@ -962,11 +980,18 @@ describe('VER-09/VER-10 criterion 3 — the demo page says how strongly its answ
 
     // **The reading that guards the fix.** Two nodes, two distinct operator ids, both
     // signing real attestations against real certificates — everything `classifyAttestation`
-    // needs to answer `independent`. It must not, because this tab pinned neither the
+    // needs to answer above `owner-domain`. It must not, because this tab pinned neither the
     // stranger's provider nor anything that vouches for it, and a receipt built on a
     // certificate that supplied its own trust root would be a strength this run did not
     // establish, printed to whoever is looking at the page.
+    //
+    // **`single-issuer` is refused beside `independent` since VER-12, and here that is the
+    // sharper of the two.** The operator dimension is satisfied on this fixture, so
+    // `single-issuer` is the label these two certificates would produce if they were counted
+    // at all — the strongest thing a tab trusting the wrong root could be made to print, and
+    // until this line it was the one label nothing here refused.
     expect(report).not.toContain(INDEPENDENT)
+    expect(report).not.toContain(SINGLE_ISSUER)
     expect(report).not.toContain(OWNER_DOMAIN)
     expect(report).not.toContain(OWNER_ATTESTED)
 

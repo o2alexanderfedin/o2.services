@@ -492,8 +492,6 @@ describe('criterion 1 — after a completed enrolment the store holds neither se
       providerAddr ?? '',
       '--user-key',
       userKey,
-      '--operator-id',
-      'harbour-ops',
       '--identity-passphrase-file',
       enrolleePassphraseFile,
     ])

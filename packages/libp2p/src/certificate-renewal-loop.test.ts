@@ -87,7 +87,6 @@ async function enrol(rpc: RpcEndpoint): Promise<NodeCertificate> {
     rpc,
     PROVIDER_ID,
     await requestEnrollment(nodeSeed, userSeed, {
-      operatorId: 'ops',
       discoverability: 'seed',
       relayIds: [],
     }),

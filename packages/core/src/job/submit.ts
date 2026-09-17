@@ -813,6 +813,18 @@ export interface ShardResult {
    * A reader comparing it against `performance.now()` spans must convert one of the two;
    * they are different origins, not different precisions.
    *
+   * **AMENDED 2026-09-14 — converting is necessary and NOT sufficient, and the advice above
+   * sent a reader into the gap.** With the default clock the two are also different **clock
+   * sources**: this field is the wall clock, `performance.now()` is the monotonic one, and
+   * `performance.timeOrigin` relates them only at process start. They diverge afterwards —
+   * measured at **3.075 ppm**, about 20 us at 7 s and 63 us at 18 s of process life. So a
+   * converted `judgedAt` can land *after* an instant that genuinely followed it, and an
+   * ordering assertion built on the conversion fails on correct code: it did, about 1 run in
+   * 13, in `packages/node/src/speculation-agents.node.test.ts`. **A reader that needs to order
+   * this field against a monotonic span must supply a `JobClock` reading the monotonic source**
+   * — that spec's `FIXTURE_CLOCK` is the worked example — rather than converting and hoping.
+   * Working: `.planning/debug/speculation-judgedat-ordering-intermittent.md`.
+   *
    * `judgedAt !== null` exactly when {@link ShardResult.speculated} is `true`: both are
    * set at the one site that starts a copy. A shard the loop left at the eligibility gate
    * — the sovereign case with no spare node — never reached the straggler test at all,
@@ -2841,6 +2853,35 @@ export async function submitJob(
     candidateNodes.length > 0 && certificated.length === candidateNodes.length && spec.redundancy >= 2
       ? composeQuorum(certificated, {
           size: spec.redundancy,
+          // VER-12 — the issuer rule, waived here and nowhere else, with the ruling cited
+          // rather than summarised.
+          //
+          // (a) **The ruling.** The owner ruled on 2026-09-16 that this fabric runs ONE
+          //     certificate provider, and accepted the lower ceiling that comes with it —
+          //     `.planning/OWNER-ACTIONS.md` §3c. So every certificate a member could
+          //     carry is signed by the same party, by construction rather than by
+          //     accident.
+          //
+          // (b) **What a defaulted refusal would cost, which is not a label.** With one
+          //     provider, `composeQuorum`'s `single-issuer-quorum` would refuse every
+          //     `label: 'public'` shard at `redundancy >= 2`. Each would fall to
+          //     `spec.onQuorumShortfall` below and either degrade to available redundancy
+          //     or refuse the shard — so redundant verification stops happening at all.
+          //     That is a functional regression the ruling did not buy: what the owner
+          //     accepted was a weaker *claim*, not the loss of N-version comparison.
+          //
+          // (c) **The waiver turns off the REFUSAL, not the PREFERENCE.** The composer's
+          //     issuer-grouped round-robin runs whatever this flag says, so the day a
+          //     second provider runs, this same call composes a two-issuer member set and
+          //     `classifyAttestation` answers `independent` — with no code change here.
+          //     Until then the receipt reports one issuer and the strength reads
+          //     `single-issuer`, which is the truth about this fabric rather than a
+          //     silence about it.
+          //
+          // This is the shape `requireIndependentPaths` already has in this file: default
+          // true, waived exactly where the shared dependency is accepted and the receipt
+          // still reports it.
+          requireDistinctIssuers: false,
           peerIdOf: (certificate) => peerIdByNodeKey.get(certificate.nodeKey) ?? null,
         })
       : null

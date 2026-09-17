@@ -125,7 +125,7 @@ async function startTab(options: {
   whenSeedIsGone: 'mints-a-new-identity' | 'refuses-to-start-without-its-seed'
 }): Promise<string> {
   return page.evaluate(
-    async ([blockstoreName, anchor, provider, operatorId, userKey, enrol, policy, passphrase]) =>
+    async ([blockstoreName, anchor, provider, userKey, enrol, policy, passphrase]) =>
       window.o2capability.start({
         // **The provider, not the gate.** `relayAddrs` is dialled *inside* `start`,
         // before `serveAgent` has been called, so a peer met this way asks this node for
@@ -152,7 +152,6 @@ async function startTab(options: {
           ? {
               enrollment: {
                 userPrivateKey: userKey as number[],
-                operatorId: operatorId as string,
                 providerAddr: provider as string,
               },
             }
@@ -162,7 +161,6 @@ async function startTab(options: {
       options.blockstoreName,
       publisher.pub,
       providerAddr,
-      OPERATOR_ID,
       [...USER_PRIVATE_KEY],
       options.enrol,
       options.whenSeedIsGone,

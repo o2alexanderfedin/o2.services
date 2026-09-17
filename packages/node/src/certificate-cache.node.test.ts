@@ -46,7 +46,6 @@ async function certificate(seed: number): Promise<NodeCertificate> {
   })
   const outcome = authority.enrol(
     await requestEnrollment(new Uint8Array(32).fill(seed), new Uint8Array(32).fill(0x91), {
-      operatorId: 'ops',
       discoverability: 'seed',
       relayIds: [],
     }),

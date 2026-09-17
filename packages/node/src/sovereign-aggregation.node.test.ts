@@ -71,7 +71,7 @@ import { join } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { canonicalCid, delegate, signName, toHex } from '@o2/core'
+import { canonicalCid, delegate, operatorIdFor, signName, toHex } from '@o2/core'
 import type {
   CanonicalValue,
   Delegation,
@@ -328,8 +328,6 @@ async function standUp(): Promise<Fixture> {
       provider.multiaddrs[0] as string,
       '--user-key',
       await writeUserKey(name, privateKey),
-      '--operator-id',
-      `${name}-ops`,
       // A pinned trust anchor, deliberately not derived by the binary — see `--owner-key`.
       '--owner-key',
       userKey,
@@ -569,7 +567,10 @@ describe('MR-02 — each owner computes a partial over its own data, and the agg
       [ALICE_USER_KEY, BOB_USER_KEY].toSorted(),
     )
     expect(value.contributions.map((c) => c.ownerId)).toStrictEqual([ALICE_USER_KEY, BOB_USER_KEY])
-    expect(value.contributions.map((c) => c.operators)).toStrictEqual([['alice-ops'], ['bob-ops']])
+    expect(value.contributions.map((c) => c.operators)).toStrictEqual([
+      [operatorIdFor(ALICE_USER_KEY)],
+      [operatorIdFor(BOB_USER_KEY)],
+    ])
 
     // **The aggregation over contributions is verified**: one combine, performed
     // independently by both owner processes, producing the same CID.

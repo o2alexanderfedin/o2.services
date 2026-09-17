@@ -98,7 +98,6 @@ describe('a certificate that will not encode is not a certificate with a bad sig
     })
     const issued = auth.enrol(
       await requestEnrollment(node.priv, owner.priv, {
-        operatorId: 'op',
         discoverability: 'seed',
         relayIds: [],
       }),
@@ -265,7 +264,6 @@ describe('a challenge that will not encode is not a node failing to prove posses
     })
   const valid = async () =>
     await requestEnrollment(node.priv, owner.priv, {
-      operatorId: 'op',
       discoverability: 'seed',
       relayIds: [],
     })

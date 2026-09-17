@@ -200,7 +200,7 @@ beforeAll(async () => {
   // the case that is about starting rather than as a `beforeAll` crash with no reading
   // attached to it. That is also how the pre-fix measurement was taken.
   const outcome = await page.evaluate(
-    async ([dead, live, anchor, operatorId, userKey]) =>
+    async ([dead, live, anchor, userKey]) =>
       window.o2capability
         .start({
           relayAddrs: [dead as string, live as string],
@@ -217,7 +217,6 @@ beforeAll(async () => {
           // add a variable to a file whose subject is which addresses were dialled.
           enrollment: {
             userPrivateKey: userKey as number[],
-            operatorId: operatorId as string,
             providerAddr: live as string,
           },
         })
@@ -228,7 +227,7 @@ beforeAll(async () => {
             failure: cause instanceof Error ? cause.message : String(cause),
           }),
         ),
-    [DEAD_RELAY, providerAddr, publisher.pub, OPERATOR_ID, [...USER_PRIVATE_KEY]] as const,
+    [DEAD_RELAY, providerAddr, publisher.pub, [...USER_PRIVATE_KEY]] as const,
   )
   tabPeerId = outcome.peerId
   startFailure = outcome.failure

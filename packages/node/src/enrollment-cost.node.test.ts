@@ -254,8 +254,6 @@ async function enrollerArgs(name: string, providerAddr: string): Promise<string[
     providerAddr,
     '--user-key',
     await freshUserKey(name),
-    '--operator-id',
-    `${name}-ops`,
   ]
 }
 

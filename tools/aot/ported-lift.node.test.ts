@@ -8,6 +8,8 @@ import { WasiExecutor } from '@o2/aot'
 import { encodeCanonical, MemoryBlockstore } from '@o2/core'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
+import { describeGate, isRunnable, probeDockerReach } from './docker-gate.ts'
+
 /**
  * End to end for the ELF-loader port: lift a binary with BOTH lifters, then actually RUN both
  * artifacts through the fabric's own WASI executor.
@@ -26,12 +28,27 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
  * own; "both run, and reach the same terminal state" is the claim worth making, because it
  * says the change moved function boundaries without moving observable behaviour.
  *
- * WHY THIS LIVES IN `@o2/node` AND NOT BESIDE THE EXECUTOR IT DRIVES. It was written in
- * `packages/aot/src/` first and the purity guard refused the commit, correctly: `aot` is in
- * that guard's `PORTABLE` set, so it must reference no platform-specific module, and this file
- * needs five Node builtins to drive Docker. `*.node.test.ts` is exempt from that rule and
- * `*.e2e.test.ts` is not -- so the choice was to move the file or to widen the guard, and
- * widening a guard to admit a new violation is how a portable package stops being portable.
+ * WHY THIS LIVES IN `tools/aot/`. It was written in `packages/aot/src/` first and the purity
+ * guard refused the commit, correctly: `aot` is in that guard's `PORTABLE` set, so it must
+ * reference no platform-specific module, and this file needs five Node builtins to drive
+ * Docker. It went to `packages/node/src/` as an `*.e2e.test.ts`, and **that suffix was a
+ * misnomer from the day it was written** -- `aot-tab.e2e.test.ts` names it outright as
+ * "the trap here": this file launches no browser, it spawns Docker and drives both arms
+ * through {@link WasiExecutor} directly in Node.
+ *
+ * **MOVED HERE 2026-09-15, and the reason is a measurement rather than tidiness.** The
+ * `.e2e` suffix put a CONTAINER spec in a lane of 74 Chromium, Vite and relay files. On
+ * 2026-09-15 a full `e2e` lane blew this file's 900 000 ms `beforeAll` budget and it
+ * consumed **3 691 536 ms of an 86 minute lane** -- 61.5 minutes, having produced nothing.
+ * That is the exact failure `vitest.config.ts` records at the `aot` project: on 2026-08-25
+ * a `node` sweep lost five container specs at once, **two of them to a 900 000 ms `beforeAll`
+ * budget**, and the owner ruled the repair is serialisation and NOT a larger timeout,
+ * because raising the budget widens what counts as passing. `(user+sys)/real` for these
+ * specs is ~0.01: they WAIT on a container rather than compute, so a wall-clock budget over
+ * one measures the host's contention and never the toolchain.
+ *
+ * This file is not new work and it is not broken: `42-06-SUMMARY.md` records it passing
+ * 4/4. It was in the wrong lane, and starved there.
  *
  * `not-dag-cbor` is the success signal and is not a fudge. It means the module instantiated,
  * `_start` ran to completion, and the guest wrote bytes that the codec then refused -- a
@@ -43,22 +60,33 @@ const HARNESS_BUDGET_MS = 900_000
 vi.setConfig({ testTimeout: HARNESS_BUDGET_MS, hookTimeout: HARNESS_BUDGET_MS })
 
 const HARNESS = 'tools/aot/elfconv-differential.sh'
-const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 const IMAGE = process.env['ELFCONV_IMAGE_TAG'] ?? 'ghcr.io/yomaytk/elfconv:arm64'
 
 /** The subject whose two arms differ: the one the sizing fix actually changes. */
 const SUBJECT = 'gcc_hello'
 
-function dockerAvailable(): boolean {
-  return (
-    spawnSync('docker', ['version', '--format', '{{.Server.Os}}'], {
-      timeout: 20_000,
-      encoding: 'utf8',
-    }).status === 0
-  )
+/**
+ * Which precondition is missing, or `null` -- named rather than left as a bare skip.
+ *
+ * A local `dockerAvailable()` stood here: `spawnSync('docker', ['version', ...])`, 20 s,
+ * `status === 0`. It was the SIXTH copy of a predicate `tools/aot/` had already reduced to
+ * one, and it could not be shared while this file sat under `packages/node/src/`. It also
+ * carried a defect the shared gate does not: it read `status` alone, and a `spawnSync` that
+ * times out can report `status: 0` (measured 2026-09-15 -- see `docker-gate.ts`'s
+ * `ProbeOutcome.errno`), so a probe that never got an answer could be read as an answer.
+ * {@link probeDockerReach} classifies on `errno` first and cannot make that mistake.
+ */
+function missingPrecondition(): string | null {
+  if (arch() !== 'arm64') return `host arch is ${arch()}, the pinned image is arm64`
+  const reach = probeDockerReach()
+  if (!isRunnable(reach)) return describeGate(reach)
+  return null
 }
 
-const RUNNABLE = arch() === 'arm64' && dockerAvailable()
+const MISSING = missingPrecondition()
+const RUNNABLE = MISSING === null
+const SKIP_NOTE = MISSING === null ? 'runnable' : `SKIPPED: ${MISSING}`
 
 interface Arms {
   readonly baseline: Uint8Array<ArrayBuffer>
@@ -81,16 +109,24 @@ async function runToCompletion(wasm: Uint8Array<ArrayBuffer>, nodeId: string): P
   return outcome.ok ? 'ok' : outcome.failure.kind
 }
 
-describe.skipIf(!RUNNABLE)('an artifact lifted by the ported loader actually runs', () => {
+/** The skip reason rides in the title, as every sibling in this directory does it. */
+const SUITE = `an artifact lifted by the ported loader actually runs (${SKIP_NOTE})`
+
+describe.skipIf(!RUNNABLE)(SUITE, () => {
   let arms: Arms
 
   beforeAll(() => {
     const out = mkdtempSync(join(tmpdir(), 'o2-ported-lift-'))
+    const container = `o2-ported-lift-${String(process.pid)}`
     const run = spawnSync(
       'docker',
       [
         'run',
         '--rm',
+        // Named so the timeout path has something to address. `--rm` removes a container
+        // that ENDS; it says nothing about one still running when the client is killed.
+        '--name',
+        container,
         '-e',
         `SUBJECTS=${SUBJECT}`,
         // read-only: two specs in this repo snapshot `git status --porcelain` around
@@ -104,8 +140,28 @@ describe.skipIf(!RUNNABLE)('an artifact lifted by the ported loader actually run
         IMAGE,
         `/repo/${HARNESS}`,
       ],
-      { timeout: HARNESS_BUDGET_MS, encoding: 'utf8' },
+      {
+        timeout: HARNESS_BUDGET_MS,
+        encoding: 'utf8',
+        // **Without this the budget above is not a budget.** `spawnSync` sends `killSignal`
+        // at the deadline and then waits for the child to actually go, so a client that
+        // holds SIGTERM is waited out in full. On 2026-09-15 this file spent **3 691 536 ms**
+        // against this same 900 000 ms figure -- four times its budget -- inside an `e2e`
+        // lane it then blocked. Measured in `docker-gate.node.test.ts`, which drives a stub
+        // that refuses SIGTERM and requires the probe back inside three budgets.
+        killSignal: 'SIGKILL',
+      },
     )
+    // Killing the CLIENT does not stop the CONTAINER: the build would go on burning a core
+    // inside the VM for the rest of the lane, as a load source with nothing in the process
+    // table to name it. That converts a bounded wait into an unattributable neighbour, which
+    // is the failure this whole change is about. `|| true` in effect -- a container that
+    // exited on its own is not an error here, and this must not mask the real diagnosis.
+    spawnSync('docker', ['rm', '-f', container], {
+      timeout: 60_000,
+      killSignal: 'SIGKILL',
+      encoding: 'utf8',
+    })
 
     const baseline = join(out, `${SUBJECT}.baseline.wasm`)
     const ported = join(out, `${SUBJECT}.ported.wasm`)

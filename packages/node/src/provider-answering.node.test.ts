@@ -183,7 +183,6 @@ describe('SCHED-01 — a node answers a providers request about its own store', 
       sovereignty: { ownerId: OWNER, canExecuteSovereign: true },
       enrollment: {
         userPrivateKey: ALICE_SEED,
-        operatorId: 'harbour-ops',
         providerAddr: addrOf(issuer),
       },
     })

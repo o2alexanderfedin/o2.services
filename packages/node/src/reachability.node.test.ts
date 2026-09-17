@@ -249,7 +249,7 @@ describe('the corpus: every callable export the eight barrels publish', () => {
     expect(homeless).toEqual([])
   }, GRAPH_TIMEOUT_MS)
 
-  it('names six entry-point modules that exist on disk', () => {
+  it('names eight entry-point modules that exist on disk', () => {
     // Task 2 roots its graph here. A typo in one of these paths would silently remove a root
     // and turn a large part of the tree unreachable, which reads exactly like a real finding.
     //
@@ -258,7 +258,12 @@ describe('the corpus: every callable export the eight barrels publish', () => {
     // OUT — they are defensible because *"adding them changes no barrel verdict"* — which is
     // false for the Worker: it is the only caller `@o2/cloudflare`'s barrel has. The count is
     // asserted rather than derived so that a sixth arriving by accident is as loud as a typo.
-    expect(ENTRY_POINTS.length).toBe(6)
+    //
+    // **6 -> 8 on 2026-09-13 (Phase 33, plan 02)**, `packages/cloudflare/src/worker-eu.ts` and
+    // `worker-sam.ts` — each a deployed Worker's own `"main"`, on the identical footing the
+    // sixth was added under. The orphan-module guard in `reachability-guard.node.test.ts`
+    // caught their absence the moment they were added, exactly as it exists to do.
+    expect(ENTRY_POINTS.length).toBe(8)
     for (const entry of ENTRY_POINTS) {
       expect(existsSync(join(ROOT, entry)), `${entry} is named as an entry point but is not on disk`).toBe(true)
     }
@@ -471,7 +476,7 @@ describe('the call graph: a path through functions, not through modules', () => 
     expect(built.files.length).toBeGreaterThanOrEqual(FILE_FLOOR)
     expect(built.nodes.size).toBeGreaterThanOrEqual(NODE_FLOOR)
     expect(built.calls.size).toBeGreaterThanOrEqual(CALLER_FLOOR)
-    expect(built.roots.length).toBe(6) // 5 -> 6 on 2026-08-26; see the entry-point case above
+    expect(built.roots.length).toBe(8) // 5 -> 6 on 2026-08-26, 6 -> 8 on 2026-09-13; see the entry-point case above
     // Specs are outside the graph on purpose: a test calling something does not make it
     // entry-point reachable, and counting it would make this whole file vacuous.
     expect(built.files.filter((file) => file.endsWith('.test.ts'))).toEqual([])
@@ -589,7 +594,21 @@ describe('the call graph: a path through functions, not through modules', () => 
     // handler `fetch`, and a Durable Object's request handler is `fetch` as well. Renaming
     // either to dodge this bound would distort a platform contract to please a guard — the
     // objection this case's own history already records twice.
-    expect(built.collisions.length).toBeLessThanOrEqual(17)
+    // **17 -> 18 on 2026-09-09, and it is the `ed25519-backend.ts#verify` shape read forwards.**
+    // The eighteenth is `packages/cloudflare/src/turn-credential.ts#mint`: that module now holds
+    // TWO implementations of one `TurnMinter` seam — `sharedSecretMinter` for the `coturn`
+    // scheme and `cloudflareTurnMinter` for the provider's — and each returns an object literal
+    // whose method is `mint`. `declaredNameOf` counts an object-literal shorthand method, so two
+    // of them in one file is a collision by exactly the mechanism the note above records for
+    // three `verify(...)` adapters. Measured, not predicted: the collision list was printed and
+    // this is the only entry that is new.
+    //
+    // **Neither name is ours to choose here either.** The seam's method is `mint` because the
+    // interface says so, and an interface with one implementation named `mint` and another named
+    // `mintViaProvider` is not one seam. Renaming to dodge this bound would distort a design to
+    // please a guard, which is the objection this case's history already records three times.
+    expect(built.collisions.length).toBeLessThanOrEqual(18)
+    expect(built.collisions).toContain('packages/cloudflare/src/turn-credential.ts#mint')
     expect(built.collisions).toContain('packages/core/src/discovery.ts#providers')
     // The entries that moved the bound, pinned by name so a future raise cannot hide behind them.
     expect(built.collisions).toContain('packages/core/src/ed25519-backend.ts#signEd25519')
@@ -766,12 +785,17 @@ describe('each edge class is load-bearing — one ablation per class', () => {
     expect(reached.has('packages/demo/src/pi.ts#estimatePi')).toBe(false)
   }, ABLATION_TIMEOUT_MS)
 
-  it('THE ENTRY SET NO LONGER HOLDS SILENTLY — it is now an owner question, and it moved to six', () => {
+  it('THE ENTRY SET NO LONGER HOLDS SILENTLY — it is now an owner question, and it moved to eight', () => {
     // **Retitled 2026-08-26.** It read "THE FIVE-MODULE ENTRY SET" and the set is six. The
     // case's subject never was the number — it is the DIFFERENCE between the declared set and
     // a wider one, so that neither the count nor the membership can drift without saying so —
     // and leaving "five" in the title while the array held six would have been this file
     // asserting one thing and naming another.
+    //
+    // **Retitled again 2026-09-13 (Phase 33, plan 02).** It read "moved to six" while
+    // `ENTRY_POINTS` held eight — the same defect this note already names, applied to itself.
+    // `worker-eu.ts`/`worker-sam.ts` moved the base set 6 -> 8, so the wider graph below moved
+    // 9 -> 11 for the same reason.
     // 22-CONTEXT.md pinned this reading on 2026-08-04: adding the three runnable-but-unnamed
     // modules "gains 4 modules and ZERO exclusive callable barrel exports, so no verdict changes
     // today", and instructed that when it stopped being true the pin should redden and the entry
@@ -793,7 +817,10 @@ describe('each edge class is load-bearing — one ablation per class', () => {
     })
     // 8 -> 9 on 2026-08-26: `ENTRY_POINTS` gained `packages/cloudflare/src/worker.ts` and
     // this graph is that set plus the same three runnable-but-absent modules.
-    expect(wider.roots.length).toBe(9)
+    // 9 -> 11 on 2026-09-13 (Phase 33, plan 02): `ENTRY_POINTS` gained `worker-eu.ts` and
+    // `worker-sam.ts`, so 8 + 3 = 11. Neither entry reaches any of the three runnable modules
+    // below, so the `rescued` set asserted further down is unaffected by this move.
+    expect(wider.roots.length).toBe(11)
 
     const reachedWide = reachableFrom(wider.calls, wider.roots)
     const reachedFive = reachableFrom(graph().calls, graph().roots)

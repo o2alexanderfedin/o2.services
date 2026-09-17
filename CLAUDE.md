@@ -74,10 +74,9 @@ manifest and coverage report, not by a quorum.
   time**, not as runtime configuration
 - **Hosting**: GitHub Pages serves static files only and runs no server-side
   process — it can host the client but not a relay or bootstrap node
-- **Disclosure**: Public hosting is public disclosure. EPO and China have no
-  patent grace period, so publishing forfeits those rights permanently. Deployment
-  must be a separately-triggered gate, not an automatic consequence of a phase
-  completing
+- **Deployment**: a separately-triggered gate, never an automatic consequence of a
+  phase completing, because Cloudflare has no hard spending ceiling. `DEMO-04`'s
+  guard enforces it
 - **Platform**: `elfconv` requires AArch64, statically-linked binaries and is a
   C++/LLVM/Remill toolchain — a build-time dependency producing `.wasm`, not a
   TypeScript component. **"Unstripped" was wrong** — corrected in Phase 10 against a

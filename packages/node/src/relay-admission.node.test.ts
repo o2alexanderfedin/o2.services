@@ -1083,7 +1083,6 @@ describe('AUTH-02 — the relay consults RelayAdmission at the reservation, and 
             : {
                 enrollment: {
                   userPrivateKey: new Uint8Array(32).fill(name.charCodeAt(0)),
-                  operatorId: `${name}-ops`,
                   providerAddr: wsAddr(provider),
                 },
               }),
@@ -1398,7 +1397,6 @@ describe('AUTH-02 — the relay consults RelayAdmission at the reservation, and 
     })
     const issued = authority.enrol(
       await requestEnrollment(RIGHTFUL_SEED, USER_SEED, {
-        operatorId: 'harbour-ops',
         discoverability: 'seed',
         relayIds: [],
       }),

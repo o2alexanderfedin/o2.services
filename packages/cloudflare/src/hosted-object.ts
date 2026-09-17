@@ -77,16 +77,72 @@ export type HostedObjectName = (typeof HOSTED_OBJECT_NAME)[keyof typeof HOSTED_O
 export const HOSTED_OBJECT_NAMES: readonly HostedObjectName[] = Object.values(HOSTED_OBJECT_NAME)
 
 /**
+ * The Durable Object platform's own jurisdiction union — declared at the platform's width, not
+ * narrowed to what this fabric happens to use.
+ *
+ * Read 2026-09-13 out of the installed `@cloudflare/workerd-darwin-arm64` binary's own bundled
+ * type text (`node_modules/@cloudflare/workerd-darwin-arm64/bin/workerd`), not out of
+ * documentation: `type DurableObjectJurisdiction = "eu" | "fedramp" | "fedramp-high" | "us"`.
+ * `HOST-06`'s ledger row (`.planning/REQUIREMENTS.md:2193`) names three of these four; the
+ * fabric uses exactly one, {@link HOSTED_JURISDICTION}'s `eu`. The union stays at the
+ * platform's full width rather than a narrowed three- or one-member alias, because a wider
+ * union here would let a typo in an unused member compile silently — this is what refuses an
+ * undeclared value at the earliest point a creation call can exist, before
+ * {@link HOSTED_JURISDICTION} is even read.
+ */
+export type DurableObjectJurisdiction = 'eu' | 'fedramp' | 'fedramp-high' | 'us'
+
+/**
+ * The one jurisdiction this fabric actually places an object under.
+ *
+ * One member, because exactly one region — `bootstrap-eu` — is placed by binding
+ * jurisdiction. **`bootstrap-us` is deliberately absent from this object.** Wrapping the
+ * already-created `us` object in any jurisdiction would derive a different object ID than the
+ * plain namespace it was created through, orphaning the live identity — see
+ * {@link euJurisdictionOf}'s docblock for the mechanism. `bootstrap-sam` is absent for a
+ * different reason: no South-American jurisdiction value exists in
+ * {@link DurableObjectJurisdiction} at all, so `sam` is carried as a
+ * {@link HostedLocationHint} instead and never as a jurisdiction.
+ */
+export const HOSTED_JURISDICTION: Record<'eu', DurableObjectJurisdiction> = { eu: 'eu' }
+
+/**
+ * The location-hint set, closed in source because the platform closes nothing.
+ *
+ * Measured 2026-09-13 against a local `workerd`: passing `{ locationHint: 'notareal' }` as the
+ * options a stub is obtained with was accepted and returned a live stub — the platform
+ * validates no hint value at all. This set, and {@link UnknownLocationHintError}, are the only
+ * refusal of a mistyped hint that exists anywhere in this system.
+ */
+export const HOSTED_LOCATION_HINT = { sam: 'sam' } as const
+
+/** One of {@link HOSTED_LOCATION_HINT}'s values. */
+export type HostedLocationHint = (typeof HOSTED_LOCATION_HINT)[keyof typeof HOSTED_LOCATION_HINT]
+
+/** The closed set as an array, derived rather than written twice — see {@link HOSTED_OBJECT_NAMES}. */
+export const HOSTED_LOCATION_HINTS: readonly HostedLocationHint[] = Object.values(HOSTED_LOCATION_HINT)
+
+/** The options {@link stubFor}'s third argument accepts — the non-binding location hint. */
+export interface HostedObjectGetOptions {
+  readonly locationHint: HostedLocationHint
+}
+
+/**
  * The platform surface {@link stubFor} needs, declared as narrowly as it is used.
  *
  * The same discipline `durable-object-storage.d.ts` states for its own declaration: a
  * narrower interface is one a fixture can implement COMPLETELY, and a complete fake is the
  * only kind that can honestly claim to model the platform. `@cloudflare/workers-types` is
  * deliberately not a dependency — it would bring the whole platform surface for two methods.
+ *
+ * `jurisdiction` is optional so a fixture that never exercises the `eu` path — the `us` and
+ * `sam` cases among them — can still implement this interface COMPLETELY without inventing a
+ * method the platform namespace it stands in for would not be asked to provide either.
  */
 export interface HostedObjectNamespace<Stub> {
   idFromName: (name: string) => unknown
-  get: (id: unknown) => Stub
+  get: (id: unknown, options?: HostedObjectGetOptions) => Stub
+  jurisdiction?: (jurisdiction: DurableObjectJurisdiction) => HostedObjectNamespace<Stub>
 }
 
 /** Thrown when a name outside {@link HOSTED_OBJECT_NAMES} reaches {@link stubFor}. */
@@ -101,6 +157,33 @@ export class UnknownHostedObjectNameError extends Error {
 }
 
 /**
+ * Thrown by {@link euJurisdictionOf} when the namespace it was given cannot be narrowed by
+ * jurisdiction at all — a runtime missing the method is refused by name rather than crashing
+ * on `undefined(...)`.
+ */
+export class UnsupportedJurisdictionError extends Error {
+  constructor(jurisdiction: string) {
+    const declared = Object.values(HOSTED_JURISDICTION)
+    super(
+      `"${jurisdiction}" is not one of the hosted tier's ${String(declared.length)} declared ` +
+        `jurisdictions (${declared.join(', ')}) — refusing to site an object under it`,
+    )
+    this.name = 'UnsupportedJurisdictionError'
+  }
+}
+
+/** Thrown when a value outside {@link HOSTED_LOCATION_HINTS} would reach {@link stubFor}. */
+export class UnknownLocationHintError extends Error {
+  constructor(hint: string) {
+    super(
+      `"${hint}" is not one of the hosted tier's ${String(HOSTED_LOCATION_HINTS.length)} declared ` +
+        `location hints (${HOSTED_LOCATION_HINTS.join(', ')}) — refusing to site an object under it`,
+    )
+    this.name = 'UnknownLocationHintError'
+  }
+}
+
+/**
  * **The one call site in this repository that may obtain a stub.**
  *
  * The runtime check is not redundant beside the type. `HostedObjectName` is erased at the
@@ -110,15 +193,68 @@ export class UnknownHostedObjectNameError extends Error {
  *
  * A `Set` lookup rather than `includes`, so adding a fourth region does not quietly make this
  * linear in a path that runs on every request.
+ *
+ * **The third argument is passed through untouched, with no branch on it.** Measured
+ * 2026-09-13 against a local `workerd`: obtaining a stub with an explicit `undefined` in that
+ * position returns a live stub, identically to omitting the argument entirely — so an
+ * `if (options)` here would be a branch guarding nothing. The difference
+ * between the three placements is carried entirely by what the CALLER hands to this function
+ * ({@link euJurisdictionOf} narrowing `namespace` first, or {@link samLocationHint} supplying
+ * `options`), never by a branch inside it.
  */
 const DECLARED_NAMES: ReadonlySet<string> = new Set<string>(HOSTED_OBJECT_NAMES)
 
 export function stubFor<Stub>(
   namespace: HostedObjectNamespace<Stub>,
   name: HostedObjectName,
+  options?: HostedObjectGetOptions,
 ): Stub {
   if (!DECLARED_NAMES.has(name)) throw new UnknownHostedObjectNameError(name)
-  return namespace.get(namespace.idFromName(name))
+  return namespace.get(namespace.idFromName(name), options)
+}
+
+/**
+ * Narrows a namespace to the `eu` jurisdiction before anything is sited under it.
+ *
+ * Returns a **namespace**, never a stub — narrowing and siting are two separate platform
+ * calls, and collapsing them into one function would hide exactly the distinction `HOST-06`
+ * exists to make visible. Call {@link stubFor} on the RESULT to site the object:
+ * `stubFor(euJurisdictionOf(env.BOOTSTRAP), HOSTED_OBJECT_NAME.eu)`.
+ *
+ * Throws {@link UnsupportedJurisdictionError} before calling anything, when the namespace does
+ * not implement `jurisdiction` at all — a runtime that does not offer the method must be
+ * refused by name rather than crash on `undefined(...)`.
+ *
+ * **There is no equivalent helper for `bootstrap-us`, and the absence is the placement.**
+ * Deriving a name through `namespace.jurisdiction('eu')` first produces a different object ID
+ * than deriving that same name straight off the plain namespace — narrowing by jurisdiction
+ * changes the namespace the ID is derived against. The `bootstrap-us` object was created
+ * through the plain namespace and has carried real traffic since 2026-08-27. Wrapping its path
+ * in any jurisdiction now would address a new, different object and permanently orphan the
+ * live one. So `us` is sited on the plain namespace with no helper wrapping it — deliberately,
+ * not an omission left to fill in later.
+ */
+export function euJurisdictionOf<Stub>(namespace: HostedObjectNamespace<Stub>): HostedObjectNamespace<Stub> {
+  if (typeof namespace.jurisdiction !== 'function') {
+    throw new UnsupportedJurisdictionError(HOSTED_JURISDICTION.eu)
+  }
+  return namespace.jurisdiction(HOSTED_JURISDICTION.eu)
+}
+
+/**
+ * The `sam` region's non-binding location hint, ready to pass as {@link stubFor}'s third
+ * argument: `stubFor(env.BOOTSTRAP, HOSTED_OBJECT_NAME.sam, samLocationHint())`.
+ *
+ * Takes no parameter: `sam` is the only region placed by hint rather than jurisdiction, so
+ * there is nothing to choose between. Throws {@link UnknownLocationHintError} if the value it
+ * is about to return has fallen out of {@link HOSTED_LOCATION_HINTS} — a check on this
+ * function's own output, so a future edit that widens {@link HOSTED_LOCATION_HINT} without
+ * widening the array derived from it is caught here rather than silently trusted.
+ */
+export function samLocationHint(): HostedObjectGetOptions {
+  const hint = HOSTED_LOCATION_HINT.sam
+  if (!HOSTED_LOCATION_HINTS.includes(hint)) throw new UnknownLocationHintError(hint)
+  return { locationHint: hint }
 }
 
 /**

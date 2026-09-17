@@ -287,7 +287,7 @@ describe('AUTH-02 — the door refuses the reservation and enrolment goes throug
       relayAddrs: [doorAddr],
       reservationWatcher: openWatcher,
       rpcTimeoutMs: 20_000,
-      enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr: doorAddr },
+      enrollment: { userPrivateKey: USER_SEED, providerAddr: doorAddr },
     })
     await until(
       () => door.reservedPeerIds.includes(admitted.peerId),
@@ -312,7 +312,7 @@ describe('AUTH-02 — the door refuses the reservation and enrolment goes throug
       relayAddrs: [doorAddr],
       reservationWatcher: closedWatcher,
       rpcTimeoutMs: 20_000,
-      enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr: doorAddr },
+      enrollment: { userPrivateKey: USER_SEED, providerAddr: doorAddr },
     })
 
     // 3. The gater fired, and fired for *this* peer. Asserted before anything downstream,
@@ -496,7 +496,7 @@ describe('AUTH-02 — the door refuses the reservation and enrolment goes throug
       relayAddrs: [doorAddr],
       reservationWatcher: watcher,
       rpcTimeoutMs: 20_000,
-      enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr: doorAddr },
+      enrollment: { userPrivateKey: USER_SEED, providerAddr: doorAddr },
     })
     /**
      * The independent clock, and it replaces one that could not fail.
@@ -684,7 +684,7 @@ describe('AUTH-04 — the two questions the gate’s revocation story rests on',
       relayAddrs: [doorAddr],
       reservationWatcher: watcher,
       rpcTimeoutMs: 20_000,
-      enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr: doorAddr },
+      enrollment: { userPrivateKey: USER_SEED, providerAddr: doorAddr },
     })
 
     await until(

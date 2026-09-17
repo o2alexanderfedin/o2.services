@@ -275,8 +275,15 @@ export const attestationLines = (attestation: ShardAttestation): string[] =>
       ]
     : [
         `How strongly was it checked: ${attestation.description}`,
+        // A third count, and it is not decoration. The strength in the line above turns on
+        // two separate things being greater than one — how many operators answered, and how
+        // many authorities vouched for them. Shown only the first pair, a visitor reading
+        // the middle label has no way to tell which of the two came up short, which is the
+        // whole of criterion 5. `plural` is used for all three so a one-authority run reads
+        // `1 provider` rather than `1 providers`.
         `Established over ${plural(attestation.replicas, 'replica')} from ` +
-          `${plural(attestation.operators.length, 'operator')}.`,
+          `${plural(attestation.operators.length, 'operator')}, vouched for by ` +
+          `${plural(attestation.issuers.length, 'provider')}.`,
       ]
 
 // VER-03, VER-04 — what the quorum composer decided, in the kernel's own words.

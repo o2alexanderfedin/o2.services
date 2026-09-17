@@ -121,7 +121,35 @@
  * attributable, integrity rests on N-version comparison rather than on trusting an
  * identity, `composeQuorum` enforces anti-affinity by `operatorId` so N sybils under one
  * operator take exactly one quorum slot, and sovereign data never leaves its owner's
- * node. Revocation is **non-renewal on the certificate's own clock**, not a list and not
+ * node.
+ *
+ * > **THE `operatorId` CLAUSE ABOVE WAS TRUE AND ANSWERED A NARROWER ATTACK THAN IT READS.
+ * > Qualified 2026-09-16, VER-11; the sentence is kept because it was never false.**
+ * >
+ * > *N sybils under one operator take exactly one quorum slot* — correct, and about N
+ * > identities under **one** name. It says nothing about N identities under **N** names,
+ * > which cost one extra string and were checked nowhere: the provider copied `operatorId`
+ * > straight out of the request. A reader who reached this line and stopped concluded the
+ * > fabric was protected against bulk identity minting, and it was not. That is why this
+ * > qualification exists at all — the clause was ending a search.
+ * >
+ * > **What changed, and what did not.** The provider now derives `operatorId` from `userKey`
+ * > ({@link operatorIdFor}), so the extra string is gone and one user key is one operator
+ * > whatever a request asks for. **This buys an attacker nothing** — the paragraph four
+ * > sections above already measured why: a fresh user key is one `ed25519.keygen()`, and
+ * > Phase 17 read twenty of them all succeeding. What it buys is that the field now means
+ * > what this module says it means.
+ * >
+ * > **The bound an attacker actually meets is the number of PROVIDERS they must reach**, not
+ * > the number of names they can invent. `AttestationReceipt.issuers` reports that dimension
+ * > as of this change, and since VER-12 (Phase 45) `composeQuorum` **refuses** on it:
+ * > `requireDistinctIssuers` defaults true and ships at full strength. The owner ruled one
+ * > provider on 2026-09-16 (`.planning/OWNER-ACTIONS.md` §3c), so `'independent'` is
+ * > unreachable on this fabric until a second provider exists and the strongest label a
+ * > result carries is `'single-issuer'`. That is the bound stated rather than softened —
+ * > the number of providers an attacker must reach is one, and the label now says so. See
+ * > `docs/architecture/RFC-0003-RESPONSE-05` §6 and `.planning/ROADMAP.md` Phase 45.
+ * > Revocation is **non-renewal on the certificate's own clock**, not a list and not
  * a shorter clock; `certificateLifetimeMs` keeps its default.
  *
  * > **SUPERSEDED 2026-08-23 — the last clause only, by owner ruling.** The default is now
@@ -201,6 +229,45 @@ export type Discoverability =
   | 'via-relay'
 
 /**
+ * The operator identity a provider will certify for a given user key.
+ *
+ * **One function, called by both sides, and that is the whole of it.** The provider derives
+ * the value it signs; the joiner derives the value it asks for; they agree because there is
+ * nothing to agree about. Two spellings that happen to match today would drift, and the
+ * drift would present as honest clients being refused.
+ *
+ * ## Why derived at all — VER-11, Phase 44
+ *
+ * Until 2026-09-16 this field was **copied out of the applicant's request**. `nodeKey` and
+ * `userKey` each carry a proof; `operatorId` carried none, while {@link NodeCertificate}
+ * called it "the unit of quorum diversity" and `classifyAttestation` read two distinct
+ * values as two independent parties. An applicant therefore chose, unchecked, how many
+ * parties a quorum believed it was talking to.
+ *
+ * **What this buys, stated at its real size.** Truth-in-labelling, and the removal of a
+ * serving origin's ability to dictate a visitor's identity. It buys an attacker **nothing**:
+ * a fresh user key is one `ed25519.keygen()`, and this repository measured that in Phase 17
+ * — see this module's header. The bound an attacker actually meets is issuer diversity,
+ * which is Phase 45's work. A summary of this function that calls it a Sybil defence is
+ * wrong.
+ *
+ * ## Why this spelling
+ *
+ * `visitor:` and sixteen characters are the **browser's** existing derivation
+ * (`packages/browser/src/visitor-key.ts`), kept rather than replaced because it is deployed:
+ * a provider that derived anything else would refuse every live visitor on its first
+ * enrolment. Sixteen because an `operatorId` is compared for equality and never parsed, and
+ * a shorter one is legible in a log line. The public half only — it is bytes the certificate
+ * is about to publish as `userKey` anyway, so the prefix reveals nothing new.
+ *
+ * The prefix reads oddly on a backbone node, which is a cost accepted knowingly: one word
+ * in a log line against every deployed page failing to enrol.
+ */
+export function operatorIdFor(userKey: PublicKeyHex): string {
+  return `visitor:${userKey.slice(0, 16)}`
+}
+
+/**
  * A provider's signed statement about one node.
  *
  * `operatorId` is deliberately distinct from `ownerId`. An *owner* is whose data it
@@ -212,7 +279,14 @@ export interface NodeCertificate {
   readonly nodeKey: PublicKeyHex
   /** The user key this node belongs to. Several nodes may share one. */
   readonly userKey: PublicKeyHex
-  /** Who runs the hardware. The unit of quorum diversity. */
+  /**
+   * Who runs the hardware. The unit of quorum diversity.
+   *
+   * **Determined by the issuer, never by the applicant** — {@link operatorIdFor}, VER-11.
+   * A request naming anything else is refused `operator-id-not-derivable` rather than
+   * silently rewritten, so a certificate says what its applicant asked for or the applicant
+   * was told no.
+   */
   readonly operatorId: string
   /** How this node can be discovered. Not a capability statement — see above. */
   readonly discoverability: Discoverability
@@ -741,9 +815,16 @@ export async function subtleUserSigner(keyPair: CryptoKeyPair, subtle?: SubtleCr
 export async function requestEnrollment(
   nodePrivateKey: Uint8Array,
   user: UserSigner | Uint8Array,
+  // `operatorId` is omitted alongside the four proofs and the freshness sentinel, and it
+  // belongs in that company for the same reason they do — VER-11. Those fields are not
+  // withheld from the caller to save it work; they are withheld because **the caller is not
+  // the party that gets to decide them**. A node does not choose its own key's hex, and it
+  // does not choose the identity a quorum will count it under. Removing the parameter is
+  // what makes that structural: there is nothing to state, so there is nothing to state
+  // wrongly, and a client cannot meet `operator-id-not-derivable` by accident.
   fields: Omit<
     EnrollmentRequest,
-    'nodeKey' | 'userKey' | 'proofOfPossession' | 'ownerProof' | 'freshness'
+    'nodeKey' | 'userKey' | 'operatorId' | 'proofOfPossession' | 'ownerProof' | 'freshness'
   >,
 ): Promise<PendingEnrollment> {
   // `supplied` is the whole condition for the check below: it is true exactly when the
@@ -775,6 +856,11 @@ export async function requestEnrollment(
     ...fields,
     nodeKey,
     userKey,
+    // Derived here from the key just proved, by the same function the provider will apply
+    // to the same key — VER-11. Not sent as a wish for the provider to grant: the two sides
+    // compute it, so an honest joiner cannot be refused `operator-id-not-derivable` and a
+    // joiner that IS refused is one that hand-built a request around this function.
+    operatorId: operatorIdFor(userKey),
     // The sentinel, not a nonce: nothing has been asked of a provider yet. A caller that
     // sends this over a wire is refused by name — see `Freshness`.
     freshness: 'answers-no-challenge',
@@ -818,6 +904,23 @@ export type EnrollmentRefusal =
    * next attempt knows the window it has to answer within.
    */
   | { readonly kind: 'stale-challenge'; readonly ttlMs: number }
+  /**
+   * The request named an operator identity this provider will not certify — VER-11.
+   *
+   * **Refused rather than overwritten, and the difference is the invariant.** Silently
+   * substituting the derived value would produce a certificate that disagrees with the
+   * request that produced it, and a joiner that believed it held an identity it does not.
+   * A certificate says what its applicant asked for, or the applicant was told no.
+   *
+   * Carries **both** values because neither alone is actionable: `supplied` is what this
+   * requester sent, `derived` is the only thing this provider would have signed, and the
+   * next action is to send `derived` — or, better, to stop choosing one and call
+   * {@link operatorIdFor}, which is what every client in this repository does.
+   *
+   * Names no user key. The value it would name is the one `derived` is computed from, so
+   * carrying it separately would say the same thing twice.
+   */
+  | { readonly kind: 'operator-id-not-derivable'; readonly supplied: string; readonly derived: string }
 
 export type EnrollmentResult =
   | { readonly ok: true; readonly certificate: NodeCertificate }
@@ -1307,6 +1410,30 @@ export class EnrollmentAuthority {
       }
     }
 
+    // The operator identity third, and the two orderings around it were chosen rather than
+    // fallen into.
+    //
+    // **After owner consent**, because the derivation reads `userKey` and that key is only
+    // this requester's once `ownerProof` has verified. Checking first would compare a
+    // supplied string against a value derived from a key nobody had proved they hold — a
+    // refusal, or an acceptance, about a claim not yet established.
+    //
+    // **Before the limiter**, because both can bind at once and the requester should be
+    // told the more specific true thing. A client sending an operator name this provider
+    // will not certify has a bug to fix; telling it `rate-limited` would send it away to
+    // wait and come back with the identical defect. Nothing above this line writes history,
+    // so no refusal here consumes anybody's budget.
+    const derivedOperatorId = operatorIdFor(request.userKey)
+    if (request.operatorId !== derivedOperatorId) {
+      return {
+        ok: false,
+        refusal: { kind: 'operator-id-not-derivable', supplied: request.operatorId, derived: derivedOperatorId },
+        reason:
+          `this provider derives a node's operator identity from its user key and will not certify ` +
+          `${request.operatorId}; the only value it would sign for user ${request.userKey} is ${derivedOperatorId}`,
+      }
+    }
+
     const recent = this.#recentFor(request.userKey, now)
     if (recent.length >= this.#maxPerWindow) {
       const oldest = Math.min(...recent)
@@ -1353,7 +1480,11 @@ export class EnrollmentAuthority {
     const fields = {
       nodeKey: request.nodeKey,
       userKey: request.userKey,
-      operatorId: request.operatorId,
+      // Derived, not copied — VER-11. Equal to `request.operatorId` by the time control
+      // reaches here, because a request that disagreed was refused above; written as the
+      // derived value anyway so that what this provider signs does not depend on a check
+      // somewhere else in the function still being there.
+      operatorId: derivedOperatorId,
       discoverability: request.discoverability,
       relayIds: [...request.relayIds].sort(),
       issuedAt: now,

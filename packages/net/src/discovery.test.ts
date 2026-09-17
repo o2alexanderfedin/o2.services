@@ -119,7 +119,6 @@ async function fabricOf(options: { workers: number; maxConcurrent?: number }): P
 
     const enrolled = authority.enrol(
       await requestEnrollment(priv, userPriv, {
-        operatorId: `op-${i}`,
         discoverability: 'seed',
         relayIds: [],
       }),

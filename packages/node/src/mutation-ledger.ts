@@ -1012,7 +1012,16 @@ export const MUTATIONS: readonly Mutation[] = [
       'records is where the property is NOT guarded**: Plan 19-08 planted this same substitution ' +
       'and `quorum-agents.node.test.ts` stayed GREEN at 3 passed, because a shard’s receipt comes ' +
       'from `attestationReceipt(verified)` in `receiptFor` and never from `QuorumResult.strength`. ' +
-      'That separation is correct and is why the across-process file cannot carry this claim.',
+      'That separation is correct and is why the across-process file cannot carry this claim. ' +
+      '**One clause added 2026-09-16 so the sentence above is not read as a statement about ' +
+      'today:** the literal it names, `\'independent\'`, is no longer a label this fabric can ' +
+      'reach at all. VER-12 made it require two certificate issuers and the owner ruled one ' +
+      'provider (`.planning/OWNER-ACTIONS.md` §3c), so the strongest label composition now ' +
+      'produces is `\'single-issuer\'`. The defect this entry records is historical and its ' +
+      'plant was NOT re-run on 2026-09-16 — plan 45-04 planted M42, the issuer refusal and the ' +
+      'issuer conjunct, and this entry was not among them. What is claimed here is only that ' +
+      'the constant would now be a stronger lie than it was when it ran, not that it was ' +
+      're-observed.',
     file: 'packages/core/src/quorum.ts',
     find: '    strength: classifyAttestation(members),',
     replace: "    strength: 'independent',",
@@ -1093,14 +1102,27 @@ export const MUTATIONS: readonly Mutation[] = [
       'relay-discovered peers from quorum slots again, and six cases see it. The refusal payload ' +
       'in `replace` is reconstructed; the **predicate** is the one that was planted, and it is the ' +
       'predicate the cases read — each asserts `result.ok`, which inverts whatever the refusal ' +
-      'carries.',
+      'carries. **RE-SITED 2026-09-16, Phase 45/VER-12.** The line this used to name — ' +
+      '`const members = ordered.slice(0, rules.size)` — no longer exists: composition is now an ' +
+      'issuer-grouped round-robin, and `ordered` went with it. What the plant needs is not that ' +
+      'text but the point where the member set is COMPLETE, because the predicate it reinstates ' +
+      'reads `members`. Sited on a declaration still being filled — an empty-array binding, say — ' +
+      'the same plant would refuse every composition, which is an over-broad new rule rather than ' +
+      'a re-site of the retracted one.',
     file: 'packages/core/src/quorum.ts',
-    find: '  const members = ordered.slice(0, rules.size)',
+    find: '  const members = spreadAcrossIssuers(distinct, rules.size)',
     replace:
-      '  const members = ordered.slice(0, rules.size)\n' +
+      '  const members = spreadAcrossIssuers(distinct, rules.size)\n' +
       "  if (!members.some((c) => c.discoverability === 'seed')) {\n" +
       "    return refuse({ kind: 'no-candidates' }, 'no member of this quorum is a seed')\n" +
       '  }',
+    // `signature` is left exactly as it was, and the forward reference this comment used
+    // to carry is answered rather than left standing: it said *"plan 45-04 does that"*,
+    // and 45-04 planted M42, the issuer refusal and the issuer conjunct — **not this
+    // entry.** So no run has re-observed this string. That is not the state M42 was in
+    // and the difference is the point: this is a `test-title` signature, so the cheap
+    // layer checks it on every ordinary run and did, against a title that has not moved.
+    // Read the untouched string as untouched, not as drift, and not as unverified either.
     caughtBy: ['packages/core/src/quorum.test.ts'],
     signature: 'does not disqualify relay-discovered peers from the slots of a quorum',
     signatureSource: 'test-title',
@@ -1116,13 +1138,95 @@ export const MUTATIONS: readonly Mutation[] = [
       'the same defect and watched `owner-domain-agents.node.test.ts` report ' +
       '`expected \'independent\' to be \'owner-domain\'` on one arm and ' +
       '`expected \'independent\' to be \'owner-attested\'` on the other **under one plant**, which ' +
-      'is the evidence that one expression produces both labels.',
+      'is the evidence that one expression produces both labels. ' +
+      '**RE-SITED 2026-09-16, Phase 45/VER-12, and the choice of branch is the whole of the ' +
+      'entry.** `classifyAttestation` now decides in two steps: ' +
+      '`operators.size >= 2 && issuers.size >= 2` answers `independent`, and ' +
+      '`operators.size >= 2` answers `single-issuer`. The obvious new home is the first line — ' +
+      'relax its operator conjunct to `>= 1` — and that plant is INERT on every fixture that ' +
+      'catches this entry: those fixtures carry ONE issuer, so `issuers.size >= 2` is false, ' +
+      'control falls straight through, and the answer does not move. That is a mutation sited ' +
+      'downstream of a decision already taken, which is the Phase 44 shape that stayed green and ' +
+      'was reported as a blind instrument. It is therefore sited on the branch that actually ' +
+      'decides for a one-issuer fixture: relaxed to `>= 1`, a two-node ONE-operator set reports ' +
+      '`single-issuer` where it should report `owner-domain`, and the label moves.',
     file: 'packages/core/src/quorum.ts',
-    find: "  if (operators.size >= 2) return 'independent'",
-    replace: "  if (operators.size >= 1) return 'independent'",
+    find: "  if (operators.size >= 2) return 'single-issuer'",
+    replace: "  if (operators.size >= 1) return 'single-issuer'",
+    // **`signature` REWRITTEN 2026-09-16 from a run, by plan 45-04, and this closes the
+    // interim state 45-01 opened.** It read `expected 'independent' to be 'owner-domain'`
+    // — observed, but against the pre-Phase-45 expression, and the label this plant now
+    // produces has moved. 45-01 left it alone rather than guess, because the cheap layer
+    // checks a `rendered-at-runtime` signature against nothing and an UNOBSERVED sentence
+    // in the ledger is worse than a stale observed one. It is no longer a guess: the
+    // re-sited `find` below was planted against a GREEN tree and
+    // `quorum-agents.node.test.ts` printed the string recorded here at `:734`, in
+    // *degrades to owner-domain on the default dial…* — 1 failed, 3 passed (4), exit 1,
+    // 14.44 s on a host its own banner called quiet (load/core 0.70 before, 0.73 after).
+    // `quorum.ts` was restored by the surgical inverse and `cmp` exited 0.
     caughtBy: ['packages/node/src/quorum-agents.node.test.ts'],
-    signature: "expected 'independent' to be 'owner-domain'",
+    signature: "expected 'single-issuer' to be 'owner-domain'",
     signatureSource: 'rendered-at-runtime',
+  },
+  {
+    id: 'M81',
+    why:
+      'VER-12 / criterion 1 — the issuer refusal itself, deleted rather than moved. A quorum every ' +
+      'member of which was vouched for by ONE provider is one attacker’s reach however many ' +
+      'operators its certificates name: subvert that provider and every member is forgeable, so ' +
+      'the redundancy the caller asked for is one a single party could have minted entirely. With ' +
+      'this condition disabled `composeQuorum` never emits `single-issuer-quorum` and goes back to ' +
+      'composing the one-issuer member set it composed before Phase 45 — the exact pre-phase ' +
+      'behaviour, which is what makes M40’s `false as boolean` idiom the right plant here rather ' +
+      'than a new rule invented for the occasion. **Why the rule is load-bearing even though the ' +
+      'live path waives it, stated because a reader will otherwise wonder:** ' +
+      '`packages/core/src/job/submit.ts` passes `requireDistinctIssuers: false` under the owner ' +
+      'ruling of 2026-09-16 — `.planning/OWNER-ACTIONS.md` §3c, one certificate provider with the ' +
+      'lower ceiling accepted — because refusing on the live path would stop every public shard at ' +
+      '`redundancy >= 2` from composing at all, killing redundant verification. That waiver turns ' +
+      'off the REFUSAL and not the PREFERENCE: the issuer-grouped round-robin still runs ' +
+      'unconditionally, so this condition is precisely what a second provider’s arrival switches ' +
+      'back on, and it is the only thing standing between a caller who does NOT waive it and a ' +
+      'member set that reports a redundancy one provider supplied.',
+    file: 'packages/core/src/quorum.ts',
+    find: '  if (requireDistinctIssuers && members.length >= 2 && memberIssuers.size === 1) {',
+    replace: '  if (false as boolean) {',
+    // Observed 2026-09-16 under the plant, not predicted: `1 failed | 31 passed (32)`,
+    // exit 1, the assertion reading `expected true to be false` at
+    // `quorum.test.ts:666` on `refused.ok`. The **title** is recorded rather than that
+    // assertion because a title is source text, so the cheap layer can check it — and
+    // `expected true to be false` names no property at all. Both were in the same run.
+    caughtBy: ['packages/core/src/quorum.test.ts'],
+    signature: 'refuses a one-issuer quorum under the default rule, and composes it when waived',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'M82',
+    why:
+      'VER-12 / criterion 2 — the conjunct is the whole of the requirement, so dropping it restores ' +
+      'the exact expression Phase 45 replaced. Before 2026-09-16 `classifyAttestation` answered ' +
+      '`independent` on `operators.size >= 2` alone, which reads two operator NAMES as two parties; ' +
+      'VER-11 had already established that a provider derives `operatorId` from the user key, and a ' +
+      'user key is one keygen, so the operator count bounds an attacker only as far as the provider ' +
+      'that signed it. The second conjunct is what makes the label a statement about PROVIDERS. ' +
+      'This is the companion plant to M81 and it fails in the opposite direction: M81 lets a ' +
+      'one-issuer set through the composer, this one lets a one-issuer set wear the strongest label ' +
+      'once it is through. A green here would mean the phase’s central claim is unguarded. ' +
+      '**Sited on the conjunct and not on its operator threshold**, for the reason M42 records at ' +
+      'length: relaxing `operators.size` in this same line is INERT on a one-issuer fixture, ' +
+      'because `issuers.size >= 2` is false and control falls straight through.',
+    file: 'packages/core/src/quorum.ts',
+    find: "  if (operators.size >= 2 && issuers.size >= 2) return 'independent'",
+    replace: "  if (operators.size >= 2) return 'independent'",
+    // Observed 2026-09-16 under the plant: `4 failed | 28 passed (32)`, exit 1, every one
+    // of the four reading `expected 'independent' to be 'single-issuer'`. Three of those
+    // four are cases this entry does not claim — the census fixtures at `:270` and `:485`
+    // and criterion 1’s waived half at `:682` — and the title recorded below is criterion
+    // 2’s own, `:748`. A signature of the assertion text would have matched whichever of
+    // the four happened to print first and could not tell them apart.
+    caughtBy: ['packages/core/src/quorum.test.ts'],
+    signature: 'classifies all four strengths off one expression, operators and issuers together',
+    signatureSource: 'test-title',
   },
   {
     id: 'M43',

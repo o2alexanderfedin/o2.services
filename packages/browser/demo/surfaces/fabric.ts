@@ -352,8 +352,13 @@ export function format(readings: FabricReadings): SurfaceRender {
   } else {
     regions['fabric/attestation-strength'] = attestation.strength
     regions['fabric/attestation-description'] = attestation.description
+    // The third count sits before the relay clause, which stays last. Its reason is the one
+    // `render.ts` gives at the matching line: F6's label depends on two counts now, and a
+    // region showing only the first leaves a reader unable to say which dimension fell
+    // short — the distinction criterion 5 exists to make visible.
     regions['fabric/attestation-counts'] =
       `${plural(attestation.replicas, 'replica')} from ${plural(attestation.operators.length, 'operator')}` +
+      `, vouched for by ${plural(attestation.issuers.length, 'provider')}` +
       ` · shared relay: ${attestation.sharedRelay ?? 'none — the paths were independent'}`
   }
 

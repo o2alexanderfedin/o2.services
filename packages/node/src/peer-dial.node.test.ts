@@ -362,7 +362,6 @@ describe('AUTH-02 — a spawned agent dials a peer and accepts it', () => {
     const a = await spawnAgent('a', [
       '--provider-addr', p.multiaddrs[0] as string,
       '--user-key', aUserKey,
-      '--operator-id', 'harbour-ops',
     ])
     expect(a.certificate?.issuer).toBe(p.issuerKey)
     // A is the peer being dialled and is not itself dialling anybody: `peers` is a stated

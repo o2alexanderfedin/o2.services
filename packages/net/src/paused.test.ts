@@ -515,7 +515,6 @@ describe('a paused node still certifies — two settings, not one', () => {
         rpc,
         node.nodeId,
         await requestEnrollment(joiner.priv, owner.priv, {
-          operatorId: 'op-paused',
           discoverability: 'via-relay',
           relayIds: ['12D3KooWRelayOne'],
         }),

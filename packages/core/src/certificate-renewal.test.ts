@@ -44,7 +44,6 @@ const authority = new EnrollmentAuthority({
 })
 const issued = authority.enrol(
   await requestEnrollment(new Uint8Array(32).fill(8), new Uint8Array(32).fill(9), {
-    operatorId: 'ops',
     discoverability: 'seed',
     relayIds: [],
   }),

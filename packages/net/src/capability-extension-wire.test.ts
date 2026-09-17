@@ -78,7 +78,6 @@ async function records(extensions: readonly CapabilityExtension[]): Promise<Node
   const key = keypair(212)
   const enrolled = authority.enrol(
     await requestEnrollment(key.priv, owner.priv, {
-      operatorId: 'op-wire',
       discoverability: 'seed',
       relayIds: [],
     }),

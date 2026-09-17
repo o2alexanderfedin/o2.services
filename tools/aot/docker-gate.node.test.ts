@@ -400,6 +400,47 @@ describe('the probe reads this host rather than a constant', () => {
     })
     expect(describeGate(reach)).toContain('NO DOCKER CLIENT')
   })
+
+  it('comes back at its own budget against a client that ignores SIGTERM', () => {
+    // A budget is only a deadline if the child dies of the signal that enforces it.
+    //
+    // MEASURED 2026-09-15, node v23.11.0 on this host. Child `/bin/sh -c "trap '' TERM;
+    // sleep 30"`, budget 3 000 ms. With the DEFAULT `killSignal` the call returned at
+    // **30 055 ms** -- the child's whole life, ten times the budget it was given -- and
+    // reported `status: 0` with `error.code: 'ETIMEDOUT'`. With `killSignal: 'SIGKILL'`
+    // the same stub returned at 3 004 ms. `spawnSync` sends the signal at the deadline and
+    // then waits for the child to actually go, so a child that refuses the signal is
+    // waited out in full.
+    //
+    // The two wedged-socket cases above cannot see this and never could: they drive the
+    // REAL client, which dies of SIGTERM like anything else. Only a client that refuses
+    // the signal separates a budget that is enforced from one that is merely hoped for.
+    //
+    // What it cost before it was found: an `e2e` lane on 2026-09-15 spent **3 691 536 ms**
+    // in one file against this same 900 000 ms budget -- four times over, where an enforced
+    // budget would have cost one.
+    //
+    // Both numbers here derive from the in-run budget, for the reason {@link STUB_SPAWN_MS}
+    // gives. A client killed at the deadline costs about ONE budget; one that outlives the
+    // signal costs SIX; the assertion sits at THREE. The separation is a ratio, so it
+    // survives a loaded host, and a regression fails on its subject rather than timing out
+    // -- {@link CASE_BUDGET_MS} is ten budgets wide.
+    const sleepSeconds = Math.ceil((PROBE_BUDGET_MS * 6) / 1_000)
+    const started = Date.now()
+    const reach = probeDockerReach({
+      docker: stubDocker(`trap '' TERM\nsleep ${String(sleepSeconds)}`),
+      timeoutMs: PROBE_BUDGET_MS,
+    })
+    const spent = Date.now() - started
+    // Anti-degeneracy: the probe must have come back REFUSING. A build that somehow read
+    // the stub as an answering daemon would satisfy the timing assertion trivially.
+    expect(isRunnable(reach)).toBe(false)
+    expect(
+      spent,
+      `the probe was given ${String(PROBE_BUDGET_MS)} ms and a client that sleeps ` +
+        `${String(sleepSeconds)} s through SIGTERM; it came back after ${String(spent)} ms`,
+    ).toBeLessThan(PROBE_BUDGET_MS * 3)
+  })
 })
 
 describe('the image gate never puts the image question to a daemon that is not there', () => {

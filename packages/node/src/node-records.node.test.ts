@@ -120,7 +120,6 @@ describe('AUTH-01 — a node with a certificate serves it to a peer that asks', 
       sovereignty: { ownerId: ALICE_OWNER_ID, canExecuteSovereign: true },
       enrollment: {
         userPrivateKey: ALICE_SEED,
-        operatorId: 'harbour-ops',
         providerAddr: addrOf(provider),
       },
     })
@@ -168,7 +167,6 @@ describe('AUTH-01 — a node with a certificate serves it to a peer that asks', 
       sovereignty: { ownerId: ALICE_OWNER_ID, canExecuteSovereign: true },
       enrollment: {
         userPrivateKey: ALICE_SEED,
-        operatorId: 'harbour-ops',
         providerAddr: addrOf(provider),
       },
     })
@@ -198,11 +196,11 @@ describe('AUTH-01 — a node with a certificate serves it to a peer that asks', 
     const notCleared = await start({
       blockstoreDir: join(workdir, 'not-cleared'),
       sovereignty: { ownerId: ALICE_OWNER_ID, canExecuteSovereign: false },
-      enrollment: { userPrivateKey: ALICE_SEED, operatorId: 'harbour-ops', providerAddr },
+      enrollment: { userPrivateKey: ALICE_SEED, providerAddr },
     })
     const noOption = await start({
       blockstoreDir: join(workdir, 'no-option'),
-      enrollment: { userPrivateKey: BOB_SEED, operatorId: 'harbour-ops', providerAddr },
+      enrollment: { userPrivateKey: BOB_SEED, providerAddr },
     })
 
     const b = await start({ blockstoreDir: join(workdir, 'b') })
@@ -237,7 +235,6 @@ describe('AUTH-01 — a node with a certificate serves it to a peer that asks', 
       sovereignty: { ownerId: ALICE_OWNER_ID, canExecuteSovereign: true },
       enrollment: {
         userPrivateKey: ALICE_SEED,
-        operatorId: 'harbour-ops',
         providerAddr: addrOf(provider),
       },
     })

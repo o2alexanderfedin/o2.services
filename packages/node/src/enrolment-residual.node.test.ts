@@ -72,7 +72,6 @@ const NOW = 1_800_000_000_000
  */
 async function freshRequest(): Promise<EnrollmentRequest> {
   return await requestEnrollment(ed25519.utils.randomSecretKey(), ed25519.utils.randomSecretKey(), {
-    operatorId: 'op-residual',
     discoverability: 'seed',
     relayIds: [],
   })
@@ -324,7 +323,6 @@ describe('AUTH-04 — the enrolment cost this phase does not remove', () => {
       relayAddrs: [doorAddr],
       enrollment: {
         userPrivateKey: new Uint8Array(32).fill(0x71),
-        operatorId: 'member-ops',
         providerAddr: wsAddrOf(pinned),
       },
     })
@@ -344,7 +342,6 @@ describe('AUTH-04 — the enrolment cost this phase does not remove', () => {
       reservationWatcher: watcher,
       enrollment: {
         userPrivateKey: new Uint8Array(32).fill(0x72),
-        operatorId: 'spender-ops',
         providerAddr: doorAddr,
       },
     })
@@ -405,7 +402,6 @@ describe('AUTH-04 — the enrolment cost this phase does not remove', () => {
       relayAddrs: [doorAddr],
       enrollment: {
         userPrivateKey: new Uint8Array(32).fill(0x73),
-        operatorId: 'member-ops',
         providerAddr: wsAddrOf(pinned),
       },
     })
@@ -424,7 +420,6 @@ describe('AUTH-04 — the enrolment cost this phase does not remove', () => {
       relayAddrs: [doorAddr],
       enrollment: {
         userPrivateKey: new Uint8Array(32).fill(0x74),
-        operatorId: 'outsider-ops',
         providerAddr: doorAddr,
       },
     })
@@ -497,7 +492,6 @@ describe('AUTH-04 — the enrolment cost this phase does not remove', () => {
           relayAddrs: [doorAddr],
           enrollment: {
             userPrivateKey: new Uint8Array(32).fill(fill),
-            operatorId: `asker-${String(index)}-ops`,
             providerAddr: doorAddr,
           },
         }),

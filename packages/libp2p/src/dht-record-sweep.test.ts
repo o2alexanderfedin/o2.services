@@ -75,7 +75,6 @@ async function records(
   })
   const enrolled = authority.enrol(
     await requestEnrollment(priv, new Uint8Array(32).fill(61), {
-      operatorId: `op-${seedByte}`,
       discoverability: 'seed',
       relayIds: [],
     }),

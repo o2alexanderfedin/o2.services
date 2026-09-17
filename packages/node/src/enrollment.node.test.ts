@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { DEFAULT_MAX_PER_WINDOW, requestEnrollment, toHex, verifyCertificate } from '@o2/core'
+import { DEFAULT_MAX_PER_WINDOW, operatorIdFor, requestEnrollment, toHex, verifyCertificate } from '@o2/core'
 import type { NodeCertificate } from '@o2/core'
 import { MAX_CONCURRENT_STREAMS_PER_PEER, SEED_BYTES, peerIdForNodeKey } from '@o2/libp2p'
 import { RpcRecordIndex, enrolOverRpc } from '@o2/net'
@@ -332,8 +332,6 @@ describe('AUTH-01 — criterion 1, across two real bin/agent.ts processes', () =
       provider.multiaddrs[0] as string,
       '--user-key',
       user.path,
-      '--operator-id',
-      'harbour-ops',
     ])
 
     expect(existsSync(join(aliceDir, '.identity.key.enc'))).toBe(true)
@@ -358,7 +356,12 @@ describe('AUTH-01 — criterion 1, across two real bin/agent.ts processes', () =
     expect(certificate.issuer).not.toBe(certificate.nodeKey)
     expect(certificate.nodeKey).toBe(alice.nodeKey)
     expect(certificate.userKey).toBe(user.publicKey)
-    expect(certificate.operatorId).toBe('harbour-ops')
+    // Derived by the PROVIDER PROCESS from the public half of the key file this test wrote —
+    // VER-11. The expectation is computed here from `user.publicKey`, which the spawned agent
+    // never sent as an operator name because since 2026-09-16 there is no flag through which
+    // it could. Asserting `'harbour-ops'`, as this line did, was asserting that a provider
+    // echoes back a string it was handed.
+    expect(certificate.operatorId).toBe(operatorIdFor(user.publicKey))
     expect(certificate.expiresAt).toBeGreaterThan(Date.now())
 
     // Step 5 — what makes step 4 mean something rather than being a string the binary
@@ -383,8 +386,6 @@ describe('AUTH-01 — criterion 1, across two real bin/agent.ts processes', () =
       provider.multiaddrs[0] as string,
       '--user-key',
       user.path,
-      '--operator-id',
-      'harbour-ops',
     ])
     expect(restarted.nodeKey).toBe(alice.nodeKey)
     expect(restarted.peerId).toBe(alice.peerId)
@@ -393,8 +394,16 @@ describe('AUTH-01 — criterion 1, across two real bin/agent.ts processes', () =
   }, 180_000)
 
   /**
-   * A partial flag set is a usage error, never a signed statement over a defaulted
-   * operator id.
+   * A partial flag set is a usage error, never a signed statement over a defaulted field.
+   *
+   * **This case read TWO companion clauses until VER-11, 2026-09-16, and now reads one plus a
+   * retirement.** `--operator-id` was the second half of the pair and is gone: the provider
+   * derives a node's operator identity from the user key it holds a proof for, so this binary
+   * has no opinion left to state and no flag through which to state one. The second arm below
+   * therefore asserts something different and worth at least as much — that a flag this
+   * binary once accepted is now **refused loudly rather than ignored**. A removed flag that
+   * parsed silently would leave every script and fixture passing it believing it still had an
+   * effect.
    *
    * The positive control is in the same test on purpose: an exit 2 next to a spawn that
    * succeeds is a refusal, while an exit 2 on its own would be equally well explained by a
@@ -416,12 +425,21 @@ describe('AUTH-01 — criterion 1, across two real bin/agent.ts processes', () =
     const provider = await spawnAgent('provider', ['--issues-certificates', '--max-issued-per-window', '64'])
 
     await expect(
-      spawnAgent('partial', ['--provider-addr', provider.multiaddrs[0] as string, '--operator-id', 'op-a']),
+      spawnAgent('partial', ['--provider-addr', provider.multiaddrs[0] as string]),
     ).rejects.toThrow(/exited early with 2[\s\S]*--provider-addr requires --user-key[\s\S]*usage/)
 
+    // The retired flag, with everything else it would have needed present. A spawn that
+    // differs from the control ONLY by carrying `--operator-id` must not start.
     await expect(
-      spawnAgent('partial-2', ['--provider-addr', provider.multiaddrs[0] as string, '--user-key', user.path]),
-    ).rejects.toThrow(/exited early with 2[\s\S]*--provider-addr requires --operator-id[\s\S]*usage/)
+      spawnAgent('partial-2', [
+        '--provider-addr',
+        provider.multiaddrs[0] as string,
+        '--user-key',
+        user.path,
+        '--operator-id',
+        'op-a',
+      ]),
+    ).rejects.toThrow(/exited early/)
 
     // The control: the identical spawn with the full set starts and holds a certificate.
     const complete = await spawnAgent('complete', [
@@ -429,8 +447,6 @@ describe('AUTH-01 — criterion 1, across two real bin/agent.ts processes', () =
       provider.multiaddrs[0] as string,
       '--user-key',
       user.path,
-      '--operator-id',
-      'op-a',
     ])
     expect(complete.certificate).not.toBeNull()
   }, 120_000)
@@ -459,8 +475,6 @@ describe('AUTH-01 — criterion 1, across two real bin/agent.ts processes', () =
         provider.multiaddrs[0] as string,
         '--user-key',
         nonsense,
-        '--operator-id',
-        'op-a',
       ]),
     ).rejects.toThrow(new RegExp(`exited early with 2[\\s\\S]*--user-key[\\s\\S]*${nonsense}`))
 
@@ -474,8 +488,6 @@ describe('AUTH-01 — criterion 1, across two real bin/agent.ts processes', () =
         provider.multiaddrs[0] as string,
         '--user-key',
         short,
-        '--operator-id',
-        'op-a',
       ]),
     ).rejects.toThrow(/exited early with 2[\s\S]*--user-key[\s\S]*16 bytes/)
   }, 120_000)
@@ -613,7 +625,6 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
               client.rpc,
               provider.peerId,
               await requestEnrollment(new Uint8Array(SEED_BYTES).fill(start + k + 1), BURST_USER_SEED, {
-                operatorId: 'burst-ops',
                 discoverability: 'seed',
                 relayIds: [],
               }),
@@ -719,7 +730,7 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
               await requestEnrollment(
                 new Uint8Array(SEED_BYTES).fill(start + k + 1),
                 new Uint8Array(SEED_BYTES).fill(start + k + 101),
-                { operatorId: 'cost-ops', discoverability: 'seed', relayIds: [] },
+                { discoverability: 'seed', relayIds: [] },
               ),
             ),
           ),
@@ -758,7 +769,6 @@ describe('AUTH-04 — criterion 3, the burst through the production request path
 
     const requestFor = (nodeSeedByte: number): ReturnType<typeof requestEnrollment> =>
       requestEnrollment(new Uint8Array(SEED_BYTES).fill(nodeSeedByte), BURST_USER_SEED, {
-        operatorId: 'scope-ops',
         discoverability: 'seed',
         relayIds: [],
       })

@@ -202,7 +202,6 @@ async function certificateFor(
   })
   const result = authority.enrol(
     await requestEnrollment(subjectSeed, userSeed, {
-      operatorId: 'harbour-ops',
       discoverability: 'seed',
       relayIds: [],
     }),
@@ -305,7 +304,6 @@ describe('AUTH-02 — a peer with a pinned issuer’s certificate is verified, o
       blockstoreDir: join(workdir, 'a'),
       enrollment: {
         userPrivateKey: USER_SEED,
-        operatorId: 'harbour-ops',
         providerAddr: addrOf(p1),
       },
     })
@@ -335,11 +333,11 @@ describe('AUTH-02 — a peer with a pinned issuer’s certificate is verified, o
     const p2 = await start({ blockstoreDir: join(workdir, 'p2'), issuesCertificates: 'issues-without-an-aggregate-budget' })
     const a = await start({
       blockstoreDir: join(workdir, 'a'),
-      enrollment: { userPrivateKey: USER_SEED, operatorId: 'harbour-ops', providerAddr: addrOf(p1) },
+      enrollment: { userPrivateKey: USER_SEED, providerAddr: addrOf(p1) },
     })
     const c = await start({
       blockstoreDir: join(workdir, 'c'),
-      enrollment: { userPrivateKey: OTHER_USER_SEED, operatorId: 'trawler-ops', providerAddr: addrOf(p2) },
+      enrollment: { userPrivateKey: OTHER_USER_SEED, providerAddr: addrOf(p2) },
     })
     const b = await start({ blockstoreDir: join(workdir, 'b') })
     await b.dial(addrOf(a))

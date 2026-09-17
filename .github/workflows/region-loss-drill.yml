@@ -1,0 +1,58 @@
+# NET-15 — a scheduled, repeated drill that takes one region out and reports bounded,
+# measured degradation. This workflow spends nothing: every step below runs local
+# `wrangler dev` children on loopback, never a sited object and never an account.
+#
+# ## What this measures
+#
+# `packages/cloudflare/src/region-loss-drill.e2e.test.ts` boots three local workerd
+# processes, takes a floor, drives an identical synthetic population through two arms of
+# ONE run — once with all three answering, once with the second region terminated between
+# them — and asserts the loss as a delta between the two arms rather than against an
+# absolute threshold (`CLAUDE.md` § Measurement: an absolute figure encodes the machine and
+# the day it was written). The emitted two-arm table is uploaded below so every run leaves
+# a record — a run that measured nothing fails rather than passing quietly.
+#
+# ## Why `schedule:` is legal on this workflow
+#
+# The definition this repository uses to decide which workflows may NOT start without a
+# human act lives at `packages/node/src/disclosure-gate.node.test.ts:425-427`, and is
+# deliberately not restated here in the rule's own words — that check reads this whole
+# file, comments included, so prose explaining the rule would trip it (`T-33-26`, this
+# phase's threat register). This drill's own steps spend nothing against that definition.
+# `packages/node/src/region-loss-drill-schedule.node.test.ts` reads the trigger set, the
+# parsed cadence, the resolving spec path and the absence of every spending pattern in this
+# file rather than trusting this paragraph — widening what the one `run:` step below
+# invokes is a small diff, which is exactly why that guard exists.
+name: Region loss drill
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run --project e2e packages/cloudflare/src/region-loss-drill.e2e.test.ts
+        env:
+          CLOUDFLARE_API_TOKEN: ''
+          WRANGLER_SEND_METRICS: 'false'
+          # Pinned so the spec's own `os.tmpdir()` and this step's upload path agree by
+          # construction, rather than by an assumption about what this runner leaves unset.
+          TMPDIR: ${{ runner.temp }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: region-loss-drill-table
+          path: ${{ runner.temp }}/o2-region-loss-drill/two-arm-table.csv
+          if-no-files-found: error

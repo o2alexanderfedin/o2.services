@@ -8,7 +8,7 @@
  */
 
 export { DEFAULT_RPC_TIMEOUT_MS, RpcEndpoint, RpcFailure } from './rpc.ts'
-export type { RpcEndpointOptions, RpcError, RpcHandler } from './rpc.ts'
+export type { RpcEndpointOptions, RpcError, RpcHandler, RpcReply } from './rpc.ts'
 
 export { encodeRequest, encodeResponse, parseRequest, parseResponse } from './protocol.ts'
 export type { AgentRequest, AgentResponse } from './protocol.ts'
@@ -35,6 +35,14 @@ export type { CapabilitySupplier } from './remote-executor.ts'
 export {
   NEVER_PAUSES,
   RpcBlockSource,
+  // AUTH-01's redeem-then-enrol ordering, exported so the hosted tier answers an enrolment
+  // frame with the SAME implementation the Node tier does. The ordering is a correctness
+  // property rather than a convenience — a replayed frame must never reach the limiter and
+  // never spend anybody's budget — and this repository's standing objection to a second
+  // spelling of a shared rule applies to it exactly: two copies is how two tiers come to
+  // disagree about a protocol they share. `serveAgent`'s own branch is untouched, because
+  // `mutation-ledger.ts`'s `E2` keys on that branch's text.
+  certifyFreshly,
   declinedWhilePaused,
   pauseMisreported,
   pausedRefusal,

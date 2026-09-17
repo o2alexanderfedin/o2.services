@@ -118,8 +118,11 @@ import {
   writeFunnelJournal,
 } from './funnel-journal.ts'
 import { MAX_FUNNEL_BODY_BYTES, funnelDimensionsFrom } from './funnel-collector.ts'
-import { mintTurnCredential, sharedSecretMinter } from './turn-credential.ts'
+import { cloudflareTurnMinter, mintTurnCredential, sharedSecretMinter } from './turn-credential.ts'
+import type { TurnMintFailure, TurnMinter } from './turn-credential.ts'
 import { turnUrlsFor } from './turn-regions.ts'
+import { hostedEnrolment } from './hosted-enrolment.ts'
+import type { PublicKeyHex } from '@o2/core'
 import { parseFunnelReport } from '@o2/net'
 import type { FunnelPopulation, FunnelTotals } from '@o2/net'
 import type { HibernationCapableState } from './hibernatable-socket.ts'
@@ -243,8 +246,98 @@ export interface HostedEnv {
    * Optional, and absence **refuses the mint by name** (`turn-not-configured`) rather than
    * minting a credential every TURN server would reject. A deployment that is not configured
    * should say so, not look broken.
+   *
+   * **This is the `coturn` shared secret and NOT a Cloudflare API credential.** The two are not
+   * interchangeable and putting the wrong one here is the single most expensive mistake this
+   * route affords: the HMAC would be well-formed, the mint would succeed, and every Cloudflare
+   * TURN server would answer `401` — reaching a tab as a network fault. {@link O2_TURN_KEY_ID}
+   * and {@link O2_TURN_API_SECRET} are the other scheme, and they are separately named for
+   * exactly this reason. See `turn-credential.ts`'s AMENDED block.
    */
   readonly O2_TURN_SECRET?: string
+  /**
+   * Cloudflare's TURN key id — NET-12, the provider-backed scheme.
+   *
+   * **Not a secret**: it is the public half of the pair and it appears in the request path. It
+   * is declared here rather than in `wrangler.jsonc` anyway, so that both halves of one scheme
+   * are set by one act and neither can be half-configured.
+   */
+  readonly O2_TURN_KEY_ID?: string
+  /**
+   * Cloudflare's API credential, from `wrangler secret put O2_TURN_API_SECRET` — NET-12.
+   *
+   * The Bearer credential `cloudflareTurnMinter` presents. Holding it lets somebody mint TURN
+   * credentials on this account, which costs the account relayed traffic; it does not let them
+   * join the fabric, forge a certificate, or read anybody's data.
+   *
+   * **Both this and {@link O2_TURN_KEY_ID} must be present for the provider scheme to engage.**
+   * One without the other is a half-configured deployment, and this route treats it as no
+   * provider at all rather than guessing at the missing half.
+   */
+  readonly O2_TURN_API_SECRET?: string
+  /**
+   * Where credentials are asked for. Absent means Cloudflare's own endpoint.
+   *
+   * **This exists so the worker's own wiring can be measured.** Everything else about the
+   * provider scheme is unit-testable with an injected `fetch`, but the join — env vars to
+   * minter to region lookup to status code — lives in the deployed class, which is *"the only
+   * part of this file that no local spec can reach"*. Without this var the only way to exercise
+   * that join would be to dial `rtc.live.cloudflare.com` from the e2e lane, which
+   * `hermetic-fixtures.node.test.ts` exists to forbid and which would make a test suite's
+   * greenness depend on somebody else's uptime.
+   *
+   * `turn-provider-join.e2e.test.ts` points it at a local stub. A deployment leaves it unset.
+   */
+  readonly O2_TURN_API_BASE?: string
+  /**
+   * AUTH-01 — certificates this object will sign per hour, whoever asks. **The on-switch.**
+   *
+   * Absent, empty, zero or unparseable all mean **this object issues no certificates**, and
+   * they mean it identically on purpose: a provider that cannot state what bounds it must not
+   * sign. There is deliberately no separate enable flag, because a flag plus a number permits
+   * the one state nobody wants — issuing, unbounded, because the second variable was forgotten.
+   *
+   * **Global, not per user**, which is the owner's instruction of 2026-09-09 and also the only
+   * bound that means anything: `enrollment.ts` measured that a per-user limit is rotated around
+   * for free, since a fresh user key is one `ed25519.keygen()`.
+   *
+   * A `var` rather than a secret — it is a policy number, not a credential, and an operator
+   * reading `wrangler.jsonc` should be able to see what this node's issuance is bounded at.
+   * Above `MAX_AGGREGATE_BUDGET` it is refused BY NAME rather than clamped; see
+   * `hosted-enrolment.ts` for why the retained history is what sets that ceiling.
+   *
+   * **What to know before choosing a number.** A certificate lives one hour
+   * (`DEFAULT_CERTIFICATE_LIFETIME_MS`), so an enrolled node re-enrols every window and steady
+   * state is roughly *the active cohort per hour*, not the invite burst. Below the cohort size
+   * this refuses honest volunteers; far above it, an attacker mints that many identities an
+   * hour. And because issuance is unauthenticated by design, anyone who can dial this node can
+   * consume the whole window — which on a fabric with ONE provider denies honest enrolment for
+   * the rest of that hour. That trade is the owner's, and `.planning/OWNER-ACTIONS.md` states
+   * it where the number is chosen.
+   */
+  readonly O2_MAX_ISSUED_PER_WINDOW?: string
+  /**
+   * AUTH-01 — user keys that enrol without queueing behind everybody else.
+   *
+   * Comma-separated hex public keys. A request proven to hold one of these private halves
+   * neither reads nor consumes the shared window, so **draining the public budget cannot lock
+   * the operator out of their own fabric**. It stays bounded by the per-user limit
+   * (`DEFAULT_MAX_PER_WINDOW`, 64 an hour), which this lane does not touch.
+   *
+   * **Pinning a public key grants nothing to whoever merely knows it.** `EnrollmentAuthority`
+   * verifies both possession proofs BEFORE either budget is read, so a request naming a
+   * reserved key without its private half is refused `bad-owner-proof` and never reaches the
+   * lane. That ordering is what makes this safe, and it is a reading of `enrollment.ts` rather
+   * than an assumption about it.
+   *
+   * **One key per device, not one per person.** A visitor's user key is generated in the
+   * browser, per origin, non-extractable — so a laptop and a phone hold different keys and each
+   * is pinned separately. The page can report its own (`enrolledUserKey`).
+   *
+   * A `var` rather than a secret: these are public keys, and an operator reading
+   * `wrangler.jsonc` should be able to see which identities are exempt from the queue.
+   */
+  readonly O2_RESERVED_USER_KEYS?: string
   /**
    * Comma-separated issuer public keys whose certificates admit a caller to the TURN minter.
    *
@@ -445,6 +538,52 @@ export class BootstrapObject {
    * with no reader. Held as the PROMISE rather than the resolved value so that two concurrent
    * upgrades cannot each start one.
    */
+  /**
+   * AUTH-01's budget as a spreadable field — absent when this deployment issues nothing.
+   *
+   * A conditional spread rather than an `undefined` value, on the rule the TURN options a few
+   * hundred lines up already follow: absence must be a field that is not there, so a reader can
+   * see that "issues nothing" is a state this deployment was found in rather than a number that
+   * came back empty. `hostedEnrolment` throws on a budget above the tier's ceiling, and the
+   * throw belongs here — at the point an operator's variable is read — rather than inside a
+   * network stack's construction.
+   */
+  /**
+   * Who this object accepts a certificate from — AUTH-01 joined to NET-12.
+   *
+   * ## Its own issuer key is DERIVED into this set, never configured
+   *
+   * Whatever `O2_TRUSTED_ISSUERS` names, plus **this node's own `nodeKey` when it issues**.
+   * That is the `SERVED_BY`→region idiom applied to a value that must not be transcribed: a
+   * deployment that signs certificates and does not trust them would refuse every node it
+   * itself enrolled, which is a configuration mistake with no symptom an operator could read —
+   * the tab's request is well-formed, the certificate verifies against its own issuer, and the
+   * gate still says `untrusted-issuer`.
+   *
+   * **The fail-closed property survives, and that is why the union is conditional.** A
+   * deployment that issues nothing and names nobody still pins the EMPTY set and still refuses
+   * everyone: an unconfigured gate stays closed. Only issuance opens it, and only to the
+   * certificates this object signed itself.
+   *
+   * Memoised because reaching the fabric unseals the identity seed, which is Argon2id — the
+   * mint path did not touch identity at all before this, and re-deriving a key per credential
+   * request would put a deliberately expensive KDF on a route a tab calls per connection.
+   */
+  async #pinnedIssuers(): Promise<ReadonlySet<PublicKeyHex>> {
+    const configured = commaSeparated(this.#env.O2_TRUSTED_ISSUERS)
+    if (this.#issuanceBudget().maxIssuedPerWindow === undefined) return new Set(configured)
+    this.#ownIssuer ??= this.#fabricOnce().then((fabric) => fabric.identity.nodeKey)
+    return new Set([...configured, await this.#ownIssuer])
+  }
+
+  #issuanceBudget(): { maxIssuedPerWindow?: number } {
+    const enrolment = hostedEnrolment(this.#env.O2_MAX_ISSUED_PER_WINDOW)
+    return enrolment.issues ? { maxIssuedPerWindow: enrolment.maxIssuedPerWindow } : {}
+  }
+
+  /** This object's own issuer key, unsealed once. See {@link BootstrapObject.#pinnedIssuers}. */
+  #ownIssuer: Promise<PublicKeyHex> | undefined
+
   #fabricOnce(): Promise<HostedFabric> {
     this.#fabric ??= this.#relayLogOnce().then(async (relayLog) =>
       createHostedFabric({
@@ -454,6 +593,15 @@ export class BootstrapObject {
         announce: announcedAddresses(this.#env.ANNOUNCE_MULTIADDRS),
         traffic: this.#traffic,
         relayLog,
+        // AUTH-01 — absent means this object issues no certificates, which is the whole of the
+        // on-switch. `hostedEnrolment` refuses a budget above the tier's storage ceiling by
+        // name rather than clamping it, so an operator who asks for more than this tier can
+        // honour is told, instead of quietly getting less than they configured.
+        ...this.#issuanceBudget(),
+        // Not a conditional spread, unlike the budget above, and the difference is meant: an
+        // empty set is a real and correct answer here — nobody is exempt — whereas an absent
+        // budget means something else entirely.
+        reservedUserKeys: new Set(commaSeparated(this.#env.O2_RESERVED_USER_KEYS)),
       }),
     )
     return this.#fabric
@@ -826,10 +974,12 @@ export class BootstrapObject {
    * class is the one part of this package no local spec can reach, so nothing worth asserting
    * lives here.
    *
-   * A refusal answers **400** rather than 401/403 for every gate failure except a missing
-   * secret, and the reason is deliberate: distinguishing *your certificate is not trusted* from
+   * A refusal answers **400** rather than 401/403 for every gate failure the caller could have
+   * caused, and the reason is deliberate: distinguishing *your certificate is not trusted* from
    * *your signature is wrong* by status code would let an unauthenticated caller map the gate.
-   * The named reason is in the body for a legitimate caller to read.
+   * The named reason is in the body for a legitimate caller to read. The refusals that are
+   * **this deployment's** fault answer `5xx` instead — see {@link turnRefusalStatus}, which is a
+   * function rather than a ternary because the set stopped being two-valued on 2026-09-09.
    */
   async #mintTurnCredential(request: Request): Promise<Response> {
     const raw = await request.text()
@@ -843,11 +993,10 @@ export class BootstrapObject {
       return new Response('not a TURN credential request', { status: 400, headers: TURN_CORS_HEADERS })
     }
 
-    const secret = this.#env.O2_TURN_SECRET
     const result = await mintTurnCredential(body, {
-      pinnedIssuers: new Set(commaSeparated(this.#env.O2_TRUSTED_ISSUERS)),
+      pinnedIssuers: await this.#pinnedIssuers(),
       now: Date.now(),
-      minter: secret === undefined || secret === '' ? null : sharedSecretMinter(secret),
+      minter: selectTurnMinter(this.#env),
       // NET-12 criterion 2's built half. Per-region URLs when the deployment declares them,
       // the shared list otherwise — a design that survives either answer to a topology question
       // nobody here has measured, because the region tag rides in the credential either way.
@@ -861,7 +1010,7 @@ export class BootstrapObject {
     if (!result.ok) {
       return Response.json(
         { ok: false, kind: result.failure.kind, reason: result.reason },
-        { status: result.failure.kind === 'turn-not-configured' ? 503 : 400, headers: TURN_CORS_HEADERS },
+        { status: turnRefusalStatus(result.failure.kind), headers: TURN_CORS_HEADERS },
       )
     }
     return Response.json({ ok: true, ...result.grant }, { headers: TURN_CORS_HEADERS })
@@ -977,6 +1126,22 @@ export class BootstrapObject {
         region: this.#regionOnce(),
         operatorKey: this.#env.O2_ADMISSION_KEY,
       }),
+      // AUTH-01 — whether this object issues certificates, and at what rate.
+      //
+      // **A field so that a publisher can PROBE rather than assume**, which is the lesson this
+      // repository paid for twice this month: `funnelEndpointFromRelay` derived an origin that
+      // was right for this Worker and wrong for a self-hosted seed, so the funnel looked
+      // configured and collected nothing. `deploy-pages.sh` reads this before it writes
+      // `enrollmentProvider` into the document every visitor fetches, so a page never offers a
+      // joiner an enrolment that the node it names would refuse.
+      //
+      // The budget is reported, not hidden: it is a policy number rather than a credential, and
+      // a volunteer who wants to know how many identities this provider will sign in an hour is
+      // entitled to the same answer an operator has.
+      enrolment: {
+        ...this.#issuanceBudget(),
+        issues: this.#issuanceBudget().maxIssuedPerWindow !== undefined,
+      },
     }, { headers: SELF_CORS_HEADERS })
   }
 
@@ -1136,6 +1301,57 @@ const TURN_CORS_HEADERS: Readonly<Record<string, string>> = {
  * shared list; see `turn-regions.ts` for why that fallback is correctness rather than
  * convenience.
  */
+/**
+ * Which credential scheme this deployment runs, or `null` for neither — NET-12.
+ *
+ * ## The precedence is a decision, and `turn-minter-selection.test.ts` holds it
+ *
+ * **The provider pair wins when both are set.** Two schemes can be configured at once and only
+ * one can answer, so the tie has to be broken somewhere; it is broken toward Cloudflare because
+ * that scheme cannot be half-right. It brings its own endpoints, so it cannot be paired with a
+ * stale `O2_TURN_URLS` naming a `coturn` that has been turned off — which is the likelier
+ * accident on this deployment, whose shared secret predates the API pair. An operator running
+ * their own TURN server says so by not setting the pair.
+ *
+ * Both halves of the pair are required together. Half a pair is not a fallback to the other
+ * scheme and it is not a guess at the missing half: it is no provider, and the mint then refuses
+ * as `turn-not-configured` — by name, which is the whole point of that refusal existing.
+ */
+export function selectTurnMinter(env: HostedEnv): TurnMinter | null {
+  const keyId = env.O2_TURN_KEY_ID
+  const apiSecret = env.O2_TURN_API_SECRET
+  if (keyId !== undefined && keyId !== '' && apiSecret !== undefined && apiSecret !== '') {
+    const apiBase = env.O2_TURN_API_BASE
+    return cloudflareTurnMinter({
+      keyId,
+      apiSecret,
+      // Spread rather than passed as `undefined`: the minter's default is Cloudflare's own
+      // endpoint, and handing it an explicit `undefined` would work today only because
+      // `?? CLOUDFLARE_TURN_API_BASE` happens to catch it. An absent var must not reach the
+      // minter at all — `wrangler dev` injects `''` for one, which is the same case.
+      ...(apiBase === undefined || apiBase === '' ? {} : { apiBase }),
+    })
+  }
+  const secret = env.O2_TURN_SECRET
+  if (secret !== undefined && secret !== '') return sharedSecretMinter(secret)
+  return null
+}
+
+/**
+ * The status a refusal answers under — whose fault it was, in one number.
+ *
+ * `400` for everything a caller could have caused, undifferentiated on purpose (see
+ * `#mintTurnCredential`). `503` for a deployment that is not configured to answer this request,
+ * and `502` for a provider that would not. **A caller who presented a valid certificate and a
+ * valid signature must never see `400`**: it tells them to fix a request that was correct, and
+ * on this route it would send a tab looking for a bug it does not have.
+ */
+export function turnRefusalStatus(kind: TurnMintFailure['kind']): number {
+  if (kind === 'turn-not-configured' || kind === 'no-urls-for-region') return 503
+  if (kind === 'provider-refused') return 502
+  return 400
+}
+
 function perRegionTurnUrls(env: HostedEnv): Partial<Record<HostedObjectName, string>> {
   return {
     ...(env.O2_TURN_URLS_US === undefined ? {} : { 'bootstrap-us': env.O2_TURN_URLS_US }),

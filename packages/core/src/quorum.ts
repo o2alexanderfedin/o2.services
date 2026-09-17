@@ -102,12 +102,20 @@
  *
  * | Strength | Meaning |
  * |---|---|
- * | `independent` | replicas from ≥2 distinct operators agreed — the strong claim |
+ * | `independent` | replicas from ≥2 distinct operators **and** ≥2 distinct issuers agreed — the strong claim |
+ * | `single-issuer` | ≥2 distinct operators agreed, but one certificate provider vouched for all of them |
  * | `owner-domain` | ≥2 of *one owner's* nodes agreed; independent of hardware, not of the owner |
  * | `owner-attested` | one node ran it; the owner's word, unverified |
  *
- * These are three values of one discriminated union rather than a boolean plus a
+ * These are four values of one discriminated union rather than a boolean plus a
  * comment, so every site that reports a result has to name which it has.
+ *
+ * **`single-issuer` is the strongest label this fabric can currently report — VER-12,
+ * Phase 45.** The owner ruled one certificate provider on 2026-09-16
+ * (`.planning/OWNER-ACTIONS.md` §3c), so every member's certificate is signed by the same
+ * party and `independent` is unreachable here until a second provider exists. That is the
+ * fabric declining to claim an independence it does not have, not a regression: the bound
+ * an attacker meets is the number of providers they must reach, and that number is one.
  *
  * Pure module.
  */
@@ -121,7 +129,11 @@ import type { PublicKeyHex } from './capability.ts'
  * Ordered weakest to strongest by `attestationRank`, so comparisons never depend on
  * remembering the order of a string union.
  */
-export type AttestationStrength = 'owner-attested' | 'owner-domain' | 'independent'
+export type AttestationStrength =
+  | 'owner-attested'
+  | 'owner-domain'
+  | 'single-issuer'
+  | 'independent'
 
 /** Higher is stronger. Exposed so callers compare by rank, not by string. */
 export function attestationRank(strength: AttestationStrength): number {
@@ -130,8 +142,10 @@ export function attestationRank(strength: AttestationStrength): number {
       return 0
     case 'owner-domain':
       return 1
-    case 'independent':
+    case 'single-issuer':
       return 2
+    case 'independent':
+      return 3
   }
 }
 
@@ -142,6 +156,14 @@ export function describeAttestation(strength: AttestationStrength): string {
       return 'owner-attested — computed once by the data owner and not independently verified'
     case 'owner-domain':
       return 'owner-domain agreement — replicated across the owner’s own nodes, not across operators'
+    // Names WHICH dimension fell short, because a reader who sees `single-issuer` cannot
+    // otherwise tell whether it was the operators or the providers — the operators are
+    // distinct and the provider is one. Two constraints hold on this string and both are
+    // read elsewhere: it must not contain the `independent` sentence as a substring
+    // (`bench-attestation.node.test.ts:544` asserts a rung's line contains none of them),
+    // and the four sentences must stay pairwise distinct.
+    case 'single-issuer':
+      return 'single-issuer agreement — replicas from separate operators agreed, but one certificate provider vouched for all of them'
     case 'independent':
       return 'independently verified — replicas from separate operators agreed'
   }
@@ -163,6 +185,30 @@ export interface QuorumRules {
    * its name has always said.
    */
   readonly requireIndependentPaths?: boolean
+  /**
+   * Refuse a quorum whose members all carry certificates from one issuer — VER-12.
+   * Defaults to **true**.
+   *
+   * A provider that mints identities on request is a single point of trust however many
+   * operators its certificates name, so members drawn from one issuer are one attacker's
+   * reach and not N independent ones. `operatorId` is derived by the issuer from a key it
+   * holds a proof for, which makes one user key one operator — and buys nothing at all
+   * against a party that can reach the issuer, because a fresh user key is one
+   * `ed25519.keygen()`.
+   *
+   * **Turn it off only where the shared provider is accepted and the receipt still reports
+   * it** — the same shape `requireIndependentPaths` above already has. Exactly one place
+   * does: `packages/core/src/job/submit.ts`'s quorum gate, citing the owner ruling at
+   * `.planning/OWNER-ACTIONS.md` §3c.
+   *
+   * **The flag waives the REFUSAL, never the PREFERENCE.** The issuer-grouped round-robin
+   * in {@link composeQuorum} runs whatever this says, so a fabric with two providers
+   * composes a two-issuer member set — and {@link classifyAttestation} answers
+   * `'independent'` — with no code change. Nesting the grouping inside this flag would
+   * leave every unit case green and silently falsify that sentence on the only path that
+   * runs.
+   */
+  readonly requireDistinctIssuers?: boolean
   /**
    * A certificate's **peer id**, when the caller can supply one — VER-03.
    *
@@ -193,6 +239,7 @@ export type QuorumRefusal =
       readonly distinctOperators: number
     }
   | { readonly kind: 'shared-relay-dependency'; readonly relayId: string }
+  | { readonly kind: 'single-issuer-quorum'; readonly issuer: PublicKeyHex }
   | { readonly kind: 'no-candidates' }
 
 export type QuorumResult =
@@ -220,6 +267,7 @@ export function composeQuorum(
   if (candidates.length === 0) return refuse({ kind: 'no-candidates' }, 'no candidate nodes')
 
   const requireIndependentPaths = rules.requireIndependentPaths ?? true
+  const requireDistinctIssuers = rules.requireDistinctIssuers ?? true
 
   // One node per operator, chosen deterministically. Taking the first per operator
   // — rather than the first N candidates — is what makes "no two from the same
@@ -237,16 +285,16 @@ export function composeQuorum(
     )
   }
 
-  // Fewest discovery dependencies first — a seed depends on none, so it sorts ahead
-  // naturally. This is path diversity, not a preference for a kind of node: a peer
-  // discoverable through an otherwise-unused relay sorts ahead of a second peer on a
-  // relay already represented. A preference, never a requirement — a member set with
-  // no directly dialable node in it composes, and a case asserts that it does.
-  const ordered = [...distinct].sort(
-    (a, b) => a.relayIds.length - b.relayIds.length || a.nodeKey.localeCompare(b.nodeKey),
-  )
-
-  const members = ordered.slice(0, rules.size)
+  // Spread across issuers by CONSTRUCTION — VER-12 — in the same spirit as the map
+  // above: a member set drawn from two providers is *produced*, never merely accepted.
+  // See {@link spreadAcrossIssuers} for the ordering it keeps and why one issuer reduces
+  // it exactly to the `slice` this line used to be.
+  //
+  // **It runs unconditionally, outside `requireDistinctIssuers`.** The flag below decides
+  // whether a single-issuer set is refused; it does not decide whether a multi-issuer set
+  // is sought. That is what makes the live path's waiver a waiver of the refusal rather
+  // than of the preference, and it is why a second provider needs no code change here.
+  const members = spreadAcrossIssuers(distinct, rules.size)
 
   // Rule 2, asked of the members and not of the pool they came from.
   //
@@ -285,6 +333,33 @@ export function composeQuorum(
     }
   }
 
+  // Rule 3 — VER-12. Sited AFTER the path check on purpose: `shared-relay-dependency`
+  // goes on speaking for every set it already spoke for, so adding this rule moves no
+  // existing refusal's voice. A pool that is both single-relay and single-issuer still
+  // names the relay, which is what a pre-existing case reads.
+  //
+  // Two conditions, and one `if` carrying both because plan 45-04 plants this decision
+  // and `mutation-ledger.ts` needs a `find` string that occurs exactly once:
+  //
+  //   - `members.length >= 2` — a one-member set claims no independence at all
+  //     (`classifyAttestation` answers `owner-attested` for it), so refusing it on an
+  //     issuer ground would refuse a composition that never made the claim. Ruled in
+  //     `45-CONTEXT.md` §3 rather than discovered here, and a case names the decision.
+  //   - exactly one distinct issuer among the members — the pool may hold more; what is
+  //     refused is the set the caller would receive.
+  const memberIssuers = new Set(members.map((member) => member.issuer))
+  if (requireDistinctIssuers && members.length >= 2 && memberIssuers.size === 1) {
+    // One entry, by the condition immediately above. Read out with `join` rather than
+    // indexed-and-defaulted so no fallback constant can reach the payload: a `?? ''` here
+    // would print an empty issuer in a refusal that names the issuer, which is the one
+    // thing this refusal exists to say.
+    const issuer = [...memberIssuers].join('')
+    return refuse(
+      { kind: 'single-issuer-quorum', issuer },
+      `every member of this quorum carries a certificate issued by ${issuer}; one provider vouched for all of them, so the redundancy is one party's reach rather than ${String(rules.size)} independent ones`,
+    )
+  }
+
   return {
     ok: true,
     members,
@@ -300,6 +375,63 @@ export function composeQuorum(
     // nothing finds.
     strength: classifyAttestation(members),
   }
+}
+
+/**
+ * The member set, spread across certificate issuers — VER-12, Phase 45.
+ *
+ * Group the one-per-operator candidates by `issuer`, then take one from each group in
+ * turn until `size` members are held or the groups run out. A quorum drawn from two
+ * providers is therefore *built*, in the same way "no two replicas from the same
+ * operator" is built by the map above rather than checked afterwards.
+ *
+ * **Within a group the comparator is the one that has always been here** — fewest
+ * discovery dependencies first, ties broken by `nodeKey` — because the existing ordering
+ * cases read it. A seed depends on no relay, so it sorts ahead naturally; this is path
+ * diversity, not a preference for a kind of node, and it is a preference rather than a
+ * requirement: a member set with no directly dialable node in it composes, and a case
+ * asserts that it does.
+ *
+ * **At one issuer this reduces exactly to `ordered.slice(0, size)`, which is what this
+ * function replaced.** One group, sorted by that same comparator, taken in order — so
+ * every single-issuer ordering case goes on reading precisely what it always read. That
+ * equivalence is the reason the round-robin could be made unconditional.
+ *
+ * Groups are visited in issuer order so two runs over one pool answer the same thing.
+ * Which group goes first is arbitrary and deliberately not a preference: the rule is
+ * about how many providers are represented, never about which one is better.
+ */
+function spreadAcrossIssuers(
+  distinct: readonly NodeCertificate[],
+  size: number,
+): readonly NodeCertificate[] {
+  const byIssuer = new Map<PublicKeyHex, NodeCertificate[]>()
+  for (const candidate of [...distinct].sort(
+    (a, b) => a.relayIds.length - b.relayIds.length || a.nodeKey.localeCompare(b.nodeKey),
+  )) {
+    const group = byIssuer.get(candidate.issuer)
+    if (group === undefined) byIssuer.set(candidate.issuer, [candidate])
+    else group.push(candidate)
+  }
+
+  const groups = [...byIssuer.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, group]) => group)
+
+  const picked: NodeCertificate[] = []
+  for (let depth = 0; picked.length < size; depth += 1) {
+    let tookOne = false
+    for (const group of groups) {
+      const candidate = group[depth]
+      if (candidate === undefined) continue
+      picked.push(candidate)
+      tookOne = true
+      if (picked.length === size) break
+    }
+    // Every group exhausted before `size` was reached. `insufficient-operators` has
+    // already refused that case upstream, so this is a guard against a caller that
+    // reaches here another way rather than a path any current one takes.
+    if (!tookOne) break
+  }
+  return picked
 }
 
 /**
@@ -375,7 +507,17 @@ export function classifyAttestation(
 ): AttestationStrength {
   if (agreeing.length <= 1) return 'owner-attested'
   const operators = new Set(agreeing.map((certificate) => certificate.operatorId))
-  if (operators.size >= 2) return 'independent'
+  const issuers = new Set(agreeing.map((certificate) => certificate.issuer))
+  // Operators first, and the order is what makes a fourth branch unnecessary — VER-12.
+  // **Two providers over ONE user key is one `operatorId` and two issuers**, which falls
+  // through both tests above and lands on `owner-domain`, which is what it is: one owner's
+  // nodes, however many parties vouched for them. Criterion 2 asks for BOTH dimensions
+  // above one, and this arrangement answers it without a branch of its own.
+  if (operators.size >= 2 && issuers.size >= 2) return 'independent'
+  // Separate operators, one provider. Not one owner's machines — so demoting this to
+  // `owner-domain` would be a lie in the other direction — and not independent either,
+  // because an attacker who reaches the one provider reaches every member.
+  if (operators.size >= 2) return 'single-issuer'
   // Two or more nodes, one operator: replicated across the owner's own machines.
   // Independent of hardware failure, not of the owner.
   return 'owner-domain'
@@ -387,6 +529,32 @@ export interface AttestationReceipt {
   readonly description: string
   readonly replicas: number
   readonly operators: readonly string[]
+  /**
+   * The providers that vouched for these replicas — VER-11 (Phase 44), acted on by VER-12
+   * (Phase 45).
+   *
+   * `operatorId` is derived by the issuer from a key it holds a proof for, so two operators
+   * are two user keys rather than two strings an applicant chose. What that does NOT
+   * establish is that they are two *parties*: an attacker who reaches one provider mints as
+   * many user keys as they like, and every certificate is signed by that one provider.
+   * Until this field existed the quorum could not even express the question — `issuer`
+   * appeared zero times in this file.
+   *
+   * **The rule is now imposed.** {@link QuorumRules.requireDistinctIssuers} defaults true
+   * and {@link classifyAttestation} reaches `'independent'` only when the operator count and
+   * the issuer count both exceed one. The owner ruled one provider on 2026-09-16
+   * (`.planning/OWNER-ACTIONS.md` §3c), so on this fabric the strongest label is
+   * `'single-issuer'`. The live job path waives the **refusal** and not the **preference**:
+   * `packages/core/src/job/submit.ts` passes `requireDistinctIssuers: false` so public
+   * shards go on composing at `redundancy >= 2`, while the composer still spreads members
+   * across issuers whenever more than one exists.
+   *
+   * **Issuer diversity is a PROXY for party diversity, and must be read as one** — RFC-0003
+   * RESPONSE-05 §8. Nothing in the certificate chain distinguishes two providers under one
+   * hand, so this field bounds an attacker by the number of providers they must reach; it
+   * does not establish that those providers are different people.
+   */
+  readonly issuers: readonly PublicKeyHex[]
   readonly userKeys: readonly PublicKeyHex[]
   /** A relay every replica depended on, or `null` when their paths were independent. */
   readonly sharedRelay: string | null
@@ -400,6 +568,7 @@ export function attestationReceipt(agreeing: readonly NodeCertificate[]): Attest
     description: describeAttestation(strength),
     replicas: agreeing.length,
     operators: [...new Set(agreeing.map((c) => c.operatorId))].sort(),
+    issuers: [...new Set(agreeing.map((c) => c.issuer))].sort(),
     userKeys: [...new Set(agreeing.map((c) => c.userKey))].sort(),
     sharedRelay: sharedRelay(agreeing),
   }

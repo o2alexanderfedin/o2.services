@@ -33,13 +33,17 @@ import {
   SEALED_HOSTED_IDENTITY_KEY,
 } from './hosted-identity.ts'
 import {
-
+  HOSTED_LOCATION_HINTS,
   HOSTED_OBJECT_NAME,
   HOSTED_OBJECT_NAMES,
   HostedNode,
   UnknownHostedObjectNameError,
+  UnsupportedJurisdictionError,
+  euJurisdictionOf,
+  samLocationHint,
   stubFor,
 } from './hosted-object.ts'
+import type { DurableObjectJurisdiction, HostedObjectGetOptions } from './hosted-object.ts'
 
 
 
@@ -188,23 +192,97 @@ describe('HOST-01, criterion 2 — the identity survives a fresh instantiation o
   })
 })
 
+/**
+ * One entry per platform call `spyNamespace()`'s fixture recorded, in the order they happened.
+ *
+ * A single ordered log rather than three separate counters, because two of Task 2's cases are
+ * about ORDER — a jurisdiction narrowing applied after `idFromName` sites the object on the
+ * wrong namespace while every unordered count still agrees — and order is only readable from
+ * one shared sequence, never from three arrays counted separately.
+ */
+type SpyEvent =
+  | { readonly kind: 'jurisdiction'; readonly value: DurableObjectJurisdiction }
+  | { readonly kind: 'idFromName'; readonly name: string; readonly onNarrowed: boolean }
+  | { readonly kind: 'get'; readonly options: HostedObjectGetOptions | undefined }
+
+/** Narrows {@link SpyEvent} to its `jurisdiction` member, without a type assertion. */
+function jurisdictionEvents(events: readonly SpyEvent[]): readonly Extract<SpyEvent, { kind: 'jurisdiction' }>[] {
+  return events.filter((event): event is Extract<SpyEvent, { kind: 'jurisdiction' }> => event.kind === 'jurisdiction')
+}
+
+/** Narrows {@link SpyEvent} to its `idFromName` member, without a type assertion. */
+function idFromNameEvents(events: readonly SpyEvent[]): readonly Extract<SpyEvent, { kind: 'idFromName' }>[] {
+  return events.filter((event): event is Extract<SpyEvent, { kind: 'idFromName' }> => event.kind === 'idFromName')
+}
+
+/** Narrows {@link SpyEvent} to its `get` member, without a type assertion. */
+function getEvents(events: readonly SpyEvent[]): readonly Extract<SpyEvent, { kind: 'get' }>[] {
+  return events.filter((event): event is Extract<SpyEvent, { kind: 'get' }> => event.kind === 'get')
+}
+
+/**
+ * The one and only element of an array already asserted to have exactly one — reading `[0]`
+ * directly types as `T | undefined` under this repository's `noUncheckedIndexedAccess`, and
+ * this repository forbids the non-null assertion that would silence it. Throwing rather than
+ * returning `undefined` keeps every call site a plain value with no optional chaining needed.
+ */
+function theOneElementOf<T>(array: readonly T[]): T {
+  const [first] = array
+  if (first === undefined) throw new Error('expected exactly one recorded element, found none')
+  return first
+}
+
+/**
+ * **Anti-vacuity floor for the whole describe block below.** Incremented by every `idFromName`
+ * any `spyNamespace()` fixture ever builds records, across every case in this file's run — not
+ * reset between cases. A fixture that silently stopped recording would leave every assertion
+ * above satisfied by an empty log; this is the number that says the log was not empty. Depends
+ * on this file's cases running in declaration order, which is vitest's default (no `sequence`
+ * or `shuffle` option is set anywhere in `vitest.config.ts`).
+ */
+let totalIdFromNameCallsAcrossThisFile = 0
+
 describe('criteria 4 and 6 — one call site, and a closed set of names', () => {
-  /** Records what it was asked, so the assertion is about the call and not about the result. */
+  /**
+   * Records what it was asked, so the assertion is about the call and not about the result.
+   *
+   * **Widened for Task 2** to record four things in one ordered log — every jurisdiction
+   * narrowing, every `idFromName` call (naming whether it landed on the ORIGINAL namespace or
+   * on a narrowed one), and every `get` call (naming the options it carried) — because `eu`,
+   * `sam` and `us` are proved apart by recorded ORDER and BY WHICH NAMESPACE was asked, not
+   * merely by presence. `asked` is kept as its own plain array beside `events` because the
+   * pre-existing cases immediately below assert on it directly and widening it would be an
+   * unrelated second fixture living beside this one — exactly what this file's own header
+   * warns against.
+   */
   function spyNamespace(): {
     readonly namespace: Parameters<typeof stubFor<string>>[0]
     readonly asked: string[]
+    readonly events: readonly SpyEvent[]
   } {
     const asked: string[] = []
-    return {
-      asked,
-      namespace: {
+    const events: SpyEvent[] = []
+
+    function makeNamespace(isNarrowed: boolean): Parameters<typeof stubFor<string>>[0] {
+      return {
         idFromName: (name: string) => {
           asked.push(name)
+          events.push({ kind: 'idFromName', name, onNarrowed: isNarrowed })
+          totalIdFromNameCallsAcrossThisFile += 1
           return { name }
         },
-        get: (id: unknown) => `stub:${String((id as { name: string }).name)}`,
-      },
+        get: (id: unknown, options?: HostedObjectGetOptions) => {
+          events.push({ kind: 'get', options })
+          return `stub:${String((id as { name: string }).name)}`
+        },
+        jurisdiction: (jurisdiction: DurableObjectJurisdiction) => {
+          events.push({ kind: 'jurisdiction', value: jurisdiction })
+          return makeNamespace(true)
+        },
+      }
     }
+
+    return { namespace: makeNamespace(false), asked, events }
   }
 
   it('sites an object for each declared name and for no other', () => {
@@ -237,5 +315,89 @@ describe('criteria 4 and 6 — one call site, and a closed set of names', () => 
     // Phase 33 owns three regions by name; this asserts membership rather than only the count,
     // because a set of three wrong names has the right length.
     expect([...HOSTED_OBJECT_NAMES].sort()).toEqual(['bootstrap-eu', 'bootstrap-sam', 'bootstrap-us'])
+  })
+
+  it('narrows the namespace to the eu jurisdiction before anything is sited, and sites on the narrowed namespace', () => {
+    const { namespace, events } = spyNamespace()
+    expect(stubFor(euJurisdictionOf(namespace), HOSTED_OBJECT_NAME.eu)).toBe('stub:bootstrap-eu')
+
+    const narrowings = jurisdictionEvents(events)
+    expect(narrowings.length).toBe(1)
+    const narrowing = theOneElementOf(narrowings)
+    expect(narrowing.value).toBe('eu')
+
+    const sitings = idFromNameEvents(events)
+    expect(sitings.length).toBe(1)
+    const siting = theOneElementOf(sitings)
+    expect(siting.name).toBe('bootstrap-eu')
+    // On the NARROWED namespace, not the original — `euJurisdictionOf` returns a namespace and
+    // siting must happen through what it returned, not through the argument it was given.
+    expect(siting.onNarrowed).toBe(true)
+
+    const sites = getEvents(events)
+    expect(sites.length).toBe(1)
+    expect(theOneElementOf(sites).options).toBeUndefined()
+
+    // **Order, not merely presence.** A narrowing applied AFTER `idFromName` sites the object
+    // on the wrong namespace while the three counts above still hold unchanged — so this is the
+    // assertion that actually carries the claim in this case's name.
+    const narrowedAt = events.indexOf(narrowing)
+    const sitedAt = events.indexOf(siting)
+    expect(narrowedAt).toBeLessThan(sitedAt)
+  })
+
+  it('sites the sam object on the plain namespace and carries a location hint, with no jurisdiction narrowing', () => {
+    const { namespace, events } = spyNamespace()
+    expect(stubFor(namespace, HOSTED_OBJECT_NAME.sam, samLocationHint())).toBe('stub:bootstrap-sam')
+
+    expect(jurisdictionEvents(events).length).toBe(0)
+
+    const sitings = idFromNameEvents(events)
+    expect(sitings.length).toBe(1)
+    const siting = theOneElementOf(sitings)
+    expect(siting.name).toBe('bootstrap-sam')
+    expect(siting.onNarrowed).toBe(false)
+
+    const sites = getEvents(events)
+    expect(sites.length).toBe(1)
+    expect(theOneElementOf(sites).options).toEqual({ locationHint: 'sam' })
+  })
+
+  it('sites the us object on the plain namespace and carries neither a jurisdiction nor a hint', () => {
+    // Written as its own case, beside the `eu` and `sam` cases above, rather than folded into a
+    // loop over the three names — a loop over a placement descriptor is the exact shape HOST-06
+    // names as the failure this file exists to avoid reproducing.
+    const { namespace, events } = spyNamespace()
+    expect(stubFor(namespace, HOSTED_OBJECT_NAME.us)).toBe('stub:bootstrap-us')
+
+    expect(jurisdictionEvents(events).length).toBe(0)
+
+    const sites = getEvents(events)
+    expect(sites.length).toBe(1)
+    expect(theOneElementOf(sites).options).toBeUndefined()
+  })
+
+  it('refuses a namespace with no jurisdiction method by name, before calling anything on it', () => {
+    const namespaceWithNoJurisdictionMethod: Parameters<typeof stubFor<string>>[0] = {
+      idFromName: (name: string) => ({ name }),
+      get: (id: unknown) => `stub:${String((id as { name: string }).name)}`,
+    }
+    expect(() => euJurisdictionOf(namespaceWithNoJurisdictionMethod)).toThrow(UnsupportedJurisdictionError)
+    expect(() => euJurisdictionOf(namespaceWithNoJurisdictionMethod)).toThrow(/"eu"/)
+  })
+
+  it('closes the location hint set at exactly one declared member', () => {
+    // The literal `1`, never `Object.keys(HOSTED_LOCATION_HINT).length` — an assertion that
+    // reuses the value it tests moves with it and can never redden against its own drift.
+    expect(HOSTED_LOCATION_HINTS.length).toBe(1)
+  })
+
+  it('anti-vacuity: the declared name count is fixed at three, and the spy fixture actually recorded calls', () => {
+    // The literal `3`, for the same reason the case above uses a literal `1`.
+    expect(HOSTED_OBJECT_NAMES.length).toBe(3)
+    // If `spyNamespace()`'s `idFromName` handler silently stopped recording, every assertion in
+    // this describe block that reads `events` or `asked` would be reading an empty log and
+    // passing vacuously. This fails that scenario instead of letting it through quietly.
+    expect(totalIdFromNameCallsAcrossThisFile).toBeGreaterThan(0)
   })
 })

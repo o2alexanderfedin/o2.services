@@ -434,6 +434,12 @@ export {
   keyCommitment,
   possessionChallenge,
   msUntilRenewalDue,
+  // VER-11 — the one derivation of a node's operator identity. Exported because the PROVIDER
+  // derives what it signs and the JOINER derives what it asks for, and they are in different
+  // packages: `@o2/browser`'s visitor path, `@o2/node`'s agent, and this module's own
+  // `EnrollmentAuthority` must all produce the identical string or an honest client is
+  // refused `operator-id-not-derivable`. One function is what makes that structural.
+  operatorIdFor,
   requestEnrollment,
   resolveReplicaSets,
   shouldRenewCertificate,

@@ -243,6 +243,7 @@ describe('the fabric-state formatter, with no DOM and no node', () => {
           description: 'independent — two operators signed, on independent relay paths',
           replicas: 2,
           operators: ['op-a', 'op-b'],
+          issuers: [],
           userKeys: [],
           sharedRelay: null,
         },
@@ -253,6 +254,39 @@ describe('the fabric-state formatter, with no DOM and no node', () => {
       'independent — two operators signed, on independent relay paths',
     )
     expect(receipt.regions['fabric/attestation-strength']).toBe('independent')
+
+    // **The same passthrough, for the label VER-12 added on 2026-09-16.** A formatter that
+    // rendered `description` verbatim for three labels and composed a sentence for the fourth
+    // would satisfy every assertion above, and `single-issuer` is the one a reader of this
+    // fabric will actually see — so it is the one worth proving is passed through.
+    //
+    // The description here is deliberately NOT `describeAttestation('single-issuer')`, for the
+    // reason the arm above is built the same way: a fixture that asked the kernel for the
+    // sentence and then checked the page printed the kernel's sentence would pass against a
+    // page composing its own, as long as the two happened to agree. A string no kernel would
+    // ever produce can only arrive at F7 by being carried there.
+    const singleIssuer = format(
+      readings({
+        attestation: {
+          strength: 'single-issuer',
+          description: 'single-issuer — two operators signed, one authority vouched for both',
+          replicas: 2,
+          operators: ['op-a', 'op-b'],
+          issuers: ['issuer-a'],
+          userKeys: [],
+          sharedRelay: null,
+        },
+      }),
+    )
+    expect(singleIssuer.regions['fabric/attestation-description']).toBe(
+      'single-issuer — two operators signed, one authority vouched for both',
+    )
+    expect(singleIssuer.regions['fabric/attestation-strength']).toBe('single-issuer')
+    // F8 is the page's own composition rather than the kernel's, and it gained an authority
+    // count on 2026-09-16 — the count is what lets a reader of `single-issuer` tell which of
+    // the two dimensions fell short, which is the whole of ROADMAP criterion 5. Asserted from
+    // this fixture's `issuers`, which carries exactly one.
+    expect(singleIssuer.regions['fabric/attestation-counts']).toContain('1 provider')
 
     const absent = format(
       readings({

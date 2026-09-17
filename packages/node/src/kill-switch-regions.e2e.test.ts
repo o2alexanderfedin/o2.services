@@ -339,7 +339,29 @@ async function startTab(region: HostedObjectName): Promise<Page> {
     },
     [address, `o2-regions-${region}`, DUTY_CYCLE, POLL_MS] as [string, string, number, number],
   )
-  // Dispatched WITHOUT awaiting, so the tab is genuinely running while it is sampled.
+  return page
+}
+
+/**
+ * Start the colouring run on a tab that is already up.
+ *
+ * **Split out of `startTab` on 2026-09-15, and the split is the fix for two separate failures.**
+ * `startTab` used to dial the relay AND dispatch the run, and the three tabs are stood up in
+ * turn — so by the time the second and third tabs dialled, the earlier ones were already
+ * burning 128 cubes at `dutyCycle: 0.5` on the same machine. Both observed dial failures were
+ * on later tabs: `Could not connect to ws://127.0.0.1:8805` for the second and
+ * `/tcp/8806 … signal timed out` for the third, on hosts their own banners called quiet. The
+ * dial now happens while nothing is computing.
+ *
+ * The same split removes the reason the before-window floor had to be rewritten as an absolute:
+ * with all three runs beginning together, none of them can finish before the window opens. The
+ * floor stays the absolute anyway, because "has this tab done any work" is the question it
+ * always meant to ask and it does not become the wrong question just because the arrangement
+ * got kinder.
+ *
+ * Dispatched WITHOUT awaiting, so the tab is genuinely running while it is sampled.
+ */
+function dispatchRun(page: Page): void {
   const run = page.evaluate(
     async ([n, cubes]) =>
       window.o2.runColouring({ n: n as number, cubes: cubes as number, redundancy: 1, peerIds: [] }),
@@ -351,7 +373,6 @@ async function startTab(region: HostedObjectName): Promise<Page> {
     () => {},
     () => {},
   )
-  return page
 }
 
 /** Tasks this tab has started, or `null` once there is no node to ask. */
@@ -407,7 +428,11 @@ async function postAdmission(port: number, body: unknown): Promise<{ status: num
 describe('RUN-02 criterion 1 — one region’s tabs stop, the other two go on working', () => {
   it('halts the eu tab and leaves us and sam executing, measured as three within-run ratios', async () => {
     const tabs = new Map<HostedObjectName, Page>()
+    // Every tab dials first, and only then does any of them start computing — see
+    // `dispatchRun`. Standing one up while the others are already at full duty is what made
+    // the later dials fail.
     for (const region of HOSTED_OBJECT_NAMES) tabs.set(region, await startTab(region))
+    for (const region of HOSTED_OBJECT_NAMES) dispatchRun(tabs.get(region) as Page)
 
     // ---- Window 1: the moving floor, on all three. ----------------------------------
     const beforeStart = new Map<HostedObjectName, number>()
@@ -425,12 +450,33 @@ describe('RUN-02 criterion 1 — one region’s tabs stop, the other two go on w
     }
     const beforeMs = Date.now() - beforeAt
 
+    // **The floor reads WORK DONE, not work still moving — third correction, measured.**
+    //
+    // It asked `beforeDelta > 0` and failed 3/3 on a quiet host (load/core 1.97, 2.43, 2.47)
+    // naming `bootstrap-us`. Instrumented, the reason is not that the tab was idle but the
+    // opposite: `us` and `eu` read `start=128` and `delta=0` while `sam` read `start=0` and
+    // `delta=43`. **128 is `CUBES` exactly** — the first two tabs had finished the entire
+    // colouring run before the window opened, because `startTab` goes, signs in, starts and
+    // dispatches for each region in turn, and the whole run is roughly 6 s at
+    // `dutyCycle: 0.5` while standing three tabs up takes longer than that for the first two.
+    //
+    // A finished run and a run that never began are opposite facts, and a delta cannot tell
+    // them apart. **This is window 2's own correction, which this file already made and did
+    // not carry back here**: see it stated forty lines below — *"An after-window delta of zero
+    // is a run that completed, not a tab that died."* Same arithmetic, same file, one window
+    // earlier.
+    //
+    // So the floor asks what it always meant to ask: has this tab executed anything at all.
+    // It is not weakened by the change — a tab with no node is already excluded above by
+    // `activity()` answering `null`, and a tab that started and took nothing still reads 0.
     for (const region of HOSTED_OBJECT_NAMES) {
+      const executedTotal = (beforeStart.get(region) ?? 0) + (beforeDelta.get(region) ?? 0)
       expect(
-        beforeDelta.get(region),
-        `criterion 1's floor: ${region}'s tab admitted ${String(beforeDelta.get(region))} tasks ` +
-          `across ${String(beforeMs)} ms, i.e. it was not working. A halt measured against a tab ` +
-          'that never started measures nothing.',
+        executedTotal,
+        `criterion 1's floor: ${region}'s tab has admitted no task at all — ` +
+          `${String(beforeStart.get(region))} before the window and ${String(beforeDelta.get(region))} ` +
+          `across its ${String(beforeMs)} ms. A halt measured against a tab that never started ` +
+          'measures nothing.',
       ).toBeGreaterThan(0)
     }
 
@@ -481,7 +527,8 @@ describe('RUN-02 criterion 1 — one region’s tabs stop, the other two go on w
     // Printed before the assertions, so a red run carries its own numbers.
     for (const region of HOSTED_OBJECT_NAMES) {
       console.log(
-        `[RUN-02 regions] ${region} before=${String(beforeDelta.get(region))} tasks/${String(beforeMs)} ms ` +
+        `[RUN-02 regions] ${region} started-at=${String(beforeStart.get(region))} ` +
+          `before=${String(beforeDelta.get(region))} tasks/${String(beforeMs)} ms ` +
           `after=${String(afterDelta.get(region))} tasks/${String(afterMs)} ms ` +
           `ratio=${ratio(region).toFixed(3)}`,
       )

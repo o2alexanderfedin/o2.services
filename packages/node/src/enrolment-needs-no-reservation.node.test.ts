@@ -434,8 +434,6 @@ async function standUpArm(name: string, providerArgs: readonly string[], userKey
     providerAddr,
     '--user-key',
     userKey,
-    '--operator-id',
-    'bootstrap-ops',
   ])
 
   return { name, provider, joiner, providerAddr }

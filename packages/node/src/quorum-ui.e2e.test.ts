@@ -5,9 +5,11 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { extname, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { ed25519 } from '@noble/curves/ed25519.js'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext, Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { operatorIdFor, toHex } from '@o2/core'
 import { KERNEL_TRUST_ANCHOR } from '@o2/demo'
 import { launchFixtureBrowser } from './e2e-browser-launch.ts'
 import { signInDemoTab } from './e2e-signin.ts'
@@ -171,11 +173,29 @@ const OWNER_RELAY = [...new Uint8Array(32).fill(74)]
  */
 const OWNER_RELAY_B = [...new Uint8Array(32).fill(75)]
 
-const OPERATOR_A = 'quay-street-collective'
-const OPERATOR_B = 'north-mill-compute'
-const OPERATOR_RELAY = 'dockside-relay-co'
+/**
+ * The operator identity each of the owners above enrols under.
+ *
+ * **These were four hand-picked names — `quay-street-collective`, `north-mill-compute`,
+ * `dockside-relay-co`, `harbour-line-signals` — until VER-11 on 2026-09-16, and the change is
+ * what this file was already arguing for.** The docblock above {@link OWNER_A} reads *"an
+ * operator id is a claim about who runs a node and sharing an owner key across two operators
+ * would be a fixture no enrolment would ever produce"* — a discipline this fixture kept by
+ * hand while the provider it enrolled against enforced nothing and would have signed any
+ * pairing asked of it. The id is now derived from the owner key, so the pairing this file
+ * refused to write is one no fixture can write.
+ *
+ * The strings are less legible than the names were, and that is the trade: a verdict line now
+ * shows the identity a *provider signed* rather than one a fixture chose.
+ */
+const operatorOf = (owner: readonly number[]): string =>
+  operatorIdFor(toHex(ed25519.getPublicKey(new Uint8Array(owner))))
+
+const OPERATOR_A = operatorOf(OWNER_A)
+const OPERATOR_B = operatorOf(OWNER_B)
+const OPERATOR_RELAY = operatorOf(OWNER_RELAY)
 /** The second relay's operator. Distinct from every other id here, which is the point of it. */
-const OPERATOR_RELAY_B = 'harbour-line-signals'
+const OPERATOR_RELAY_B = operatorOf(OWNER_RELAY_B)
 
 /** What `describeQuorum` emits. Fixed strings, so a reworded sentence cannot pass either arm. */
 const SHARED_RELAY = '[shared-relay-dependency]'
@@ -310,7 +330,6 @@ async function startProvider(name: string): Promise<{ node: FabricNode; addr: st
 async function startEnrolledRelay(
   name: string,
   providerAddr: string,
-  operatorId: string,
   owner: Uint8Array,
 ): Promise<{ node: FabricNode; addr: string }> {
   const node = await FabricNode.start({
@@ -322,7 +341,7 @@ async function startEnrolledRelay(
     maxReservations: 16,
     listen: ['/ip4/127.0.0.1/tcp/0/ws'],
     trustAnchors: [KERNEL_TRUST_ANCHOR],
-    enrollment: { userPrivateKey: owner, operatorId, providerAddr },
+    enrollment: { userPrivateKey: owner, providerAddr },
   })
   started.push(node)
   const addr = node.browserDialableAddrs[0]
@@ -378,7 +397,6 @@ async function openEnrolledTab(
         blockstoreName: options.store,
         enrollment: {
           userPrivateKey: options.owner,
-          operatorId: options.operatorId,
           providerAddr: options.providerAddr,
         },
       }),
@@ -429,7 +447,6 @@ async function twoTabsOnRelays(
     const relay = await startEnrolledRelay(
       `relay-${label}-${index}`,
       provider.addr,
-      spec.operator,
       new Uint8Array(spec.owner),
     )
     // Enrolled, and asserted before anything depends on it. A relay that came up without a
@@ -526,11 +543,25 @@ async function twoTabsOnOneRelay(
   label: string,
   operatorOfB: string,
   ownerOfB: number[],
-  operatorOfRelay: string,
+  /**
+   * The relay's OWNER — a key, not a name — and the substitution is VER-11's, 2026-09-16.
+   *
+   * This took `operatorOfRelay: string` and paired it with a hard-coded `owner: OWNER_RELAY`,
+   * so the one-operator arm below stood a relay up under the relay's own key while telling it
+   * to call itself `OPERATOR_A`. **That is the move this phase exists to stop**, performed by a
+   * fixture that depended on it: a node claiming a party it does not belong to, which the
+   * provider signed because it checked nothing. The arm then had one operator across three
+   * candidates, and rule 1 fired.
+   *
+   * Passing the key makes the arm mean what its comment always said — *tab B and the relay
+   * enrol under tab A's own owner* — and makes the alternative unrepresentable rather than
+   * merely discouraged.
+   */
+  ownerOfRelay: number[],
 ): Promise<{ page: Page; relayPeerId: string }> {
   const { page, relayPeerIds } = await twoTabsOnRelays(
     label,
-    [{ operator: operatorOfRelay, owner: OWNER_RELAY }],
+    [{ operator: operatorOf(ownerOfRelay), owner: ownerOfRelay }],
     operatorOfB,
     ownerOfB,
   )
@@ -583,7 +614,7 @@ describe('VER-03/VER-04 — the quorum composer’s verdict, on the page a visit
     // of VER-04: `insufficient-operators` would also refuse this shard, and would mean the
     // fixture was built wrong. `quorum-agents.node.test.ts` separates its two fabrics the
     // same way and for the same reason.
-    const { page, relayPeerId } = await twoTabsOnOneRelay('many-op', OPERATOR_B, OWNER_B, OPERATOR_RELAY)
+    const { page, relayPeerId } = await twoTabsOnOneRelay('many-op', OPERATOR_B, OWNER_B, OWNER_RELAY)
 
     await runTheLadder(page, 600_000)
     const verdict = await quorumRegion(page)
@@ -619,9 +650,15 @@ describe('VER-03/VER-04 — the quorum composer’s verdict, on the page a visit
 
   it('refuses for the operators when every candidate is one operator’s, and says which', async () => {
     // The only difference from the case above: tab B and the relay enrol under tab A's own
-    // owner and operator. Same relay, same transports, same provider, same everything else — so
-    // a different verdict here can only have come from `operatorId`, which is VER-04's subject.
-    const { page } = await twoTabsOnOneRelay('one-op', OPERATOR_A, OWNER_A, OPERATOR_A)
+    // owner. Same relay, same transports, same provider, same everything else — so a different
+    // verdict here can only have come from `operatorId`, which is VER-04's subject.
+    //
+    // **It read "tab A's own owner AND OPERATOR" until VER-11, 2026-09-16, and the second noun
+    // was doing real work**: the relay was given tab A's operator NAME while keeping its own
+    // key, which is a node claiming a party it does not belong to. It is one noun now because
+    // an owner is all there is to pass, and this arm is a genuine single-party fabric rather
+    // than a three-party one wearing one name.
+    const { page } = await twoTabsOnOneRelay('one-op', OPERATOR_A, OWNER_A, OWNER_A)
 
     await runTheLadder(page, 600_000)
     const verdict = await quorumRegion(page)

@@ -340,7 +340,9 @@ The design explicitly considers:
 - downgrade to older policy versions;
 - stale revocation information;
 - denial-of-service against relays and validators;
-- compromised application code with valid signatures.
+- compromised application code with valid signatures;
+- bulk identity creation: one party obtaining many certificates and presenting them as many
+  independent parties, so that a verification quorum drawn from them agrees with itself.
 
 The design does not claim that a valid certificate makes an issuer trustworthy or that signed software is free of malicious behavior.
 
@@ -356,6 +358,10 @@ The implementation should preserve the following invariants:
 - Revoked or stale authority cannot be revived by replaying an older valid chain.
 - Code execution requires both authorization and runtime isolation.
 - Compromise of one specialized CM does not grant unrelated CM authority.
+- Any attribute treated as a diversity dimension is determined by the issuer from material it
+  has verified, and is never asserted by the applicant it describes.
+- Independence claimed for a set of results is bounded by the number of issuers behind it, not
+  by the number of distinct attribute values those results carry.
 
 ## 16. Certificate Philosophy
 

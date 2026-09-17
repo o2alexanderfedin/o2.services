@@ -1030,8 +1030,25 @@ function witnessDrift(entry: UnreadRow): { arrived: string[]; departed: string[]
  * Two witnesses, measured by running the scan. What holds the row open is `39-09`, the run's own
  * staging, plus a precondition newly in doubt: an object whose region is `null` refuses every
  * halt, so the kill switch criterion 5 exercises may not be throwable at all.
+ *
+ * **Raised 7 -> 8 on 2026-09-14, in the commit that moved `NET-15` to `Partial`** (Phase 33,
+ * plan 33-05). This IS the fourth raise of the `experiment-not-run` shape the paragraph above
+ * named in advance, and the question it posed is answered here rather than deferred again:
+ * `experiment-not-run` is not split into its own count in this commit. The reason is scope, not
+ * disagreement — `requirements-ledger.node.test.ts` is not among plan 33-05's own
+ * `files_modified`, and this entry exists to unblock that plan's ledger edit, not to redesign
+ * the register that catches it. What is true and worth carrying forward: all four
+ * `experiment-not-run` raises (`NET-12`, `RUN-06`, `RUN-01`/`RUN-07`, now `NET-15`) name an act
+ * only an owner can perform against a real account, a real phone or a real deployed object —
+ * never a symbol nobody calls. A future plan touching this file should read the split proposed
+ * above before raising this ceiling a fifth time. `NET-15`'s own open leg is exactly that shape:
+ * criterion 3's live reading against three SITED objects and criterion 4's cross-region
+ * dialability on the real fabric, both gated on `HOST-06`'s own owner act (creation), which this
+ * phase's plans 33-01 through 33-04 built and configured without performing.
+ *
+ * Two witnesses, measured by running the scan.
  */
-const REREAD_REGISTER_CEILING = 7
+const REREAD_REGISTER_CEILING = 8
 
 /**
  * ## The rule this list encodes
@@ -1499,7 +1516,18 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   {
     id: 'NET-03',
     because: 'tier-or-configuration',
-    reread: '2026-08-31',
+    // **RE-READ 2026-09-14 at 15 days outstanding — the verdict is unmoved, and nothing about
+    // the row moved either.** All three witnesses were RUN rather than read: `auto-tls` and
+    // `relaying` 22 of 22, `seed-binary-join` 2 of 2. Both gates stand exactly as the row
+    // states them. The AutoTLS route still wants a public certificate authority and a publicly
+    // reachable interface, and this host still has no interface that is not RFC 1918 or a ULA.
+    // On the Cloudflare route the certificate requirement **does not arise** — TLS is a
+    // commercial certificate terminated at the edge with nobody managing one — and a
+    // requirement that does not arise has not been met. What moved in the fortnight since the
+    // last re-read is elsewhere: the hosted tier gained three placement configurations and a
+    // browser pair now upgrades away from it under a committed spec (`HOST-02`). Neither
+    // touches a certificate, which is why the date moves and the verdict does not.
+    reread: '2026-09-14',
     witnesses: [
       'packages/node/src/auto-tls.node.test.ts',
       'packages/node/src/relaying.node.test.ts',
@@ -1695,10 +1723,30 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // a calendar, Phase 39 criterion 4, not a spec anybody can write. The row's own layer
   // records the reading; one stale word (`unscheduled`) was corrected there, and the
   // retired hardware premise still standing in two sibling documents is named.
+  //
+  // **RE-READ BY HAND 2026-09-09 AT 15 DAYS OUTSTANDING, BOUND 14 — THE ROW STANDS UNCHANGED.**
+  // The promise came due a second time and this is the reading rather than a renewal. All three
+  // witnesses re-run together on a quiet host: `EXIT=0` read on the line immediately after the
+  // command, **3 files, 51 tests, none skipped**, `real 6.72 / user 20.96 / sys 4.18`, load/core
+  // 1.80 before and 1.84 after against a ceiling of 4.00. Compared with the 2026-08-25 reading
+  // — 3 files, 51 tests, `real 6.42 / user 17.96 / sys 3.75` — the same corpus is intact and no
+  // witness has drifted.
+  //
+  // **Ticking it is still the overclaim this entry exists to prevent.** The same-machine half
+  // was never the question; the distinct-machine half needs devices somebody else owns, on more
+  // than one continent, and its named closer is Phase 39 criterion 4 — the public run, which has
+  // not been made. Nothing in the fortnight since changed that: TURN moved (`NET-12`, this file,
+  // 2026-09-09), which is one of the run's blockers rather than the run.
+  //
+  // **One thing about this row's own history is worth carrying forward.** Its retired premise
+  // was *no second machine*, and that was false for a year — the gate was never hardware, it was
+  // having something to give a few hundred willing testers. The current blockers are of the same
+  // kind: they are about access and about a credential, not about a machine. So the clock moves
+  // and `because` does not.
   {
     id: 'BENCH-06',
     because: 'experiment-not-run',
-    reread: '2026-08-25',
+    reread: '2026-09-09',
     witnesses: [
       'packages/bench/src/harness.test.ts',
       'packages/node/src/bench-fabric.node.test.ts',
@@ -1752,6 +1800,15 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // physical wall. The bucket is unchanged — `experiment-not-run` is exactly right, and now
   // for a checkable reason: the arrangement exists, the dispatch has not happened, and the
   // dispatch is an owner act because it is a push to a public repository.
+  //
+  // Re-read 2026-09-13 (Phase 33, plan 04), because this ledger's own stale-promise guard
+  // holds whoever edits this file answerable for it, and this plan's own commit edits
+  // `.planning/REQUIREMENTS.md` (to mark `HOST-07` Done). Read against the row and the three
+  // witnesses: nothing has moved since the 2026-08-30 reading. `.github/workflows/aot-cross-host.yml`
+  // is still `workflow_dispatch`-only and has not been dispatched, the row's verdict is still
+  // `Partial` for the reason the row itself states, and the dispatch is still an owner act
+  // because it is a push to a public repository — unrelated to and untouched by this plan,
+  // which does not deploy, dispatch a workflow, or read a Cloudflare account. Bucket unchanged.
   {
     // ── Added 2026-09-02 by Phase 34 (34-01), and the promise it carries is precise ──────
     //
@@ -1776,18 +1833,60 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     // documentation, and the runbook's first step is a spending alert rather than an
     // engineering one — the `HOST-10` ordering this milestone has already lost once.
     //
-    // **The promise:** re-read this row when Phase 33 has sited the three objects AND a cohort
-    // exists on two continents. A same-region substitute does not discharge it. Everything that
-    // COULD be measured locally was, and the witnesses below are what measured it.
+    // **RE-READ 2026-09-09, AND THE SECOND LEG ABOVE IS HALF DISCHARGED.** Kept rather than
+    // rewritten, because what it says about the *discipline* is the reason the adapter is now
+    // trustworthy. The owner created a Cloudflare TURN application, and the probe that paragraph
+    // demanded was taken before a line was written: `POST …/credentials/generate-ice-servers`
+    // answered **201** with `iceServers` as an ARRAY whose first entry is STUN with no
+    // credentials and whose second carries a 64-character opaque `username` and `credential`.
+    //
+    // **The probe changed the design rather than confirming it**, which is the whole argument
+    // for taking it. The username has no `expiry:` prefix, so Cloudflare is NOT running RFC
+    // 5766's long-term credential mechanism: there is no shared secret to HMAC over, and the API
+    // credential placed in `O2_TURN_SECRET` would have minted a well-formed credential that
+    // every Cloudflare TURN server answers `401` to — reaching a tab as a **network fault** and
+    // walking past the `turn-not-configured` refusal written to prevent exactly that. So
+    // `cloudflareTurnMinter` asks rather than mints, the two schemes have two names in the
+    // environment, and the join is measured through a real workerd against a loopback stub.
+    //
+    // **A third thing was found by asking what a real visitor's tab does, and it was the one
+    // that mattered.** The rung was reachable only through `?turn=`, which is not in the
+    // circulated link — so no visitor had ever asked for a credential, and the entire built
+    // half was inert in production. `demo/main.ts` now derives the endpoint from the relay the
+    // tab already dials, the way the kill switch's is derived.
+    //
+    // **What is still NOT carried, and neither half is substitutable.** (1) No real
+    // `RTCPeerConnection` has ever carried a pair over a Cloudflare-issued credential — every
+    // `typ relay` observation in the witnesses below is against a local `coturn`, and the
+    // lifetime is enforced by that server's clock and not by Cloudflare's. (2) The
+    // cross-continent observation still needs three sited objects AND clients on two continents.
+    //
+    // **RE-READ AGAIN THE SAME DAY, and the row moved for a reason no earlier reading had.**
+    // The blocker above was named as the certificate gate meeting an unenrolled cohort; the
+    // owner ruled to make enrolment real rather than loosen the gate. The hosted tier now issues
+    // certificates over AUTH-01's two frames, bounded by a **global** rate limit whose history
+    // is written to Durable Object storage — because a limit that forgets on eviction is the
+    // Phase 17 defeat, not a limit. `hosted-enrolment.e2e.test.ts` measures the whole chain in
+    // one run against a real workerd: enrol over libp2p, the certificate names that workerd as
+    // its issuer, the same object mints TURN against it, and the next enrolment is refused.
+    //
+    // **The promise, restated:** re-read when a live Cloudflare-issued credential has carried a
+    // real pair, and again when Phase 33 has sited the three objects AND a cohort exists on two
+    // continents. A same-region substitute discharges neither. Neither is touched by the
+    // enrolment work — what changed is that a visitor can now hold the certificate the rung
+    // asks for, once the owner sets the budget (`OWNER-ACTIONS.md` row 3b).
     id: 'NET-12',
     because: 'experiment-not-run',
-    reread: '2026-09-02',
+    reread: '2026-09-09',
     witnesses: [
       'packages/browser/src/ice-configuration-library.node.test.ts',
       'packages/browser/src/ice-configuration.test.ts',
       'packages/browser/src/turn-credentials.test.ts',
       'packages/cloudflare/src/turn-credential.e2e.test.ts',
+      'packages/cloudflare/src/hosted-enrolment.e2e.test.ts',
       'packages/cloudflare/src/turn-credential.test.ts',
+      'packages/cloudflare/src/turn-minter-selection.test.ts',
+      'packages/cloudflare/src/turn-provider-join.e2e.test.ts',
       'packages/cloudflare/src/turn-regions-source.node.test.ts',
       'packages/cloudflare/src/turn-regions.test.ts',
       'packages/cloudflare/src/turn-sharding.e2e.test.ts',
@@ -1801,7 +1900,7 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   {
     id: 'AOT-03',
     because: 'experiment-not-run',
-    reread: '2026-08-30',
+    reread: '2026-09-13',
     witnesses: [
       'tools/aot/cross-host-lift.node.test.ts',
       'tools/aot/cross-host-workflow.node.test.ts',
@@ -1827,6 +1926,15 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     witnesses: [
       'packages/node/src/funnel-probe.e2e.test.ts',
       'packages/node/src/switch-observation.node.test.ts',
+    ],
+  },
+  {
+    id: 'NET-15',
+    because: 'experiment-not-run',
+    reread: '2026-09-14',
+    witnesses: [
+      'packages/cloudflare/src/region-loss-drill.e2e.test.ts',
+      'packages/node/src/region-loss-drill-schedule.node.test.ts',
     ],
   },
   // `AOT-04` was here until 2026-08-18 and is **REMOVED**, by the second of the two exits
@@ -1942,7 +2050,8 @@ function hookSuppliers(hook: string): string[] {
  * checked, down from 68, with 37 moved, and 68 − 35 is 33.
  */
 const CHECKED_OF_TOTAL = /\*\*(\d+) of (\d+) are `\[x\]`\.\*\*/
-const MOVED_AND_NEVER = /Of the (\d+) now unchecked, \*\*(\d+) moved\*\* and \*\*(\d+) were never checked\*\*/
+const MOVED_AND_NEVER =
+  /Of the (\d+) now unchecked, \*\*(\d+) moved\*\*, \*\*(\d+) were never checked\*\* and \*\*(\d+) were opened after the audit\*\*/
 const UNCHECKED_SPLIT = /\*\*The (\d+) unchecked boxes are (\d+) \+ (\d+) \+ (\d+)\*\*/
 const MARKER_SPLIT = /(\d+) are \*Built, not wired\*, (\d+) are \*Partial\*/
 
@@ -1981,6 +2090,27 @@ const CHECKED_BEFORE_AUDIT = 68
  * cannot move one without the other.
  */
 const NEVER_CHECKED_BEFORE_AUDIT: readonly string[] = ['AOT-03', 'AOT-05', 'BENCH-06', 'NET-03']
+
+/**
+ * Rows OPENED AFTER the v1.0 audit, which is a third population the identity below could not
+ * express until 2026-09-15.
+ *
+ * `CHECKED_BEFORE_AUDIT === V1_BOXES.size - NEVER_CHECKED_BEFORE_AUDIT.length` was written when
+ * this ledger could only ever LOSE rows, and it silently assumes every row present today either
+ * was `[x]` before the audit or is in the list above. Adding `VER-11` and `VER-12` made that
+ * false — `74 - 4` is `70`, not `68` — and the guard reddened, correctly.
+ *
+ * **The tempting repair is to put the two new ids in the list above, and it is wrong.** That
+ * list has a stated derivation — the header names the four and says they were "read out of the
+ * last revision of this file whose v1 section holds 68 `[x]`" — and a row that did not exist in
+ * that revision cannot be read out of it. Merging them would leave the list's name true by
+ * accident and its derivation false, which is the shape of defect this file exists to catch.
+ *
+ * So the population is named separately and the identity gains its third term. This NARROWS the
+ * guard rather than widening it: a row opened after the audit must now be recorded in one more
+ * place before the counts close.
+ */
+const OPENED_AFTER_AUDIT: readonly string[] = ['VER-11', 'VER-12']
 
 function numbers(pattern: RegExp): number[] {
   const match = pattern.exec(LEDGER_SOURCE)
@@ -2785,7 +2915,9 @@ describe('the header states counts that the ledger below it bears out', () => {
     // If a rewrite drops a phrasing, that is a failure here rather than a silent
     // exemption — the whole defect class is a number nothing reads.
     expect(numbers(CHECKED_OF_TOTAL)).toHaveLength(2)
-    expect(numbers(MOVED_AND_NEVER)).toHaveLength(3)
+    // Four since 2026-09-15: unchecked, moved, never-checked, opened-after-the-audit.
+    // See {@link OPENED_AFTER_AUDIT} for why a three-number split could not be honest.
+    expect(numbers(MOVED_AND_NEVER)).toHaveLength(4)
     expect(numbers(UNCHECKED_SPLIT)).toHaveLength(4)
     expect(numbers(MARKER_SPLIT)).toHaveLength(2)
   })
@@ -2797,13 +2929,19 @@ describe('the header states counts that the ledger below it bears out', () => {
   })
 
   it('splits the unchecked boxes into moved and never-checked, and the split closes', () => {
-    const [unchecked, moved, never] = numbers(MOVED_AND_NEVER)
+    const [unchecked, moved, never, opened] = numbers(MOVED_AND_NEVER)
     expect(unchecked).toBe(V1_UNCHECKED)
 
     // The baseline and the set are tied to each other rather than both asserted, so an edit
     // cannot move one and leave the other. 72 boxes, 4 of which were `[ ]` before the audit,
     // is what "down from the 68 that were checked" means as a statement about rows.
-    expect(CHECKED_BEFORE_AUDIT).toBe(V1_BOXES.size - NEVER_CHECKED_BEFORE_AUDIT.length)
+    expect(CHECKED_BEFORE_AUDIT).toBe(
+      V1_BOXES.size - NEVER_CHECKED_BEFORE_AUDIT.length - OPENED_AFTER_AUDIT.length,
+    )
+    // Both populations must really be in the ledger, and they must not overlap — a row counted
+    // in each would balance the identity above while meaning nothing.
+    for (const id of OPENED_AFTER_AUDIT) expect(V1_BOXES.has(id)).toBe(true)
+    for (const id of OPENED_AFTER_AUDIT) expect(NEVER_CHECKED_BEFORE_AUDIT).not.toContain(id)
     // And every id in it is a real v1 row — otherwise a typo would silently shrink the
     // never-checked count and inflate `moved`, which is the direction that flatters.
     for (const id of NEVER_CHECKED_BEFORE_AUDIT) expect(V1_BOXES.has(id)).toBe(true)
@@ -2815,11 +2953,19 @@ describe('the header states counts that the ledger below it bears out', () => {
     const stillNeverChecked = NEVER_CHECKED_BEFORE_AUDIT.filter(
       (id) => V1_BOXES.get(id) === false,
     ).length
+    const stillOpenedAfter = OPENED_AFTER_AUDIT.filter((id) => V1_BOXES.get(id) === false).length
     expect(never).toBe(stillNeverChecked)
-    expect(moved).toBe(V1_UNCHECKED - stillNeverChecked)
+    expect(opened).toBe(stillOpenedAfter)
+    expect(moved).toBe(V1_UNCHECKED - stillNeverChecked - stillOpenedAfter)
     // The arithmetic this replaces did not close: it read 35 checked, down from 68,
     // with 37 moved. 68 − 35 is 33, and the missing 4 are the boxes never checked.
-    expect((moved ?? 0) + (never ?? 0)).toBe(V1_UNCHECKED)
+    //
+    // **THIRD TERM ADDED 2026-09-15** — see {@link OPENED_AFTER_AUDIT}. A two-way split cannot
+    // describe a ledger that GAINS rows: `VER-11` and `VER-12` are neither "moved" (they were
+    // never `[x]`) nor "never checked before the audit" (they did not exist then), and folding
+    // them into either population would make one of the two words false while the sum still
+    // closed. A sum that closes over the wrong populations is the failure this case is for.
+    expect((moved ?? 0) + (never ?? 0) + (opened ?? 0)).toBe(V1_UNCHECKED)
   })
 
   it('splits the unchecked boxes across the three markers, and that split closes too', () => {

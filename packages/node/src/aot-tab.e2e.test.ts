@@ -30,10 +30,12 @@ import { FabricNode } from './fabric-node.ts'
  * Every reading this repository holds of a translated artifact executing is a **Node**
  * reading. `packages/aot/src/wasi-real.node.test.ts` runs one in-process. `packages/node/
  * src/aot-dispatch.node.test.ts` runs one across two spawned agent processes. And
- * `packages/node/src/ported-lift.e2e.test.ts` — despite the `.e2e` suffix, which is the
- * trap here and is worth naming rather than leaving for the next reader to fall into —
- * **launches no browser at all**: it spawns Docker and drives both arms through
- * `WasiExecutor` directly in Node. It is Node-tier evidence wearing an e2e filename.
+ * `tools/aot/ported-lift.node.test.ts` — which until 2026-09-15 sat in `packages/node/src/`
+ * under an `.e2e` suffix, named here at the time as "the trap" and worth keeping on the
+ * record — **launches no browser at all**: it spawns Docker and drives both arms through
+ * `WasiExecutor` directly in Node. It was Node-tier evidence wearing an e2e filename, and
+ * the filename eventually cost an `e2e` lane 61.5 minutes; it now runs in the `aot` lane
+ * with the other container specs, which is the lane serialised for exactly them.
  *
  * So until this file, the sentence *"a browser tab executes a translated artifact"* had
  * never been true of anything in this tree. That matters more than it sounds, because the

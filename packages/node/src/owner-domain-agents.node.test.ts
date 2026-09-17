@@ -103,7 +103,7 @@ import { join } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { canonicalCid, delegate, signName, submitJob, toHex } from '@o2/core'
+import { canonicalCid, delegate, operatorIdFor, signName, submitJob, toHex } from '@o2/core'
 import type {
   CanonicalValue,
   Delegation,
@@ -161,8 +161,17 @@ const THIRD_USER_KEY: PublicKeyHex = toHex(ed25519.getPublicKey(THIRD_PRIVATE_KE
  * the owner. Two spellings here would silently turn Arm A into a weaker file that read
  * `independent` and looked like it had passed.
  */
-const OWNER_OPERATOR = 'harbour-ops'
-const THIRD_OPERATOR = 'trawler-ops'
+/**
+ * The operator identity each user key enrols under — derived, not named, since VER-11.
+ *
+ * `'harbour-ops'` and `'trawler-ops'` stood here and were chosen by the fixture, which is the
+ * defect the derivation closes: this file's whole subject is that **n1 and n2 are one
+ * operator and n3 is another**, and that was true only because the fixture typed the same
+ * string twice. It is now true because n1 and n2 are spawned with the same `--user-key`. The
+ * fixture cannot get the pairing wrong, and it cannot get it right by accident either.
+ */
+const OWNER_OPERATOR = operatorIdFor(OWNER_USER_KEY)
+const THIRD_OPERATOR = operatorIdFor(THIRD_USER_KEY)
 
 /** The owner's row. Distinctive, so a match anywhere means something. */
 const SHARD_VALUE: CanonicalValue = { ssn: '404-11-2900', salary: 74_500, dob: '1979-11-04' }
@@ -375,19 +384,12 @@ async function standUp(): Promise<Fixture> {
   const providerKey = provider.issuerKey
   if (providerKey === null) throw new Error('the provider announced no issuer key')
 
-  const enrol = async (
-    name: string,
-    privateKey: Uint8Array,
-    userKey: PublicKeyHex,
-    operatorId: string,
-  ): Promise<Agent> =>
+  const enrol = async (name: string, privateKey: Uint8Array, userKey: PublicKeyHex): Promise<Agent> =>
     spawnAgent(name, [
       '--provider-addr',
       provider.multiaddrs[0] as string,
       '--user-key',
       await writeUserKey(name, privateKey),
-      '--operator-id',
-      operatorId,
       // AUTH-03's pinned anchor. Deliberately NOT derived by the binary — see
       // `--owner-key`'s docblock: a clearance may be derived from a signed statement, a
       // trust anchor is configuration.
@@ -396,9 +398,9 @@ async function standUp(): Promise<Fixture> {
       '--can-execute-sovereign',
     ])
 
-  const n1 = await enrol('n1', OWNER_PRIVATE_KEY, OWNER_USER_KEY, OWNER_OPERATOR)
-  const n2 = await enrol('n2', OWNER_PRIVATE_KEY, OWNER_USER_KEY, OWNER_OPERATOR)
-  const n3 = await enrol('n3', THIRD_PRIVATE_KEY, THIRD_USER_KEY, THIRD_OPERATOR)
+  const n1 = await enrol('n1', OWNER_PRIVATE_KEY, OWNER_USER_KEY)
+  const n2 = await enrol('n2', OWNER_PRIVATE_KEY, OWNER_USER_KEY)
+  const n3 = await enrol('n3', THIRD_PRIVATE_KEY, THIRD_USER_KEY)
 
   // The fixture's own premise, asserted rather than assumed. Plan 19-08 recorded the cost
   // of not doing this: a fixture whose operator ids had silently collapsed would read a
@@ -595,7 +597,15 @@ describe('AUTH-05/VER-08/VER-09 — an owner’s own processes verify each other
     // VER-10, stated directly rather than implied by the line above. This is the
     // conflation the requirement forbids, and an implementation that returned the stronger
     // label unconditionally would satisfy every other assertion in this block.
+    //
+    // **Two labels sit above `owner-domain` since 2026-09-16, VER-12**, so a single refusal
+    // stopped covering the failure this line is for: an implementation returning "the stronger
+    // label" now has two of them to return, and one of them would have gone unnamed. Both are
+    // refused. The guard still passes as written — it was not reddened by the insertion — which
+    // is exactly why it needed reading: a check that keeps passing while its reach shrinks is
+    // the kind that is never revisited.
     expect(shardA.attestation.strength).not.toBe('independent')
+    expect(shardA.attestation.strength).not.toBe('single-issuer')
     expect(shardA.attestation.replicas).toBe(2)
     expect(shardA.attestation.operators).toStrictEqual([OWNER_OPERATOR])
     expect(shardA.attestation.userKeys).toStrictEqual([OWNER_USER_KEY])
@@ -645,7 +655,10 @@ describe('AUTH-05/VER-08/VER-09 — an owner’s own processes verify each other
     expect('kind' in shardB.attestation).toBe(false)
     if ('kind' in shardB.attestation) return
     expect(shardB.attestation.strength).toBe('owner-attested')
+    // Both strong labels, for the reason given at the matching line in the block above: one
+    // refusal stopped being exhaustive when a third label appeared above `owner-domain`.
     expect(shardB.attestation.strength).not.toBe('independent')
+    expect(shardB.attestation.strength).not.toBe('single-issuer')
     expect(shardB.attestation.replicas).toBe(1)
     expect(shardB.attestation.operators).toStrictEqual([OWNER_OPERATOR])
     expect(shardB.attestation.description).toContain('not independently verified')

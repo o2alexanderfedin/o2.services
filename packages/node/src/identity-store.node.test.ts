@@ -215,7 +215,6 @@ describe('AUTH-01 — the certificate on disk', async () => {
     // also why `FabricNodeOptions.enrollment` has to carry something that holds the
     // private half (bytes, or a `CryptoKeyPair`) rather than a hex public key.
     const request = await requestEnrollment(seed, USER_SEED, {
-      operatorId: 'harbour-ops',
       discoverability: relayIds.length === 0 ? 'seed' : 'via-relay',
       relayIds,
     })

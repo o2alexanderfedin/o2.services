@@ -728,7 +728,6 @@ describe('VER-08/09/10 — a combining node signs what it merged and what it pro
       issuance: 'remembers-only-within-this-process',
     }).enrol(
       await requestEnrollment(nodeSeed, alice, {
-        operatorId: `op-${seed}`,
         discoverability: 'via-relay',
         relayIds: ['relay-1'],
       }),

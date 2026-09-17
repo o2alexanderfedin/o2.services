@@ -1,3 +1,4 @@
+import { ed25519 } from '@noble/curves/ed25519.js'
 import {
   EnrollmentAuthority,
   LOCAL_COMBINE_EXECUTOR,
@@ -10,11 +11,13 @@ import {
   decodeCanonical,
   deriveReduceTree,
   fabricCombiner,
+  operatorIdFor,
   publicNodes,
   rendezvousRank,
   requestEnrollment,
   signCombine,
   submitJob,
+  toHex,
 } from '@o2/core'
 import type {
   Blockstore,
@@ -548,10 +551,46 @@ describe('reduceJob names what it could not do, rather than presenting a partial
 // `jobWith`) while asserting a real strength for the aggregation, which is the pairing
 // that would be impossible if one receipt stood for both.
 
-/** The provider every fixture worker below enrols with. */
+/** The provider every fixture worker below enrols with unless it names the second one. */
 const FIXTURE_PROVIDER_SEED = new Uint8Array(32).fill(41)
+/**
+ * A **second** certificate authority — VER-12, 2026-09-16.
+ *
+ * `independent` stopped meaning "two operator names" on that date and started meaning "two
+ * providers": an attacker who reaches one authority mints as many user keys as they like, so a
+ * quorum every member of which was vouched for by one party is bounded by that one party. This
+ * seed is what lets a fixture state the difference. It is a **fixture's** second authority and
+ * says nothing about the fabric, which runs one — see `.planning/OWNER-ACTIONS.md` §3c.
+ */
+const SECOND_PROVIDER_SEED = new Uint8Array(32).fill(43)
 /** One user key across the fixture's nodes — the operator id is what diversity is about. */
 const FIXTURE_USER_SEED = new Uint8Array(32).fill(42)
+
+/**
+ * The user key a named operator's workers belong to — one key per name, since VER-11.
+ *
+ * **Every worker below used to enrol under the single `FIXTURE_USER_SEED` while asking for a
+ * `operatorId` of its own**, and the provider signed whatever it was asked. So the arm this
+ * file reads as *"independent across two"* was two workers belonging to ONE user, differing
+ * in a string, and `classifyAttestation` called them two parties because two strings is all
+ * it has ever asked for. The provider now derives the field from the user key, so a fixture
+ * that wants two operators supplies two owners — which is what two operators has always
+ * meant. Every case's intent is unchanged: `'alice-op'` twice is still one operator and still
+ * `owner-domain`; `'alice-op'` beside `'bob-op'` is still independent.
+ */
+function fixtureUserSeed(operatorId: string): Uint8Array {
+  const seed = new Uint8Array(32)
+  seed.set(FIXTURE_USER_SEED)
+  for (let i = 0; i < operatorId.length; i++) {
+    seed[i % 32] = ((seed[i % 32] ?? 0) ^ operatorId.charCodeAt(i)) & 0xff
+  }
+  return seed
+}
+
+/** What a provider will sign for a worker declared under `operatorId`. */
+function fixtureOperatorId(operatorId: string): string {
+  return operatorIdFor(toHex(ed25519.getPublicKey(fixtureUserSeed(operatorId))))
+}
 
 /**
  * How one fixture peer answers a `combine`.
@@ -575,6 +614,12 @@ interface FixtureWorker {
   /** The byte its 32-byte node seed is filled with. Two workers may share one — see the duplicate case. */
   readonly seedByte: number
   readonly behaviour: FixtureBehaviour
+  /**
+   * Which authority signs this worker's certificate. Defaults to the one every other case
+   * uses, so no existing fixture's behaviour moved when this was added — the second
+   * authority's key enters `trustedIssuers` only when a worker asks for it.
+   */
+  readonly issuer?: 'the fixture provider' | 'a second provider'
 }
 
 /**
@@ -649,12 +694,16 @@ function serveFixtureCombiner(options: {
 /** A requestor that serves its own blocks, plus N enrolled combine peers. */
 async function combineFabric(workers: readonly FixtureWorker[]) {
   const network = new MemoryNetwork()
-  const authority = new EnrollmentAuthority({
-    providerPrivateKey: FIXTURE_PROVIDER_SEED,
-    maxPerWindow: 100,
-    maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
-    issuance: 'remembers-only-within-this-process',
-  })
+  const authorityOf = (seed: Uint8Array): EnrollmentAuthority =>
+    new EnrollmentAuthority({
+      providerPrivateKey: seed,
+      maxPerWindow: 100,
+      maxIssuedPerWindow: 'issues-without-an-aggregate-budget',
+      issuance: 'remembers-only-within-this-process',
+    })
+  const authority = authorityOf(FIXTURE_PROVIDER_SEED)
+  const secondAuthority = authorityOf(SECOND_PROVIDER_SEED)
+  const usesSecond = workers.some((w) => w.issuer === 'a second provider')
 
   const requestorStore = new MemoryBlockstore()
   const requestorRpc = new RpcEndpoint(network.connect('requestor'), { timeoutMs: 5_000 })
@@ -675,9 +724,8 @@ async function combineFabric(workers: readonly FixtureWorker[]) {
     // Enrolled at the real clock, because `reduceJob` verifies at the real clock: a
     // fixed fixture epoch would make every certificate here `not-yet-valid` or `expired`
     // and every reading below the named absence for a reason unrelated to attestation.
-    const enrolled = authority.enrol(
-      await requestEnrollment(nodeSeed, FIXTURE_USER_SEED, {
-        operatorId: worker.operatorId,
+    const enrolled = (worker.issuer === 'a second provider' ? secondAuthority : authority).enrol(
+      await requestEnrollment(nodeSeed, fixtureUserSeed(worker.operatorId), {
         discoverability: 'seed',
         relayIds: [],
       }),
@@ -720,7 +768,12 @@ async function combineFabric(workers: readonly FixtureWorker[]) {
     requestorStore,
     ids,
     signers,
-    trustedIssuers: new Set<PublicKeyHex>([authority.issuerKey]),
+    // The second key enters only when a worker enrolled with it. A requestor that trusted
+    // both providers on every fixture would be a different requestor from the one every
+    // other case in this file measures, for no gain to the cases that do not use it.
+    trustedIssuers: usesSecond
+      ? new Set<PublicKeyHex>([authority.issuerKey, secondAuthority.issuerKey])
+      : new Set<PublicKeyHex>([authority.issuerKey]),
     close: () => {
       for (const rpc of endpoints) rpc.close()
     },
@@ -734,15 +787,30 @@ function agreedJob(count: number): JobResult {
 
 describe('a reduction reports how strongly its own AGGREGATION is attested', () => {
   /**
-   * The three labels are one expression on three inputs.
+   * The four labels are one expression on four inputs.
    *
-   * Asserted in one case rather than three, because either reading alone is satisfied by
+   * Asserted in one case rather than four, because any reading alone is satisfied by
    * a constant: a driver hardcoding `'owner-attested'` passes the first, one hardcoding
-   * `'independent'` passes the third, and only the set of them together says the value
+   * `'independent'` passes the last, and only the set of them together says the value
    * followed its input. `describeAttestation`'s own sentence is compared rather than
    * transcribed, so the two surfaces cannot drift.
+   *
+   * **A FOURTH arm arrived on 2026-09-16, VER-12, and the third reading moved rather than
+   * being replaced.** What the old third arm — `'alice-op'` beside `'bob-op'` — was relying on
+   * is that two operator names make a result independent. That was true of the operator
+   * dimension and silent about the provider one: both workers enrolled with
+   * `FIXTURE_PROVIDER_SEED`, so one party vouched for the pair and an attacker reaching that
+   * party supplies both halves of the agreement. So it reads `'single-issuer'` now, and a
+   * fourth arm was **added** rather than the third being reinterpreted: its second worker
+   * enrols with {@link SECOND_PROVIDER_SEED}, two operators under two authorities, which is
+   * what `'independent'` now means.
+   *
+   * Keeping the arm rather than moving the reading is what preserves this case's own argument.
+   * Three readings ending at `'single-issuer'` would no longer show that `'independent'` is
+   * reachable at all, and a label nothing can reach is a label no case can distinguish from a
+   * constant it never returns.
    */
-  it('reads owner-attested at one producer, owner-domain within one operator, independent across two', async () => {
+  it('reads owner-attested at one producer, owner-domain within one operator, single-issuer across two operators, independent across two providers', async () => {
     const readings: string[] = []
     const cases: readonly { readonly workers: readonly FixtureWorker[]; readonly redundancy: number }[] = [
       {
@@ -760,6 +828,20 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
         workers: [
           { operatorId: 'alice-op', seedByte: 123, behaviour: 'the production agent' },
           { operatorId: 'bob-op', seedByte: 124, behaviour: 'the production agent' },
+        ],
+        redundancy: 2,
+      },
+      {
+        // Two operators AND two authorities — the only shape that reaches `'independent'`
+        // since VER-12, and the only arm in this file that names a second provider.
+        workers: [
+          { operatorId: 'alice-op', seedByte: 126, behaviour: 'the production agent' },
+          {
+            operatorId: 'bob-op',
+            seedByte: 127,
+            behaviour: 'the production agent',
+            issuer: 'a second provider',
+          },
         ],
         redundancy: 2,
       },
@@ -797,7 +879,7 @@ describe('a reduction reports how strongly its own AGGREGATION is attested', () 
       }
     }
 
-    expect(readings).toEqual(['owner-attested', 'owner-domain', 'independent'])
+    expect(readings).toEqual(['owner-attested', 'owner-domain', 'single-issuer', 'independent'])
   })
 
   it('does not count a combine whose signature covers an input order it did not merge', async () => {

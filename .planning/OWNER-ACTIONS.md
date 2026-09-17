@@ -52,6 +52,56 @@ the binding **`eu` jurisdiction**; `bootstrap-sam` carries a **`locationHint` on
 no South-American jurisdiction value exists — and a plan passing `sam` as a jurisdiction is
 watched failing at creation, which is itself a criterion.
 
+**AGENT-SIDE HALF COMPLETE, 2026-09-13 — Phase 33 plan 02.** All three configurations exist
+and build under `--dry-run` with no credential:
+
+| Region | Configuration | Entry module |
+|---|---|---|
+| `us` (already live) | `packages/cloudflare/wrangler.jsonc` | `src/worker.ts` |
+| `eu` | `packages/cloudflare/wrangler.eu.jsonc` | `src/worker-eu.ts` |
+| `sam` | `packages/cloudflare/wrangler.sam.jsonc` | `src/worker-sam.ts` |
+
+`scripts/deploy-hosted.sh` now takes exactly one `--config <path>` per invocation from that
+closed list (a second `--config` on one run is refused, so one approval cannot become three
+bills) and derives the region label from the SELECTED configuration's own entry module — never
+from a flag. The exact command per region, once the alert below is configured:
+
+```
+scripts/deploy-hosted.sh --live --config packages/cloudflare/wrangler.eu.jsonc  --alert-configured <n>
+scripts/deploy-hosted.sh --live --config packages/cloudflare/wrangler.sam.jsonc --alert-configured <n>
+```
+
+`--alert-configured <n>` is required only the FIRST time a given configuration is deployed live
+— `HOST-10`'s ordering, read back off the account before that call, refusing rather than
+guessing when it cannot be read. It is not required for `us`, which already has a live
+deployment, or for any `--dry-run`.
+
+**The first `get()` — whoever runs the `--live` command above — is the irreversible act.** It
+is what creates the object, fixes its placement forever, and starts the ≈$5/month meter. Reading
+this table does not create anything; running the command does.
+
+### The read to take first — `scripts/three-regions-readiness.sh`, added 2026-09-14
+
+    scripts/three-regions-readiness.sh              # local files only: no credential, no network
+    scripts/three-regions-readiness.sh --account    # also: has each configuration ever deployed?
+
+**It creates nothing and spends nothing.** One `wrangler deployments list` per region with
+`--account`, and that lists rather than deploys; without the flag it touches the network not at
+all. Guarded by `packages/node/src/three-regions-readiness.node.test.ts`, which also holds it to
+naming only configurations `deploy-hosted.sh` would accept — so a read cannot bless a placement
+the deploy would refuse.
+
+It prints the three configurations with **each one's placement mechanism beside it** (`eu` is a
+binding jurisdiction; `sam` is a hint and nothing more), the cost, that two regions also work,
+and that the first `get()` is final.
+
+**What it deliberately does NOT do is tell you the alert is configured.** Nothing in this
+repository reads alert policies from Cloudflare — `deploy-hosted.sh`'s `--alert-configured <n>`
+is *your declaration of what number means stop*, not a check against the account. The script
+says so in those words rather than printing a reassurance nothing measured. Confirming the
+alert in the dashboard is the one step here that is yours alone, and by `HOST-10`'s verdict it
+is the step that can only be taken once per object.
+
 **What to say back:** the budget is approved for N regions, and who runs the deploy.
 
 ---
@@ -81,6 +131,185 @@ refusing a request from outside the fabric, and both ports **3478 and 53** — i
 proved against a local `workerd` with a stand-in key before the real one is needed.
 
 **What to say back:** the Key ID, and confirmation the secret is set.
+
+### AMENDED 2026-09-09 — the key exists, and the remaining act is smaller and different
+
+The application was created (**`round-band-959b`**) and both halves are banked in `.secrets/`
+and in the login keychain. The engineering behind the seam is written and measured, so what is
+left of this row is three acts, in order:
+
+1. ~~**Rotate the API credential before anything else.** The value was pasted into a session
+   transcript, and a transcript is storage. Delete the application in the dashboard, create a
+   fresh one, and write the new value straight into `.secrets/O2_TURN_API_SECRET` — not through
+   a chat window. The key id is not a secret and does not need this treatment.~~
+   **OWNER RULING 2026-09-14 — not now, and the ordering word "first" is withdrawn with it.**
+   The transcript is local and the machine is a development machine, so the owner accepts the
+   exposure and will replace the key when there is a reason to. This is a decision taken with
+   the fact in front of him, not an oversight, and it is recorded here so it stops resurfacing
+   as an open item on every progress read. **What it changes about acts 2 and 3: nothing.** They
+   never depended on a fresh value — they set whatever `.secrets/` holds and read the verdict
+   back. The only thing lost is that the credential the deployed object will carry is one that
+   has been through a transcript; if that is ever to be undone, it is a dashboard delete plus a
+   re-run of act 2, which costs the same then as now.
+
+2. **Set both on the deployed object.** From `packages/cloudflare/`:
+
+       npx wrangler secret put O2_TURN_API_SECRET --name o2-bootstrap
+       npx wrangler secret put O2_TURN_KEY_ID --name o2-bootstrap
+
+   Both, or neither engages — half a pair is treated as no provider at all, deliberately, and
+   the mint then refuses by name rather than guessing at the missing half.
+
+3. **Read the verdict back**, from any machine:
+
+       curl -s -X POST https://o2-bootstrap.af-4a0.workers.dev/turn-credential \
+         -H 'Content-Type: application/json' --data '{"bad":true}'
+
+   A deployment with the pair set answers **400 `malformed-request`** — the gate refusing a
+   body, which means it got as far as the gate. **503 `turn-not-configured`** means neither
+   scheme is configured and the secrets did not take. **502 `provider-refused`** means the pair
+   is set and Cloudflare rejected it, which is the wrong-credential case and reads its status
+   back in the body.
+
+**The naming trap, because it is the expensive mistake this row now affords.** `O2_TURN_SECRET`
+is a *different value in a different scheme* — the shared secret a `coturn` we run would hold.
+Cloudflare issues its own credentials and verifies only those, measured on 2026-09-09. Setting
+the API credential under the old name mints a well-formed credential every Cloudflare TURN
+server answers `401` to, and a tab reads that as a network fault rather than as a deployment
+that is not configured.
+
+**Still not carried after all three:** no real `RTCPeerConnection` has yet carried a pair over
+a Cloudflare-issued credential. Every `typ relay` observation in this repository is against a
+local `coturn`. The reading that closes it is two devices that cannot reach each other
+directly — the office guest wi-fi pair is exactly the case — connecting once the secrets are
+live.
+
+---
+
+## 3c. How many providers — the decision that decides what `independent` means
+
+> **RULED 2026-09-16 — ONE PROVIDER, and the ceiling is accepted along with it.** The owner's
+> words were *"пока будет один"* — one, for now. That is the second option below, taken
+> deliberately: **`independent` is not reachable in this fabric**, and the strongest label a
+> result can carry becomes `single-issuer`, until a second provider exists.
+>
+> **Nothing about the rule is provisional, only the number of providers is.** Phase 45
+> implements issuer diversity at full strength with `requireDistinctIssuers` defaulting true —
+> a rule relaxed while waiting for a second provider would be the same overstated claim this
+> row exists to stop. The day a second provider runs, `independent` becomes reachable with no
+> code change; that is the property the phase is built for, and it is why the decision costs
+> nothing to revisit.
+>
+> **This row is Done.** It no longer gates 3b, and Phase 45 may be planned in detail.
+
+
+| | |
+|---|---|
+| **Act** | Rule: does this fabric run ONE certificate provider, or more than one? |
+| **Cost** | A second provider is a second deployed object. Saying "one" costs nothing to run and costs the `independent` claim |
+| **Why not an agent** | It is a statement about what the fabric IS, not about how any code behaves |
+| **Unblocks** | Phase 45, and therefore what the strongest integrity label is allowed to say |
+
+**The mechanism, in one paragraph.** A result is called `independent` when two or more nodes run
+by different operators agreed. The unit of that claim is `operatorId`, and the issuing provider
+copies it verbatim out of the applicant's own request — `packages/core/src/enrollment.ts:1356`.
+Nothing checks it, and there is nothing in the provider's configuration it could be checked
+against. So one party that can reach one provider mints as many "operators" as it likes, fills a
+quorum with all of them, and receives a receipt saying independent operators concurred. The full
+reading, with every file:line, is
+`docs/architecture/RFC-0003-RESPONSE-05-operator-identity-and-quorum-diversity.md`.
+
+**Why this is a decision and not a bug report.** The repair that works is to require a quorum's
+members to carry certificates from **more than one provider** (Phase 45, `VER-12`). **With one
+provider running, that makes `independent` unreachable** — the fabric would stop claiming an
+independence it does not have. That is the correct outcome and it is a real loss, so the choice
+is the owner's:
+
+- **Run a second provider.** `independent` becomes meaningful and bounded: an attacker must
+  subvert two parties rather than one. Costs a second object.
+- **Accept the lower ceiling for now.** The strongest label the fabric reports becomes
+  `single-issuer` until a second provider exists. Nothing is claimed that is not true.
+
+**Why it sits before 3b.** Row 3b turns on public, unauthenticated issuance in front of
+strangers. Phase 44 — which makes the field stop lying and puts the issuers on the receipt — must
+land before that, and Phase 44 is worth doing whichever way this rules. What this decision
+changes is whether Phase 45 follows immediately or waits. **Deciding after 3b is not fatal**,
+unlike row 10; it just means the window between opening the doors and telling the truth about
+independence is as long as the decision takes.
+
+**What neither phase fixes, so the decision is made on what it really buys**: an attacker who
+reaches two providers; providers colluding or one party running several — issuer diversity is a
+**proxy** for party diversity and must be read as one; and the cost of an identity itself, which
+only proof-of-work or invitation touches and which is deferred. Sovereign data is unaffected
+throughout: an owner-pinned shard is `owner-attested` by construction and has no quorum to
+subvert.
+
+## 3b. The issuance throttle — a number only the owner can choose
+
+| | |
+|---|---|
+| **Act** | Set `O2_MAX_ISSUED_PER_WINDOW` on the deployed object |
+| **Cost** | None directly. It is the dial between refusing honest volunteers and letting an attacker mint identities |
+| **Why not an agent** | It trades two harms against each other and both land on the owner |
+| **Unblocks** | Every visitor's certificate, and therefore the TURN rung above |
+
+**Set it and enrolment turns on; leave it and this object signs nothing.** There is deliberately
+no separate switch: a provider that cannot state what bounds it does not sign, so the one state
+that cannot be reached by forgetting a variable is *issuing, unbounded*.
+
+    cd packages/cloudflare
+    npx wrangler deploy --var O2_MAX_ISSUED_PER_WINDOW:600
+
+Read it back with `curl -s https://o2-bootstrap.af-4a0.workers.dev/self` — `enrolment.issues`
+must be `true` and `enrolment.maxIssuedPerWindow` must be the number set. `deploy-pages.sh`
+**probes that field** before it writes `enrollmentProvider` into the document every visitor
+fetches, so a page never offers an enrolment the node would refuse.
+
+**The arithmetic to choose by, because the intuition is wrong.** A certificate lives **one hour**
+(`DEFAULT_CERTIFICATE_LIFETIME_MS`), so every enrolled node re-enrols every window: steady state
+is roughly *the active cohort per hour*, not the size of the invite burst. A few hundred testers,
+plus a person's device and tab fan-out, sits in the high hundreds. Below that, honest volunteers
+are refused; the ceiling this tier accepts is **2048**, and above it the deploy is refused by
+name rather than clamped.
+
+**And the cost that is not about money, stated at full size.** Enrolment is unauthenticated by
+design — `enrollment.ts` records that as an owner decision of 2026-08-02 — so **anyone who can
+dial this node can consume the whole window**, at one `ed25519.keygen()` per attempt, and thereby
+deny honest enrolment for the rest of that hour. That acceptance assumed *"several independent
+providers coexist by construction"*. **Today there is one.** So the throttle bounds an attacker's
+identities and simultaneously hands them a way to lock the cohort out for an hour. A bigger number
+buys more identities for them and fewer refusals for volunteers; a smaller one, the reverse. There
+is no value that avoids both, and picking one is this row.
+
+**What makes the bound real rather than decorative:** the issuance history is written to Durable
+Object storage, so a window survives the object being evicted. An in-process one would reset on
+every eviction — Phase 17 measured exactly that defeat — and
+`hosted-enrolment.test.ts` throws the provider away and rebuilds it over the same store to prove
+this one does not.
+
+**What to say back:** the number, and confirmation `/self` reports it.
+
+### The operator does not queue behind the cohort
+
+The throttle above is global, which means whoever drains the window this hour also stops **you**
+enrolling a new device. `O2_RESERVED_USER_KEYS` is the exemption: a comma-separated list of hex
+user keys that neither read nor consume the shared window.
+
+    npx wrangler deploy --var O2_RESERVED_USER_KEYS:<your user key>[,<another>]
+
+**One key per device, not one per person.** A user key is generated inside the browser, per
+origin, and cannot be extracted — so a laptop and a phone hold different ones and each is listed
+separately. The page knows its own; read it from the running tab.
+
+**Listing a public key gives nothing away, and that is a reading rather than a hope.**
+`EnrollmentAuthority` verifies both possession proofs **before** it consults either budget, so a
+request naming a reserved key without its private half is refused `bad-owner-proof` and never
+reaches the lane. The exemption rests on the private half, which never leaves the device.
+
+**What it does NOT lift:** the per-user limit, 64 an hour. So a reserved key that leaked mints at
+most that, and rotating it is one edit to this variable. And the exemption is not paid for by
+anybody — a reserved enrolment does not spend the shared window either, so listing yourself does
+not make the cohort wait longer.
 
 ---
 
@@ -140,11 +369,29 @@ backgrounding. Yes/no per line is enough.
 | | |
 |---|---|
 | **Act** | Send the first invite |
-| **Cost** | **Irreversible.** Public hosting is public disclosure; EPO and China have no patent grace period, so this forfeits those rights permanently |
+| **Cost** | **Irreversible: a Telegram-recruited cohort of a few hundred is spendable exactly once.** |
 | **Why not an agent** | The disclosure gate is the owner's by ruling, and a Telegram-recruited cohort of a few hundred is spendable exactly once |
-| **Waits on** | Its own criterion 1 — a dated checklist with named evidence for all seven of `BROW-06`…`BROW-10`, `RUN-02`, `RUN-03`. A row with no named evidence is a no-go, not a judgement call |
+| **Waits on** | Its own criterion 1 — a dated checklist with named evidence for all seven of `BROW-06`…`BROW-10`, `RUN-02`, `RUN-03`. A row with no named evidence is a no-go, not a judgement call. **And rows 10 to 13 below, in that order** |
 
 Phase 40's two published figures are physically downstream of this and of nothing else.
+
+**AMENDED — the gate and the procedure live elsewhere and are not restated here.** The gate is
+`39-GO-NO-GO.md`: **no invite until all seven conditions read `GO`**, and until every row in its
+preconditions section is either `GO` or consciously accepted *with the acceptance written into the
+row*. A precondition quietly left unread is the thing that section exists to make impossible.
+
+The stages, the sizes and the stop rule are `39-RUNBOOK.md` § 2 and § 5. This is not one act but a
+repeating one: **send a stage, read, decide, send the next.** Between every pair of stages, read
+all four of `39-RUNBOOK.md` § 4, in order —
+
+1. **the funnel**, and confirm `schemaDigest` has not moved from the pre-invite reading;
+2. **the coarse arrival signal**, cross-referenced against it;
+3. **the Durable Object request count**, which is the meter that actually binds — Workers requests
+   are not the constraint, DO requests are, and every WebSocket message is one;
+4. **the verdict**, which is a decision to send the next stage or to stop.
+
+A stage whose expected request cost was not stated **before** it was sent is a stage that must not
+be sent; the comparison afterwards is what makes the number a measurement rather than a hope.
 
 ---
 
@@ -494,3 +741,147 @@ list instead of `"all"` to stop only certain client builds.
 | `"operable":true` | The switch exists. **This is the current state.** |
 | `"operable":false` | **STOP.** `reason` names which half is missing. Do not invite anyone |
 | no `killSwitch` field at all | An older build is serving — the deploy did not land |
+
+
+---
+
+# The run, as a sequence
+
+Rows 10 to 14 are the public run, and they are an **order** rather than a menu. Each one is
+blocked by the one above it, and two of them are ordered for a reason that costs something if it
+is ignored.
+
+| # | act | why it sits here |
+|---|---|---|
+| 10 | rule on what a peer may announce about its machine | must precede 11 — the release re-asks every returning visitor **once regardless**, and a decision taken after it costs a **second** re-ask of a cohort that is spendable once |
+| 3c | **RULED 2026-09-16: one provider, and the lower ceiling accepted with it.** `independent` is unreachable until a second provider exists; the strongest label is `single-issuer` | **Done.** No longer gates 3b — see §3c |
+| 3b | set the issuance budget | must precede 11 — `deploy-pages.sh` probes `/self` before it writes `enrollmentProvider`, so a client published against a node that issues nothing offers no enrolment, and no visitor can hold the certificate the TURN rung asks for |
+| 11 | cut the release | puts the tree's disclosure in front of visitors, and is the disclosure gate itself |
+| 12 | the Telegram remainder | a device that participates once is a cohort spent once |
+| 13 | the pre-invite funnel reading | must come after 11 and before 14 — criterion 2 asks for a reading whose **timestamp precedes the invite** |
+| 14 | the first invite, in stages | everything above is its gate |
+
+Row 15, the mid-run kill-switch exercise, happens **inside** 14, at a stage boundary.
+
+---
+
+## 10. What a peer may announce about its machine — `BENCH-06`
+
+| | |
+|---|---|
+| **Act** | Choose one of the three routes in `39-PARTICIPANT-COUNT.md` § 3 |
+| **Cost** | Route (a) costs a disclosure version bump and a re-ask. Routes (b) and (c) cost nothing and leave the distinct-machine half unmeasured |
+| **Why not an agent** | It changes what the page promises a visitor. `packages/browser/src/disclosure.ts:241` promises *"no identifiers beyond the key named below"*, and that promise is the thing being widened |
+| **Unblocks** | Criterion 4's distinct-machine half, partially — the rest waits on the run itself |
+
+**Decide this BEFORE row 11.** The release cut re-asks every returning visitor once whatever you
+choose, so a decision taken now rides a re-ask that is already owed. Taken afterwards it costs a
+second one, from a few hundred people who will grant it once.
+
+One correction worth carrying into the choice, because it changes what the cheap route buys: a
+browser peer id is per **origin**, not per tab. Ten tabs on one laptop are one peer id, so
+distinct peer ids already count distinct browser profiles rather than tabs — much closer to a
+machine count than this row originally assumed. Published as a pair of bounds (profiles
+over-count, countries under-count) it brackets the real number honestly and costs no disclosure
+change and no extra byte on the wire.
+
+**What to say back:** which route, in one word.
+
+---
+
+## 11. Cut the release — the disclosure gate
+
+| | |
+|---|---|
+| **Act** | `scripts/deploy-hosted.sh --live`, then `scripts/deploy-pages.sh --live` |
+| **Cost** | **Money, on an account with no hard spending ceiling** — Cloudflare's own wording for budget alerts is *"informational only. It does not cap your usage."* |
+| **Why not an agent** | `DEMO-04`'s ruling makes deployment a separately-triggered gate, never an automatic consequence of a phase completing |
+| **Waits on** | Rows 10 and 3b |
+
+Carry the issuance budget through the deploy — `O2_MAX_ISSUED_PER_WINDOW=<n> scripts/deploy-hosted.sh --live`.
+A deploy replaces the Worker's vars, so a budget set by an earlier standalone deploy would be
+dropped by this one. The script refuses rather than doing that silently, and names the variable.
+
+**Read back, with its positive control, because an absence needs one.** Find the bundle:
+
+    curl -s https://o2alexanderfedin.github.io/o2.services/ | grep -o 'assets/[a-zA-Z0-9._-]*\.js'
+
+then on that bundle:
+
+    grep -c "What does this page report about my visit"   # expect 1 — the telemetry ground question
+    grep -c "This page can use your processor"            # expect 1 — the control that proves the grep sees the bundle
+
+**Both read `1` today**, on `assets/index-Wa6lCgcZ.js`, measured 2026-09-10. An earlier version of
+this row told you to grep for *"your permission, and nothing else"* and expect `1`; that needle is
+**retired**. It is version 6's wording and the tree is on version 8, so it reads `0` on a page
+that is perfectly current — an absence that means a sentence was rewritten, not that it is
+missing. That is the exact mistake the funnel row in `39-GO-NO-GO.md` records being made once.
+
+Also read `GET /self`: `version` must be the one just deployed, and `enrolment.issues` must be
+`true` if you set a budget.
+
+**What to say back:** the two grep counts, the version `/self` reports, and `enrolment.issues`.
+
+---
+
+## 12. The Telegram remainder — `RUN-06`
+
+| | |
+|---|---|
+| **Act** | Per device, one iOS and one Android: open the real link from a real Telegram message, let the node start, then **switch away from Telegram while the phone stays awake and the screen is on**, wait one minute, come back |
+| **Cost** | None. Not a disclosure event — the link is already public |
+| **Why not an agent** | Criterion 1 rejects a green obtained from a spoofed user-agent by name. The check *is* the engine |
+| **Unblocks** | `RUN-06`, and with it criterion 1's gate |
+
+Record four answers per device: (1) is the node still connected on return; (2) if not, does it
+reconnect without a reload; (3) did the tab's own indicator survive; (4) reload once — is consent
+remembered?
+
+`38-DEVICE-OBSERVATIONS.md` already covers a **sleeping** phone waking. What is missing is
+backgrounding while the device stays awake, which is the ordinary case.
+
+**What means no-go:** a device on which the node neither survives nor reconnects. That is a cohort
+that participates once.
+
+**What to say back:** the four answers, per device.
+
+---
+
+## 13. The pre-invite funnel reading — criterion 2's evidence
+
+| | |
+|---|---|
+| **Act** | `curl -s https://o2-bootstrap.af-4a0.workers.dev/funnel` and paste the whole response, with a UTC timestamp, into `39-PRE-INVITE-READING.md` |
+| **Cost** | None |
+| **Why not an agent** | It must be taken **after** row 11 and **before** row 14, and only you control that ordering |
+| **Unblocks** | Criterion 2 |
+
+Criterion 2 asks for a funnel *"reporting live at the moment the first invite is sent, observable
+in its own record with a timestamp preceding the invite — not stood up afterwards from stored
+events."* A reading taken before the release is a reading of a different build; one taken after
+the invite is the thing the criterion refuses. Hence the position.
+
+Check `schemaDigest` reads `3911527f1a04abee`. A different digest means the schema moved and every
+between-stage comparison would be against a different shape.
+
+**What to say back:** the file is written, and the digest matched.
+
+---
+
+## 14. The mid-run kill-switch exercise — criterion 5
+
+| | |
+|---|---|
+| **Act** | The six steps in `39-KILL-SWITCH-DURING-RUN.md` § 3, at a stage boundary during the run |
+| **Cost** | A deliberate, brief, **cohort-global** halt — production has one region today, so there is no such thing as halting a slice of it |
+| **Why not an agent** | It is an operator-key write to production |
+| **Unblocks** | Criterion 5 |
+
+**The un-halt is part of the act**, not a follow-up. The exercise is not complete until the fabric
+is admitting again and that has been read back.
+
+**What means stop:** no observed transition within three poll intervals; or the status page and
+`/self` disagreeing; or a keyless write succeeding. Any of the three means the control is not
+doing what it reports, and the run pauses rather than continuing with a switch nobody has seen work.
+
+**What to say back:** the observed window in milliseconds, and the final `halted` value.

@@ -82,7 +82,6 @@ async function node(
   const key = keypair(seed)
   const enrolled = auth.enrol(
     await requestEnrollment(key.priv, owner.priv, {
-      operatorId: `op-${seed}`,
       discoverability: 'seed',
       relayIds: [],
     }),

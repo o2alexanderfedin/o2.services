@@ -26,7 +26,7 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -36,23 +36,70 @@ const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const PACKAGE = join(ROOT, 'packages/cloudflare')
 const CONFIG = readFileSync(join(PACKAGE, 'wrangler.jsonc'), 'utf8')
 
-/** Where the dry-run writes. Removed in `afterAll`, so a green run leaves no bundle behind. */
-const OUTDIR = mkdtempSync(join(tmpdir(), 'o2-hosted-bundle-'))
+/**
+ * The three region configurations Phase 33 added, read once here rather than re-derived per
+ * case. A fourth region is a row added to this array AND to the three source files it
+ * describes — the same closed-set discipline `HOSTED_OBJECT_NAME` states for itself.
+ */
+interface RegionConfig {
+  readonly configFile: string
+  readonly scriptName: string
+  readonly entryModule: string
+  readonly objectName: string
+}
+
+const REGION_CONFIGS: readonly RegionConfig[] = [
+  {
+    configFile: 'wrangler.jsonc',
+    scriptName: 'o2-bootstrap',
+    entryModule: 'src/worker.ts',
+    objectName: 'bootstrap-us',
+  },
+  {
+    configFile: 'wrangler.eu.jsonc',
+    scriptName: 'o2-bootstrap-eu',
+    entryModule: 'src/worker-eu.ts',
+    objectName: 'bootstrap-eu',
+  },
+  {
+    configFile: 'wrangler.sam.jsonc',
+    scriptName: 'o2-bootstrap-sam',
+    entryModule: 'src/worker-sam.ts',
+    objectName: 'bootstrap-sam',
+  },
+]
+
+/** Every outdir a build below writes to. Removed in `afterAll`, so a green run leaves nothing behind. */
+const bundleOutdirs: string[] = []
 afterAll(() => {
-  rmSync(OUTDIR, { recursive: true, force: true })
+  for (const dir of bundleOutdirs) rmSync(dir, { recursive: true, force: true })
 })
 
+/** One configuration's build, read once and cached — the shape {@link emittedBundleFor} shares. */
+interface BuiltBundle {
+  readonly path: string
+  readonly content: string
+}
+
 /**
- * Build once and share. The dry-run is the expensive thing in this file by an order of
- * magnitude, and building it per case would make the file's cost the number of assertions
- * rather than the number of builds.
+ * Build once PER CONFIGURATION and share. The dry-run is the expensive thing in this file by
+ * an order of magnitude, and building it per case would make the file's cost the number of
+ * assertions rather than the number of builds — now THREE builds, one per configuration,
+ * since Phase 33 added two more regions beside `wrangler.jsonc`'s own.
+ *
+ * The emitted filename is not hardcoded: wrangler names it after `"main"`'s own basename
+ * (`worker.js`, `worker-eu.js`, `worker-sam.js`), so this reads whatever `.js` file the build
+ * actually produced rather than assuming one config's naming for all three.
  */
-let bundle: string | undefined
-function emittedBundle(): string {
-  if (bundle !== undefined) return bundle
+const bundleCache = new Map<string, BuiltBundle>()
+function emittedBundleFor(configFile: string): BuiltBundle {
+  const cached = bundleCache.get(configFile)
+  if (cached !== undefined) return cached
+  const outdir = mkdtempSync(join(tmpdir(), 'o2-hosted-bundle-'))
+  bundleOutdirs.push(outdir)
   execFileSync(
     'npx',
-    ['wrangler', 'deploy', '--dry-run', `--outdir=${OUTDIR}`],
+    ['wrangler', 'deploy', '--dry-run', `--outdir=${outdir}`, '--config', configFile],
     {
       cwd: PACKAGE,
       encoding: 'utf8',
@@ -60,8 +107,19 @@ function emittedBundle(): string {
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   )
-  bundle = readFileSync(join(OUTDIR, 'worker.js'), 'utf8')
-  return bundle
+  const emittedName = readdirSync(outdir).find((name) => name.endsWith('.js'))
+  if (emittedName === undefined) {
+    throw new Error(`wrangler --dry-run --config ${configFile} emitted no .js file in ${outdir}`)
+  }
+  const path = join(outdir, emittedName)
+  const built: BuiltBundle = { path, content: readFileSync(path, 'utf8') }
+  bundleCache.set(configFile, built)
+  return built
+}
+
+/** The `us` configuration's bundle content — every pre-existing call site is unchanged. */
+function emittedBundle(): string {
+  return emittedBundleFor('wrangler.jsonc').content
 }
 
 describe('HOST-11, criterion 5 — a configuration that would create a preview deployment', () => {
@@ -97,18 +155,25 @@ describe('HOST-11, criterion 5 — a configuration that would create a preview d
 })
 
 describe('the emitted bundle — open question 1, and the trap beside it', () => {
-  it('builds at all, which is the `ws` dynamic-require trap answered rather than argued', () => {
-    // §8 of the 2026-08-24 consult records a bundling failure that "fails loudly and
-    // misleadingly": `--conditions=node` applied globally pulls `ws` in through
-    // `@libp2p/websockets`, `ws` is CJS with a dynamic `require('events')`, and Cloudflare
-    // rejects the UPLOAD with an error about the bundle that says nothing about the cause.
-    // A build that completes is the whole of the check, and it is not vacuous — the trap
-    // arrives as a non-zero exit from the line below.
-    const emitted = emittedBundle()
-    expect(existsSync(join(OUTDIR, 'worker.js'))).toBe(true)
-    expect(emitted.length).toBeGreaterThan(1000)
-    expect(emitted).not.toContain('Dynamic require')
-  }, 180_000)
+  // Extended to all THREE configurations 2026-09-13 with Phase 33's two further regions —
+  // one case per configuration rather than a loop inside one assertion, so a reader sees three
+  // separate readings and a failure names which configuration produced it.
+  it.each(REGION_CONFIGS)(
+    '$configFile builds at all, which is the `ws` dynamic-require trap answered rather than argued',
+    ({ configFile }) => {
+      // §8 of the 2026-08-24 consult records a bundling failure that "fails loudly and
+      // misleadingly": `--conditions=node` applied globally pulls `ws` in through
+      // `@libp2p/websockets`, `ws` is CJS with a dynamic `require('events')`, and Cloudflare
+      // rejects the UPLOAD with an error about the bundle that says nothing about the cause.
+      // A build that completes is the whole of the check, and it is not vacuous — the trap
+      // arrives as a non-zero exit from the line below.
+      const { path, content } = emittedBundleFor(configFile)
+      expect(existsSync(path)).toBe(true)
+      expect(content.length).toBeGreaterThan(1000)
+      expect(content).not.toContain('Dynamic require')
+    },
+    180_000,
+  )
 
   it('keeps `diffieHellman` out of the bundle — OR says why it cannot answer yet', (ctx) => {
     const emitted = emittedBundle()
@@ -228,6 +293,19 @@ describe('HOST-08 and HOST-12, criteria 4 and 6 — one call site, and no name a
     expect(callAt).toBeGreaterThan(refusalAt)
   })
 
+  it('sites through exactly one `.get(` call — HOST-08 stronger with three placements than with one', () => {
+    // Added 2026-09-13. Plan 33-01 gave `stubFor` a single `namespace.get(id, options)` call
+    // that ALL THREE placements now reach — `euJurisdictionOf` narrows what `namespace` IS,
+    // `samLocationHint` narrows what `options` IS, and neither adds a second siting call of
+    // its own. So this count staying at exactly 1, with three explicitly different argument
+    // shapes now reaching it (pinned by the cases below), is HOST-08 satisfied in a STRONGER
+    // form than before Phase 33 — one call site proven to be the only one three regions can
+    // reach, not merely the only one one region reaches.
+    const source = readFileSync(join(PACKAGE, 'src/hosted-object.ts'), 'utf8')
+    const calls = source.match(/\.get\(/g) ?? []
+    expect(calls.length).toBe(1)
+  })
+
   it('derives no object name from a request', () => {
     const worker = readFileSync(join(PACKAGE, 'src/worker.ts'), 'utf8')
     // The name handed to `stubFor` is a module constant. A `searchParams`, a header read or a
@@ -237,6 +315,80 @@ describe('HOST-08 and HOST-12, criteria 4 and 6 — one call site, and no name a
     expect(worker).toContain('stubFor(env.BOOTSTRAP, SERVED_BY)')
     expect(worker).not.toContain('searchParams')
   })
+})
+
+/**
+ * `HOST-06`, pinned as SOURCE — Phase 33. The three placements are read as text, not run,
+ * because the refusal HOST-06 exists to prevent is a structural one: a future "tidy the three
+ * into symmetry" edit that wraps `bootstrap-us`'s already-created path in a helper the way `eu`
+ * and `sam` are wrapped. That edit would compile, would pass every OTHER case in this file, and
+ * would re-address the live object — so it is refused here, by name, as its own case.
+ */
+describe('HOST-06 — each region places its object through a differently-shaped call, pinned as source', () => {
+  it('the eu entry narrows the namespace by binding placement before siting', () => {
+    const worker = readFileSync(join(PACKAGE, 'src/worker-eu.ts'), 'utf8')
+    expect(worker).toContain('stubFor(euJurisdictionOf(env.BOOTSTRAP), SERVED_BY)')
+    expect(worker).toContain("const SERVED_BY: HostedObjectName = 'bootstrap-eu'")
+  })
+
+  it('the sam entry sites on the plain namespace, carrying only a hint', () => {
+    const worker = readFileSync(join(PACKAGE, 'src/worker-sam.ts'), 'utf8')
+    expect(worker).toContain('stubFor(env.BOOTSTRAP, SERVED_BY, samLocationHint())')
+    expect(worker).toContain("const SERVED_BY: HostedObjectName = 'bootstrap-sam'")
+  })
+
+  it('the us entry is unwrapped — the case that refuses "tidy the three into symmetry"', () => {
+    // `bootstrap-us` was created through the plain namespace and has carried real traffic
+    // since 2026-08-27. Wrapping its path in anything now would derive a different object ID
+    // and permanently orphan the live one — see `euJurisdictionOf`'s own docblock. So `worker.ts`
+    // must contain NEITHER of the other two entries' calls, not merely its own.
+    const worker = readFileSync(join(PACKAGE, 'src/worker.ts'), 'utf8')
+    expect(worker).toContain('stubFor(env.BOOTSTRAP, SERVED_BY)')
+    expect(worker).not.toContain('euJurisdictionOf')
+    expect(worker).not.toContain('samLocationHint')
+  })
+
+  it('none of the three entries derives a name from the request', () => {
+    for (const { entryModule } of REGION_CONFIGS) {
+      const source = readFileSync(join(PACKAGE, entryModule), 'utf8')
+      expect(source, `${entryModule} must not read searchParams`).not.toContain('searchParams')
+    }
+  })
+})
+
+/**
+ * `HOST-06`/`HOST-07`, the four-way agreement — Phase 33. A configuration whose `main` and
+ * `name` disagree deploys the wrong entry under the wrong script and sites an object
+ * permanently wrong (`T-33-05`). One case per region, rather than a loop over the descriptor
+ * array inside a single assertion, so a reader sees three separate readings and a failure
+ * names which region's configuration disagreed.
+ */
+describe('the three configurations agree with their own entry modules, on all four counts', () => {
+  it.each(REGION_CONFIGS)(
+    '$configFile: name, main, SERVED_BY and the announced host all name the same region',
+    ({ configFile, scriptName, entryModule, objectName }) => {
+      const config = readFileSync(join(PACKAGE, configFile), 'utf8')
+      const entry = readFileSync(join(PACKAGE, entryModule), 'utf8')
+
+      expect(config).toContain(`"name": "${scriptName}"`)
+      expect(config).toContain(`"main": "${entryModule}"`)
+      expect(entry).toContain(`const SERVED_BY: HostedObjectName = '${objectName}'`)
+      expect(config).toMatch(
+        new RegExp(`"ANNOUNCE_MULTIADDRS":\\s*"/dns4/${scriptName}\\.af-4a0\\.workers\\.dev/`),
+      )
+
+      // Repeated across all three rather than only `us`'s own describe block above, so a
+      // region-specific configuration cannot quietly drop one of these while the shared `us`
+      // case stays green.
+      expect(config).toContain('"preview_urls": false')
+      expect(config).toContain('"workers_dev": true')
+      expect(config).toContain('"class_name": "BootstrapObject"')
+      expect(config).toContain('"new_sqlite_classes": ["BootstrapObject"]')
+      // The owner's production prefix, reused from this file's own `us`-configuration case
+      // above — the string lives in this file and in no configuration.
+      expect(config).not.toContain('ocr-checks-worker')
+    },
+  )
 })
 
 /**
@@ -372,12 +524,39 @@ describe('one version, and the deployed node can be asked for it', () => {
     expect(DEPLOY_SCRIPT).toContain('--var "O2_VERSION:$VERSION"')
   })
 
-  it('refuses a release whose tag disagrees with the manifest', () => {
+  it('refuses a release whose tag disagrees with the manifest, and ONLY on a tag', () => {
     // The drift this closes is one layer down from the one the owner found: a release tagged
     // v2.0.1 over an unbumped manifest would deploy announcing the older number, and the node's
     // answer to "what are you running" would be a lie shaped like a version.
     expect(DEPLOY_SCRIPT).toContain('GITHUB_REF_NAME')
-    expect(DEPLOY_SCRIPT).toContain('"$GITHUB_REF_NAME" != "v$VERSION"')
+    expect(DEPLOY_SCRIPT).toContain('"${GITHUB_REF_NAME:-}" != "v$VERSION"')
+
+    // **The second half, added 2026-09-16 after the first half alone fired on every branch
+    // push.** The condition guarded on `GITHUB_REF_NAME` being non-empty, on the stated premise
+    // that it is *"set only on the release path"*. GitHub sets it on EVERY run — on a push it is
+    // the branch name — so the script compared `develop` against `v2.0.0-rc.13` and exited 1
+    // before doing anything, on every `ci.yml` run from 2026-09-15 onward.
+    //
+    // `GITHUB_REF_TYPE` is the discriminator the original comment meant: `tag` on a
+    // tag-triggered run, `branch` otherwise. Asserted as source text because this case reads a
+    // script rather than running it — the behavioural halves live in the four `--dry-run`
+    // cases below, two of which are the positive controls that were the only thing able to see
+    // this at all. The refusal cases stayed GREEN throughout, because a script that dies early
+    // refuses everything, including what it is supposed to refuse.
+    expect(DEPLOY_SCRIPT).toContain('"${GITHUB_REF_TYPE:-}" = "tag"')
+
+    // **The absence is asserted over the CONDITION LINE, not over the file** — and that is not
+    // a convenience, it is this repository's recorded hazard. Asked of the whole script the
+    // assertion fires on the comment above the fix, which quotes the retired shape in order to
+    // explain it; `vocabulary.node.test.ts` has reddened twice on exactly that collision and
+    // `wrangler.jsonc`'s header records it twice more. The condition line is also the only
+    // place where the old shape would MEAN anything — a quoted shape in prose changes no
+    // behaviour, and a guard that cannot tell those apart teaches people to delete the prose.
+    const tagCheckLine = DEPLOY_SCRIPT.split('\n').find(
+      (line) => line.startsWith('if [') && line.includes('GITHUB_REF_TYPE'),
+    )
+    expect(tagCheckLine, 'the tag check is no longer one `if` on one line').toBeDefined()
+    expect(tagCheckLine).not.toContain('-n "${GITHUB_REF_NAME:-}"')
   })
 
   it('rolls the deploy back when the node answers with a version other than the one sent', () => {
@@ -446,7 +625,8 @@ describe('RUN-02 — the deploy cannot produce a node nobody can stop', () => {
    * A scratch repository the script can read, with `SERVED_BY` set to whatever the case needs.
    *
    * Only the four files the script reads before it would deploy: the root manifest for the
-   * version, `wrangler.jsonc` for the name, and the two sources the region is derived and
+   * version, `wrangler.jsonc` for the name AND (2026-09-13, Phase 33's `--config`) the `main`
+   * entry module it derives the region from, and the two sources the region is derived and
    * narrowed against.
    */
   function scratchRepo(servedBy: string | null): string {
@@ -456,7 +636,7 @@ describe('RUN-02 — the deploy cannot produce a node nobody can stop', () => {
     mkdirSync(join(dir, 'packages/cloudflare/src'), { recursive: true })
     writeFileSync(
       join(dir, 'packages/cloudflare/wrangler.jsonc'),
-      '{ "name": "o2-bootstrap-scratch" }\n',
+      '{ "name": "o2-bootstrap-scratch", "main": "src/worker.ts" }\n',
     )
     writeFileSync(
       join(dir, 'packages/cloudflare/src/hosted-object.ts'),

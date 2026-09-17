@@ -35,6 +35,7 @@ const RECEIPT: ShardAttestation = {
   description: 'owner-attested — computed once by the data owner and not independently verified',
   replicas: 1,
   operators: ['harbour-road-volunteers'],
+  issuers: [],
   userKeys: [],
   sharedRelay: null,
 }

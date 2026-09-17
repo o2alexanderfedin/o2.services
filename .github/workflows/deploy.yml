@@ -65,10 +65,30 @@ jobs:
       # diverge and one copy cannot. The run that surfaced it is 33109850406.
       #
       # It runs identically on a laptop: `scripts/deploy-hosted.sh --live`.
+      #
+      # **The issuance budget travels WITH the deploy, and a release that omitted it would
+      # deploy a node that issues nothing.** `wrangler deploy` replaces a Worker's vars with what
+      # the invocation declares, so a budget set by an earlier standalone deploy is dropped by
+      # this one. The failure is silent and its symptom appears two steps away: the node reports
+      # `enrolment.issues: false`, `deploy-pages.sh` correctly publishes a `bootstrap.json` with
+      # no `enrollmentProvider`, every visitor then holds no certificate, and the TURN rung
+      # refuses all of them while nothing anywhere says a variable went missing.
+      #
+      # A repository VARIABLE rather than a secret: the number is not confidential — `GET /self`
+      # reports it — and a variable is visible in the settings UI, which is what an owner needs
+      # in order to change a dial. `vars` (not `secrets`) is also readable on a fork's PR run,
+      # and that is harmless for a number this workflow only ever reads on a published release.
+      #
+      # **Unset is not zero and must not be.** If `O2_MAX_ISSUED_PER_WINDOW` is not configured
+      # this expands to the empty string, and `deploy-hosted.sh` REFUSES rather than silently
+      # switching issuance off — naming the variable and both ways to proceed. Turning issuance
+      # off deliberately is `0`, which reads as a decision. That refusal is the reason this
+      # workflow does not need to validate the value itself.
       - run: scripts/deploy-hosted.sh --live
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          O2_MAX_ISSUED_PER_WINDOW: ${{ vars.O2_MAX_ISSUED_PER_WINDOW }}
 
   # ── The browser client ─────────────────────────────────────────────────────────────────
   #
@@ -107,6 +127,23 @@ jobs:
       - name: Publish the browser client
         run: scripts/deploy-pages.sh --live
         env:
+          # The nostr bootstrap fallback's signing key. **Optional by construction**, and that is
+          # the property to keep: `tools/run/publish-nostr-bootstrap.mjs` warns loudly and exits 0
+          # when it is absent, because the page every visitor loads is already live and verified
+          # by the time it runs, and refusing to call this deploy successful because somebody
+          # else's relay could not be written to would let an optional fallback redden a release
+          # it has nothing to do with.
+          #
+          # A REPOSITORY secret rather than an environment one: this job deliberately carries no
+          # `environment:`, unlike the Cloudflare job above, and adding one to reach a secret
+          # would put the client publish behind whatever approvals that environment grows.
+          #
+          # What holding this key would buy somebody, stated at full size: they could publish a
+          # bootstrap document naming a relay of their choosing, which a visitor dials ONLY when
+          # their own origin gave them nothing and they named no `?relay=`. They could not
+          # impersonate a peer, forge a certificate, or be admitted by a gated relay. Rotating it
+          # is one edit to `NOSTR_BOOTSTRAP_PUBLISHER` and one publish.
+          O2_NOSTR_SECRET_KEY: ${{ secrets.O2_NOSTR_SECRET_KEY }}
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]

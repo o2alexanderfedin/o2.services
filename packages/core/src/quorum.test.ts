@@ -9,7 +9,7 @@ import {
 } from './quorum.ts'
 import type { Discoverability, NodeCertificate } from './enrollment.ts'
 
-/** VER-03, VER-04, VER-08, VER-09, VER-10 — criteria 5, 6, 7. */
+/** VER-03, VER-04, VER-08, VER-09, VER-10, VER-12 — criteria 5, 6, 7, and Phase 45's 1–3. */
 
 /**
  * A candidate certificate, with its discovery facts stated where the case needs them.
@@ -26,7 +26,11 @@ function cert(
   nodeKey: string,
   operatorId: string,
   relayIds: readonly string[],
-  overrides: { readonly userKey?: string; readonly discoverability?: Discoverability } = {},
+  overrides: {
+    readonly userKey?: string
+    readonly discoverability?: Discoverability
+    readonly issuer?: string
+  } = {},
 ): NodeCertificate {
   return {
     nodeKey,
@@ -36,7 +40,17 @@ function cert(
     relayIds,
     issuedAt: 0,
     expiresAt: Number.MAX_SAFE_INTEGER,
-    issuer: 'provider',
+    // Overridable since VER-11, and the default stays `'provider'` because that is what
+    // every case here has always had: one issuer, which is the fabric's real deployment and
+    // therefore the honest default.
+    //
+    // **Since VER-12 that default is load-bearing rather than incidental.** A pool built
+    // from it is a one-issuer pool, so any case composing two or more members from it now
+    // meets `single-issuer-quorum` under default rules. Cases below therefore say one of
+    // two things out loud: `requireDistinctIssuers: false` where the case's subject is a
+    // different rule, or a second issuer where its subject is that independent parties
+    // agreed. A case that says neither is asserting what a one-provider fabric really is.
+    issuer: overrides.issuer ?? 'provider',
     signature: 'sig',
   }
 }
@@ -63,11 +77,20 @@ describe('VER-08 — no two replicas from the same operator', () => {
   })
 
   it('composes from distinct operators, one node each', () => {
+    // **Census, VER-12.** This case relied on "two operators is enough for
+    // `'independent'`", and that was true of the operator dimension and silent about the
+    // provider one — which is what Phase 45 ends. Its subject is the operator rule, so
+    // the repair is a second authority rather than a waiver: the number of parties is
+    // what the new rule reads, and supplying two restores the case's intent unchanged.
+    //
+    // The second issuer lands on `n3` and not on `n2`, and that is not cosmetic: `n2` is
+    // shadowed by `n1` in the one-per-operator map and never reaches the member set, so
+    // an issuer put there would leave the members single-issuer and the case red.
     const result = composeQuorum(
       [
         cert('n1', 'op-a', []),
         cert('n2', 'op-a', []),
-        cert('n3', 'op-b', ['relay-1']),
+        cert('n3', 'op-b', ['relay-1'], { issuer: 'other-provider' }),
         cert('n4', 'op-c', ['relay-1']),
       ],
       { size: 3 },
@@ -112,9 +135,14 @@ describe('VER-09 — no single relay may be the only way to find a whole quorum'
     // right move *given* that rule, and it cost the case its subject: with a seed in
     // the members, the claim "a quorum of relay-discovered peers composes" was no
     // longer the thing being read.
+    //
+    // **Census, VER-12.** The case is about path diversity, not about providers, so the
+    // issuer refusal is waived to keep its subject visible. It is deliberately NOT given
+    // a second issuer: that would change which members the round-robin selects and
+    // silently move the `nodeKey` ordering this case asserts.
     const result = composeQuorum(
       [cert('n1', 'op-a', ['relay-1']), cert('n2', 'op-b', ['relay-2']), cert('n3', 'op-c', ['relay-3'])],
-      { size: 3 },
+      { size: 3, requireDistinctIssuers: false },
     )
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -125,16 +153,20 @@ describe('VER-09 — no single relay may be the only way to find a whole quorum'
   it('applies the same rule to seed nodes — no exemption for servers', () => {
     // Symmetry check. What matters is the discovery graph, and a seed node simply
     // has no relay in it.
+    //
+    // **Census, VER-12.** Both arms waive the issuer refusal: what is being compared is
+    // two discovery graphs, and a second provider in either arm would make the pair
+    // differ in two things at once.
     const allDirect = composeQuorum(
       [cert('n1', 'op-a', []), cert('n2', 'op-b', []), cert('n3', 'op-c', [])],
-      { size: 3 },
+      { size: 3, requireDistinctIssuers: false },
     )
     expect(allDirect.ok).toBe(true)
 
     // One seed member is enough to break a shared discovery dependency.
     const mixed = composeQuorum(
       [cert('n1', 'op-a', ['relay-1']), cert('n2', 'op-b', ['relay-1']), cert('n3', 'op-c', [])],
-      { size: 3 },
+      { size: 3, requireDistinctIssuers: false },
     )
     expect(mixed.ok).toBe(true)
   })
@@ -164,7 +196,16 @@ describe('VER-09 — no single relay may be the only way to find a whole quorum'
     if (guarded.ok) return
     expect(guarded.refusal.kind).toBe('shared-relay-dependency')
 
-    const waived = composeQuorum(singleRelay, { size: 2, requireIndependentPaths: false })
+    // **Census, VER-12.** The waived arm carries `requireDistinctIssuers: false` too, and
+    // the reason is worth naming: without it the composition is still refused, but by the
+    // *issuer* rule — so the case would go on reading `ok === false` while no longer
+    // reading anything about `requireIndependentPaths` at all. The guarded arm above needs
+    // no waiver, because rule 2 is asked first and still speaks for that fixture.
+    const waived = composeQuorum(singleRelay, {
+      size: 2,
+      requireIndependentPaths: false,
+      requireDistinctIssuers: false,
+    })
     expect(waived.ok).toBe(true)
     if (!waived.ok) return
     expect(waived.members.map((m) => m.nodeKey)).toEqual(['n1', 'n2'])
@@ -213,13 +254,20 @@ describe('composition never keys on how a node is discovered', () => {
     expect(sharedRelay(candidates)).toBeNull()
     expect(candidates.every((c) => c.discoverability === 'via-relay')).toBe(true)
 
-    const result = composeQuorum(candidates, { size: 3 })
+    // **Census, VER-12, and this one moved in BOTH ways.** The waiver is needed because
+    // the case's subject is the discovery graph and a second issuer would move the
+    // `nodeKey` ordering it asserts; the strength then moved from `'independent'` to
+    // `'single-issuer'`, because that is what this fixture actually is — three tabs, three
+    // operators, one certificate provider. What it was relying on was that three distinct
+    // operators make a result independent, and after 2026-09-16 that is not true of this
+    // fabric: one party vouched for all three.
+    const result = composeQuorum(candidates, { size: 3, requireDistinctIssuers: false })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.members.map((m) => m.nodeKey)).toEqual(['n1', 'n2', 'n3'])
     // Three tabs behind three relays are a quorum. Three tabs behind *one* are not,
     // and the case below that one is why.
-    expect(result.strength).toBe('independent')
+    expect(result.strength).toBe('single-issuer')
   })
 
   it('refuses a quorum whose own members share a relay the wider pool does not', () => {
@@ -275,9 +323,15 @@ describe('composition never keys on how a node is discovered', () => {
     // independent. By node key alone they would be `n1` and `n2`, who share relay-1
     // — so the preference is what keeps a composable set out of a refusal here,
     // rather than a cosmetic ordering nothing reads.
+    //
+    // **Census, VER-12.** Waived, never given a second issuer. The ordering this case
+    // reads is the within-group comparator, and a second issuer would put the two
+    // candidates in different round-robin groups — which is a different selection and
+    // would move `['z9', 'n1']` for a reason that has nothing to do with dependency
+    // counts.
     const result = composeQuorum(
       [cert('n1', 'op-b', ['relay-1']), cert('n2', 'op-c', ['relay-1']), cert('z9', 'op-a', [])],
-      { size: 2 },
+      { size: 2, requireDistinctIssuers: false },
     )
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -293,8 +347,16 @@ describe('VER-10 / criterion 7 — a weaker claim cannot be read as a stronger o
     expect(
       classifyAttestation([cert('n1', 'op-a', []), cert('n2', 'op-a', ['relay-1'])]),
     ).toBe('owner-domain')
+    // **Census, VER-12.** This arm relied on "two operators is independent" and now needs
+    // to say which two *parties*: its intent is that genuinely independent replicas
+    // agreed, so the repair is a second authority. The one-issuer reading of the same
+    // shape — two operators, one provider — is `'single-issuer'`, and the VER-12 block
+    // below asserts all four labels off one expression.
     expect(
-      classifyAttestation([cert('n1', 'op-a', []), cert('n2', 'op-b', ['relay-1'])]),
+      classifyAttestation([
+        cert('n1', 'op-a', []),
+        cert('n2', 'op-b', ['relay-1'], { issuer: 'other-provider' }),
+      ]),
     ).toBe('independent')
   })
 
@@ -314,8 +376,16 @@ describe('VER-10 / criterion 7 — a weaker claim cannot be read as a stronger o
 
     // …and a real cross-operator quorum still reads independent, so the fix is a
     // correction at one point rather than a downgrade applied everywhere.
+    // **Census, VER-12.** A second authority rather than a waiver: what this arm is for
+    // is that a real cross-operator quorum still reads `'independent'`, so the fixture has
+    // to be one the label is true of. All three candidates are members at `size: 3`
+    // whatever the grouping, so the selection does not move — only the label's input does.
     const three = composeQuorum(
-      [cert('n1', 'op-a', []), cert('n2', 'op-b', ['relay-1']), cert('n3', 'op-c', ['relay-2'])],
+      [
+        cert('n1', 'op-a', []),
+        cert('n2', 'op-b', ['relay-1'], { issuer: 'other-provider' }),
+        cert('n3', 'op-c', ['relay-2']),
+      ],
       { size: 3 },
     )
     expect(three.ok).toBe(true)
@@ -329,15 +399,44 @@ describe('VER-10 / criterion 7 — a weaker claim cannot be read as a stronger o
   it('ranks the strengths so comparisons never rely on string order', () => {
     expect(attestationRank('owner-attested')).toBeLessThan(attestationRank('owner-domain'))
     expect(attestationRank('owner-domain')).toBeLessThan(attestationRank('independent'))
+    // **VER-12, criterion 3's ordering half.** `'single-issuer'` was inserted BETWEEN the
+    // two existing neighbours, and both new inequalities are asserted rather than one:
+    // a rank that landed above `'independent'` would still satisfy the second half of the
+    // pair, and one that landed below `'owner-domain'` would still satisfy the first.
+    // Together they pin the insertion point, and the two assertions above are kept so the
+    // old ordering is read by the same case that reads the new.
+    expect(attestationRank('owner-domain')).toBeLessThan(attestationRank('single-issuer'))
+    expect(attestationRank('single-issuer')).toBeLessThan(attestationRank('independent'))
   })
 
   it('describes each distinctly, so a reader cannot conflate them', () => {
-    const descriptions = (['owner-attested', 'owner-domain', 'independent'] as const).map(describeAttestation)
-    expect(new Set(descriptions).size).toBe(3)
-    // The weak ones must say so in words, not only in a field a UI might drop.
-    expect(descriptions[0]).toContain('not independently verified')
-    expect(descriptions[1]).toContain('not across operators')
-    expect(descriptions[2]).toContain('separate operators')
+    // **Re-anchored per literal on 2026-09-16, and the reason is a false green that was
+    // one edit away.** This case used to reach into the `descriptions` array by POSITION —
+    // the third slot — rather than by strength. Inserting `'single-issuer'` between
+    // `'owner-domain'` and `'independent'` moves the single-issuer sentence into that slot,
+    // and by Phase 45's specified wording it also contains `separate operators`. So the
+    // assertion would have stayed GREEN while silently testing a different strength, and
+    // `'independent'` would have been left with no content assertion at all in the very
+    // phase that is about it. Every assertion below names its own strength instead, which
+    // is the only anchoring an insertion cannot move.
+    expect(describeAttestation('owner-attested')).toContain('not independently verified')
+    expect(describeAttestation('owner-domain')).toContain('not across operators')
+    // The new sentence must name WHICH dimension fell short — criterion 5. A reader who
+    // sees `single-issuer` and only `separate operators` cannot tell whether the operators
+    // or the providers were the shortfall, so both halves are asserted.
+    expect(describeAttestation('single-issuer')).toContain('separate operators')
+    expect(describeAttestation('single-issuer')).toContain('one certificate provider')
+    expect(describeAttestation('independent')).toContain('separate operators')
+
+    const descriptions = (
+      ['owner-attested', 'owner-domain', 'single-issuer', 'independent'] as const
+    ).map(describeAttestation)
+    expect(new Set(descriptions).size).toBe(4)
+    // **The substring property, asserted because a surface depends on it.**
+    // `bench-attestation.node.test.ts:544` asserts a rung's line contains NONE of the
+    // sentences, one strength at a time — so a `single-issuer` sentence that contained the
+    // `independent` one would make that check report a strength the driver never printed.
+    expect(describeAttestation('single-issuer')).not.toContain(describeAttestation('independent'))
   })
 
   it('builds a receipt carrying the label everywhere a result surfaces', () => {
@@ -352,15 +451,60 @@ describe('VER-10 / criterion 7 — a weaker claim cannot be read as a stronger o
     // dependency truthfully rather than naming a relay only some rely on.
     expect(ownerDomain.sharedRelay).toBeNull()
 
+    // **Census, VER-12.** A second authority: the pair below exists to show two receipts
+    // that differ only in strength, and the stronger one has to be a fixture the stronger
+    // label is true of — two operators AND two providers.
     const independent = attestationReceipt([
       cert('n1', 'alice-op', []),
-      cert('n2', 'bob-op', ['relay-1']),
+      cert('n2', 'bob-op', ['relay-1'], { issuer: 'other-provider' }),
     ])
     expect(independent.strength).toBe('independent')
     // Two replicas either way — the count alone cannot distinguish them, which is
     // exactly why the label has to travel with the result.
     expect(independent.replicas).toBe(ownerDomain.replicas)
     expect(attestationRank(independent.strength)).toBeGreaterThan(attestationRank(ownerDomain.strength))
+  })
+
+  it('names the providers that vouched for the members, which is one on this fabric', () => {
+    // VER-11 reported the issuer dimension; VER-12 acts on it. This case is where the
+    // change is visible as a change, so both readings are kept side by side.
+    const oneProvider = attestationReceipt([
+      cert('n1', 'alice-op', []),
+      cert('n2', 'bob-op', ['relay-1']),
+    ])
+    // **Two operators and ONE issuer, and the receipt says both.** Before this field the
+    // strength alone was the whole story, and `'independent'` on this set was true about
+    // operators and said nothing about how many parties an attacker would have to reach.
+    expect(oneProvider.operators).toHaveLength(2)
+    expect(oneProvider.issuers).toEqual(['provider'])
+    // **CENSUS ENTRY — this line read `'independent'` until 2026-09-16, and it is the
+    // sharpest one in the file.** What it was relying on: that two distinct operators are
+    // two independent parties. That was never true of a fabric where one provider mints
+    // both, which is what the owner ruled this fabric is (`.planning/OWNER-ACTIONS.md`
+    // §3c). The label now says what the set is.
+    expect(oneProvider.strength).toBe('single-issuer')
+
+    const twoProviders = attestationReceipt([
+      cert('n1', 'alice-op', []),
+      cert('n2', 'bob-op', ['relay-1'], { issuer: 'other-provider' }),
+    ])
+    // Sorted and de-duplicated, as `operators` and `userKeys` are, so a receipt reads the
+    // same whatever order the replicas answered in.
+    expect(twoProviders.issuers).toEqual(['other-provider', 'provider'])
+    expect(twoProviders.strength).toBe('independent')
+
+    // **The assertion here was INVERTED, not extended, and that inversion is the phase.**
+    // It read `expect(twoProviders.strength).toBe(oneProvider.strength)` — *"the strength
+    // is UNCHANGED across the pair, which is what makes this field worth carrying rather
+    // than inferring"*. That sentence was the honest description of Phase 44, where the
+    // dimension was visible and inert. It is false now: the two sets differ in exactly one
+    // input and the strength follows it, which is the whole of VER-12. Written as literals
+    // on both sides above, and compared by rank here, so neither side can be recomputed
+    // from the thing under test.
+    expect(twoProviders.strength).not.toBe(oneProvider.strength)
+    expect(attestationRank(twoProviders.strength)).toBeGreaterThan(
+      attestationRank(oneProvider.strength),
+    )
   })
 
   it('does not upgrade a single-node result however it is dressed up', () => {
@@ -382,8 +526,12 @@ describe('a seed has no discovery dependency, whatever relays it lists', () => {
       cert('n3', 'op-c', ['relay-1'], { discoverability: 'seed' }),
     ]
 
+    //
+    // **Census, VER-12.** Waived. Every `composeQuorum` call in this block is about the
+    // `seed` reading of `sharedRelay`, and the issuer refusal would answer for all of them
+    // at once — which would leave the block green while reading nothing about seeds.
     expect(sharedRelay(seedsAdvertising)).toBeNull()
-    expect(composeQuorum(seedsAdvertising, { size: 3 }).ok).toBe(true)
+    expect(composeQuorum(seedsAdvertising, { size: 3, requireDistinctIssuers: false }).ok).toBe(true)
   })
 
   it('still refuses when the same relay is the members’ only way to be found', () => {
@@ -406,7 +554,8 @@ describe('a seed has no discovery dependency, whatever relays it lists', () => {
       cert('n3', 'op-c', ['relay-1'], { discoverability: 'seed' }),
     ]
     expect(sharedRelay(mixed)).toBeNull()
-    expect(composeQuorum(mixed, { size: 3 }).ok).toBe(true)
+    // Census, VER-12 — waived; the subject is the seed reading of rule 2.
+    expect(composeQuorum(mixed, { size: 3, requireDistinctIssuers: false }).ok).toBe(true)
   })
 
   it('refuses when the seed that broke the dependency IS the relay the others name', () => {
@@ -435,12 +584,17 @@ describe('a seed has no discovery dependency, whatever relays it lists', () => {
 
     // Without the mapping: the seed's presence answers `null` — the old reading, kept
     // here as the control so the pair below is a comparison rather than an assertion.
+    //
+    // **Census, VER-12.** Both arms waive the issuer refusal, and the control arm is why
+    // it matters: its whole job is to compose, so that the refusal below can only have
+    // come from the mapping. Under the default issuer rule it would refuse for an
+    // unrelated reason and the pair would stop being a comparison.
     expect(sharedRelay(seedIsTheRelay)).toBeNull()
-    expect(composeQuorum(seedIsTheRelay, { size: 3 }).ok).toBe(true)
+    expect(composeQuorum(seedIsTheRelay, { size: 3, requireDistinctIssuers: false }).ok).toBe(true)
 
     // With it: the same three certificates, refused, and named by the relay's peer id.
     expect(sharedRelay(seedIsTheRelay, peerIdOf)).toBe('relay-1')
-    const refused = composeQuorum(seedIsTheRelay, { size: 3, peerIdOf })
+    const refused = composeQuorum(seedIsTheRelay, { size: 3, peerIdOf, requireDistinctIssuers: false })
     expect(refused.ok).toBe(false)
     if (refused.ok) return
     expect(refused.refusal.kind).toBe('shared-relay-dependency')
@@ -471,6 +625,241 @@ describe('a seed has no discovery dependency, whatever relays it lists', () => {
       certificate.nodeKey === 'n3' ? 'relay-1' : `peer-${certificate.nodeKey}`
 
     expect(sharedRelay(oneSurvivor, peerIdOf)).toBeNull()
-    expect(composeQuorum(oneSurvivor, { size: 4, peerIdOf }).ok).toBe(true)
+    // Census, VER-12 — waived; the subject is the boundary of rule 2's second arm.
+    expect(
+      composeQuorum(oneSurvivor, { size: 4, peerIdOf, requireDistinctIssuers: false }).ok,
+    ).toBe(true)
+  })
+})
+
+/**
+ * VER-12 — independence is bounded by the number of PROVIDERS an attacker must subvert.
+ *
+ * Phase 45 criteria 1, 2 and the ordering half of 3. The owner ruled one certificate
+ * provider on 2026-09-16 (`.planning/OWNER-ACTIONS.md` §3c), so on this fabric the
+ * strongest label a result can carry is `'single-issuer'` and `'independent'` is
+ * unreachable until a second provider exists. The rule nevertheless ships at full
+ * strength — `requireDistinctIssuers` defaults true — because a default relaxed while
+ * waiting for a second provider would report exactly the independence this phase exists
+ * to stop claiming.
+ *
+ * **Three of the cases below are about the WAIVER rather than the rule**, and the
+ * distinction they exist to pin is that the waiver turns off the *refusal* and never the
+ * *preference*: the issuer-grouped round-robin runs unconditionally, so the day a second
+ * provider runs, the live path composes a two-issuer member set with no code change.
+ */
+describe('VER-12 — a quorum vouched for by one provider is one attacker’s reach', () => {
+  it('refuses a one-issuer quorum under the default rule, and composes it when waived', () => {
+    // Criterion 1, both halves in one case, because a waiver that is never observed to
+    // change an answer is not evidence the option is wired to anything.
+    //
+    // Three distinct operators — so `insufficient-operators` has nothing to say — all
+    // seeds, so rule 2 has nothing to say either. The only thing left that could refuse
+    // this pool is the issuer rule, which is what makes the pair a reading of it.
+    const oneProvider = [
+      cert('n1', 'op-a', [], { issuer: 'sole-provider' }),
+      cert('n2', 'op-b', [], { issuer: 'sole-provider' }),
+      cert('n3', 'op-c', [], { issuer: 'sole-provider' }),
+    ]
+
+    const refused = composeQuorum(oneProvider, { size: 3 })
+    expect(refused.ok).toBe(false)
+    if (refused.ok) return
+    expect(refused.refusal.kind).toBe('single-issuer-quorum')
+    if (refused.refusal.kind !== 'single-issuer-quorum') return
+    // Named, not counted. The issuer string is written as a literal on both sides so the
+    // assertion cannot be satisfied by reading the value back out of the thing under test.
+    expect(refused.refusal.issuer).toBe('sole-provider')
+    expect(refused.reason).toContain('sole-provider')
+    expect(refused.reason).toContain('one provider vouched for all of them')
+
+    const waived = composeQuorum(oneProvider, { size: 3, requireDistinctIssuers: false })
+    expect(waived.ok).toBe(true)
+    if (!waived.ok) return
+    expect(waived.members).toHaveLength(3)
+    // The composition is a real one and reports what it is: separate operators agreed and
+    // one provider vouched for all of them.
+    expect(waived.strength).toBe('single-issuer')
+  })
+
+  it('lets the older refusals speak first for the pools they already spoke for', () => {
+    // The precedence, pinned rather than left to chance. Siting the issuer check last is
+    // what keeps every pre-existing refusal saying what it always said, and both arms
+    // below are single-issuer pools that the new rule would happily have answered for.
+
+    // One operator, one issuer, three slots. `insufficient-operators` is the truer
+    // sentence about this pool: it is also a single-issuer pool, but what is actually
+    // wrong with it is that one person is trying to fill a quorum alone, and telling
+    // them to find a second provider would be advice that does not fix anything.
+    const oneOperator = composeQuorum(
+      [cert('n1', 'mallory', []), cert('n2', 'mallory', []), cert('n3', 'mallory', [])],
+      { size: 3 },
+    )
+    expect(oneOperator.ok).toBe(false)
+    if (oneOperator.ok) return
+    expect(oneOperator.refusal.kind).toBe('insufficient-operators')
+
+    // Three operators, one issuer, and every member reachable only through relay-1. Both
+    // rules are true of this set; rule 2 answers, because it is asked first.
+    const oneRelay = composeQuorum(
+      [
+        cert('n1', 'op-a', ['relay-1']),
+        cert('n2', 'op-b', ['relay-1']),
+        cert('n3', 'op-c', ['relay-1']),
+      ],
+      { size: 3 },
+    )
+    expect(oneRelay.ok).toBe(false)
+    if (oneRelay.ok) return
+    expect(oneRelay.refusal.kind).toBe('shared-relay-dependency')
+  })
+
+  it('does not refuse a one-member quorum on an issuer ground', () => {
+    // **The decision named, so a later reader does not read the absence as an oversight**
+    // — `45-CONTEXT.md` §3, ruled rather than discovered during execution.
+    //
+    // A one-member set claims no independence at all: `classifyAttestation` answers
+    // `owner-attested` for it, and the receipt says in words that the result was computed
+    // once and not independently verified. Refusing it because one provider vouched for
+    // its single member would refuse a composition that never made the claim. So the rule
+    // fires only at two or more members, and this is the case that says so.
+    //
+    // The candidate is a seed. That is load-bearing rather than incidental: rule 2 is
+    // asked first and refuses a one-member quorum that hangs off a relay — a case above
+    // pins exactly that — so a relay-discovered candidate here would read the path rule
+    // instead of the issuer decision this case exists to name.
+    const alone = composeQuorum([cert('solo', 'op-a', [])], { size: 1 })
+    expect(alone.ok).toBe(true)
+    if (!alone.ok) return
+    expect(alone.members).toHaveLength(1)
+    expect(alone.strength).toBe('owner-attested')
+  })
+
+  it('classifies all four strengths off one expression, operators and issuers together', () => {
+    // Criterion 2. Asserted as a SET in one case on `reduce-job.test.ts:768-771`'s stated
+    // reasoning: either reading alone is satisfied by a constant, and only the four of
+    // them together say the value followed its input.
+    expect(classifyAttestation([cert('n1', 'op-a', [])])).toBe('owner-attested')
+    expect(
+      classifyAttestation([cert('n1', 'op-a', []), cert('n2', 'op-a', ['relay-1'])]),
+    ).toBe('owner-domain')
+    expect(
+      classifyAttestation([cert('n1', 'op-a', []), cert('n2', 'op-b', ['relay-1'])]),
+    ).toBe('single-issuer')
+    expect(
+      classifyAttestation([
+        cert('n1', 'op-a', []),
+        cert('n2', 'op-b', ['relay-1'], { issuer: 'other-provider' }),
+      ]),
+    ).toBe('independent')
+  })
+
+  it('reads one user key enrolled with two providers as owner-domain, not independent', () => {
+    // **The awkward case, and nothing in the tree asserted it before Phase 45.** Two
+    // certificates, TWO issuers, ONE `operatorId` — one owner who enrolled the same user
+    // key with two providers. Criterion 2 asks for both dimensions above one, and this is
+    // the arm that says the conjunction really is a conjunction rather than a disjunction
+    // wearing an `&&`.
+    //
+    // It is not `'independent'`, because two providers vouching for one owner's two
+    // machines does not make those machines independent of the owner. It is not
+    // `'single-issuer'` either — that label says "separate operators, one provider", and
+    // here the operators are not separate. `'owner-domain'` is the only true reading, and
+    // it falls out of the branch order with no fourth branch.
+    const oneOwnerTwoProviders = [
+      cert('n1', 'alice-op', [], { issuer: 'provider' }),
+      cert('n2', 'alice-op', ['relay-1'], { issuer: 'other-provider' }),
+    ]
+    expect(new Set(oneOwnerTwoProviders.map((c) => c.issuer)).size).toBe(2)
+    expect(new Set(oneOwnerTwoProviders.map((c) => c.operatorId)).size).toBe(1)
+    expect(classifyAttestation(oneOwnerTwoProviders)).toBe('owner-domain')
+  })
+
+  it('builds the member set ACROSS issuers rather than checking it afterwards', () => {
+    // Four candidates, four operators, all seeds — so neither the operator rule nor the
+    // path rule has anything to say and the selection is the only thing being read.
+    // Three carry `issuer-a` and one carries `issuer-b`, and all four sort ahead of `b9`
+    // by the within-group comparator (equal dependency counts, then `nodeKey`).
+    //
+    // **Two slots. The old `ordered.slice(0, size)` would have returned `['a1', 'a2']`** —
+    // both from one provider, a quorum reporting a redundancy that one party's compromise
+    // would erase. The round-robin returns one from each group, which is the same shape
+    // "no two replicas from the same operator" already has in this file: a property of the
+    // construction, not a check bolted on after.
+    //
+    // The `nodeKey`s are asserted rather than the issuer count, so the case reads the
+    // selection and not merely its outcome — a composer that picked `['a1','a2']` and then
+    // refused would also produce a two-issuer *pool*.
+    const pool = [
+      cert('a1', 'op-a1', [], { issuer: 'issuer-a' }),
+      cert('a2', 'op-a2', [], { issuer: 'issuer-a' }),
+      cert('a3', 'op-a3', [], { issuer: 'issuer-a' }),
+      cert('b9', 'op-b9', [], { issuer: 'issuer-b' }),
+    ]
+
+    const result = composeQuorum(pool, { size: 2 })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.members.map((m) => m.nodeKey)).toEqual(['a1', 'b9'])
+    expect(result.strength).toBe('independent')
+  })
+
+  it('composes THE SAME spread across issuers when the refusal is waived — the live path', () => {
+    // **THE CASE THE LIVE PATH DEPENDS ON, and nothing else in this plan reaches it.**
+    // `packages/core/src/job/submit.ts` passes `requireDistinctIssuers: false` — the owner
+    // ruled one provider, and a defaulted refusal there would kill redundant verification
+    // on every public shard at `redundancy >= 2`. This is that exact configuration.
+    //
+    // It differs from the case immediately above in **one field**, and that is the point.
+    // `45-CONTEXT.md` §1 and the sentence already committed to `.planning/ROADMAP.md` —
+    // *"the day a second provider runs, `independent` becomes reachable with no code
+    // change"* — both rest on the waiver turning off the REFUSAL and not the PREFERENCE.
+    // The grouping must therefore run outside `if (requireDistinctIssuers)`.
+    //
+    // **Nesting it inside that flag is a natural, tidy-looking edit that nothing else
+    // catches.** `tsc` stays clean; the criterion 1 case above still passes, because its
+    // waived half uses a ONE-issuer pool where the round-robin degenerates to one group
+    // and proves nothing; the two-issuer default case above still passes, because it does
+    // not waive. Only a two-issuer pool under the waiver can see it, and the ROADMAP
+    // sentence would otherwise become silently false on the only path that runs.
+    const pool = [
+      cert('a1', 'op-a1', [], { issuer: 'issuer-a' }),
+      cert('a2', 'op-a2', [], { issuer: 'issuer-a' }),
+      cert('a3', 'op-a3', [], { issuer: 'issuer-a' }),
+      cert('b9', 'op-b9', [], { issuer: 'issuer-b' }),
+    ]
+
+    const result = composeQuorum(pool, { size: 2, requireDistinctIssuers: false })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // (a) The load-bearing assertion: the selected keys are named individually, one from
+    // each issuer group. Counting issuers would be satisfied by a pool-level fact; naming
+    // `a1` and `b9` reads which members the composer actually chose.
+    expect(result.members.map((m) => m.nodeKey)).toEqual(['a1', 'b9'])
+    expect(result.members.map((m) => m.issuer)).toEqual(['issuer-a', 'issuer-b'])
+    // (b) And the label that follows from it, with no code change between here and a
+    // two-provider fabric.
+    expect(result.strength).toBe('independent')
+  })
+
+  it('reaches independent under the DEFAULT rule the day a second provider runs', () => {
+    // The ROADMAP sentence in its *refusing* configuration — no waiver anywhere in this
+    // case. Two operators, two providers, both seeds: the strictest rule set this module
+    // has, and it composes.
+    //
+    // This is what the phase is built for. On this fabric the case is hypothetical, which
+    // is exactly why it is written down: the property that costs nothing to revisit is
+    // only worth claiming if something reads it.
+    const twoProviders = composeQuorum(
+      [
+        cert('n1', 'op-a', [], { issuer: 'provider' }),
+        cert('n2', 'op-b', [], { issuer: 'other-provider' }),
+      ],
+      { size: 2 },
+    )
+    expect(twoProviders.ok).toBe(true)
+    if (!twoProviders.ok) return
+    expect(twoProviders.strength).toBe('independent')
+    expect(new Set(twoProviders.members.map((m) => m.issuer)).size).toBe(2)
   })
 })

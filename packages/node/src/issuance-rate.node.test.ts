@@ -154,7 +154,7 @@ describe('AUTH-04 — the issuer’s admission path under the arrival rate a 1 h
       // and its I/O weather rather than encoding them.
       const aloneAt = performance.now()
       const first = await start('joiner-0', {
-        enrollment: { userPrivateKey: userKey(0), operatorId: 'ops-0', providerAddr },
+        enrollment: { userPrivateKey: userKey(0), providerAddr },
       })
       const alone = performance.now() - aloneAt
       expect(first.certificate, 'the calibration joiner enrolled without a certificate').not.toBeNull()
@@ -167,7 +167,6 @@ describe('AUTH-04 — the issuer’s admission path under the arrival rate a 1 h
           start(`joiner-${i + 1}`, {
             enrollment: {
               userPrivateKey: userKey(i + 1),
-              operatorId: `ops-${i + 1}`,
               providerAddr,
             },
           }),

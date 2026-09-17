@@ -604,6 +604,12 @@ function enrollmentResultToValue(result: EnrollmentResult): CanonicalValue {
   if (refusal.kind === 'stale-challenge') {
     return { ...base, refusal: { kind: refusal.kind, ttlMs: refusal.ttlMs } }
   }
+  // VER-11. Both values, because the refusal is only actionable as a pair — what this
+  // requester sent, and the only thing this provider would sign. No user key: `derived` is
+  // computed from it, so naming it separately would put the same fact on the frame twice.
+  if (refusal.kind === 'operator-id-not-derivable') {
+    return { ...base, refusal: { kind: refusal.kind, supplied: refusal.supplied, derived: refusal.derived } }
+  }
   return {
     ...base,
     refusal: {
@@ -661,6 +667,16 @@ function parseEnrollmentRefusal(value: CanonicalValue | undefined): EnrollmentRe
     const ttlMs = asFiniteNumber(record['ttlMs'])
     if (ttlMs === null) return null
     return { kind, ttlMs }
+  }
+  // Written at the same moment as its encoder above, which is the whole point of this
+  // function's docblock: `tsc` broke the encoder when the arm was added and said nothing
+  // about this one. A `null` here would have the provider refusing correctly, the frame
+  // well formed, and the joiner reading no reason at all.
+  if (kind === 'operator-id-not-derivable') {
+    const supplied = record['supplied']
+    const derived = record['derived']
+    if (typeof supplied !== 'string' || typeof derived !== 'string') return null
+    return { kind, supplied, derived }
   }
   if (kind !== 'rate-limited') return null
   const userKey = record['userKey']
