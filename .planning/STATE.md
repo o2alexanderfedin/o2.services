@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Open the Doors
-status: executing
+status: milestone_complete
 stopped_at: >-
   WRITTEN BY HAND 2026-08-28, and by hand for a recorded reason. On 2026-08-25
   the tooling rewrote this frontmatter after the session's commits and wrote four
@@ -427,20 +427,23 @@ stopped_at: >-
   for irreversible acts produces `Partial` rows by construction. Written at the ceiling: if a
   fourth raise of the same shape arrives, the question is whether `experiment-not-run` needs its
   own count, not whether the ceiling moves again.
-last_updated: "2026-09-16T18:10:00.000Z"
+last_updated: "2026-09-18T04:10:00.000Z"
 last_activity: >-
-  2026-09-16 — the owner ruled OWNER-ACTIONS row 3c: ONE certificate provider, and the lower
-  ceiling accepted with it. Phase 45 executed on that ruling in four sequential waves, and
-  `independent` is now UNREACHABLE on this fabric: every member's certificate is signed by the
-  same party, so the strongest label a result can carry is `single-issuer`. That is the point,
-  not a regression -- the fabric stops claiming an independence it cannot support. VER-12
-  closed, taking the v1 ledger to 71 of 74. The rule ships at full strength; the live job path
-  waives the REFUSAL and keeps the CONSTRUCTION, so a second provider makes `independent`
-  reachable again with no code change, and a case pins that. Eleven plants across the phase,
-  eleven reds, no green plant. Two false greens were caught by ordinary work rather than by a
-  plant: a parser regex that stopped matching anything, leaving a neighbouring absence check
-  passing vacuously, and an assertion reading descriptions by array index that would have
-  retargeted silently onto the new label.
+  2026-09-17 — MILESTONE v2.0 "Open the Doors" CLOSED by owner ruling, at 29 of 38 requirements,
+  with v2.0.0-rc.14 released and verified live: the node reports issues:true at 600/hour, the
+  kill switch is operable, and the published client carries an enrollmentProvider. The honest
+  headline is written into .planning/milestones/v2.0-SHIPPED.md rather than softened here: THE
+  DOORS ARE OPEN AND NOBODY HAS WALKED THROUGH THEM. The milestone goal was reachability AND a
+  scaling curve on hundreds of independently-owned devices; the first half runs, the second did
+  not happen, and closing the milestone does not make it happen. The funnel has seen 23 page
+  loads -- development traces, not a cohort. Of the nine open rows, ONE (HOST-10) is Refuted and
+  does NOT carry forward, two (BENCH-08, BENCH-09) have no denominator until a run exists, and
+  six wait on an act only the owner can perform. Two defects were found and fixed on the way to
+  the release, both inside the deploy path: the release carried no issuance budget, so a released
+  node would have issued nothing silently; and the tag check fired on every branch push, which
+  had kept CI red for twenty consecutive merges. Next milestone is scoped AWS LAMBDA FIRST by
+  owner ruling -- write an AWS Lambda as a WASM module and run that artifact here, with the
+  carried rows behind it.
 progress:
   total_phases: 17
   completed_phases: 2
