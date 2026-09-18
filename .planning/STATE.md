@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Open the Doors
-status: milestone_complete
+status: planning
 stopped_at: >-
   WRITTEN BY HAND 2026-08-28, and by hand for a recorded reason. On 2026-08-25
   the tooling rewrote this frontmatter after the session's commits and wrote four
@@ -429,27 +429,27 @@ stopped_at: >-
   own count, not whether the ceiling moves again.
 last_updated: "2026-09-18T04:10:00.000Z"
 last_activity: >-
-  2026-09-17 — MILESTONE v2.0 "Open the Doors" CLOSED by owner ruling, at 29 of 38 requirements,
-  with v2.0.0-rc.14 released and verified live: the node reports issues:true at 600/hour, the
-  kill switch is operable, and the published client carries an enrollmentProvider. The honest
-  headline is written into .planning/milestones/v2.0-SHIPPED.md rather than softened here: THE
-  DOORS ARE OPEN AND NOBODY HAS WALKED THROUGH THEM. The milestone goal was reachability AND a
-  scaling curve on hundreds of independently-owned devices; the first half runs, the second did
-  not happen, and closing the milestone does not make it happen. The funnel has seen 23 page
-  loads -- development traces, not a cohort. Of the nine open rows, ONE (HOST-10) is Refuted and
-  does NOT carry forward, two (BENCH-08, BENCH-09) have no denominator until a run exists, and
-  six wait on an act only the owner can perform. Two defects were found and fixed on the way to
-  the release, both inside the deploy path: the release carried no issuance budget, so a released
-  node would have issued nothing silently; and the tag check fired on every branch push, which
-  had kept CI red for twenty consecutive merges. Next milestone is scoped AWS LAMBDA FIRST by
-  owner ruling -- write an AWS Lambda as a WASM module and run that artifact here, with the
-  carried rows behind it.
+  2026-09-17 — MILESTONE v2.1 "Run Somebody Else's Lambda" SCOPED, immediately after v2.0 closed.
+  A spike the same day established the ground: an unedited Lambda handler -- `export const handler
+  = async (event, context)`, sha256-identical across two build paths -- already runs end to end
+  through this repository's existing AbiExecutor + WasiExecutor, returning the right answer with
+  the real requestId, and NO repository change was needed for that. Three findings reshaped the
+  approach. (1) `wasi:http` was the wrong artifact shape, reached for because "Lambda is about
+  HTTP" -- 14.4 MB against Javy's 1.43 MB, and V8 refuses it before reading an import because a
+  component's preamble is `0d 00 01 00` where a module's is `01 00 00 00`. CALLING a Lambda needs
+  no HTTP at all; AWS's own guests never speak its Runtime API either. (2) `poll_oneoff` is not a
+  blocker and the reason is structural -- a Javy artifact declares 9 imports and it is not among
+  them. Measured with a positive control that does call it. (3) The dominant cost is
+  recompilation, not linear memory, and the router compiles twice per dispatch. Phase 46 is the
+  first phase and it GRANTS NOTHING: a module declares its wish to reach the network inside its
+  signature at packaging time, and a node refuses the WHOLE task -- owner ruling, taken with the
+  alternative in front of him -- when such a module meets sovereign data. CAP-01 opened.
 progress:
-  total_phases: 17
-  completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
-  percent: 12
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 <!--
