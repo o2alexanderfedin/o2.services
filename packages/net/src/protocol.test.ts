@@ -306,6 +306,14 @@ describe('a malformed module record refuses the whole frame, one field at a time
     expect(parseRequest(execFrame(await recordValue({ signature: null })))).toBeNull()
   })
 
+  it('refuses a wantsNetworkReach that is present and not true', async () => {
+    // T-46-04. Present-and-not-true, including false, refuses the whole frame rather
+    // than dropping the field — dropping it would hand the resolver a payload that
+    // differs from the signed one, turning a parsing bug into a reported forgery.
+    expect(parseRequest(execFrame(await recordValue({ wantsNetworkReach: false })))).toBeNull()
+    expect(parseRequest(execFrame(await recordValue({ wantsNetworkReach: 'yes' })))).toBeNull()
+  })
+
   it('refuses a moduleRecord that is not a record at all', () => {
     expect(parseRequest(execFrame('not-a-record'))).toBeNull()
     expect(parseRequest(execFrame([1, 2, 3]))).toBeNull()
