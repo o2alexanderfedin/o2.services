@@ -155,6 +155,26 @@ export interface NameRecord {
    * A record whose signer IS an anchor needs no delegation and should carry none.
    */
   readonly delegation?: NameDelegation
+  /**
+   * CAP-01 — a publisher's signed declaration that this module wants network reach.
+   *
+   * **Inside the signature, for the same reason `translationKeyCid` and `delegation` are.**
+   * A wish for network reach cannot be attached to a record that was signed without one,
+   * stripped from a record that carries one, or swapped in by whoever relays the file — all
+   * three are forgeries a field outside the payload would allow.
+   *
+   * **Optional, and the optionality is load-bearing.** Every record signed before this field
+   * existed omits it, {@link payloadOf} omits it from the encoded value when absent, and
+   * those signatures therefore verify against byte-identical payloads.
+   *
+   * **It names a wish, never a permission.** This phase reads it only to refuse a task whose
+   * label forbids network reach; nothing here grants access, and whether a signer can be
+   * trusted to declare honestly is a later phase's question, not this one's.
+   *
+   * Typed as the literal `true` rather than `boolean` — there is no signed meaning yet for
+   * an explicit `false`, because the absent state already carries "does not declare".
+   */
+  readonly wantsNetworkReach?: true
 }
 
 function payloadOf(record: Omit<NameRecord, 'signature'>): Uint8Array<ArrayBuffer> {
@@ -183,6 +203,9 @@ function payloadOf(record: Omit<NameRecord, 'signature'>): Uint8Array<ArrayBuffe
             signature: record.delegation.signature,
           },
         }),
+    // Same spread-omit discipline again: a record that never declares a wish for network
+    // reach must hash exactly as it did before this field existed.
+    ...(record.wantsNetworkReach === undefined ? {} : { wantsNetworkReach: record.wantsNetworkReach }),
   }
   const encoded = encodeCanonical(value)
   if (!encoded.ok) throw new NotEncodableError('name record', encoded.error)
@@ -243,6 +266,9 @@ export function encodeNameRecord(record: NameRecord): string {
               signature: record.delegation.signature,
             },
           }),
+      // Emitted only when present, matching `payloadOf`. A `"wantsNetworkReach": false` in
+      // the file would decode to a record that is not the one that was signed.
+      ...(record.wantsNetworkReach === undefined ? {} : { wantsNetworkReach: record.wantsNetworkReach }),
       signature: record.signature,
     },
     null,
@@ -347,6 +373,19 @@ export function decodeNameRecord(text: string): NameRecord | null {
     delegation = { root, delegate, expiresAt: delegationExpiresAt, signature: delegationSignature }
   }
 
+  // CAP-01. Absent is a record that declares no wish for network reach and decodes fine;
+  // present and not the literal `true` — including `false` — is a malformed record and is
+  // refused, on this function's own stated rule that a half-decoded record is worse than
+  // none. A genuine signer's canonical form omits the key rather than encoding `false`, so a
+  // `false` on the wire is not a value any signature could have covered; dropping it would
+  // hand the resolver a payload that differs from the one that was signed.
+  const wantsNetworkReachValue = value['wantsNetworkReach']
+  let wantsNetworkReach: true | undefined
+  if (wantsNetworkReachValue !== undefined) {
+    if (wantsNetworkReachValue !== true) return null
+    wantsNetworkReach = true
+  }
+
   return {
     name,
     cid,
@@ -356,6 +395,7 @@ export function decodeNameRecord(text: string): NameRecord | null {
     signature,
     ...(translationKeyCid === undefined ? {} : { translationKeyCid }),
     ...(delegation === undefined ? {} : { delegation }),
+    ...(wantsNetworkReach === undefined ? {} : { wantsNetworkReach }),
   }
 }
 
