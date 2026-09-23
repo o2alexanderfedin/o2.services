@@ -1096,6 +1096,9 @@ function nameRecordToValue(record: NameRecord): CanonicalValue {
             signature: record.delegation.signature,
           },
         }),
+    ...(record.wantsNetworkReach === undefined
+      ? {}
+      : { wantsNetworkReach: record.wantsNetworkReach }),
     signature: record.signature,
   }
 }
@@ -1188,6 +1191,16 @@ function parseNameRecord(value: CanonicalValue): NameRecord | null {
     delegation = parsed
   }
 
+  // Same rule as translationKeyCid/delegation above: absent means no declaration, and
+  // present-and-not-true (including false) refuses the whole record rather than
+  // silently dropping the field, on decodeNameRecord's identical rule in naming.ts.
+  const wantsNetworkReachValue = record['wantsNetworkReach']
+  let wantsNetworkReach: true | undefined
+  if (wantsNetworkReachValue !== undefined) {
+    if (wantsNetworkReachValue !== true) return null
+    wantsNetworkReach = true
+  }
+
   return {
     name,
     cid,
@@ -1197,6 +1210,7 @@ function parseNameRecord(value: CanonicalValue): NameRecord | null {
     signature,
     ...(translationKeyCid === undefined ? {} : { translationKeyCid }),
     ...(delegation === undefined ? {} : { delegation }),
+    ...(wantsNetworkReach === undefined ? {} : { wantsNetworkReach }),
   }
 }
 
