@@ -1162,6 +1162,7 @@ that straggler-dominated distributions have meaningless means.
 | Phase 46 P01 | 6min | 2 tasks | 2 files |
 | Phase 46 P03 | 20min | 2 tasks | 4 files |
 | Phase 46 P04 | 15min | 2 tasks | 1 files |
+| Phase 46 P05 | 35min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -1210,6 +1211,23 @@ that straggler-dominated distributions have meaningless means.
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- **CAP-01 is now wired into both production node factories and proven there, not
+  only in isolation (Phase 46, plan 05).** `guardSovereignty(guardNetworkReach(
+  provenance(abi)), sovereignty)` composes identically at `fabric-node.ts:2934` and
+  `browser-node.ts:2540`. A real `FabricNode` refuses a declared module against
+  sovereign data over real RPC; a real `BrowserNode` refuses the identical shape
+  through a real Worker dispatch — both tiers' positive and non-declaring controls
+  pass at full strength, watched RED and restored on both tiers first. A collision
+  was measured and fixed along the way: the `[0x80]` sovereign-input byte the
+  DATA-09 fixture uses is also the middle byte of an em dash's UTF-8 encoding, and
+  `describeNetworkReachRefusal`'s own prose contains one — so registering `[0x80]`
+  as a sovereign payload made the egress tap rewrite CAP-01's own refusal text
+  before it reached the RPC boundary. `reachability-dispositions.ts` also gained a
+  `HIDDEN_BY_DISPATCH` entry for `describeNetworkReachRefusal`, mirroring
+  `describeModuleRefusal`'s row, since wiring gave it its first port-dispatched
+  caller. `CAP-01` as a whole still waits on `46-06`'s full-lane sweep and
+  criteria-to-test accounting.
 
 - **Both of CAP-01's decision surfaces now have a re-checkable regression proof
   (Phase 46, plan 04).** `NR1`/`NR2` in `packages/node/src/mutation-ledger.ts` plant,
