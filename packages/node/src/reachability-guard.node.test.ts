@@ -2786,7 +2786,15 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
 // ceiling comes back down 36 -> 35, when `46-05-PLAN.md` wires `guardNetworkReach` into both
 // node factories. A ceiling left slack after the orphan is wired is the drift this guard
 // exists to catch, so 46-05's own `files_modified` should include this file.
-const ORPHAN_MODULE_CEILING = 36
+//
+// 2026-09-23 (Phase 46, CAP-01, plan 05): 36 -> 35, the closing condition above is met.
+// `guardNetworkReach` is now composed into both `fabric-node.ts:2929` and
+// `browser-node.ts:2540` (`guardSovereignty(guardNetworkReach(provenance(abi)), sovereignty)`),
+// so both production sites import it and the traced graph reaches it through each factory's
+// own barrel. The entry above is left in place rather than deleted, matching this list's own
+// convention of recording a raise and its close as a pair rather than erasing the history of
+// why the number moved.
+const ORPHAN_MODULE_CEILING = 35
 
 /**
  * A production module that reaches **no barrel at all**, named by path.

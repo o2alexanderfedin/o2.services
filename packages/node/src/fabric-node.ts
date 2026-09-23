@@ -111,6 +111,7 @@ import {
   WorkerExecutor,
   attestResults,
   guardModuleProvenance,
+  guardNetworkReach,
   guardSovereignty,
   isStartBrowserLabel,
   publishCapabilities,
@@ -2925,8 +2926,12 @@ export class FabricNode {
     // Everything inside is unchanged and the order still matters: sovereignty outside
     // provenance, provenance innermost — now against the ABI router rather than
     // directly against `compute`, with the router delegating to `compute` or to the
-    // WASI executor. No guard moved and none was added between them.
-    const counter = new CountingExecutor(guardSovereignty(provenance(abi), sovereignty))
+    // WASI executor. Between them sits CAP-01's `guardNetworkReach`, reading
+    // `task.moduleRecord.wantsNetworkReach` before `guardModuleProvenance` has
+    // verified anything about that record — safe only because this guard refuses and
+    // never grants, per `network-reach-guard.ts`'s own docblock. No guard moved
+    // beyond this one addition.
+    const counter = new CountingExecutor(guardSovereignty(guardNetworkReach(provenance(abi)), sovereignty))
     const executor = new GovernedExecutor(counter, governor)
 
     // VER-08 / VER-09 / VER-10 — this node's signing identity, resolved **once**, on one

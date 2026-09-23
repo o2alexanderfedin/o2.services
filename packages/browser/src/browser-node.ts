@@ -50,6 +50,7 @@ import {
   attestResults,
   deriveSealKey,
   guardModuleProvenance,
+  guardNetworkReach,
   guardSovereignty,
   isStartBrowserLabel,
   publishCapabilities,
@@ -2473,6 +2474,13 @@ export class BrowserNode {
     // clearance answer is about this node; the provenance answer is about the
     // dispatcher's record and would bury it.
     //
+    // Between sovereignty and provenance sits CAP-01's `guardNetworkReach`, reading
+    // `task.moduleRecord.wantsNetworkReach` before `provenance` has verified anything
+    // about that record. That read is safe only because this guard refuses and never
+    // grants — it forms no capability, it only says no to one — an argument this file
+    // does not re-derive since `network-reach-guard.ts`'s own docblock already carries
+    // it in full; this tab composes it the same way `fabric-node.ts` does.
+    //
     // **It wraps the router, and the router's two arms are both inside it.** 14-04's
     // plan described this line as a null-coalescing pair whose second arm built a
     // main-thread executor directly, and instructed that the guard wrap the pair as a
@@ -2529,7 +2537,7 @@ export class BrowserNode {
       native: worker,
       wasi: new WasiExecutor({ nodeId, blockstore }),
     })
-    const counter = new CountingExecutor(guardSovereignty(provenance(abi), sovereignty))
+    const counter = new CountingExecutor(guardSovereignty(guardNetworkReach(provenance(abi)), sovereignty))
     // SCHED-04 — the user's cap, composed **over** the visibility governor rather than
     // replacing it. `environment: governor` is what makes `dutyCycle` return the lower of
     // the two, so BROW-03's background throttle still binds at any user cap and the user's
