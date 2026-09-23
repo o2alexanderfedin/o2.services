@@ -78,6 +78,7 @@ completed: 2026-09-23
 
 **Plan metadata:** `8175f85` (docs: complete plan — the original SUMMARY.md plus the hand-appended STATE.md body entries)
 **Post-review docs fix:** `ab020af` (docs: correct the SUMMARY's criteria-map citations for criteria 2 and 6 — see Deviations below)
+**Post-review docs fix (second pass):** `00043be` (docs: name the one commit, `7a27074`, that actually moved `browser-client-publish.node.test.ts`'s count, dropping an unverified `833591c` guess; fix `git show --stat`-contradicting text; back-fill this Task Commits list)
 
 ## Files Created/Modified
 
@@ -160,6 +161,7 @@ CAP-01 is complete: a module's wish for network reach is a signed, optional fiel
 - FOUND: vitest.config.ts (modified, confirmed via `git show --stat 583c9cb` and `git show --stat 39eefe7`)
 - FOUND: 583c9cb (Task 1 commit — `git show --stat 583c9cb` confirms exactly one file, `vitest.config.ts`)
 - FOUND: 39eefe7 (post-review fix commit — `git show --stat 39eefe7` confirms exactly one file, `vitest.config.ts`)
+- FOUND: ab020af (post-review docs fix — `git show --stat ab020af` confirms exactly one file, this SUMMARY.md)
 - FOUND: packages/core/src/naming.test.ts (cited case titles confirmed present via `grep -n` against the file)
 - FOUND: packages/net/src/protocol.test.ts (cited case titles confirmed present via `grep -n` against the file)
 - FOUND: packages/core/src/executor/network-reach-guard.test.ts (cited case titles confirmed present via `grep -n` against the file)

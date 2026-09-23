@@ -1215,10 +1215,12 @@ Recent decisions affecting current work:
 
 - **CAP-01 closes: all five prior plans' edits, run together on one tree, in one
   full-lane sweep (Phase 46, plan 06).** `npx vitest run --project node` — 270/271
-  files passed (the one skip needs the elfconv image this host lacks), 3924
-  collected cases, zero failures, nothing from this phase red. The unit-only lane
-  and the two browser-project files this phase touches are likewise green.
-  `vitest.config.ts`'s `tests`/`unitTests` are now read off those two runs
+  files passed (the one skip is `elf-fixtures.node.test.ts`'s own `CAN_BUILD` gate —
+  arm64 present, Docker daemon unreachable on this host — not a missing elfconv
+  image, corrected here after an earlier draft of this bullet named the wrong
+  reason), 3924 collected cases, zero failures, nothing from this phase red. The
+  unit-only lane and the two browser-project files this phase touches are likewise
+  green. `vitest.config.ts`'s `tests`/`unitTests` are now read off those two runs
   (3907 -> 3924, 3138 -> 3152) rather than left deferred; `files`/`unitFiles` were
   confirmed against the same runs, not re-measured, and no drift was found. All
   six roadmap success criteria are named against a real, passing test case in the
