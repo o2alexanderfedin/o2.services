@@ -148,18 +148,15 @@ describe('CAP-01 — a real BrowserNode refuses a declared module against sovere
 
     const outcome = await node.executor.execute(publicTask)
     // Criterion 3, the positive control: a public task must never be refused for
-    // network reach, whatever else it does or does not do. Asserted outright when
-    // the real dispatch completes; if a future run of this combination (first of
-    // its kind in this project, per this file's own docblock) does not settle
-    // within the browser project's default timeout, this falls back to the weaker
-    // but still discriminating reading below rather than failing on an unrelated
-    // timing question this plan does not resolve in advance.
-    //
-    // Note the missing `!` on the fallback below, deliberately: `!outcome.ok || …`
-    // would short-circuit to true on EVERY refusal, including the wrong refusal
-    // this control exists to catch, and would put `outcome.reason` on the `ok:
-    // true` arm of the union where the field does not exist.
-    expect(outcome.ok || !outcome.reason.includes('network reach')).toBe(true)
+    // network reach. The plan's own fallback text names a weaker, still-
+    // discriminating reading for the case where this combination (first of its
+    // kind in this project, per this file's own docblock) does not settle within
+    // the browser project's default timeout — measured NOT needed: a run taken
+    // before this file's commit read `{ ok: true, output: 10, ... }` on all three
+    // engines, so the strong form is what lands.
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.output).toBe(10)
   }, 60_000)
 
   it('runs a sovereign task whose module declares nothing', async () => {
@@ -180,8 +177,10 @@ describe('CAP-01 — a real BrowserNode refuses a declared module against sovere
 
     const outcome = await node.executor.execute(sovereignTask)
     // Criterion 4, the second control: a non-declaring module must never be
-    // refused for network reach either. Same fallback shape and same reason as
-    // the public-control case above.
-    expect(outcome.ok || !outcome.reason.includes('network reach')).toBe(true)
+    // refused for network reach either. Same reasoning as the public-control
+    // case above — measured at full strength, so asserted at full strength.
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.output).toBe(10)
   }, 60_000)
 })
