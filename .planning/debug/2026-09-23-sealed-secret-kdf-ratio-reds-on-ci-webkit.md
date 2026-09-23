@@ -194,7 +194,12 @@ verification: |
   (`[host conditions] host was quiet`). Full `--project node` lane: 270 passed | 1 skipped
   (271 files), 3914 passed | 11 skipped (3925 tests) — matches `vitest.config.ts`'s recorded
   counts exactly, zero regressions. `npx tsc --noEmit -p .` exit 0.
-  **Not directly reproduced on CI** (no CI run was triggered as part of this fix — the human
-  checkpoint below is what actually re-observes the webkit lane on the real shared runner).
+  **Now also directly observed on CI.** Pushed to `fix/sealed-secret-kdf-ratio-webkit-ci` and
+  opened PR #36; both triggered CI runs (35929980806, 35930006446) show all jobs green
+  including `browser`. Run 35930006446's own printed samples confirm the fragility this fix
+  targets was real, not theoretical: one engine's 5 reps in a single run read ratio {3.44,
+  5.67, 6.15, 5.01, 7.89} — a 2.3x spread within one engine's own run, exactly the kind of
+  single-sample variance that could have landed under 2 on an unlucky rep. Medians for all
+  three engines in that run: 5.67, 4.26, 4.66 — all comfortably passing.
 files_changed:
   - packages/core/src/sealed-secret.test.ts
