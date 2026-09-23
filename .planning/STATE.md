@@ -1159,6 +1159,7 @@ that straggler-dominated distributions have meaningless means.
 | Phase 13 P03 | 25min | 2 tasks | 1 files |
 | Phase 18 P03 | 25min | 2 tasks | 5 files |
 | Phase 25 P04 | 8min | 3 tasks | 8 files |
+| Phase 46 P01 | 6min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -1610,6 +1611,21 @@ Recent decisions affecting current work:
   async) shipped complete and tested but unwired — verifyChain/verifyCertificate
   wiring deferred to a future phase pending a bootstrap-ordering decision across three
   runtime entry points.**
+
+- **[Phase 46-01]: `wantsNetworkReach` is typed as the literal `true`, not `boolean`** —
+  there is no signed meaning yet for an explicit `false`; absence already carries "does
+  not declare". It names a wish, not a permission (CONTEXT.md §2): this plan reads it
+  only to refuse, and whether a signer can be trusted to declare honestly is a later
+  phase's question.
+
+- **[Phase 46-01]: every `gsd-sdk query state.*` mutation command is unsafe against this
+  file** — `readModifyWriteStateMd` "syncs frontmatter" on every write regardless of
+  which field a specific handler targets, and that sync cannot round-trip this file's
+  hand-authored `stopped_at` block; observed on `state.record-session` AND, in isolation,
+  on `state.record-metric` alone. This entry and the Phase 46 P01 metrics row above were
+  added by hand for that reason. Do not run any `state.*` write command against this file
+  until the SDK's frontmatter-sync path is fixed to preserve unrecognized long-form
+  fields.
 
 ### Pending Todos
 
