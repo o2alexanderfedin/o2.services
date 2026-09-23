@@ -2997,4 +2997,17 @@ grants exist (which hosts, for how long); and the integrity lane — a handler t
 network leaves N-version comparison behind, because two nodes calling one endpoint honestly
 get different answers. That is the next phase's subject and it is a decision, not a detail.
 
+**Why this phase's refusal may be read in full, and when that stops being true — owner ruling
+2026-09-17, written here because it was ruled in conversation and recorded in no file.** Every
+field this refusal reads arrives on the `Task` from whoever dispatched it: `label`, `ownerId`,
+and the declaration inside the signed `moduleRecord`. `guardSovereignty`
+(`packages/core/src/executor/sovereignty-guard.ts:90`) already reads `task.label` straight off
+the wire and consults nothing the node knows about itself before refusing. A refusal computed
+only from what the requestor sent therefore tells the requestor only what they sent, which is
+why criterion 6 is safe exactly as written and narrowing it would cost diagnosis and buy no
+security. **The moment a refusal consults what the node itself holds or is cleared for, it
+splits by audience** — the requestor learns that it was refused, the data owner learns why —
+because otherwise a refusal becomes an oracle for what a node is holding. That binds the grant
+phase, not this one.
+
 **Plans**: not yet planned.
