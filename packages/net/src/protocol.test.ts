@@ -170,6 +170,44 @@ describe('DET-03 — a signed module record crosses the wire and still verifies'
     expect(new SignedNameResolver([rootPub]).accept(carried, NOW).ok).toBe(true)
   })
 
+  it('carries a NETWORK-REACH declaration across the wire so it still verifies', () => {
+    // CAP-01, wire half. Same shape as the DELEGATED case above, for the same reason:
+    // field equality alone would pass on a record whose bytes were altered in transit
+    // in a way that happens to preserve field values but not the signed payload.
+    const declared = signName(publisher.priv, {
+      name: 'reach-declaring',
+      cid: record.cid,
+      version: 1,
+      expiresAt: record.expiresAt,
+      wantsNetworkReach: true,
+    })
+
+    const parsed = parseRequest(
+      encodeRequest({
+        kind: 'exec',
+        task: {
+          moduleCid,
+          inputCid: moduleCid,
+          partitionIndex: 0,
+          partitionCount: 1,
+          label: 'public',
+          moduleRecord: declared,
+        },
+      }),
+    )
+
+    expect(parsed).not.toBeNull()
+    if (parsed === null || parsed.kind !== 'exec') return
+    const carried = parsed.task.moduleRecord
+    expect(carried).toBeDefined()
+    if (carried === undefined) return
+
+    expect(carried.wantsNetworkReach).toBe(true)
+    // The assertion that matters, per the DELEGATED case's own comment: re-verification,
+    // not field equality, proves the bytes the publisher signed survived the wire intact.
+    expect(new SignedNameResolver([publisher.pub]).accept(carried, NOW).ok).toBe(true)
+  })
+
   it('encodes no moduleRecord key at all for a task that has none', () => {
     const encoded = encodeRequest({
       kind: 'exec',
