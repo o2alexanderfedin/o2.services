@@ -945,9 +945,40 @@ const NODE_MEASUREMENT = {
    * OVERSUBSCRIBED — load/core 0.97 before, 11.23 after (8 cores, ceiling 4.00)`. Nothing
    * failed, so pass/fail and the counts stand; every duration in this run is void per the
    * banner's own rule, and none is quoted here.
+   *
+   * **`tests` 3924 -> 3925 on 2026-09-23 (Phase 46 verification gap, CAP-01 criterion 1).**
+   * `files` does not move — the arrival is one new `it` inside the existing
+   * `packages/core/src/naming.test.ts`, not a new file. The prior case at that file's
+   * `CAP-01` describe block ("leaves a record that declares nothing hashing exactly as it
+   * did before the field existed") compared two records BOTH signed under today's
+   * `signName`, so a regression collapsing `payloadOf`'s spread-omit to `?? false` would move
+   * both sides together and that case would stay green — confirmed by planting exactly that
+   * change and watching it pass. The new case instead asserts the signature against a
+   * hardcoded literal captured by running `signName` from `naming.ts` as it stood at commit
+   * `707ec0e` (the last commit before this phase touched the file) against a fixed fixture.
+   * Route: `git show 707ec0e:packages/core/src/naming.ts` written to a temporary file inside
+   * `packages/core/src/`, imported under Node's `--experimental-strip-types`, run once, the
+   * signature printed and pasted into the test, then the temporary file deleted — confirmed
+   * absent by `git status --porcelain` before anything was staged. `canonical/encode.ts` and
+   * `capability.ts`, everything `payloadOf` depends on besides the field list itself, are
+   * unchanged between `707ec0e` and `HEAD` (`git log 707ec0e..HEAD` over both is empty), so
+   * the comparison isolates exactly the property CAP-01 claims.
+   *
+   * **Plant watched RED before this note was written.** Same `?? false` plant as above,
+   * restored by surgical inverse (`cmp` against a pre-plant snapshot, exit 0). Observed
+   * failure: `expected '61f5f41af6c2685532cb4466d6bd92d3fa227…' to be
+   * 'f8b1d88ff2295bd82d89fda0771600e248202…'` — the new case moved, and none of the other 32
+   * cases in the file did.
+   *
+   * Measured, not derived: `npx vitest run --project node` collected `Test Files  270 passed
+   * | 1 skipped (271)` and `Tests  3914 passed | 11 skipped (3925)`, `EXIT=$?` read
+   * immediately after, no pipe — `EXIT=0`. Same one skipped file as the layer above
+   * (`elf-fixtures.node.test.ts`, Docker unavailable on this host); same two other
+   * pre-existing skips. Host banner: `HOST WAS OVERSUBSCRIBED — load/core 1.26 before, 16.56
+   * after (8 cores, ceiling 4.00)`. Nothing failed; no duration quoted.
    */
   files: 271,
-  tests: 3924,
+  tests: 3925,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
@@ -1417,9 +1448,21 @@ const NODE_MEASUREMENT = {
    * **Host conditions**: banner read `HOST WAS OVERSUBSCRIBED — load/core 8.38 before, 6.64
    * after (8 cores, ceiling 4.00)`, load having spiked between the full-lane run above and
    * this one. Nothing failed, so the counts stand; no duration is recorded from this run.
+   *
+   * **`unitTests` 3152 -> 3153 on 2026-09-23 (Phase 46 verification gap, CAP-01 criterion 1).**
+   * `unitFiles` does not move — the arrival is the same single new `it` the `tests` note
+   * above describes, inside `naming.test.ts`, which is already in the unit set (reads
+   * tracked bytes off disk, no subprocess). Full derivation, the plant and its RED text are
+   * in that note; not repeated here.
+   *
+   * Measured, not derived: `O2_UNIT_ONLY=1 npx vitest run --project node` collected `Test
+   * Files  187 passed | 1 skipped (188)` and `Tests  3144 passed | 9 skipped (3153)`,
+   * `EXIT=$?` read immediately after, no pipe — `EXIT=0`. Host banner: `HOST WAS
+   * OVERSUBSCRIBED — load/core 15.02 before, 11.82 after (8 cores, ceiling 4.00)`. Nothing
+   * failed; no duration quoted.
    */
   unitFiles: 188,
-  unitTests: 3152,
+  unitTests: 3153,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
   unitWallClockMs: 10_240,

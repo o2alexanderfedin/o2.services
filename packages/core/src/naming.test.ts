@@ -375,6 +375,51 @@ describe('CAP-01 — a module can declare it wants network reach', () => {
     expect('wantsNetworkReach' in encoded).toBe(false)
   })
 
+  it('signs a record with no wantsNetworkReach to the exact bytes signed before the field existed', async () => {
+    // The case above this one proves nothing about the past: both `withoutField` and
+    // `withUndefinedSpread` are signed under TODAY's `payloadOf`, so a regression that made
+    // `payloadOf` always encode the field — `?? false` in place of the spread-omit at
+    // `naming.ts`'s line documented in this file's own history — would move both sides of
+    // that comparison together and the case would stay green. Comparing two outputs of the
+    // same function proves the function is consistent with itself, never that it matches
+    // what shipped before this field was added.
+    //
+    // So this case does not call `signName` from this module at all. The signature below is
+    // a LITERAL, captured by running `signName` from `naming.ts` as it stood at commit
+    // 707ec0e — the last commit before this phase touched the file, before
+    // `wantsNetworkReach` existed anywhere in it — against the fixture built here. The
+    // fixture: private key = 32 bytes of `0x2a` (42), name `"pre-existence-fixture"`,
+    // `version: 1`, `expiresAt: 2_000_000_000_000`, cid = `canonicalCid({ artifact:
+    // 'pre-existence-fixture' })`, no `wantsNetworkReach`. Route taken: `git show
+    // 707ec0e:packages/core/src/naming.ts` written to a temporary file inside
+    // `packages/core/src/` (never committed — confirmed with `git status --porcelain`
+    // immediately after deleting it), `signName` imported from that file under Node's
+    // `--experimental-strip-types`, run once, the signature printed and pasted below, then
+    // the temporary file and script deleted. `canonical/encode.ts` and `capability.ts` —
+    // everything `naming.ts` depends on for this path — are unchanged between 707ec0e and
+    // HEAD (`git log 707ec0e..HEAD -- packages/core/src/canonical/encode.ts
+    // packages/core/src/capability.ts` is empty), so the pre-phase `signName` ran against
+    // today's `encodeCanonical` and today's ed25519 — the only thing that differs between
+    // the two sides of this comparison is `payloadOf`'s field list, which is exactly the
+    // property CAP-01 claims to hold.
+    //
+    // A future "simplification" back to comparing two calls to today's `signName` would
+    // make this case exercisable again by every regression it exists to catch. Don't.
+    const priv = new Uint8Array(32).fill(42)
+    const cid = await cidFor('pre-existence-fixture')
+    const record = signName(priv, {
+      name: 'pre-existence-fixture',
+      cid,
+      version: 1,
+      expiresAt: 2_000_000_000_000,
+    })
+
+    expect(record.signer).toBe('197f6b23e16c8532c6abc838facd5ea789be0c76b2920334039bfa8b3d368d61')
+    expect(record.signature).toBe(
+      'f8b1d88ff2295bd82d89fda0771600e2482029731f594348bd324b260fd287b790f703a58a7aba55a8ba30bfdcb2351cd95b267c1533bf15cf25734826210b09',
+    )
+  })
+
   it('round-trips it through the wire form, and refuses a record whose declaration was widened to anything but true rather than dropping it', async () => {
     const cid = await cidFor('reaches-out-2')
     const record = signName(seed, {
