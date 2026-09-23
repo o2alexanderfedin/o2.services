@@ -3010,4 +3010,4 @@ splits by audience** — the requestor learns that it was refused, the data owne
 because otherwise a refusal becomes an oracle for what a node is holding. That binds the grant
 phase, not this one.
 
-**Plans**: not yet planned.
+**Plans**: `46-CONTEXT.md`, then 6 plans in 4 waves. `46-01-PLAN.md` (naming.ts — the field, and every naming.ts codec that must agree on it), `46-02-PLAN.md` (protocol.ts's wire codec and its round-trip case, wave 2, parallel with 03), `46-03-PLAN.md` (the guardNetworkReach adapter and its own unit tests, wave 2, parallel with 02), `46-04-PLAN.md` (two mutation-ledger entries — the codec-drop plant and criterion 5's sovereign-check plant, wave 3, parallel with 05, sole owner of mutation-ledger.ts so the two plants never race a concurrent edit), `46-05-PLAN.md` (wiring both node factories, and proving it on both tiers — the requestor's view over real RPC on the Node tier, the operator's view through a real BrowserNode on the browser tier, wave 3, parallel with 04), `46-06-PLAN.md` (the full node lane in one sweep, and the criteria-to-test map, wave 4).
