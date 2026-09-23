@@ -932,8 +932,10 @@ const NODE_MEASUREMENT = {
    * 2026-09-16 (Phase 45, VER-12) and this is the first full-lane run since, so it is also the
    * first point anything re-measured the tree against commits that landed on this branch
    * between that baseline and `707ec0e` — release/deploy fixes, none of them part of this
-   * phase. One of those, `833591c`/`7a27074`'s deploy work, added one case to
-   * `browser-client-publish.node.test.ts` (14 -> 15, measured the same way, `cmp`-restored).
+   * phase. `git log --oneline 026a7e9..707ec0e -- packages/node/src/browser-client-publish.
+   * node.test.ts` names exactly one: `7a27074` ("the release now carries the issuance budget,
+   * so a released node issues certificates"), which added one case to that file (14 -> 15,
+   * measured the same way, `cmp`-restored).
    * That case was real and correct; it was simply never folded into this table because nobody
    * ran the full lane between 2026-09-16 and today. Recorded here rather than folded silently
    * into "this phase's own," on this table's own standing rule that a number satisfying its

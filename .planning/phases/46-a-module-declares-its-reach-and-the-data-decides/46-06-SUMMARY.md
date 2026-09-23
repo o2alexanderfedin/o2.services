@@ -43,7 +43,7 @@ completed: 2026-09-23
 
 ## Performance
 
-- **Duration:** ~25 min (three test runs plus tsc plus two guard re-runs; no plant/restore cycle in this plan — nothing here is a `tdd="true"` task)
+- **Duration:** ~25 min (three test runs plus tsc plus two guard re-runs, plus a post-review measurement pass — seven measurement plants/restores against pre-phase snapshots to attribute the delta by file, not TDD RED/GREEN plants; nothing here is a `tdd="true"` task)
 - **Completed:** 2026-09-23
 - **Tasks:** 1 planned, 1 completed
 - **Files modified:** 1
@@ -74,7 +74,10 @@ completed: 2026-09-23
 ## Task Commits
 
 1. **Task 1: the full node lane, in one sweep, vitest.config.ts's remaining two counts, and the criteria-to-test map** - `583c9cb` (docs) — touches only `vitest.config.ts`, confirmed via `git show --stat`
-2. **Post-review fix: attribute the tests/unitTests deltas by measurement instead of asserting the whole delta was this phase's own; correct the elf-fixtures skip reason and two criteria-map citations** - `39eefe7` (fix) — touches only `vitest.config.ts`; see Deviations below
+2. **Post-review fix: attribute the tests/unitTests deltas by measurement instead of asserting the whole delta was this phase's own; correct the elf-fixtures skip reason** - `39eefe7` (fix) — touches only `vitest.config.ts`, confirmed via `git show --stat`; see Deviations below
+
+**Plan metadata:** `8175f85` (docs: complete plan — the original SUMMARY.md plus the hand-appended STATE.md body entries)
+**Post-review docs fix:** `ab020af` (docs: correct the SUMMARY's criteria-map citations for criteria 2 and 6 — see Deviations below)
 
 ## Files Created/Modified
 
@@ -93,7 +96,7 @@ None from the plan's own tasks — the one task's `<action>` and `<acceptance_cr
 
 **1. [Self-caught, advisor-prompted] `vitest.config.ts`'s two new notes claimed the full 17/14 test-count deltas were "this phase's own arriving cases" — one case in each lane is not**
 - **Found during:** advisor review, before declaring the plan done.
-- **Issue:** the first-draft notes read the two runs' collected totals correctly but asserted, without checking, that the whole delta belonged to plans 01-05. Per-file measurement (planting the `707ec0e` pre-phase snapshot back into each touched file, running it alone, `cmp`-restoring) found the true phase-46 contribution is 16 of 17 (`tests`) and 13 of 14 (`unitTests`); the remaining `+1` in each lane is a real, correct case in `browser-client-publish.node.test.ts` (14 → 15) from intervening deploy work (`833591c`/`7a27074`) that landed on this branch between the `3907`/`3138` baseline (2026-09-16) and this phase's start, and was never folded into this table until this — the first full-lane sweep since — surfaced it.
+- **Issue:** the first-draft notes read the two runs' collected totals correctly but asserted, without checking, that the whole delta belonged to plans 01-05. Per-file measurement (planting the `707ec0e` pre-phase snapshot back into each touched file, running it alone, `cmp`-restoring) found the true phase-46 contribution is 16 of 17 (`tests`) and 13 of 14 (`unitTests`); the remaining `+1` in each lane is a real, correct case in `browser-client-publish.node.test.ts` (14 → 15) from intervening deploy work that landed on this branch between the `3907`/`3138` baseline (2026-09-16) and this phase's start, and was never folded into this table until this — the first full-lane sweep since — surfaced it. `git log --oneline 026a7e9..707ec0e -- packages/node/src/browser-client-publish.node.test.ts` names exactly one commit that touched this file, `7a27074` ("the release now carries the issuance budget, so a released node issues certificates") — not the `833591c`/`7a27074` pair the first draft named on plausibility (both had `fix(deploy)` messages); only `7a27074` actually touched this file, confirmed by running the log rather than assumed from commit-message shape.
 - **Fix:** rewrote both notes in `vitest.config.ts` to state the 16+1 / 13+1 breakdown explicitly, each per-file delta confirmed by the plant/run/restore method above, restored `cmp`-clean before any commit.
 - **Files modified:** `vitest.config.ts`
 - **Verification:** `npx vitest run --project node packages/node/src/vocabulary.node.test.ts packages/node/src/slow-specs.node.test.ts` → `EXIT=0`, 41/41 (unchanged by the correction); `npx tsc --noEmit -p .` → `EXIT=0`.
@@ -105,14 +108,14 @@ None from the plan's own tasks — the one task's `<action>` and `<acceptance_cr
 - **Fix:** replaced the citation with the real `CAP-01` case's own discrimination (`fabric-node.node.test.ts:562`, inside the `CAP-01` block, `expect(outcome.reason).not.toContain('sovereignty violation')`), and the row states the correction explicitly rather than silently swapping the citation.
 - **Files modified:** `.planning/phases/46-a-module-declares-its-reach-and-the-data-decides/46-06-SUMMARY.md` (this file)
 - **Verification:** `sed -n '465,598p' packages/node/src/fabric-node.node.test.ts` read directly to confirm the corrected line falls inside the `CAP-01` block.
-- **Committed in:** the docs commit carrying this corrected SUMMARY — a file cannot cite its own commit hash from inside itself; confirm via `git log -p -- .planning/phases/46-a-module-declares-its-reach-and-the-data-decides/46-06-SUMMARY.md`
+- **Committed in:** `ab020af` (docs)
 
 **3. [Self-caught, advisor-prompted] Criterion 2's row proved only the negative half of "by name" and criterion 6's row under-cited the browser tier's positive assertions**
 - **Found during:** the same advisor review.
 - **Issue:** the roadmap's own criterion 2 text requires "both the declaration and the label in the refusal," but the first-draft row named only the ordering/refusal case, not the four `toContain` assertions (`node.peerId`/`w0`, the module CID, `'sovereign'`, `'network reach'`) that actually prove that half.
 - **Fix:** both rows now quote the concrete assertions from `network-reach-guard.test.ts` and `fabric-node.node.test.ts`'s own bodies rather than naming the case title alone.
 - **Files modified:** `.planning/phases/46-a-module-declares-its-reach-and-the-data-decides/46-06-SUMMARY.md`
-- **Committed in:** the same docs commit as item 2
+- **Committed in:** `ab020af` (docs), the same commit as item 2
 
 ---
 
