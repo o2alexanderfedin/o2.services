@@ -870,7 +870,34 @@ const NODE_MEASUREMENT = {
    * deliberately left at its earlier quiet-host reading rather than overwritten with a number
    * this session cannot support.
    */
-  files: 270,
+  /**
+   * **270 -> 271 on 2026-09-23 (Phase 46, CAP-01, plan 03).** One new file arrives:
+   * `packages/core/src/executor/network-reach-guard.test.ts`, the `guardNetworkReach` proof.
+   * A bare `*.test.ts` with no `.node.`/`.browser.`/`.e2e.` suffix, so — per the `node`
+   * project's bare `*.test.ts` include glob, with no matching `exclude` entry —
+   * it runs in BOTH the `node` project and the `browser` project, exactly the
+   * `kill-switch.test.ts` precedent this table's `231 -> 232` entry already records: it
+   * counts once here.
+   *
+   * Derivation route: `npx vitest list --project node --filesOnly | wc -l` — collection
+   * only, no test execution — measured `271` before this file was staged into a commit.
+   * Deliberately not a full `--project node` run: the guard's own installation of the state
+   * update, once run, is not what this reading needs, and the surrounding wave-shared-tree
+   * caution this plan's own header names no longer applies once 46-02 is committed and this
+   * plan runs alone — but the collection-only route is kept anyway, on this table's own
+   * standing rule that a number satisfying its own check (a full run happening to print the
+   * expected total) is not a reading; collection-only is the narrower instrument and is
+   * preferred for that reason, not for the wave.
+   *
+   * `tests`/`unitTests` are LEFT UNCHANGED at their current values, on the same precedent
+   * the `236 -> 242` and `242 -> 248` entries elsewhere in this table already establish:
+   * "at their run's figures on the rule that inventing a test total nobody counted is the
+   * defect this table exists to prevent." The six cases this file actually carries are not
+   * folded into `tests`/`unitTests` here — that full-lane count is deferred to
+   * `46-06-PLAN.md`'s sweep, the first point in this phase where a full `node`-project run
+   * against the complete, merged tree is safe to take.
+   */
+  files: 271,
   tests: 3907,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
@@ -1298,8 +1325,21 @@ const NODE_MEASUREMENT = {
    * node`, `Test Files 187 passed (187)`, `Tests 3138 passed (3138)`, exit 0 — and the identity
    * `unitFiles === files - excludedInNode` (`270 - 83`) is reported as **agreeing with** that
    * reading, never as its source.
+   *
+   * **187 -> 188 on 2026-09-23 (Phase 46, CAP-01, plan 03).** The same one file named in the
+   * `files`/`tests` note above, `network-reach-guard.test.ts`, reads tracked source off disk
+   * with no subprocess and clears `SLOW_CUTOFF_MS`, so it joins the unit set on the same
+   * reasoning `attestation-claims.node.test.ts` did for the `186 -> 187` layer.
+   *
+   * Derivation route: `O2_UNIT_ONLY=1 npx vitest list --project node --filesOnly | wc -l` —
+   * collection only, measured on its own rather than inferred from the `unitFiles === files -
+   * excludedInNode` identity, per this table's own standing rule that a number satisfying its
+   * own check is not a reading. Measured `188` before this file was staged into a commit.
+   *
+   * `unitTests` is LEFT UNCHANGED at `3138` for the identical reason the `files`/`tests` note
+   * gives: deferred to `46-06-PLAN.md`'s full-lane sweep, not counted here.
    */
-  unitFiles: 187,
+  unitFiles: 188,
   unitTests: 3138,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
