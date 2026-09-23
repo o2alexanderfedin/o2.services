@@ -1,7 +1,7 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Open the Doors
+milestone: v2.1
+milestone_name: Run Somebody Else's Lambda
 status: planning
 stopped_at: >-
   WRITTEN BY HAND 2026-08-28, and by hand for a recorded reason. On 2026-08-25

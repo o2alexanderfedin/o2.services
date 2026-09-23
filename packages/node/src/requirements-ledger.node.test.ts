@@ -1908,21 +1908,37 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     ],
   },
   {
+    // **RE-READ 2026-09-22, and the verdict does not move.** The promise fell due at 17 days
+    // against a bound of 14. What the row waits on is a reading only two real phones can
+    // produce — one iOS, one Android, opening the link from a real Telegram message — and no
+    // device has been asked since this entry was written: no invitation has been sent at all.
+    // The witness below still exists and still measures the mechanism rather than the reading.
+    // Re-recorded rather than ticked, because ticking would claim an experiment nobody ran.
     id: 'RUN-06',
     because: 'experiment-not-run',
-    reread: '2026-09-06',
+    reread: '2026-09-22',
     witnesses: ['packages/node/src/embedded-webview.e2e.test.ts'],
   },
   {
+    // **RE-READ 2026-09-22, and the verdict does not move.** Due at 16 days against a bound of
+    // 14. This row is a conjunction and its other half is every owner act below it; the
+    // checklist half exists and its witness passes (54 cases green across this file's two
+    // node-lane witnesses on a quiet host, 2026-09-22). What is missing is unchanged: nothing
+    // has been sent to anybody.
     id: 'RUN-01',
     because: 'experiment-not-run',
-    reread: '2026-09-07',
+    reread: '2026-09-22',
     witnesses: ['packages/node/src/go-no-go-checklist.node.test.ts'],
   },
   {
+    // **RE-READ 2026-09-22, and the verdict does not move.** Due at 16 days against a bound of
+    // 14. The staging procedure and its arithmetic exist and are witnessed; the staging itself
+    // has not happened, and cannot until row 14 of OWNER-ACTIONS is acted on. Checked against
+    // the live funnel the same day: 23 page-loads, which are development traces rather than a
+    // cohort.
     id: 'RUN-07',
     because: 'experiment-not-run',
-    reread: '2026-09-07',
+    reread: '2026-09-22',
     witnesses: [
       'packages/node/src/funnel-probe.e2e.test.ts',
       'packages/node/src/switch-observation.node.test.ts',

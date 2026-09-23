@@ -246,6 +246,23 @@ subvert.
 
 ## 3b. The issuance throttle — a number only the owner can choose
 
+> **DONE 2026-09-17 — the number is 600 per hour, and the live node reports it.**
+> `GET /self` answers `enrolment: {issues: true, maxIssuedPerWindow: 600}` on
+> `2.0.0-rc.14`. The value came from this section's own example rather than from a fresh
+> judgement, and it is far below the tier's ceiling of 2048: a few hundred testers each
+> re-enrolling hourly cannot consume it.
+>
+> **Set as a repository variable, not by a standalone deploy, and that is the part worth
+> keeping.** `wrangler deploy` replaces a Worker's vars with what the invocation declares, so a
+> budget set by hand survives exactly until the next release and then vanishes — silently, with
+> the symptom landing two jobs away as "TURN is broken". The release workflow now carries
+> `O2_MAX_ISSUED_PER_WINDOW` into the node deploy, `deploy-hosted.sh` REFUSES a release that
+> would drop it, and `browser-client-publish.node.test.ts` asserts the wiring. Turning issuance
+> off deliberately is `0`, which reads as a decision.
+>
+> **This row no longer gates 11.** The procedure below is kept as the record of what was done
+> and as the way to change the number.
+
 | | |
 |---|---|
 | **Act** | Set `O2_MAX_ISSUED_PER_WINDOW` on the deployed object |
@@ -755,8 +772,8 @@ is ignored.
 |---|---|---|
 | 10 | rule on what a peer may announce about its machine | must precede 11 — the release re-asks every returning visitor **once regardless**, and a decision taken after it costs a **second** re-ask of a cohort that is spendable once |
 | 3c | **RULED 2026-09-16: one provider, and the lower ceiling accepted with it.** `independent` is unreachable until a second provider exists; the strongest label is `single-issuer` | **Done.** No longer gates 3b — see §3c |
-| 3b | set the issuance budget | must precede 11 — `deploy-pages.sh` probes `/self` before it writes `enrollmentProvider`, so a client published against a node that issues nothing offers no enrolment, and no visitor can hold the certificate the TURN rung asks for |
-| 11 | cut the release | puts the tree's disclosure in front of visitors, and is the disclosure gate itself |
+| 3b | **DONE 2026-09-17 — `O2_MAX_ISSUED_PER_WINDOW` = 600 per hour.** The live node reports `enrolment.issues: true` with that number, and the release path now carries the value so a deploy cannot silently drop it | **Done.** No longer gates 11 — see §3b |
+| 11 | **DONE 2026-09-17 — `v2.0.0-rc.14` deployed and read back.** The node reports its own version, the kill switch is operable, and the client is published carrying `enrollmentProvider` | **Done.** **Row 13 is now the next act in this sequence** — see §11 |
 | 12 | the Telegram remainder | a device that participates once is a cohort spent once |
 | 13 | the pre-invite funnel reading | must come after 11 and before 14 — criterion 2 asks for a reading whose **timestamp precedes the invite** |
 | 14 | the first invite, in stages | everything above is its gate |
@@ -791,12 +808,30 @@ change and no extra byte on the wire.
 
 ## 11. Cut the release — the disclosure gate
 
+> **DONE 2026-09-17 — `v2.0.0-rc.14` is deployed, and the read-back below was taken.**
+> The node answers with the version that was deployed, `killSwitch.operable` is `true`, and the
+> published client's `bootstrap.json` carries an `enrollmentProvider` — which it had never
+> carried before, because the previous build predated enrolment entirely. Both greps in the
+> read-back returned `1`, including the positive control, so the instrument was reading the
+> bundle rather than returning zero for having read nothing.
+>
+> **The ordering against row 10 was NOT lost, and that is measured rather than assumed.** This
+> row's own "Waits on" said rows 10 and 3b, and 10 is still unruled — so the naive reading is
+> that the release spent the re-ask row 10 was counting on riding. It did not:
+> `packages/browser/src/disclosure.ts` is byte-identical across `v2.0.0-rc.13..v2.0.0-rc.14`
+> and `DISCLOSURE_VERSION` stayed `'8'`, so no stored consent was invalidated and no visitor
+> was re-asked. Row 10's decision still rides a re-ask nobody has spent.
+>
+> **What this row does NOT mean.** Nothing has been sent to anybody. The doors are open and the
+> funnel has seen development traces only. Row 13 — one timestamped funnel reading — is the next
+> act in the sequence, and it is unblocked now rather than waiting on anything.
+
 | | |
 |---|---|
 | **Act** | `scripts/deploy-hosted.sh --live`, then `scripts/deploy-pages.sh --live` |
 | **Cost** | **Money, on an account with no hard spending ceiling** — Cloudflare's own wording for budget alerts is *"informational only. It does not cap your usage."* |
 | **Why not an agent** | `DEMO-04`'s ruling makes deployment a separately-triggered gate, never an automatic consequence of a phase completing |
-| **Waits on** | Rows 10 and 3b |
+| **Waits on** | Nothing — done 2026-09-17. It had waited on rows 10 and 3b; 3b was done the same day, and the block above measures why row 10 being open cost nothing |
 
 Carry the issuance budget through the deploy — `O2_MAX_ISSUED_PER_WINDOW=<n> scripts/deploy-hosted.sh --live`.
 A deploy replaces the Worker's vars, so a budget set by an earlier standalone deploy would be
