@@ -3744,6 +3744,26 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'carries a NETWORK-REACH declaration across the wire so it still verifies',
     signatureSource: 'test-title',
   },
+  {
+    id: 'NR2',
+    why:
+      'CAP-01’s central claim. Removing the sovereign check does not merely weaken it — ' +
+      'it turns `guardNetworkReach` into an always-pass-through adapter that refuses nothing, and it ' +
+      'is the one line the roadmap’s criterion 2 depends on entirely: every other case in this ' +
+      'guard’s own test file is a control proving the guard stays out of the way, and none of ' +
+      'them would notice if the refusal branch were dead.',
+    file: 'packages/core/src/executor/network-reach-guard.ts',
+    find: "      if (task.label === 'sovereign' && task.moduleRecord?.wantsNetworkReach === true) {",
+    replace:
+      "      if (false && task.label === 'sovereign' && task.moduleRecord?.wantsNetworkReach === true) {",
+    caughtBy: ['packages/core/src/executor/network-reach-guard.test.ts'],
+    // Observed 2026-09-23: EXIT=1, `Tests  1 failed | 5 passed (6)`. Only the refusal case
+    // (Case A) reddened; the positive control and the two declares-nothing controls (Cases
+    // B-E) stayed green, as expected — the plant only removes a refusal, it never adds
+    // one. Restored by the surgical inverse; `cmp` exit 0.
+    signature: 'refuses a sovereign task whose module declares network reach, before inner.execute runs',
+    signatureSource: 'test-title',
+  },
   // ── CL1, RETIRED 2026-08-24 ───────────────────────────────────────────────────────────
   //
   // It planted `export { Subject } from './cert-lifecycle.ts'` onto `@o2/core`'s barrel and was
