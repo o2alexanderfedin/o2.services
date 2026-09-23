@@ -909,21 +909,35 @@ const NODE_MEASUREMENT = {
    * Measured, not derived: `npx vitest run --project node` collected
    * `Test Files  270 passed | 1 skipped (271)` and `Tests  3913 passed | 11 skipped (3924)`,
    * `EXIT=$?` read on the line immediately after the command, no pipe — `EXIT=0`. The one
-   * skipped file is `packages/aot/src/elf-fixtures.node.test.ts` (9 skipped tests, needs the
-   * elfconv image this host does not have); the other two skipped tests are
-   * `late-combine.node.test.ts` and `transport-bounds.node.test.ts`, both pre-existing single
-   * skips unrelated to this phase. Nothing failed: `deploy-preserves-enrolment.node.test.ts`
-   * and `fs-blockstore.node.test.ts`, both named elsewhere in this file as sometimes-failing
-   * on some hosts, passed on this run.
+   * skipped file is `packages/aot/src/elf-fixtures.node.test.ts` (9 skipped tests), gated by
+   * that file's own `CAN_BUILD` — "native arm64 plus a Docker that answers," read from its own
+   * docblock rather than assumed. This host is arm64 but its Docker daemon did not answer
+   * (`docker version` failed to reach the OrbStack socket), so the arch half passed and the
+   * Docker half did not; the file's `it.skipIf(!CAN_BUILD)` skips all nine on that one check.
+   * The other two skipped tests are `late-combine.node.test.ts` and
+   * `transport-bounds.node.test.ts`, both pre-existing single skips unrelated to this phase.
+   * Nothing failed: `deploy-preserves-enrolment.node.test.ts` and `fs-blockstore.node.test.ts`,
+   * both named elsewhere in this file as sometimes-failing on some hosts, passed on this run.
    *
-   * `3924 - 3907 = 17` is this phase's own arriving cases, counted rather than assumed. The
+   * **`3924 - 3907 = 17`, and only 16 of it is this phase's own — checked, not assumed.** The
    * `270 -> 271` layer above moved `files` but deliberately left `tests` unmoved, so
-   * `network-reach-guard.test.ts`'s 6 cases were NOT yet in the `3907` figure — they arrive
-   * here for the first time, alongside cases this phase added to files it did not create:
-   * `naming.test.ts`, `protocol.test.ts`, `mutation-guard.node.test.ts` (NR1/NR2, +1 case
-   * each), `fabric-node.node.test.ts`'s CAP-01 block. No single-file arithmetic is asserted to
-   * sum to 17 here; the composed total is read from the run, per this table's own rule that a
-   * full-lane figure is not reconstructed from plan-level deltas.
+   * `network-reach-guard.test.ts`'s 6 cases were NOT yet in the `3907` figure and arrive here
+   * for the first time. Measured directly against the pre-phase snapshot (`707ec0e`, the
+   * commit immediately before `46-01`'s first task) and the current tree, by planting each
+   * base file back, running it alone, and restoring (`cmp` exit 0 after each): `naming.test.ts`
+   * 29 -> 32 (+3), `protocol.test.ts` 22 -> 24 (+2), `fabric-node.node.test.ts` 15 -> 18 (+3),
+   * `network-reach-guard.test.ts` 0 -> 6 (new file), and `mutation-ledger.ts`'s NR1/NR2 moving
+   * `mutation-guard.node.test.ts`'s dynamically-generated total 187 -> 189 (+2) —
+   * `3 + 2 + 3 + 6 + 2 = 16`. **The remaining +1 is NOT this phase's:** `3907` was set on
+   * 2026-09-16 (Phase 45, VER-12) and this is the first full-lane run since, so it is also the
+   * first point anything re-measured the tree against commits that landed on this branch
+   * between that baseline and `707ec0e` — release/deploy fixes, none of them part of this
+   * phase. One of those, `833591c`/`7a27074`'s deploy work, added one case to
+   * `browser-client-publish.node.test.ts` (14 -> 15, measured the same way, `cmp`-restored).
+   * That case was real and correct; it was simply never folded into this table because nobody
+   * ran the full lane between 2026-09-16 and today. Recorded here rather than folded silently
+   * into "this phase's own," on this table's own standing rule that a number satisfying its
+   * own check is not a reading.
    *
    * **Host conditions, and why no duration is recorded**: banner read `HOST WAS
    * OVERSUBSCRIBED — load/core 0.97 before, 11.23 after (8 cores, ceiling 4.00)`. Nothing
@@ -1384,14 +1398,19 @@ const NODE_MEASUREMENT = {
    * the same `elf-fixtures.node.test.ts` the `files`/`tests` note above names (9 skipped
    * tests); no other file or test skipped.
    *
-   * `3152 - 3138 = 14` is this phase's own arriving unit-lane cases, counted rather than
-   * assumed. The `187 -> 188` layer above moved `unitFiles` but deliberately left `unitTests`
-   * unmoved, so `network-reach-guard.test.ts`'s 6 cases were NOT yet in the `3138` figure —
-   * they arrive here for the first time, alongside `mutation-guard.node.test.ts`'s NR1/NR2
-   * cases (+2, both cleared for the unit set) and this phase's remaining unit-lane deltas. No
-   * single-file arithmetic is asserted to sum to 14 here; the composed total is read from the
-   * run, per this table's own rule that a full-lane figure is not reconstructed from
-   * plan-level deltas.
+   * **`3152 - 3138 = 14`, and 13 of it is this phase's own — checked against the same
+   * `707ec0e` snapshot the `files`/`tests` note above uses.** The `187 -> 188` layer above
+   * moved `unitFiles` but deliberately left `unitTests` unmoved, so `network-reach-guard.
+   * test.ts`'s 6 cases were NOT yet in the `3138` figure. Of the four unit-lane files this
+   * phase touches, `fabric-node.node.test.ts` is NOT in the unit set (it starts real
+   * processes, confirmed absent from this run's own file list) — its `+3` belongs to `tests`
+   * only. The other three: `naming.test.ts` `+3`, `protocol.test.ts` `+2`,
+   * `network-reach-guard.test.ts` `+6` (new), `mutation-ledger.ts`'s NR1/NR2 moving
+   * `mutation-guard.node.test.ts` `+2` — `3 + 2 + 6 + 2 = 13`. **The remaining `+1` is the
+   * same intervening case the `files`/`tests` note names**: `browser-client-publish.node.
+   * test.ts` 14 -> 15, added by deploy work between the `3138` baseline and this phase's
+   * start, in the unit set (confirmed present in this run's own file list), never folded in
+   * until this sweep. `13 + 1 = 14`, measured rather than assumed.
    *
    * **Host conditions**: banner read `HOST WAS OVERSUBSCRIBED — load/core 8.38 before, 6.64
    * after (8 cores, ceiling 4.00)`, load having spiked between the full-lane run above and
