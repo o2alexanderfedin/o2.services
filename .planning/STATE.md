@@ -1160,6 +1160,7 @@ that straggler-dominated distributions have meaningless means.
 | Phase 18 P03 | 25min | 2 tasks | 5 files |
 | Phase 25 P04 | 8min | 3 tasks | 8 files |
 | Phase 46 P01 | 6min | 2 tasks | 2 files |
+| Phase 46 P03 | 20min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -1208,6 +1209,18 @@ that straggler-dominated distributions have meaningless means.
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- **CAP-01's guard reads an unverified signed field, and that is safe only because the
+  guard refuses and never grants (Phase 46, plan 03).** `guardNetworkReach`
+  (`packages/core/src/executor/network-reach-guard.ts`) reads
+  `task.moduleRecord.wantsNetworkReach` before any signature check, composed as a third
+  adapter between `guardSovereignty` (outermost) and `guardModuleProvenance`
+  (innermost). A forged declaration only refuses its own forger; the moment a grant
+  decision reads this same field, this ordering argument stops holding, and a grant must
+  never be made at a point that reads an unverified record. Raised
+  `ORPHAN_MODULE_CEILING` 35 -> 36 in `reachability-guard.node.test.ts` (outside this
+  plan's own stated file list) because the guard has no production importer until
+  `46-05` wires it — closing condition recorded there.
 
 - Verification compares the SAME module run on two nodes, byte for byte. Not multiple implementations of the same computation — cross-implementation verification is explicitly out of scope.
 - There is no static determinism analysis. Divergence is detected by the comparison, not predicted ahead of it. The admission gate was built and then deleted; do not reintroduce it. The import object is the sandbox — WebAssembly.instantiate refuses any import the host does not supply.
