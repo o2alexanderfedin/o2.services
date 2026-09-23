@@ -897,8 +897,41 @@ const NODE_MEASUREMENT = {
    * `46-06-PLAN.md`'s sweep, the first point in this phase where a full `node`-project run
    * against the complete, merged tree is safe to take.
    */
+  /**
+   * **`tests` 3907 -> 3924 on 2026-09-23 (Phase 46, CAP-01 — completing the derivation).**
+   * This is that deferred sweep: the first point in the phase where every one of plans
+   * 01-05's edits are landed together on a clean tree and a full `--project node` run is
+   * safe to take (no concurrent agent mid-edit, per this repository's own standing
+   * concurrency rule). `files` does not move here — 46-03 already measured 271 by
+   * collection, and this run's own `Test Files` line agrees with it directly rather than by
+   * the `unitFiles === files - excludedInNode` identity.
+   *
+   * Measured, not derived: `npx vitest run --project node` collected
+   * `Test Files  270 passed | 1 skipped (271)` and `Tests  3913 passed | 11 skipped (3924)`,
+   * `EXIT=$?` read on the line immediately after the command, no pipe — `EXIT=0`. The one
+   * skipped file is `packages/aot/src/elf-fixtures.node.test.ts` (9 skipped tests, needs the
+   * elfconv image this host does not have); the other two skipped tests are
+   * `late-combine.node.test.ts` and `transport-bounds.node.test.ts`, both pre-existing single
+   * skips unrelated to this phase. Nothing failed: `deploy-preserves-enrolment.node.test.ts`
+   * and `fs-blockstore.node.test.ts`, both named elsewhere in this file as sometimes-failing
+   * on some hosts, passed on this run.
+   *
+   * `3924 - 3907 = 17` is this phase's own arriving cases, counted rather than assumed. The
+   * `270 -> 271` layer above moved `files` but deliberately left `tests` unmoved, so
+   * `network-reach-guard.test.ts`'s 6 cases were NOT yet in the `3907` figure — they arrive
+   * here for the first time, alongside cases this phase added to files it did not create:
+   * `naming.test.ts`, `protocol.test.ts`, `mutation-guard.node.test.ts` (NR1/NR2, +1 case
+   * each), `fabric-node.node.test.ts`'s CAP-01 block. No single-file arithmetic is asserted to
+   * sum to 17 here; the composed total is read from the run, per this table's own rule that a
+   * full-lane figure is not reconstructed from plan-level deltas.
+   *
+   * **Host conditions, and why no duration is recorded**: banner read `HOST WAS
+   * OVERSUBSCRIBED — load/core 0.97 before, 11.23 after (8 cores, ceiling 4.00)`. Nothing
+   * failed, so pass/fail and the counts stand; every duration in this run is void per the
+   * banner's own rule, and none is quoted here.
+   */
   files: 271,
-  tests: 3907,
+  tests: 3924,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
@@ -1339,8 +1372,33 @@ const NODE_MEASUREMENT = {
    * `unitTests` is LEFT UNCHANGED at `3138` for the identical reason the `files`/`tests` note
    * gives: deferred to `46-06-PLAN.md`'s full-lane sweep, not counted here.
    */
+  /**
+   * **`unitTests` 3138 -> 3152 on 2026-09-23 (Phase 46, CAP-01 — completing the derivation).**
+   * The same deferred sweep the `files`/`tests` note above completes, taken for the unit pair.
+   * `unitFiles` does not move here — 188 was already measured by collection in the `187 -> 188`
+   * layer above, and this run's own `Test Files` line agrees with it directly.
+   *
+   * Measured, not derived: `O2_UNIT_ONLY=1 npx vitest run --project node` collected
+   * `Test Files  187 passed | 1 skipped (188)` and `Tests  3143 passed | 9 skipped (3152)`,
+   * `EXIT=$?` read immediately after the command, no pipe — `EXIT=0`. The one skipped file is
+   * the same `elf-fixtures.node.test.ts` the `files`/`tests` note above names (9 skipped
+   * tests); no other file or test skipped.
+   *
+   * `3152 - 3138 = 14` is this phase's own arriving unit-lane cases, counted rather than
+   * assumed. The `187 -> 188` layer above moved `unitFiles` but deliberately left `unitTests`
+   * unmoved, so `network-reach-guard.test.ts`'s 6 cases were NOT yet in the `3138` figure —
+   * they arrive here for the first time, alongside `mutation-guard.node.test.ts`'s NR1/NR2
+   * cases (+2, both cleared for the unit set) and this phase's remaining unit-lane deltas. No
+   * single-file arithmetic is asserted to sum to 14 here; the composed total is read from the
+   * run, per this table's own rule that a full-lane figure is not reconstructed from
+   * plan-level deltas.
+   *
+   * **Host conditions**: banner read `HOST WAS OVERSUBSCRIBED — load/core 8.38 before, 6.64
+   * after (8 cores, ceiling 4.00)`, load having spiked between the full-lane run above and
+   * this one. Nothing failed, so the counts stand; no duration is recorded from this run.
+   */
   unitFiles: 188,
-  unitTests: 3138,
+  unitTests: 3152,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
   unitWallClockMs: 10_240,
