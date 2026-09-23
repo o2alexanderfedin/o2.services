@@ -1161,6 +1161,7 @@ that straggler-dominated distributions have meaningless means.
 | Phase 25 P04 | 8min | 3 tasks | 8 files |
 | Phase 46 P01 | 6min | 2 tasks | 2 files |
 | Phase 46 P03 | 20min | 2 tasks | 4 files |
+| Phase 46 P04 | 15min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -1209,6 +1210,15 @@ that straggler-dominated distributions have meaningless means.
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- **Both of CAP-01's decision surfaces now have a re-checkable regression proof
+  (Phase 46, plan 04).** `NR1`/`NR2` in `packages/node/src/mutation-ledger.ts` plant,
+  for real, a dropped `wantsNetworkReach` on the wire codec's spread condition and a
+  disabled sovereign-check condition on `guardNetworkReach`'s one `if`; both were
+  watched red (`EXIT=1` each), restored by the surgical inverse with `cmp` exit 0, and
+  are now re-provable on demand via `npm run test:mutations` rather than a one-time
+  observation. Roadmap criterion 5 closes on this plan; CAP-01 as a whole still waits
+  on `46-05`'s wiring into the node factories.
 
 - **CAP-01's guard reads an unverified signed field, and that is safe only because the
   guard refuses and never grants (Phase 46, plan 03).** `guardNetworkReach`
