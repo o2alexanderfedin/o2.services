@@ -427,7 +427,7 @@ stopped_at: >-
   for irreversible acts produces `Partial` rows by construction. Written at the ceiling: if a
   fourth raise of the same shape arrives, the question is whether `experiment-not-run` needs its
   own count, not whether the ceiling moves again.
-last_updated: "2026-09-18T04:10:00.000Z"
+last_updated: "2026-09-23T22:10:00.000Z"
 last_activity: >-
   2026-09-17 — MILESTONE v2.1 "Run Somebody Else's Lambda" SCOPED, immediately after v2.0 closed.
   A spike the same day established the ground: an unedited Lambda handler -- `export const handler
@@ -444,12 +444,35 @@ last_activity: >-
   first phase and it GRANTS NOTHING: a module declares its wish to reach the network inside its
   signature at packaging time, and a node refuses the WHOLE task -- owner ruling, taken with the
   alternative in front of him -- when such a module meets sovereign data. CAP-01 opened.
+  2026-09-23 -- PHASE 46 COMPLETE AND VERIFIED 6/6 against the code rather than the summaries.
+  Six plans, five waves, all on the main working tree rather than in worktrees: a worktree has no
+  node_modules, so every verification command in every plan would have failed or silently measured
+  the main checkout. `NameRecord.wantsNetworkReach?: true` now sits inside `payloadOf` under the
+  spread-omit idiom its two sibling fields already use; both halves of the hand-written wire codec
+  carry it, with a round-trip case that re-verifies through `SignedNameResolver.accept` rather than
+  comparing fields; `guardNetworkReach` refuses a declaring module against sovereign data WHOLE and
+  before `inner.execute`, proved by a call counter, and is composed identically into both
+  production factories. Both controls run at a real FabricNode and a real BrowserNode, not only in
+  the isolated unit. FOUR THINGS WORTH CARRYING FORWARD. (1) Every `gsd-sdk query state.*` MUTATION
+  command corrupts this very frontmatter, on EVERY write -- confirmed on `state.record-session` and
+  independently on `state.record-metric`; `readModifyWriteStateMd` syncs frontmatter
+  unconditionally. The "wiped it three times" warning above is not about occasional accidents.
+  (2) `[0x80]`, the byte the DATA-09 fixtures mark a sovereign input with, is also the middle byte
+  of an em dash's UTF-8 encoding, and the refusal text contains an em dash -- so the egress tap
+  REWROTE CAP-01's own refusal before it reached the RPC boundary, with nothing executing. A second
+  isolating plant ruled out the DAG-CBOR-header explanation that also fitted. (3) Criterion 1's
+  byte-identical clause originally compared two records both signed by today's code; a plant making
+  `payloadOf` always encode the field left that case and thirty-one others GREEN. It is now pinned
+  to a signature literal captured from commit `707ec0e`. (4) `status` stays `planning` rather than
+  advancing: the milestone's one planned phase is done, and what comes next is the owner's
+  conversation -- his ruling was "as soon as we implement this, we continue discussing the next
+  step". Full node lane read directly, EXIT=0, 271 files / 3925 cases.
 progress:
   total_phases: 1
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 6
+  completed_plans: 6
+  percent: 100
 ---
 
 <!--
