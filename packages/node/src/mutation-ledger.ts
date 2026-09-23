@@ -3721,6 +3721,49 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'carries the form across the wire intact, so the certificate still verifies',
     signatureSource: 'test-title',
   },
+  {
+    id: 'NR1',
+    why:
+      'Dropping `wantsNetworkReach` from the wire is not a lost optional extra: a publisher’s ' +
+      'declaration that a module wants network reach silently arrives as declares-nothing, which is ' +
+      'the one field this whole phase exists to make load-bearing. `guardNetworkReach` reads exactly ' +
+      'this field off the parsed record, so a frame this encoder strips passes a sovereign task ' +
+      'straight through with no refusal at all — not a weaker check, no check.',
+    file: 'packages/net/src/protocol.ts',
+    find:
+      '    ...(record.wantsNetworkReach === undefined\n' +
+      '      ? {}\n' +
+      '      : { wantsNetworkReach: record.wantsNetworkReach }),',
+    replace:
+      '    ...(record.wantsNetworkReach === undefined || true\n' +
+      '      ? {}\n' +
+      '      : { wantsNetworkReach: record.wantsNetworkReach }),',
+    caughtBy: ['packages/net/src/protocol.test.ts'],
+    // Observed 2026-09-23: EXIT=1, `Tests  1 failed | 23 passed (24)`. The failing case is
+    // DET-03's NETWORK-REACH round trip; restored by the surgical inverse, `cmp` exit 0.
+    signature: 'carries a NETWORK-REACH declaration across the wire so it still verifies',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'NR2',
+    why:
+      'CAP-01’s central claim. Removing the sovereign check does not merely weaken it — ' +
+      'it turns `guardNetworkReach` into an always-pass-through adapter that refuses nothing, and it ' +
+      'is the one line the roadmap’s criterion 2 depends on entirely: every other case in this ' +
+      'guard’s own test file is a control proving the guard stays out of the way, and none of ' +
+      'them would notice if the refusal branch were dead.',
+    file: 'packages/core/src/executor/network-reach-guard.ts',
+    find: "      if (task.label === 'sovereign' && task.moduleRecord?.wantsNetworkReach === true) {",
+    replace:
+      "      if (false && task.label === 'sovereign' && task.moduleRecord?.wantsNetworkReach === true) {",
+    caughtBy: ['packages/core/src/executor/network-reach-guard.test.ts'],
+    // Observed 2026-09-23: EXIT=1, `Tests  1 failed | 5 passed (6)`. Only the refusal case
+    // (Case A) reddened; the positive control and the two declares-nothing controls (Cases
+    // B-E) stayed green, as expected — the plant only removes a refusal, it never adds
+    // one. Restored by the surgical inverse; `cmp` exit 0.
+    signature: 'refuses a sovereign task whose module declares network reach, before inner.execute runs',
+    signatureSource: 'test-title',
+  },
   // ── CL1, RETIRED 2026-08-24 ───────────────────────────────────────────────────────────
   //
   // It planted `export { Subject } from './cert-lifecycle.ts'` onto `@o2/core`'s barrel and was

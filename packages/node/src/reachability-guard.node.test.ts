@@ -2771,6 +2771,29 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
 // Closing condition, checkable and with no forecast attached: this entry leaves if a
 // production module ever imports `location-claims.ts` directly, the way `check-copy.ts`
 // eventually did for `banned-vocabulary.ts`.
+//
+// 2026-09-23 (Phase 46, CAP-01, plan 03): 35 -> 36, raised by exactly one and named.
+// `packages/core/src/executor/network-reach-guard.ts` is CAP-01's serving-side gate —
+// `guardNetworkReach`, proven in isolation by `network-reach-guard.test.ts`. Its mechanism is
+// the one this list has already accepted for `location-claims.ts` and `check-copy.ts`: its
+// only importer at this commit is its own `.test.ts` spec, which the traced graph does not
+// walk because specs are not production. The two production sites that will import it —
+// `fabric-node.ts` and `browser-node.ts`, both already composing `guardSovereignty` and
+// `guardModuleProvenance` — are deliberately out of this plan's own scope fence, which names
+// wiring as `46-05-PLAN.md`'s subject, not this one's.
+//
+// Closing condition, checkable and with no forecast attached: this entry leaves, and the
+// ceiling comes back down 36 -> 35, when `46-05-PLAN.md` wires `guardNetworkReach` into both
+// node factories. A ceiling left slack after the orphan is wired is the drift this guard
+// exists to catch, so 46-05's own `files_modified` should include this file.
+//
+// 2026-09-23 (Phase 46, CAP-01, plan 05): 36 -> 35, the closing condition above is met.
+// `guardNetworkReach` is now composed into both `fabric-node.ts:2934` and
+// `browser-node.ts:2540` (`guardSovereignty(guardNetworkReach(provenance(abi)), sovereignty)`),
+// so both production sites import it and the traced graph reaches it through each factory's
+// own barrel. The entry above is left in place rather than deleted, matching this list's own
+// convention of recording a raise and its close as a pair rather than erasing the history of
+// why the number moved.
 const ORPHAN_MODULE_CEILING = 35
 
 /**

@@ -3010,4 +3010,53 @@ splits by audience** — the requestor learns that it was refused, the data owne
 because otherwise a refusal becomes an oracle for what a node is holding. That binds the grant
 phase, not this one.
 
-**Plans**: not yet planned.
+**Status 2026-09-23 — all six criteria met, verified 6/6 against the code rather than the
+summaries. A module's wish to reach the internet is now part of what somebody signed, and a node
+refuses the whole task rather than running it half-privileged.**
+
+**What it cost, criterion by criterion.** (1) `NameRecord.wantsNetworkReach?: true` sits inside
+`payloadOf` under the spread-omit idiom its two sibling fields already use, so a record that
+declares nothing hashes exactly as one signed before the field existed — and that clause is
+pinned to a **signature literal captured from commit `707ec0e`**, not to a second record signed
+by today's code. (2) `guardNetworkReach` refuses before `inner.execute`, proved by a call counter
+rather than by `ok === false` alone, with both the declaration and the label named in the refusal.
+(3) and (4) The two controls run at a **real `FabricNode` and a real `BrowserNode`**, not only in
+the isolated unit guard. (5) Two mutation-ledger entries, `NR1` and `NR2`, each with a signature
+read off a real planted run. (6) The named refusal is readable at the requestor's own RPC client
+and is distinguishable from `guardSovereignty`'s and `guardModuleProvenance`'s.
+
+**The codec trap was the phase's real work, and it was anticipated rather than discovered.**
+`NameRecord` crosses the wire through a hand-written encoder and parser. A signed field added to
+`payloadOf` but not to both halves arrives with the field gone, and the receiver reports
+`bad-signature` about a frame the transport damaged — this repository shipped exactly that for
+`translationKeyCid` and `delegation`. The round trip is therefore a named case that re-verifies
+through `SignedNameResolver.accept`, because field equality passes on a value a JSON round trip
+widened.
+
+**A defect found by refusing to stop at a plausible explanation.** `[0x80]`, the byte the DATA-09
+fixtures use to mark a sovereign input, is also the middle byte of an em dash's UTF-8 encoding —
+and `describeNetworkReachRefusal`'s text contains an em dash. The egress tap therefore **rewrote
+CAP-01's own refusal text before it reached the RPC boundary**, with nothing executing. A second,
+isolating plant — swap the em dash, keep the byte — ruled out the DAG-CBOR-header explanation that
+also fitted. Fixed with a four-byte fixture; the guard's prose was left alone.
+
+**One proof that could not fail, found by the verifier and closed rather than recorded.** The
+byte-identical clause originally compared two records **both signed under today's code**, so a
+regression making `payloadOf` always encode the field would move both sides together. Measured:
+that plant left the old case and thirty-one others **green**, and reddens only the literal-pinned
+case that replaced it.
+
+**What this phase does NOT do, and the roadmap said so before it started.** It implements no
+`fetch`, adds no host import, and grants no network access to anything. Who may sign a declaration,
+and whether a signer can be trusted to declare honestly, is the next phase's subject.
+
+Plans:
+- [x] `46-01-PLAN.md` — the field, inside the signature, carried by every `naming.ts` codec that must agree on it (wave 1)
+- [x] `46-02-PLAN.md` — the wire codec's twin halves and the round-trip case that re-verifies rather than compares (wave 2, parallel with 03)
+- [x] `46-03-PLAN.md` — `guardNetworkReach`, its two controls, and the reasoning about reading an unverified record written into the code rather than a plan file (wave 2, parallel with 02)
+- [x] `46-04-PLAN.md` — `NR1` and `NR2`, each signature read off a real planted run, each plant restored by surgical inverse and `cmp`-verified (wave 3, alone)
+- [x] `46-05-PLAN.md` — both node factories wired identically, proved at a real node on both tiers, with `provenance(abi)` intact for `M27`/`M28` and the orphan ceiling returned to 35 (wave 4)
+- [x] `46-06-PLAN.md` — the full node lane in one sweep, the counts measured rather than derived, and the criteria-to-test map (wave 5)
+- [x] `46-VERIFICATION.md` — 6/6, plus the literal-pinned case that closed criterion 1's circular comparison
+
+**Why 04 runs alone rather than beside 05, decided by the plan checker on 2026-09-23 before a line was written.** Disjoint `files_modified` is not what protects a concurrent *read*. 46-04 plants `protocol.ts` and `network-reach-guard.ts` and holds each plant live for its run-and-observe window; 46-05 dispatches a task over real RPC through both of those files. Side by side, 46-05's refusal case would have observed `ok: true` and blamed its own wiring for a neighbour's deliberate defect. That is the hazard this repository already paid 111 executions for — *an observation taken while another agent holds a plant is not a measurement of the tree*.

@@ -427,7 +427,7 @@ stopped_at: >-
   for irreversible acts produces `Partial` rows by construction. Written at the ceiling: if a
   fourth raise of the same shape arrives, the question is whether `experiment-not-run` needs its
   own count, not whether the ceiling moves again.
-last_updated: "2026-09-18T04:10:00.000Z"
+last_updated: "2026-09-23T22:10:00.000Z"
 last_activity: >-
   2026-09-17 — MILESTONE v2.1 "Run Somebody Else's Lambda" SCOPED, immediately after v2.0 closed.
   A spike the same day established the ground: an unedited Lambda handler -- `export const handler
@@ -444,12 +444,35 @@ last_activity: >-
   first phase and it GRANTS NOTHING: a module declares its wish to reach the network inside its
   signature at packaging time, and a node refuses the WHOLE task -- owner ruling, taken with the
   alternative in front of him -- when such a module meets sovereign data. CAP-01 opened.
+  2026-09-23 -- PHASE 46 COMPLETE AND VERIFIED 6/6 against the code rather than the summaries.
+  Six plans, five waves, all on the main working tree rather than in worktrees: a worktree has no
+  node_modules, so every verification command in every plan would have failed or silently measured
+  the main checkout. `NameRecord.wantsNetworkReach?: true` now sits inside `payloadOf` under the
+  spread-omit idiom its two sibling fields already use; both halves of the hand-written wire codec
+  carry it, with a round-trip case that re-verifies through `SignedNameResolver.accept` rather than
+  comparing fields; `guardNetworkReach` refuses a declaring module against sovereign data WHOLE and
+  before `inner.execute`, proved by a call counter, and is composed identically into both
+  production factories. Both controls run at a real FabricNode and a real BrowserNode, not only in
+  the isolated unit. FOUR THINGS WORTH CARRYING FORWARD. (1) Every `gsd-sdk query state.*` MUTATION
+  command corrupts this very frontmatter, on EVERY write -- confirmed on `state.record-session` and
+  independently on `state.record-metric`; `readModifyWriteStateMd` syncs frontmatter
+  unconditionally. The "wiped it three times" warning above is not about occasional accidents.
+  (2) `[0x80]`, the byte the DATA-09 fixtures mark a sovereign input with, is also the middle byte
+  of an em dash's UTF-8 encoding, and the refusal text contains an em dash -- so the egress tap
+  REWROTE CAP-01's own refusal before it reached the RPC boundary, with nothing executing. A second
+  isolating plant ruled out the DAG-CBOR-header explanation that also fitted. (3) Criterion 1's
+  byte-identical clause originally compared two records both signed by today's code; a plant making
+  `payloadOf` always encode the field left that case and thirty-one others GREEN. It is now pinned
+  to a signature literal captured from commit `707ec0e`. (4) `status` stays `planning` rather than
+  advancing: the milestone's one planned phase is done, and what comes next is the owner's
+  conversation -- his ruling was "as soon as we implement this, we continue discussing the next
+  step". Full node lane read directly, EXIT=0, 271 files / 3925 cases.
 progress:
   total_phases: 1
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 6
+  completed_plans: 6
+  percent: 100
 ---
 
 <!--
@@ -1159,6 +1182,11 @@ that straggler-dominated distributions have meaningless means.
 | Phase 13 P03 | 25min | 2 tasks | 1 files |
 | Phase 18 P03 | 25min | 2 tasks | 5 files |
 | Phase 25 P04 | 8min | 3 tasks | 8 files |
+| Phase 46 P01 | 6min | 2 tasks | 2 files |
+| Phase 46 P03 | 20min | 2 tasks | 4 files |
+| Phase 46 P04 | 15min | 2 tasks | 1 files |
+| Phase 46 P05 | 19min | 3 tasks + 1 post-review fix | 7 files |
+| Phase 46 P06 | 25min | 1 task | 1 files |
 
 ## Accumulated Context
 
@@ -1207,6 +1235,62 @@ that straggler-dominated distributions have meaningless means.
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- **CAP-01 closes: all five prior plans' edits, run together on one tree, in one
+  full-lane sweep (Phase 46, plan 06).** `npx vitest run --project node` — 270/271
+  files passed (the one skip is `elf-fixtures.node.test.ts`'s own `CAN_BUILD` gate —
+  arm64 present, Docker daemon unreachable on this host — not a missing elfconv
+  image, corrected here after an earlier draft of this bullet named the wrong
+  reason), 3924 collected cases, zero failures, nothing from this phase red. The
+  unit-only lane and the two browser-project files this phase touches are likewise
+  green. `vitest.config.ts`'s `tests`/`unitTests` are now read off those two runs
+  (3907 -> 3924, 3138 -> 3152) rather than left deferred; `files`/`unitFiles` were
+  confirmed against the same runs, not re-measured, and no drift was found. All
+  six roadmap success criteria are named against a real, passing test case in the
+  plan's own SUMMARY, including the two controls (criteria 3 and 4) proven at a
+  real `FabricNode`/`BrowserNode`, not only in the isolated unit guard.
+
+- **CAP-01 is now wired into both production node factories and proven there, not
+  only in isolation (Phase 46, plan 05).** `guardSovereignty(guardNetworkReach(
+  provenance(abi)), sovereignty)` composes identically at `fabric-node.ts:2934` and
+  `browser-node.ts:2540`. A real `FabricNode` refuses a declared module against
+  sovereign data over real RPC; a real `BrowserNode` refuses the identical shape
+  through a real Worker dispatch — both tiers' positive and non-declaring controls
+  pass at full strength, watched RED and restored on both tiers first. A collision
+  was measured and fixed along the way: the `[0x80]` sovereign-input byte the
+  DATA-09 fixture uses is also the middle byte of an em dash's UTF-8 encoding, and
+  `describeNetworkReachRefusal`'s own prose contains one — so registering `[0x80]`
+  as a sovereign payload made the egress tap rewrite CAP-01's own refusal text
+  before it reached the RPC boundary. `reachability-dispositions.ts` also gained a
+  `HIDDEN_BY_DISPATCH` entry for `describeNetworkReachRefusal`, mirroring
+  `describeModuleRefusal`'s row, since wiring gave it its first port-dispatched
+  caller. **Corrected post-review**: the browser file's two controls were first
+  committed asserting the plan's documented fallback even though a pre-commit
+  debug print had already measured full strength (`ok: true, output: 10`) on
+  all three engines — a follow-up commit (`41be01f`) asserts the measured
+  outcome directly. `CAP-01` as a whole still waits on `46-06`'s full-lane
+  sweep and criteria-to-test accounting.
+
+- **Both of CAP-01's decision surfaces now have a re-checkable regression proof
+  (Phase 46, plan 04).** `NR1`/`NR2` in `packages/node/src/mutation-ledger.ts` plant,
+  for real, a dropped `wantsNetworkReach` on the wire codec's spread condition and a
+  disabled sovereign-check condition on `guardNetworkReach`'s one `if`; both were
+  watched red (`EXIT=1` each), restored by the surgical inverse with `cmp` exit 0, and
+  are now re-provable on demand via `npm run test:mutations` rather than a one-time
+  observation. Roadmap criterion 5 closes on this plan; CAP-01 as a whole still waits
+  on `46-05`'s wiring into the node factories.
+
+- **CAP-01's guard reads an unverified signed field, and that is safe only because the
+  guard refuses and never grants (Phase 46, plan 03).** `guardNetworkReach`
+  (`packages/core/src/executor/network-reach-guard.ts`) reads
+  `task.moduleRecord.wantsNetworkReach` before any signature check, composed as a third
+  adapter between `guardSovereignty` (outermost) and `guardModuleProvenance`
+  (innermost). A forged declaration only refuses its own forger; the moment a grant
+  decision reads this same field, this ordering argument stops holding, and a grant must
+  never be made at a point that reads an unverified record. Raised
+  `ORPHAN_MODULE_CEILING` 35 -> 36 in `reachability-guard.node.test.ts` (outside this
+  plan's own stated file list) because the guard has no production importer until
+  `46-05` wires it — closing condition recorded there.
 
 - Verification compares the SAME module run on two nodes, byte for byte. Not multiple implementations of the same computation — cross-implementation verification is explicitly out of scope.
 - There is no static determinism analysis. Divergence is detected by the comparison, not predicted ahead of it. The admission gate was built and then deleted; do not reintroduce it. The import object is the sandbox — WebAssembly.instantiate refuses any import the host does not supply.
@@ -1610,6 +1694,21 @@ Recent decisions affecting current work:
   async) shipped complete and tested but unwired — verifyChain/verifyCertificate
   wiring deferred to a future phase pending a bootstrap-ordering decision across three
   runtime entry points.**
+
+- **[Phase 46-01]: `wantsNetworkReach` is typed as the literal `true`, not `boolean`** —
+  there is no signed meaning yet for an explicit `false`; absence already carries "does
+  not declare". It names a wish, not a permission (CONTEXT.md §2): this plan reads it
+  only to refuse, and whether a signer can be trusted to declare honestly is a later
+  phase's question.
+
+- **[Phase 46-01]: every `gsd-sdk query state.*` mutation command is unsafe against this
+  file** — `readModifyWriteStateMd` "syncs frontmatter" on every write regardless of
+  which field a specific handler targets, and that sync cannot round-trip this file's
+  hand-authored `stopped_at` block; observed on `state.record-session` AND, in isolation,
+  on `state.record-metric` alone. This entry and the Phase 46 P01 metrics row above were
+  added by hand for that reason. Do not run any `state.*` write command against this file
+  until the SDK's frontmatter-sync path is fixed to preserve unrecognized long-form
+  fields.
 
 ### Pending Todos
 
