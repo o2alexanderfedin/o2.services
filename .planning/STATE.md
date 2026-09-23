@@ -1162,7 +1162,7 @@ that straggler-dominated distributions have meaningless means.
 | Phase 46 P01 | 6min | 2 tasks | 2 files |
 | Phase 46 P03 | 20min | 2 tasks | 4 files |
 | Phase 46 P04 | 15min | 2 tasks | 1 files |
-| Phase 46 P05 | 35min | 3 tasks | 7 files |
+| Phase 46 P05 | 19min | 3 tasks + 1 post-review fix | 7 files |
 
 ## Accumulated Context
 
@@ -1226,8 +1226,12 @@ Recent decisions affecting current work:
   before it reached the RPC boundary. `reachability-dispositions.ts` also gained a
   `HIDDEN_BY_DISPATCH` entry for `describeNetworkReachRefusal`, mirroring
   `describeModuleRefusal`'s row, since wiring gave it its first port-dispatched
-  caller. `CAP-01` as a whole still waits on `46-06`'s full-lane sweep and
-  criteria-to-test accounting.
+  caller. **Corrected post-review**: the browser file's two controls were first
+  committed asserting the plan's documented fallback even though a pre-commit
+  debug print had already measured full strength (`ok: true, output: 10`) on
+  all three engines — a follow-up commit (`41be01f`) asserts the measured
+  outcome directly. `CAP-01` as a whole still waits on `46-06`'s full-lane
+  sweep and criteria-to-test accounting.
 
 - **Both of CAP-01's decision surfaces now have a re-checkable regression proof
   (Phase 46, plan 04).** `NR1`/`NR2` in `packages/node/src/mutation-ledger.ts` plant,
