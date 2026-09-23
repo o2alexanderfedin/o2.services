@@ -325,6 +325,81 @@ describe('AOT-02 — a record can vouch for the translation as well as the bytes
 })
 
 /**
+ * CAP-01, half 1 — a module can declare it wants network reach.
+ *
+ * The property under test is the same shape `AOT-02` already proves for
+ * `translationKeyCid`: the declaration is inside the signature, a record that carries none
+ * hashes exactly as it did before the field existed, and the wire form refuses anything the
+ * signature could not have covered rather than silently dropping it.
+ */
+describe('CAP-01 — a module can declare it wants network reach', () => {
+  const seed = new Uint8Array(32).fill(31)
+
+  it('signs it, so it cannot be attached to or stripped from a record after the fact', async () => {
+    const cid = await cidFor('reaches-out')
+    const fields = { name: 'reacher', cid, version: 1, expiresAt: LATER } as const
+    const record = signName(seed, { ...fields, wantsNetworkReach: true })
+    const resolver = new SignedNameResolver([record.signer])
+
+    // The record as issued verifies.
+    expect(resolver.accept(record, NOW).ok).toBe(true)
+
+    // Stripped: rebuilding the object literal with the key omitted (not set to `undefined`,
+    // which is a different value to a canonical encoder) is a different record.
+    const stripped = resolver.accept(
+      { name: record.name, cid: record.cid, version: record.version, expiresAt: record.expiresAt, signer: record.signer, signature: record.signature },
+      NOW,
+    )
+    expect(stripped.ok).toBe(false)
+    if (stripped.ok) return
+    expect(stripped.failure.kind).toBe('bad-signature')
+
+    // Attached: a record signed WITHOUT the declaration does not accept one being added.
+    const bare = signName(seed, fields)
+    expect(resolver.accept(bare, NOW).ok).toBe(true)
+    const attached = resolver.accept({ ...bare, wantsNetworkReach: true }, NOW)
+    expect(attached.ok).toBe(false)
+    if (attached.ok) return
+    expect(attached.failure.kind).toBe('bad-signature')
+  })
+
+  it('leaves a record that declares nothing hashing exactly as it did before the field existed', async () => {
+    const cid = await cidFor('says-nothing')
+    const fields = { name: 'silent', cid, version: 1, expiresAt: LATER } as const
+    const withoutField = signName(seed, fields)
+    const withUndefinedSpread = signName(seed, { ...fields })
+    expect(withoutField.signature).toBe(withUndefinedSpread.signature)
+    expect(withoutField.wantsNetworkReach).toBeUndefined()
+    // …and the encoded file has no such property at all, rather than a `false` one.
+    const encoded: Record<string, unknown> = JSON.parse(encodeNameRecord(withoutField))
+    expect('wantsNetworkReach' in encoded).toBe(false)
+  })
+
+  it('round-trips it through the wire form, and refuses a record whose declaration was widened to anything but true rather than dropping it', async () => {
+    const cid = await cidFor('reaches-out-2')
+    const record = signName(seed, {
+      name: 'reacher2',
+      cid,
+      version: 1,
+      expiresAt: LATER,
+      wantsNetworkReach: true,
+    })
+    const back = decodeNameRecord(encodeNameRecord(record))
+    expect(back?.wantsNetworkReach).toBe(true)
+    // And it still verifies after the round trip.
+    expect(new SignedNameResolver([record.signer]).accept(back as NameRecord, NOW).ok).toBe(true)
+
+    // Present and not the literal `true` is a malformed record, not a record without the
+    // field — including `false`, which a genuine signer's canonical form never encodes.
+    const good: Record<string, unknown> = JSON.parse(encodeNameRecord(record))
+    expect(decodeNameRecord(JSON.stringify({ ...good, wantsNetworkReach: false }))).toBeNull()
+    expect(decodeNameRecord(JSON.stringify({ ...good, wantsNetworkReach: 'yes' }))).toBeNull()
+    expect(decodeNameRecord(JSON.stringify({ ...good, wantsNetworkReach: 1 }))).toBeNull()
+    expect(decodeNameRecord(JSON.stringify(good))).not.toBeNull()
+  })
+})
+
+/**
  * Task #4, half 2 — a root that can stay offline.
  *
  * The property under test is not "a delegation verifies". It is that **every way a delegation
