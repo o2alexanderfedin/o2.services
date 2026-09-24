@@ -1743,10 +1743,31 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // having something to give a few hundred willing testers. The current blockers are of the same
   // kind: they are about access and about a credential, not about a machine. So the clock moves
   // and `because` does not.
+  //
+  // **RE-READ BY HAND 2026-09-24 AT 15 DAYS OUTSTANDING, BOUND 14 — THE ROW STANDS, AND THIS
+  // TIME THE PHASE-39 GATE ITSELF SAYS SO IN WRITING.** All three witnesses re-run together:
+  // `EXIT=0` read on the line immediately after the command, 3 files, 51 tests, none skipped,
+  // host quiet (load/core 0.84 before, 1.06 after, ceiling 4.00). The same-machine half is
+  // still carried — the ladder's own printed labels still read `SAME-MACHINE … a node count,
+  // not a machine count` and `ONE KERNEL, ONE HOST … NOT separate machines`. Nothing new there.
+  //
+  // What is new is that this row now has an explicit reading beyond the register itself:
+  // `39-GO-NO-GO.md` line 58 carries its own dated row — `BENCH-06 | NO-GO | The
+  // distinct-machine reading path does not exist yet. Blocker: the privacy ruling in plan
+  // 39-03 task 1, and then the run itself — the reading is of the cohort, so it cannot precede
+  // the cohort.` That is not a renewal of this entry; it is a second, independent instrument
+  // reading the identical open half. And the run it names has not happened: no
+  // `39-PRE-INVITE-READING.md` exists, and `GET .../funnel` was read live just now —
+  // `entered.page-load: 23` — the same count `RUN-06`'s own 2026-09-22 reading recorded,
+  // unchanged. An unchanged funnel is the positive control that no invite has been sent since
+  // the last reading, not merely an absence of new information.
+  //
+  // The verdict does not move. Ticking it would still be the overclaim this entry exists to
+  // prevent — the distinct-machine half needs the cohort Phase 39 has not yet been sent to.
   {
     id: 'BENCH-06',
     because: 'experiment-not-run',
-    reread: '2026-09-09',
+    reread: '2026-09-24',
     witnesses: [
       'packages/bench/src/harness.test.ts',
       'packages/node/src/bench-fabric.node.test.ts',
@@ -1875,9 +1896,42 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     // continents. A same-region substitute discharges neither. Neither is touched by the
     // enrolment work — what changed is that a visitor can now hold the certificate the rung
     // asks for, once the owner sets the budget (`OWNER-ACTIONS.md` row 3b).
+    //
+    // **RE-READ BY HAND 2026-09-24 AT 15 DAYS OUTSTANDING, BOUND 14 — ONE NAMED CONDITION
+    // CLOSED, NEITHER RE-READ CONDITION DID.** The 16 witnesses were read against the row
+    // rather than assumed: 9 in the node/browser lane were re-run together — `EXIT=0` read on
+    // the line immediately after the command, 9 files, 106 tests, none skipped, host quiet
+    // (load/core 1.01 before, 0.98 after, ceiling 4.00) — and the 7 `.e2e.` files were read by
+    // hand rather than executed, because `vitest.config.ts` puts `*.e2e.test.ts` in its own
+    // lane and this register does not run it to tick a box. Each of the seven still exists,
+    // still title-names `NET-12`, and each still says of itself what it said on 2026-09-09:
+    // `turn-end-to-end.e2e.test.ts` runs against "a local `coturn`", `turn-provider-join.e2e.test.ts`
+    // against "a stub on loopback", `hosted-enrolment.e2e.test.ts` against "the loopback stub
+    // `turn-provider-join.e2e.test.ts` established" — none against the deployed object.
+    //
+    // **What moved:** `OWNER-ACTIONS.md` row 3b is `DONE 2026-09-17` — the owner set
+    // `O2_MAX_ISSUED_PER_WINDOW`, and `GET /self` read live just now confirms it:
+    // `enrolment:{"maxIssuedPerWindow":600,"issues":true}`. That was the second-named clause
+    // of the 2026-09-09 reading and it closed.
+    //
+    // **What did not move, checked rather than assumed:** the promise's two re-read conditions
+    // are unchanged. (1) No live Cloudflare-issued credential has carried a real pair —
+    // the same live `/self` read shows `traffic.relayed: {connectionSeconds:0, bytes:0}` on
+    // this object right now, and `git log --since=2026-09-09 --oneline --
+    // 'packages/cloudflare/*turn*' 'packages/node/*turn*'` returns one commit (`d116672`,
+    // dropping `operatorId` from the enrolment wire), which touches enrolment plumbing and
+    // names nothing about a credential being carried by a real pair. (2) Phase 33's three objects and a two-continent
+    // cohort are both still absent — `39-GO-NO-GO.md` line 55 reads `Phase 33 — three regions |
+    // NO-GO … there is no phase directory and no plan`, and no invite has been sent: no
+    // `39-PRE-INVITE-READING.md` exists, and the live funnel read just now shows
+    // `entered.page-load: 23`, the same count `RUN-06`'s sibling 2026-09-22 reading recorded —
+    // an unchanged count is the positive control that nothing shipped since.
+    //
+    // The row stays `Partial`, for one clause fewer than before. Ticking it would still claim
+    // an experiment nobody has run.
     id: 'NET-12',
     because: 'experiment-not-run',
-    reread: '2026-09-09',
+    reread: '2026-09-24',
     witnesses: [
       'packages/browser/src/ice-configuration-library.node.test.ts',
       'packages/browser/src/ice-configuration.test.ts',
