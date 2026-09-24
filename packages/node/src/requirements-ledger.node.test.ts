@@ -1915,12 +1915,22 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     // of the 2026-09-09 reading and it closed.
     //
     // **What did not move, checked rather than assumed:** the promise's two re-read conditions
-    // are unchanged. (1) No live Cloudflare-issued credential has carried a real pair —
-    // the same live `/self` read shows `traffic.relayed: {connectionSeconds:0, bytes:0}` on
-    // this object right now, and `git log --since=2026-09-09 --oneline --
-    // 'packages/cloudflare/*turn*' 'packages/node/*turn*'` returns one commit (`d116672`,
-    // dropping `operatorId` from the enrolment wire), which touches enrolment plumbing and
-    // names nothing about a credential being carried by a real pair. (2) Phase 33's three objects and a two-continent
+    // are unchanged. (1) No live Cloudflare-issued credential has carried a real pair — but
+    // `traffic.relayed` off `/self` is NOT the reading that shows it, and citing it would be
+    // exactly the number-that-agrees-with-the-theory this register warns against.
+    // `relay-counters.e2e.test.ts` measured this same counter reading `{0, 0}` on the deployed
+    // object on 2026-09-04 while `relayService.inboundHopStreams` stood at 6 715 — it is known
+    // to under-report this object's own circuit-relay role and says nothing about TURN, which
+    // never touches this Durable Object at all (`rtc.live.cloudflare.com` does). The funnel's
+    // `connectionClass` vocabulary cannot stand in for it either: `demo/main.ts`'s own comment
+    // says `relayed` is "produced by the hosted tier and not by this one" and a browser-tier
+    // WebRTC pair that carries work is classified `direct` whether or not TURN relayed it — so
+    // the instrument this register has cannot see the property this clause is about. What
+    // stands instead: `git log --since=2026-09-09 --oneline -- 'packages/cloudflare/*turn*'
+    // 'packages/node/*turn*'` returns one commit (`d116672`, dropping `operatorId` from the
+    // enrolment wire), which touches enrolment plumbing and names nothing about a credential
+    // being carried by a real pair; and no session has run since the last reading at all (the
+    // unchanged funnel count below), so nothing could have carried one. (2) Phase 33's three objects and a two-continent
     // cohort are both still absent — `39-GO-NO-GO.md` line 55 reads `Phase 33 — three regions |
     // NO-GO … there is no phase directory and no plan`, and no invite has been sent: no
     // `39-PRE-INVITE-READING.md` exists, and the live funnel read just now shows
