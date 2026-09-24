@@ -160,6 +160,10 @@ export type { NodeSovereignty } from './executor/sovereignty-guard.ts'
 export { describeModuleRefusal, guardModuleProvenance } from './executor/module-provenance.ts'
 export type { ModuleProvenance, ModuleRefusal } from './executor/module-provenance.ts'
 
+// Serving-side declared-network-reach gate — CAP-01.
+export { describeNetworkReachRefusal, guardNetworkReach } from './executor/network-reach-guard.ts'
+export type { NetworkReachRefusal } from './executor/network-reach-guard.ts'
+
 // Leg 3's wrapper, beside leg 1's above. Composed nowhere until Plan 19-15.
 export { attestResults } from './executor/attesting-executor.ts'
 export type { ResultAttestor } from './executor/attesting-executor.ts'

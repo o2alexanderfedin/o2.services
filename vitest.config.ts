@@ -870,8 +870,139 @@ const NODE_MEASUREMENT = {
    * deliberately left at its earlier quiet-host reading rather than overwritten with a number
    * this session cannot support.
    */
-  files: 270,
-  tests: 3907,
+  /**
+   * **270 -> 271 on 2026-09-23 (Phase 46, CAP-01, plan 03).** One new file arrives:
+   * `packages/core/src/executor/network-reach-guard.test.ts`, the `guardNetworkReach` proof.
+   * A bare `*.test.ts` with no `.node.`/`.browser.`/`.e2e.` suffix, so — per the `node`
+   * project's bare `*.test.ts` include glob, with no matching `exclude` entry —
+   * it runs in BOTH the `node` project and the `browser` project, exactly the
+   * `kill-switch.test.ts` precedent this table's `231 -> 232` entry already records: it
+   * counts once here.
+   *
+   * Derivation route: `npx vitest list --project node --filesOnly | wc -l` — collection
+   * only, no test execution — measured `271` before this file was staged into a commit.
+   * Deliberately not a full `--project node` run: the guard's own installation of the state
+   * update, once run, is not what this reading needs, and the surrounding wave-shared-tree
+   * caution this plan's own header names no longer applies once 46-02 is committed and this
+   * plan runs alone — but the collection-only route is kept anyway, on this table's own
+   * standing rule that a number satisfying its own check (a full run happening to print the
+   * expected total) is not a reading; collection-only is the narrower instrument and is
+   * preferred for that reason, not for the wave.
+   *
+   * `tests`/`unitTests` are LEFT UNCHANGED at their current values, on the same precedent
+   * the `236 -> 242` and `242 -> 248` entries elsewhere in this table already establish:
+   * "at their run's figures on the rule that inventing a test total nobody counted is the
+   * defect this table exists to prevent." The six cases this file actually carries are not
+   * folded into `tests`/`unitTests` here — that full-lane count is deferred to
+   * `46-06-PLAN.md`'s sweep, the first point in this phase where a full `node`-project run
+   * against the complete, merged tree is safe to take.
+   */
+  /**
+   * **`tests` 3907 -> 3924 on 2026-09-23 (Phase 46, CAP-01 — completing the derivation).**
+   * This is that deferred sweep: the first point in the phase where every one of plans
+   * 01-05's edits are landed together on a clean tree and a full `--project node` run is
+   * safe to take (no concurrent agent mid-edit, per this repository's own standing
+   * concurrency rule). `files` does not move here — 46-03 already measured 271 by
+   * collection, and this run's own `Test Files` line agrees with it directly rather than by
+   * the `unitFiles === files - excludedInNode` identity.
+   *
+   * Measured, not derived: `npx vitest run --project node` collected
+   * `Test Files  270 passed | 1 skipped (271)` and `Tests  3913 passed | 11 skipped (3924)`,
+   * `EXIT=$?` read on the line immediately after the command, no pipe — `EXIT=0`. The one
+   * skipped file is `packages/aot/src/elf-fixtures.node.test.ts` (9 skipped tests), gated by
+   * that file's own `CAN_BUILD` — "native arm64 plus a Docker that answers," read from its own
+   * docblock rather than assumed. This host is arm64 but its Docker daemon did not answer
+   * (`docker version` failed to reach the OrbStack socket), so the arch half passed and the
+   * Docker half did not; the file's `it.skipIf(!CAN_BUILD)` skips all nine on that one check.
+   * The other two skipped tests are `late-combine.node.test.ts` and
+   * `transport-bounds.node.test.ts`, both pre-existing single skips unrelated to this phase.
+   * Nothing failed: `deploy-preserves-enrolment.node.test.ts` and `fs-blockstore.node.test.ts`,
+   * both named elsewhere in this file as sometimes-failing on some hosts, passed on this run.
+   *
+   * **`3924 - 3907 = 17`, and only 16 of it is this phase's own — checked, not assumed.** The
+   * `270 -> 271` layer above moved `files` but deliberately left `tests` unmoved, so
+   * `network-reach-guard.test.ts`'s 6 cases were NOT yet in the `3907` figure and arrive here
+   * for the first time. Measured directly against the pre-phase snapshot (`707ec0e`, the
+   * commit immediately before `46-01`'s first task) and the current tree, by planting each
+   * base file back, running it alone, and restoring (`cmp` exit 0 after each): `naming.test.ts`
+   * 29 -> 32 (+3), `protocol.test.ts` 22 -> 24 (+2), `fabric-node.node.test.ts` 15 -> 18 (+3),
+   * `network-reach-guard.test.ts` 0 -> 6 (new file), and `mutation-ledger.ts`'s NR1/NR2 moving
+   * `mutation-guard.node.test.ts`'s dynamically-generated total 187 -> 189 (+2) —
+   * `3 + 2 + 3 + 6 + 2 = 16`. **The remaining +1 is NOT this phase's:** `3907` was set on
+   * 2026-09-16 (Phase 45, VER-12) and this is the first full-lane run since, so it is also the
+   * first point anything re-measured the tree against commits that landed on this branch
+   * between that baseline and `707ec0e` — release/deploy fixes, none of them part of this
+   * phase. `git log --oneline 026a7e9..707ec0e -- packages/node/src/browser-client-publish.
+   * node.test.ts` names exactly one: `7a27074` ("the release now carries the issuance budget,
+   * so a released node issues certificates"), which added one case to that file (14 -> 15,
+   * measured the same way, `cmp`-restored).
+   * That case was real and correct; it was simply never folded into this table because nobody
+   * ran the full lane between 2026-09-16 and today. Recorded here rather than folded silently
+   * into "this phase's own," on this table's own standing rule that a number satisfying its
+   * own check is not a reading.
+   *
+   * **Host conditions, and why no duration is recorded**: banner read `HOST WAS
+   * OVERSUBSCRIBED — load/core 0.97 before, 11.23 after (8 cores, ceiling 4.00)`. Nothing
+   * failed, so pass/fail and the counts stand; every duration in this run is void per the
+   * banner's own rule, and none is quoted here.
+   *
+   * **`tests` 3924 -> 3925 on 2026-09-23 (Phase 46 verification gap, CAP-01 criterion 1).**
+   * `files` does not move — the arrival is one new `it` inside the existing
+   * `packages/core/src/naming.test.ts`, not a new file. The prior case at that file's
+   * `CAP-01` describe block ("leaves a record that declares nothing hashing exactly as it
+   * did before the field existed") compared two records BOTH signed under today's
+   * `signName`, so a regression collapsing `payloadOf`'s spread-omit to `?? false` would move
+   * both sides together and that case would stay green — confirmed by planting exactly that
+   * change and watching it pass. The new case instead asserts the signature against a
+   * hardcoded literal captured by running `signName` from `naming.ts` as it stood at commit
+   * `707ec0e` (the last commit before this phase touched the file) against a fixed fixture.
+   * Route: `git show 707ec0e:packages/core/src/naming.ts` written to a temporary file inside
+   * `packages/core/src/`, imported under Node's `--experimental-strip-types`, run once, the
+   * signature printed and pasted into the test, then the temporary file deleted — confirmed
+   * absent by `git status --porcelain` before anything was staged. `canonical/encode.ts` and
+   * `capability.ts`, everything `payloadOf` depends on besides the field list itself, are
+   * unchanged between `707ec0e` and `HEAD` (`git log 707ec0e..HEAD` over both is empty), so
+   * the comparison isolates exactly the property CAP-01 claims.
+   *
+   * **Plant watched RED before this note was written.** Same `?? false` plant as above,
+   * restored by surgical inverse (`cmp` against a pre-plant snapshot, exit 0). Observed
+   * failure: `expected '61f5f41af6c2685532cb4466d6bd92d3fa227…' to be
+   * 'f8b1d88ff2295bd82d89fda0771600e248202…'` — the new case moved, and none of the other 32
+   * cases in the file did.
+   *
+   * Measured, not derived: `npx vitest run --project node` collected `Test Files  270 passed
+   * | 1 skipped (271)` and `Tests  3914 passed | 11 skipped (3925)`, `EXIT=$?` read
+   * immediately after, no pipe — `EXIT=0`. Same one skipped file as the layer above
+   * (`elf-fixtures.node.test.ts`, Docker unavailable on this host); same two other
+   * pre-existing skips. Host banner: `HOST WAS OVERSUBSCRIBED — load/core 1.26 before, 16.56
+   * after (8 cores, ceiling 4.00)`. Nothing failed; no duration quoted.
+   *
+   * **`tests` 3925 -> 3929 on 2026-09-23, two arrivals, no new file, `files` unchanged.**
+   * `state-frontmatter.node.test.ts` gained three cases proving `.planning/STATE.md`'s
+   * `milestone`/`milestone_name` name the same milestone ROADMAP.md's last `## Milestone`
+   * heading is on — a mismatch between the two had stood for five days on 2026-09-17 with
+   * this file's prior 8/8 never reading the roadmap at all. `mutation-ledger.ts` gained one
+   * entry, `KDF1`, for today's earlier `DEFAULT_KDF_PARAMS` -> median-of-five fix
+   * (`9e05ff2`), which added `mutation-guard.node.test.ts` one more per-entry case. `3 + 1 =
+   * 4`, and the read below confirms it rather than assuming it.
+   *
+   * Measured, not derived: `npx vitest run --project node` collected `Test Files  269
+   * passed | 1 failed | 1 skipped (271)` and `Tests  3917 passed | 1 failed | 11 skipped
+   * (3929)`, `EXIT=$?` read immediately after, no pipe — `EXIT=1`. The one failure is
+   * `requirements-ledger.node.test.ts`'s stale-promise case, unrelated to this arrival:
+   * `git diff 8d6ad94 HEAD --stat` touches only `mutation-ledger.ts` and
+   * `state-frontmatter.node.test.ts`, and the failing case's own findings name `BENCH-06`
+   * and `NET-12` outstanding 15 days against a 14-day bound in a register this arrival never
+   * touched — a date crossing a fixed bound, not a regression, and it fails identically with
+   * no commit scope on `8d6ad94` itself for the same reason (confirmed by reading the
+   * register's `reread` dates, not by re-running the base commit). Same one skipped file as
+   * the layer above; same 11 pre-existing skips. Host banner: `HOST WAS OVERSUBSCRIBED AND 1
+   * TEST(S) FAILED — load/core 0.96 before, 6.98 after (8 cores, ceiling 4.00)`. Per that
+   * banner's own rule the wall clock (235.95 s) is void and not quoted as a reading; the
+   * counts are not — they survive an oversubscribed host, durations do not.
+   */
+  files: 271,
+  tests: 3929,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
@@ -1298,9 +1429,82 @@ const NODE_MEASUREMENT = {
    * node`, `Test Files 187 passed (187)`, `Tests 3138 passed (3138)`, exit 0 — and the identity
    * `unitFiles === files - excludedInNode` (`270 - 83`) is reported as **agreeing with** that
    * reading, never as its source.
+   *
+   * **187 -> 188 on 2026-09-23 (Phase 46, CAP-01, plan 03).** The same one file named in the
+   * `files`/`tests` note above, `network-reach-guard.test.ts`, reads tracked source off disk
+   * with no subprocess and clears `SLOW_CUTOFF_MS`, so it joins the unit set on the same
+   * reasoning `attestation-claims.node.test.ts` did for the `186 -> 187` layer.
+   *
+   * Derivation route: `O2_UNIT_ONLY=1 npx vitest list --project node --filesOnly | wc -l` —
+   * collection only, measured on its own rather than inferred from the `unitFiles === files -
+   * excludedInNode` identity, per this table's own standing rule that a number satisfying its
+   * own check is not a reading. Measured `188` before this file was staged into a commit.
+   *
+   * `unitTests` is LEFT UNCHANGED at `3138` for the identical reason the `files`/`tests` note
+   * gives: deferred to `46-06-PLAN.md`'s full-lane sweep, not counted here.
    */
-  unitFiles: 187,
-  unitTests: 3138,
+  /**
+   * **`unitTests` 3138 -> 3152 on 2026-09-23 (Phase 46, CAP-01 — completing the derivation).**
+   * The same deferred sweep the `files`/`tests` note above completes, taken for the unit pair.
+   * `unitFiles` does not move here — 188 was already measured by collection in the `187 -> 188`
+   * layer above, and this run's own `Test Files` line agrees with it directly.
+   *
+   * Measured, not derived: `O2_UNIT_ONLY=1 npx vitest run --project node` collected
+   * `Test Files  187 passed | 1 skipped (188)` and `Tests  3143 passed | 9 skipped (3152)`,
+   * `EXIT=$?` read immediately after the command, no pipe — `EXIT=0`. The one skipped file is
+   * the same `elf-fixtures.node.test.ts` the `files`/`tests` note above names (9 skipped
+   * tests); no other file or test skipped.
+   *
+   * **`3152 - 3138 = 14`, and 13 of it is this phase's own — checked against the same
+   * `707ec0e` snapshot the `files`/`tests` note above uses.** The `187 -> 188` layer above
+   * moved `unitFiles` but deliberately left `unitTests` unmoved, so `network-reach-guard.
+   * test.ts`'s 6 cases were NOT yet in the `3138` figure. Of the four unit-lane files this
+   * phase touches, `fabric-node.node.test.ts` is NOT in the unit set (it starts real
+   * processes, confirmed absent from this run's own file list) — its `+3` belongs to `tests`
+   * only. The other three: `naming.test.ts` `+3`, `protocol.test.ts` `+2`,
+   * `network-reach-guard.test.ts` `+6` (new), `mutation-ledger.ts`'s NR1/NR2 moving
+   * `mutation-guard.node.test.ts` `+2` — `3 + 2 + 6 + 2 = 13`. **The remaining `+1` is the
+   * same intervening case the `files`/`tests` note names**: `browser-client-publish.node.
+   * test.ts` 14 -> 15, added by deploy work between the `3138` baseline and this phase's
+   * start, in the unit set (confirmed present in this run's own file list), never folded in
+   * until this sweep. `13 + 1 = 14`, measured rather than assumed.
+   *
+   * **Host conditions**: banner read `HOST WAS OVERSUBSCRIBED — load/core 8.38 before, 6.64
+   * after (8 cores, ceiling 4.00)`, load having spiked between the full-lane run above and
+   * this one. Nothing failed, so the counts stand; no duration is recorded from this run.
+   *
+   * **`unitTests` 3152 -> 3153 on 2026-09-23 (Phase 46 verification gap, CAP-01 criterion 1).**
+   * `unitFiles` does not move — the arrival is the same single new `it` the `tests` note
+   * above describes, inside `naming.test.ts`, which is already in the unit set (reads
+   * tracked bytes off disk, no subprocess). Full derivation, the plant and its RED text are
+   * in that note; not repeated here.
+   *
+   * Measured, not derived: `O2_UNIT_ONLY=1 npx vitest run --project node` collected `Test
+   * Files  187 passed | 1 skipped (188)` and `Tests  3144 passed | 9 skipped (3153)`,
+   * `EXIT=$?` read immediately after, no pipe — `EXIT=0`. Host banner: `HOST WAS
+   * OVERSUBSCRIBED — load/core 15.02 before, 11.82 after (8 cores, ceiling 4.00)`. Nothing
+   * failed; no duration quoted.
+   *
+   * **`unitTests` 3153 -> 3157 on 2026-09-23, and `unitFiles` unchanged at 188.** The same
+   * two arrivals the `files`/`tests` note above describes — three cases in
+   * `state-frontmatter.node.test.ts`, one in `mutation-guard.node.test.ts` via
+   * `mutation-ledger.ts`'s `KDF1` — and both files are confirmed in this run's own file
+   * list, both already counted in `unitFiles` before this arrival, so only `unitTests`
+   * moves.
+   *
+   * Measured, not derived: `O2_UNIT_ONLY=1 npx vitest run --project node` collected `Test
+   * Files  186 passed | 1 failed | 1 skipped (188)` and `Tests  3147 passed | 1 failed | 9
+   * skipped (3157)`, `EXIT=$?` read immediately after, no pipe — `EXIT=1`. Same
+   * unrelated `requirements-ledger.node.test.ts` stale-promise failure the `files`/`tests`
+   * note above explains — this run touches no file that finding names. `state-frontmatter.
+   * node.test.ts` printed `11 tests`, `mutation-guard.node.test.ts` printed `190 tests`, both
+   * confirmed present in this run's own output. Host banner: `HOST WAS OVERSUBSCRIBED AND 1
+   * TEST(S) FAILED — load/core 4.07 before, 3.64 after (8 cores, ceiling 4.00)`. Per that
+   * banner's own rule the wall clock (28.15 s) is void and not quoted as a reading; the
+   * counts are not — they survive an oversubscribed host, durations do not.
+   */
+  unitFiles: 188,
+  unitTests: 3157,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
   unitWallClockMs: 10_240,

@@ -569,6 +569,18 @@ export const HIDDEN_BY_DISPATCH: readonly HiddenCaller[] = [
       'fabric-node.ts:2183, browser-node.ts:1195, bin/bench.ts:545 — `guardModuleProvenance(inner, …)`',
   },
   {
+    // `network-reach-guard.ts`, inside the `execute` member the object literal
+    // `guardNetworkReach` returns — same mechanism, same file shape, as the row above
+    // for `describeModuleRefusal`. Phase 46 plan 05 wired `guardNetworkReach` into
+    // both node factories; this row records that its own `describe*` helper is
+    // reached the identical, port-dispatched way theirs is.
+    key: 'core/describeNetworkReachRefusal',
+    through: 'packages/core/src/executor/network-reach-guard.ts#execute',
+    cause: 'port-member-dispatch',
+    composedAt:
+      'fabric-node.ts:2934, browser-node.ts:2540 — `guardNetworkReach(provenance(abi))`',
+  },
+  {
     // `wasi-executor.ts:752`, inside `WasiExecutor#execute`. A class member rather than an object
     // literal's, and it makes no difference: the call site still writes the port.
     key: 'aot/describeWasiFailure',

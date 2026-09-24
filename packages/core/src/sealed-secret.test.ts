@@ -57,6 +57,7 @@
 import { describe, expect, it } from 'vitest'
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js'
 import { fromBase64Url, toBase64Url } from './capability.ts'
+import { median } from './speculation.ts'
 import {
   DEFAULT_KDF_PARAMS,
   SEAL_VERSION,
@@ -333,31 +334,70 @@ describe('sealing is synchronous once the key is derived', () => {
 })
 
 describe('cost is read comparatively, never against a millisecond bound', () => {
-  it('costs more at the defaults than at the cheap parameters, by a ratio taken inside one run', async () => {
+  it('costs more at the defaults than at the cheap parameters, by a MEDIAN ratio taken inside one run', async () => {
     const salt = crypto.getRandomValues(new Uint8Array(16))
-    // A discarded derivation first, and it is load-bearing. Measured today: the ratio is
+    // A discarded derivation first, and it is load-bearing. Measured 2026-08: the ratio is
     // 2.54 when the CHEAP arm pays the JIT warm-up and 4.40 / 4.66 / 4.74 when it does
     // not, against a work ratio of (19456*2)/(8192*1) = 4.75. A cold first arm would put
     // this assertion within noise of its own bound on a loaded engine.
     await deriveSealKey('a throwaway warm-up passphrase', salt, CHEAP_PARAMS)
 
-    const t0 = performance.now()
-    await deriveSealKey(PASSPHRASE, salt, CHEAP_PARAMS)
-    const t1 = performance.now()
-    await deriveSealKey(PASSPHRASE, salt, DEFAULT_KDF_PARAMS)
-    const t2 = performance.now()
+    // ONE (cheap, defaults) pair is not enough on CI's browser lane, where three engines
+    // (`vitest.config.ts`'s `browser.instances`) run concurrently and compete for CPU.
+    //
+    // Measured 2026-09-23, CI run 35926978805: webkit read cheap 246.0 ms / defaults 370.0
+    // ms / ratio 1.50 and failed, while the SAME run's chromium (5.60) and firefox (4.84)
+    // passed, and webkit's own six-sample CI history otherwise spans ratio 4.45-8.30. Ruled
+    // out first: `deriveSealKey` and `argon2Async` (`node_modules/@noble/hashes/src/argon2.ts`)
+    // have no cache and no params-dependent shortcut — every block runs. What is NOT ruled
+    // out, and fits every number: `defaults`'s far longer duration gives JavaScriptCore's
+    // background optimizing-compiler thread — itself starved by the other two engines —
+    // far more real-time opportunity to land a pending tier promotion *during* `defaults`
+    // than during the short `cheap` call ever gets. That speeds up part of one arm without
+    // either arm doing less real work, and it can land on EITHER arm depending on timing —
+    // a stall in `cheap` inflates the ratio's denominator exactly as a tier landing in
+    // `defaults` deflates its numerator. A single sample cannot tell a real regression from
+    // one unlucky race with either sign; a MEDIAN over several independent, interleaved
+    // samples can, because a `DEFAULT_KDF_PARAMS` that genuinely cost no more than
+    // `CHEAP_PARAMS` would have to win that race on a MAJORITY of samples to pass — which a
+    // single-sample assertion never required and a median-of-5 makes exponentially unlikely.
+    //
+    // **The mechanism above is a hypothesis with no reproduction behind it, and 2026-09-24
+    // failed to give it one.** This same browser lane was run on a quiet host and again with
+    // TEN CPU-bound processes against EIGHT cores. Quiet: all fifteen reps across the three
+    // engines fell in 4.63-4.85, within 3% of the work ratio. Loaded: 4.03-5.24 — the spread
+    // widened five-fold and nothing came near 2, let alone CI's 1.50. So generic CPU starvation
+    // does not collapse this ratio, and whatever CI's webkit did remains unexplained rather than
+    // explained; the cause is narrowed to something this host cannot supply, most likely the
+    // Linux WebKit build or the runner's core count. **What the attempt did establish is the
+    // fix**: the widening spread is exactly the variance one sample was exposed to, and the
+    // median absorbed it in every arm. Do not read the paragraph above as settled.
+    const REPS = 5
+    const ratios: number[] = []
+    for (let i = 0; i < REPS; i++) {
+      const t0 = performance.now()
+      await deriveSealKey(PASSPHRASE, salt, CHEAP_PARAMS)
+      const t1 = performance.now()
+      await deriveSealKey(PASSPHRASE, salt, DEFAULT_KDF_PARAMS)
+      const t2 = performance.now()
+      const cheapMs = t1 - t0
+      const defaultsMs = t2 - t1
+      const ratio = defaultsMs / cheapMs
+      ratios.push(ratio)
+      // Printed, not merely asserted: a ratio that only ever becomes a boolean cannot be
+      // compared against the next run, and this file executes on four runtimes whose
+      // absolute costs differ by more than the property under test does.
+      console.log(
+        `[sealed-secret kdf] rep ${i + 1}/${REPS}: cheap ${cheapMs.toFixed(1)} ms, defaults ${defaultsMs.toFixed(1)} ms, ratio ${ratio.toFixed(2)}`,
+      )
+    }
 
-    const ratio = (t2 - t1) / (t1 - t0)
-    // Printed, not merely asserted: a ratio that only ever becomes a boolean cannot be
-    // compared against the next run, and this file executes on four runtimes whose
-    // absolute costs differ by more than the property under test does.
-    console.log(
-      `[sealed-secret kdf] cheap ${(t1 - t0).toFixed(1)} ms, defaults ${(t2 - t1).toFixed(1)} ms, ratio ${ratio.toFixed(2)}`,
-    )
+    const ratioMedian = median(ratios)
+    console.log(`[sealed-secret kdf] median ratio over ${REPS} reps: ${ratioMedian.toFixed(2)}`)
     // A ratio taken inside one run, per `CLAUDE.md` § Measurement: it cancels the machine,
     // the load and the engine, all three of which differ across the four runtimes this
     // file executes on. No millisecond figure is asserted anywhere in this file.
-    expect(ratio).toBeGreaterThan(2)
+    expect(ratioMedian).toBeGreaterThan(2)
   }, 120_000)
 })
 

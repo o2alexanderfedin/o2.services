@@ -3721,6 +3721,74 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'carries the form across the wire intact, so the certificate still verifies',
     signatureSource: 'test-title',
   },
+  {
+    id: 'NR1',
+    why:
+      'Dropping `wantsNetworkReach` from the wire is not a lost optional extra: a publisher’s ' +
+      'declaration that a module wants network reach silently arrives as declares-nothing, which is ' +
+      'the one field this whole phase exists to make load-bearing. `guardNetworkReach` reads exactly ' +
+      'this field off the parsed record, so a frame this encoder strips passes a sovereign task ' +
+      'straight through with no refusal at all — not a weaker check, no check.',
+    file: 'packages/net/src/protocol.ts',
+    find:
+      '    ...(record.wantsNetworkReach === undefined\n' +
+      '      ? {}\n' +
+      '      : { wantsNetworkReach: record.wantsNetworkReach }),',
+    replace:
+      '    ...(record.wantsNetworkReach === undefined || true\n' +
+      '      ? {}\n' +
+      '      : { wantsNetworkReach: record.wantsNetworkReach }),',
+    caughtBy: ['packages/net/src/protocol.test.ts'],
+    // Observed 2026-09-23: EXIT=1, `Tests  1 failed | 23 passed (24)`. The failing case is
+    // DET-03's NETWORK-REACH round trip; restored by the surgical inverse, `cmp` exit 0.
+    signature: 'carries a NETWORK-REACH declaration across the wire so it still verifies',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'NR2',
+    why:
+      'CAP-01’s central claim. Removing the sovereign check does not merely weaken it — ' +
+      'it turns `guardNetworkReach` into an always-pass-through adapter that refuses nothing, and it ' +
+      'is the one line the roadmap’s criterion 2 depends on entirely: every other case in this ' +
+      'guard’s own test file is a control proving the guard stays out of the way, and none of ' +
+      'them would notice if the refusal branch were dead.',
+    file: 'packages/core/src/executor/network-reach-guard.ts',
+    find: "      if (task.label === 'sovereign' && task.moduleRecord?.wantsNetworkReach === true) {",
+    replace:
+      "      if (false && task.label === 'sovereign' && task.moduleRecord?.wantsNetworkReach === true) {",
+    caughtBy: ['packages/core/src/executor/network-reach-guard.test.ts'],
+    // Observed 2026-09-23: EXIT=1, `Tests  1 failed | 5 passed (6)`. Only the refusal case
+    // (Case A) reddened; the positive control and the two declares-nothing controls (Cases
+    // B-E) stayed green, as expected — the plant only removes a refusal, it never adds
+    // one. Restored by the surgical inverse; `cmp` exit 0.
+    signature: 'refuses a sovereign task whose module declares network reach, before inner.execute runs',
+    signatureSource: 'test-title',
+  },
+  {
+    id: 'KDF1',
+    why:
+      'The whole point of raising the default KDF cost above the cheap test parameters is that ' +
+      'it actually costs more. If a future edit quietly lands the two params objects on the same ' +
+      'work — the exact regression this fix exists to catch on CI, restated as a source mutation ' +
+      "rather than a config drift — sealing a real secret under `DEFAULT_KDF_PARAMS` buys none of " +
+      'the slowdown an offline guesser is supposed to pay for, and nothing before this entry would ' +
+      'have noticed short of a full planted run.',
+    file: 'packages/core/src/sealed-secret.ts',
+    find: 'export const DEFAULT_KDF_PARAMS: SealKdfParams = { t: 2, m: 19_456, p: 1, dkLen: 32 }',
+    replace: 'export const DEFAULT_KDF_PARAMS: SealKdfParams = { t: 1, m: 8192, p: 1, dkLen: 32 }',
+    caughtBy: ['packages/core/src/sealed-secret.test.ts'],
+    // Observed 2026-09-23: EXIT=1, `Tests  2 failed | 16 passed (18)`. Two cases reddened, not
+    // one — `criterion 5`'s literal-pinned `expect(DEFAULT_KDF_PARAMS.m).toBe(19456)` failed
+    // first (`expected 8192 to be 19456`), and the median case failed on
+    // `expected 0.9807864850687442 to be greater than 2` (median of five reps read 0.97-0.98,
+    // both params objects now doing identical work). The median's ratio is a fresh sample
+    // every run and cannot be a signature; its compound title, which vitest renders verbatim
+    // on the FAIL line, is used instead. Restored by the surgical inverse; `cmp` exit 0.
+    signature:
+      'cost is read comparatively, never against a millisecond bound > costs more at the ' +
+      'defaults than at the cheap parameters, by a MEDIAN ratio taken inside one run',
+    signatureSource: 'test-title',
+  },
   // ── CL1, RETIRED 2026-08-24 ───────────────────────────────────────────────────────────
   //
   // It planted `export { Subject } from './cert-lifecycle.ts'` onto `@o2/core`'s barrel and was

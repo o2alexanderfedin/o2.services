@@ -2909,3 +2909,154 @@ Plans:
 - [x] `45-02-PLAN.md` — criterion 5 where a human reads it: the issuer count on all five surfaces, the census of every fixture that was asserting `independent` over one provider, and the measured check that `bin/bench.ts`'s real rungs sit below the rule's reach (wave 2)
 - [x] `45-03-PLAN.md` — criterion 3's guard over the source with its positive control, and the release-copy check the gate paragraph committed this phase to (wave 3)
 - [x] `45-04-PLAN.md` — criterion 4: three plants watched red and restored by surgical inverse, the mutation ledger's observed signatures, VER-12's tick, and the re-measured `vitest.config.ts` counts (wave 4)
+
+---
+
+## Milestone v2.1 — Run Somebody Else's Lambda (Phases 46-)
+
+**Scoped 2026-09-17 by owner ruling, immediately after v2.0 closed.** The goal is a real AWS
+Lambda handler, written by somebody who has never heard of this project, running here — with
+the isolation this fabric already provides rather than in spite of it. The owner's two hard
+requirements, verbatim: *"AWS Lambda ABI is a must — this enables drop-off replacement"* and
+*"WASM is a must — our isolation and safety guarantees."*
+
+**What a spike on 2026-09-17 established, so the milestone does not re-derive it.** One
+handler source file — `export const handler = async (event, context) => …`, unedited,
+sha256-identical across two build paths — already runs end to end through this repository's
+existing `AbiExecutor` + `WasiExecutor`, returning the right answer with the real
+`requestId`. No repository change was needed for that. Three things fell out that shape this
+milestone:
+
+1. **`wasi:http` is the wrong artifact shape and was chosen for the wrong reason.** A
+   component is 14.4 MB against Javy's 1.43 MB, and V8 refuses it before reading a single
+   import — a component's preamble is `00 61 73 6d 0d 00 01 00` where a module's is
+   `01 00 00 00`. It was reached for because "Lambda is about HTTP"; **calling a Lambda needs
+   no HTTP at all**. AWS's own guests never speak its Runtime API either; a native shim
+   always does.
+2. **`poll_oneoff` is not a blocker and the reason is structural.** A Javy artifact declares
+   9 imports and `poll_oneoff` is not among them, so it cannot be called. Measured with a
+   positive control that *does* call it — caught at 20.575 ms stock, refused in 0.506 ms
+   pinned. The instrument sees it when it is there.
+3. **The dominant cost is recompilation, not linear memory.** Javy is 22 pages at rest, and
+   the executors call `WebAssembly.compile(bytes)`, which engages no V8 code cache. The
+   router compiles twice per dispatch — counted, 3.6 ms against 1.9 ms direct.
+
+### Phase 46: A Module Declares Its Reach, and the Data Decides
+
+**Goal**: As the owner of a device that holds data nobody else may see, I want a module that
+wants the internet to say so **in its own signature**, and I want my node to refuse the whole
+task rather than run it half-privileged, so that reaching the network is a property somebody
+signed for rather than something discovered while a task is already running.
+
+**Depends on**: nothing new. Every part this phase needs exists: `NameRecord` already carries
+signed optional declarations (`translationKeyCid`, `delegation`), `Task` already carries
+`label` and `ownerId`, and `guardSovereignty` already refuses **before** `WebAssembly.instantiate`.
+
+**Requirements**: `CAP-01` (new).
+
+**The rule, settled by owner ruling 2026-09-17 and not to be softened during execution.** A
+module's *wish* for network access is fixed at signing time — it is part of the deployment
+package and inside the signature, so the same CID always carries the same declaration and it
+cannot be attached, stripped or swapped afterwards. Whether that wish is *granted* is decided
+where the task runs, from two inputs: **what data it works on**, and **who signed it**. That
+is this repository's ordinary verification chain, not a new mechanism.
+
+**And a module declaring network reach, dispatched against sovereign data, is refused
+ENTIRELY.** Not run without the grant, not run with a stub that errors later — refused, by
+name, before instantiation. The owner ruled this explicitly when offered the alternative: a
+task that half-runs tells the requestor it succeeded at something it did not do, and leaves
+the operator to discover the refusal in a log.
+
+**What this phase is NOT.** It does not implement `fetch`. Nothing gains network access here;
+this is the gate that decides whether such access could ever be granted, built before the
+thing it gates. That ordering is deliberate and is the same argument `HOST-07` used: refuse
+the claim before there is an opportunity to make it, which is the only point at which
+refusing it is cheap.
+
+**Success Criteria** (what must be TRUE):
+  1. A `NameRecord` can declare that its module reaches the network, the declaration is
+     **inside the signature** — provable by a record whose declaration is altered failing
+     verification — and a record that omits it verifies byte-identically to one signed
+     before the field existed
+  2. A task whose module declares network reach, dispatched against a shard labelled
+     sovereign, is **refused whole**, by name, with both the declaration and the label in
+     the refusal — and the refusal happens before `WebAssembly.instantiate`, asserted the way
+     `guardSovereignty` already asserts its own ordering
+  3. The same module against a public shard is **not** refused by this rule — the positive
+     control, without which the refusal could be a broken fixture
+  4. A module that declares nothing is unaffected on both labels, so nothing already running
+     changes behaviour
+  5. A mutation removing the sovereign check turns criterion 2 red. Watched failing, restored
+     by the surgical inverse, `cmp` verified
+  6. The refusal is readable by the requestor rather than only by the operator: a caller
+     receives the named refusal, not a generic execution failure
+
+**What this does not fix, recorded so the pair is not read as complete**: who may sign a
+declaration and whether a signer can be trusted to declare honestly; the grant's scope once
+grants exist (which hosts, for how long); and the integrity lane — a handler that reaches the
+network leaves N-version comparison behind, because two nodes calling one endpoint honestly
+get different answers. That is the next phase's subject and it is a decision, not a detail.
+
+**Why this phase's refusal may be read in full, and when that stops being true — owner ruling
+2026-09-17, written here because it was ruled in conversation and recorded in no file.** Every
+field this refusal reads arrives on the `Task` from whoever dispatched it: `label`, `ownerId`,
+and the declaration inside the signed `moduleRecord`. `guardSovereignty`
+(`packages/core/src/executor/sovereignty-guard.ts:90`) already reads `task.label` straight off
+the wire and consults nothing the node knows about itself before refusing. A refusal computed
+only from what the requestor sent therefore tells the requestor only what they sent, which is
+why criterion 6 is safe exactly as written and narrowing it would cost diagnosis and buy no
+security. **The moment a refusal consults what the node itself holds or is cleared for, it
+splits by audience** — the requestor learns that it was refused, the data owner learns why —
+because otherwise a refusal becomes an oracle for what a node is holding. That binds the grant
+phase, not this one.
+
+**Status 2026-09-23 — all six criteria met, verified 6/6 against the code rather than the
+summaries. A module's wish to reach the internet is now part of what somebody signed, and a node
+refuses the whole task rather than running it half-privileged.**
+
+**What it cost, criterion by criterion.** (1) `NameRecord.wantsNetworkReach?: true` sits inside
+`payloadOf` under the spread-omit idiom its two sibling fields already use, so a record that
+declares nothing hashes exactly as one signed before the field existed — and that clause is
+pinned to a **signature literal captured from commit `707ec0e`**, not to a second record signed
+by today's code. (2) `guardNetworkReach` refuses before `inner.execute`, proved by a call counter
+rather than by `ok === false` alone, with both the declaration and the label named in the refusal.
+(3) and (4) The two controls run at a **real `FabricNode` and a real `BrowserNode`**, not only in
+the isolated unit guard. (5) Two mutation-ledger entries, `NR1` and `NR2`, each with a signature
+read off a real planted run. (6) The named refusal is readable at the requestor's own RPC client
+and is distinguishable from `guardSovereignty`'s and `guardModuleProvenance`'s.
+
+**The codec trap was the phase's real work, and it was anticipated rather than discovered.**
+`NameRecord` crosses the wire through a hand-written encoder and parser. A signed field added to
+`payloadOf` but not to both halves arrives with the field gone, and the receiver reports
+`bad-signature` about a frame the transport damaged — this repository shipped exactly that for
+`translationKeyCid` and `delegation`. The round trip is therefore a named case that re-verifies
+through `SignedNameResolver.accept`, because field equality passes on a value a JSON round trip
+widened.
+
+**A defect found by refusing to stop at a plausible explanation.** `[0x80]`, the byte the DATA-09
+fixtures use to mark a sovereign input, is also the middle byte of an em dash's UTF-8 encoding —
+and `describeNetworkReachRefusal`'s text contains an em dash. The egress tap therefore **rewrote
+CAP-01's own refusal text before it reached the RPC boundary**, with nothing executing. A second,
+isolating plant — swap the em dash, keep the byte — ruled out the DAG-CBOR-header explanation that
+also fitted. Fixed with a four-byte fixture; the guard's prose was left alone.
+
+**One proof that could not fail, found by the verifier and closed rather than recorded.** The
+byte-identical clause originally compared two records **both signed under today's code**, so a
+regression making `payloadOf` always encode the field would move both sides together. Measured:
+that plant left the old case and thirty-one others **green**, and reddens only the literal-pinned
+case that replaced it.
+
+**What this phase does NOT do, and the roadmap said so before it started.** It implements no
+`fetch`, adds no host import, and grants no network access to anything. Who may sign a declaration,
+and whether a signer can be trusted to declare honestly, is the next phase's subject.
+
+Plans:
+- [x] `46-01-PLAN.md` — the field, inside the signature, carried by every `naming.ts` codec that must agree on it (wave 1)
+- [x] `46-02-PLAN.md` — the wire codec's twin halves and the round-trip case that re-verifies rather than compares (wave 2, parallel with 03)
+- [x] `46-03-PLAN.md` — `guardNetworkReach`, its two controls, and the reasoning about reading an unverified record written into the code rather than a plan file (wave 2, parallel with 02)
+- [x] `46-04-PLAN.md` — `NR1` and `NR2`, each signature read off a real planted run, each plant restored by surgical inverse and `cmp`-verified (wave 3, alone)
+- [x] `46-05-PLAN.md` — both node factories wired identically, proved at a real node on both tiers, with `provenance(abi)` intact for `M27`/`M28` and the orphan ceiling returned to 35 (wave 4)
+- [x] `46-06-PLAN.md` — the full node lane in one sweep, the counts measured rather than derived, and the criteria-to-test map (wave 5)
+- [x] `46-VERIFICATION.md` — 6/6, plus the literal-pinned case that closed criterion 1's circular comparison
+
+**Why 04 runs alone rather than beside 05, decided by the plan checker on 2026-09-23 before a line was written.** Disjoint `files_modified` is not what protects a concurrent *read*. 46-04 plants `protocol.ts` and `network-reach-guard.ts` and holds each plant live for its run-and-observe window; 46-05 dispatches a task over real RPC through both of those files. Side by side, 46-05's refusal case would have observed `ok: true` and blamed its own wiring for a neighbour's deliberate defect. That is the hazard this repository already paid 111 executions for — *an observation taken while another agent holds a plant is not a measurement of the tree*.

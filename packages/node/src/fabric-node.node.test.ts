@@ -462,6 +462,140 @@ describe("DATA-09 and AUTH-03's serving half — three node shapes, four dispatc
   }, 60_000)
 })
 
+describe('CAP-01 — a real FabricNode refuses a declared module against sovereign data', () => {
+  /**
+   * **Deliberately mixed dispatch shape.** Case 1, the refusal, goes over real RPC
+   * via `RemoteExecutor`, because this is exactly where "readable by the requestor"
+   * needs proving at the real RPC boundary. Cases 2 and 3, the accepted controls,
+   * read through `node.executor.execute` directly, the same way the `DET-03` block
+   * below reads its own dispatches — sidestepping whether that module's output
+   * happens to trip the egress tap on a sovereign-labelled reply, a question this
+   * plan does not need to answer to prove criteria 3 and 4.
+   *
+   * **`takeSovereignHold` registers a sovereign task's input bytes before the
+   * executor ever runs — refused or not — so "nothing executed" does not mean "the
+   * tap has nothing to scan".** Measured directly: the fixture below first used
+   * `[0x80]`, the same byte `MODULE_WRITES_PARTITION`'s sibling block above uses, and
+   * case 1 failed with the RPC reply rewritten to `egress refused: …`, because
+   * `[0x80]` is also the middle byte of the em dash `describeNetworkReachRefusal`'s
+   * own prose contains — the egress tap's contiguous-byte scan (`egress.ts`'s
+   * `violationIn`) matched CAP-01's own refusal *reason string*, not any executed
+   * output. See the fixture's own comment for the byte value that avoids it.
+   *
+   * Each case starts its own node via `startNode` rather than sharing one across
+   * `it`s: this file's `afterEach` stops every node in the module-level `running`
+   * array after every test, so a node built in one case would already be stopped by
+   * the time the next case ran.
+   */
+  async function fixture(name: string): Promise<{ node: FabricNode; moduleCid: CID; inputCid: CID }> {
+    const node = await startNode(name, {
+      sovereignty: { ownerId: 'alice', ownerKey: OWNER_KEY, canExecuteSovereign: true },
+    })
+    const moduleCid = await node.store.put(MODULE_WRITES_PARTITION)
+    // Deliberately NOT `[0x80]`, the byte the DATA-09 block above uses. `0x80` is the
+    // DAG-CBOR header for an empty array and also the middle byte of an em dash's
+    // UTF-8 encoding (`E2 80 94`) — and `describeNetworkReachRefusal`'s own prose uses
+    // one. Registering `[0x80]` as this task's sovereign payload made the egress tap's
+    // contiguous-byte scan (`egress.ts#violationIn`) match CAP-01's own refusal
+    // *reason string*, over an em dash it never touched, and rewrite it to
+    // `egress refused: …` before it reached the RPC boundary — observed directly, not
+    // reasoned about: the RPC assertions below failed with exactly that substitute
+    // text until this fixture stopped using `0x80`. A four-byte, non-CBOR-header,
+    // non-UTF-8-continuation value sidesteps the collision without touching
+    // `network-reach-guard.ts`'s wording, which is outside this plan's scope.
+    const inputCid = await node.store.put(new Uint8Array([0x11, 0x22, 0x33, 0x44]))
+    return { node, moduleCid, inputCid }
+  }
+
+  function declaringRecord(moduleCid: CID): NameRecord {
+    return signName(publisher.priv, {
+      name: 'cap01-reaches',
+      cid: moduleCid,
+      version: 1,
+      expiresAt: Date.now() + 3_600_000,
+      wantsNetworkReach: true,
+    })
+  }
+
+  function nonDeclaringRecord(moduleCid: CID): NameRecord {
+    return signName(publisher.priv, {
+      name: 'cap01-reaches',
+      cid: moduleCid,
+      version: 1,
+      expiresAt: Date.now() + 3_600_000,
+    })
+  }
+
+  it('refuses over real RPC, before anything executes, a sovereign task whose module declares network reach', async () => {
+    const [submitter, { node, moduleCid, inputCid }] = await Promise.all([
+      startNode('s-cap01-refuse'),
+      fixture('cap01-refuse'),
+    ])
+    await submitter.dial(node.multiaddrs[0]!)
+
+    const declaring = declaringRecord(moduleCid)
+    const sovereignTask: Task = {
+      moduleCid,
+      inputCid,
+      partitionIndex: 0,
+      partitionCount: 1,
+      label: 'sovereign',
+      ownerId: 'alice',
+      moduleRecord: declaring,
+    }
+
+    const outcome = await new RemoteExecutor(
+      node.peerId,
+      submitter.rpc,
+      chainSupplierFor(node.peerId),
+    ).execute(sovereignTask)
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    // Readable at the RPC boundary — the reason names the node, the module, the
+    // label and the mechanism.
+    expect(outcome.reason).toContain(node.peerId)
+    expect(outcome.reason).toContain(moduleCid.toString())
+    expect(outcome.reason).toContain('sovereign')
+    expect(outcome.reason).toContain('network reach')
+    // The discrimination that carries the case: this is CAP-01's own guard, not the
+    // sovereignty gate this node was deliberately cleared past.
+    expect(outcome.reason).not.toContain('sovereignty violation')
+  }, 60_000)
+
+  it('runs the identical declaring module as a public task, read through node.executor directly', async () => {
+    const { node, moduleCid, inputCid } = await fixture('cap01-public-control')
+    const declaring = declaringRecord(moduleCid)
+    const publicTask: Task = {
+      moduleCid,
+      inputCid,
+      partitionIndex: 0,
+      partitionCount: 1,
+      label: 'public',
+      moduleRecord: declaring,
+    }
+
+    const outcome = await node.executor.execute(publicTask)
+    expect(outcome.ok).toBe(true)
+  }, 60_000)
+
+  it('runs a sovereign task whose module declares nothing, read through node.executor directly', async () => {
+    const { node, moduleCid, inputCid } = await fixture('cap01-nondeclaring-control')
+    const nonDeclaring = nonDeclaringRecord(moduleCid)
+    const sovereignTask: Task = {
+      moduleCid,
+      inputCid,
+      partitionIndex: 0,
+      partitionCount: 1,
+      label: 'sovereign',
+      ownerId: 'alice',
+      moduleRecord: nonDeclaring,
+    }
+
+    const outcome = await node.executor.execute(sovereignTask)
+    expect(outcome.ok).toBe(true)
+  }, 60_000)
+})
+
 describe('DET-03 — a production node runs only a module a pinned anchor vouched for', () => {
   /**
    * Read through `node.executor` directly, not over RPC, and that is the point rather

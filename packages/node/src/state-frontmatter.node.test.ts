@@ -106,6 +106,41 @@ const SOURCE = readFileSync(STATE, 'utf8')
 const FRONTMATTER = frontmatterOf(SOURCE)
 const FIELDS = topLevelFields(FRONTMATTER)
 
+/** ROADMAP.md's current milestone: the last `## Milestone` heading, parsed once. */
+interface LastMilestone {
+  readonly version: string
+  readonly name: string
+  /** Everything from the heading to the end of the file — what a phase count is taken over. */
+  readonly body: string
+}
+
+/**
+ * The single reader of ROADMAP.md's last `## Milestone` heading, shared by every case
+ * that needs it. Before this, the phase-count case below carried its own
+ * `roadmap.lastIndexOf('\n## Milestone')` and nothing else read the heading at all —
+ * a second reader added beside it, rather than through it, is exactly how the
+ * frontmatter's `milestone`/`milestone_name` drifted from ROADMAP.md for five days
+ * undetected: two spellings of the same fact, checked against each other nowhere.
+ *
+ * The shape read is `## Milestone v2.1 — Run Somebody Else's Lambda (Phases 46-)`:
+ * a version word, an em dash, prose, then ` (Phases`. Returns `null` when the roadmap
+ * holds no `## Milestone` heading, or the last one does not match that shape — either
+ * way, nothing downstream may treat a placeholder as a reading.
+ */
+function lastMilestoneOf(roadmap: string): LastMilestone | null {
+  const at = roadmap.lastIndexOf('\n## Milestone')
+  if (at === -1) return null
+  const body = roadmap.slice(at)
+  const heading = /^## Milestone (\S+) — (.*?) \(Phases/m.exec(body)
+  const version = heading?.[1]
+  const name = heading?.[2]
+  if (version === undefined || name === undefined) return null
+  return { version, name, body }
+}
+
+const ROADMAP = readFileSync(join(ROOT, '.planning/ROADMAP.md'), 'utf8')
+const LAST_MILESTONE = lastMilestoneOf(ROADMAP)
+
 /**
  * The frontmatter keys, as one source rather than as literals repeated per assertion.
  *
@@ -257,15 +292,53 @@ describe('.planning/STATE.md frontmatter stays parseable', () => {
     // heading in ROADMAP.md and the phases under it. Counted from the file rather than
     // trusted, for the reason this repository has already paid for once: a count written
     // by subtraction from a stale total is wrong by everything that arrived since.
-    const roadmap = readFileSync(join(ROOT, '.planning/ROADMAP.md'), 'utf8')
-    const lastMilestone = roadmap.lastIndexOf('\n## Milestone')
-    expect(lastMilestone).toBeGreaterThan(-1)
+    expect(LAST_MILESTONE).not.toBeNull()
     // `\d` is load-bearing: the milestone also opens with a `### Phase Checklist` heading,
     // and counting it read 14 against a true 13 — caught by this case on its first run,
     // against a `total_phases` I had just written by hand and believed.
-    const phases = roadmap.slice(lastMilestone).match(/^### Phase \d/gm)?.length ?? 0
+    const phases = LAST_MILESTONE?.body.match(/^### Phase \d/gm)?.length ?? 0
     expect(phases).toBeGreaterThan(0)
     const declared = Number(/total_phases:\s*(\d+)/.exec(FRONTMATTER)?.[1] ?? NaN)
     expect(declared).toBe(phases)
+  })
+
+  /**
+   * **PRESENT AND COUNTED IS STILL NOT THE SAME MILESTONE — added 2026-09-23.**
+   *
+   * The case above proves `total_phases` agrees with the roadmap's phase count. Nothing
+   * before this proved `milestone` and `milestone_name` name the SAME milestone the
+   * roadmap is currently on. On 2026-09-17 they did not: this frontmatter read
+   * `milestone: v2.0` / `milestone_name: Open the Doors` while ROADMAP.md's last
+   * `## Milestone` heading had already moved to `v2.1 — Run Somebody Else's Lambda`. It
+   * stayed wrong for five days, and every case above — completeness, the status
+   * vocabulary, the phase count — passed 8/8 over it, because none of them reads
+   * ROADMAP.md's heading text at all.
+   *
+   * Read through `FIELDS`, not a regex over `FRONTMATTER`: `topLevelFields` already
+   * drops every indented line, so a stray `milestone: v2.0` quoted inside `stopped_at`'s
+   * prose — the same trick that fed the phase-count case a wrong `total_phases` on
+   * 2026-08-28 — cannot reach these two cases by construction. The regex the phase-count
+   * case reads `total_phases` with is the one still exposed to that trick; these two are
+   * not.
+   */
+  it('finds a milestone heading to compare against — otherwise the two cases below are vacuous', () => {
+    // Same shape as the completeness case above: an absent or malformed heading must
+    // stop everything downstream rather than silently agree with whatever the
+    // frontmatter says. `toBeNull` alone would pass on a heading that matched but
+    // captured empty groups, so the version and name are each checked by shape too.
+    expect(LAST_MILESTONE).not.toBeNull()
+    expect(LAST_MILESTONE?.version).toMatch(/^v\d+\.\d+$/)
+    expect(LAST_MILESTONE?.name.length).toBeGreaterThan(0)
+  })
+
+  it('names the same milestone version the roadmap’s last heading declares', () => {
+    const milestone = FIELDS.find((field) => field.key === GSD_FRONTMATTER_KEY.milestone)?.raw.trim() ?? ''
+    expect(LAST_MILESTONE?.version).toBe(milestone)
+  })
+
+  it('names the same milestone name the roadmap’s last heading declares', () => {
+    const milestoneName =
+      FIELDS.find((field) => field.key === GSD_FRONTMATTER_KEY.milestoneName)?.raw.trim() ?? ''
+    expect(LAST_MILESTONE?.name).toBe(milestoneName)
   })
 })

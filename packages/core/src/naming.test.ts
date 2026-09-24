@@ -325,6 +325,126 @@ describe('AOT-02 — a record can vouch for the translation as well as the bytes
 })
 
 /**
+ * CAP-01, half 1 — a module can declare it wants network reach.
+ *
+ * The property under test is the same shape `AOT-02` already proves for
+ * `translationKeyCid`: the declaration is inside the signature, a record that carries none
+ * hashes exactly as it did before the field existed, and the wire form refuses anything the
+ * signature could not have covered rather than silently dropping it.
+ */
+describe('CAP-01 — a module can declare it wants network reach', () => {
+  const seed = new Uint8Array(32).fill(31)
+
+  it('signs it, so it cannot be attached to or stripped from a record after the fact', async () => {
+    const cid = await cidFor('reaches-out')
+    const fields = { name: 'reacher', cid, version: 1, expiresAt: LATER } as const
+    const record = signName(seed, { ...fields, wantsNetworkReach: true })
+    const resolver = new SignedNameResolver([record.signer])
+
+    // The record as issued verifies.
+    expect(resolver.accept(record, NOW).ok).toBe(true)
+
+    // Stripped: rebuilding the object literal with the key omitted (not set to `undefined`,
+    // which is a different value to a canonical encoder) is a different record.
+    const stripped = resolver.accept(
+      { name: record.name, cid: record.cid, version: record.version, expiresAt: record.expiresAt, signer: record.signer, signature: record.signature },
+      NOW,
+    )
+    expect(stripped.ok).toBe(false)
+    if (stripped.ok) return
+    expect(stripped.failure.kind).toBe('bad-signature')
+
+    // Attached: a record signed WITHOUT the declaration does not accept one being added.
+    const bare = signName(seed, fields)
+    expect(resolver.accept(bare, NOW).ok).toBe(true)
+    const attached = resolver.accept({ ...bare, wantsNetworkReach: true }, NOW)
+    expect(attached.ok).toBe(false)
+    if (attached.ok) return
+    expect(attached.failure.kind).toBe('bad-signature')
+  })
+
+  it('leaves a record that declares nothing hashing exactly as it did before the field existed', async () => {
+    const cid = await cidFor('says-nothing')
+    const fields = { name: 'silent', cid, version: 1, expiresAt: LATER } as const
+    const withoutField = signName(seed, fields)
+    const withUndefinedSpread = signName(seed, { ...fields })
+    expect(withoutField.signature).toBe(withUndefinedSpread.signature)
+    expect(withoutField.wantsNetworkReach).toBeUndefined()
+    // …and the encoded file has no such property at all, rather than a `false` one.
+    const encoded: Record<string, unknown> = JSON.parse(encodeNameRecord(withoutField))
+    expect('wantsNetworkReach' in encoded).toBe(false)
+  })
+
+  it('signs a record with no wantsNetworkReach to the exact bytes signed before the field existed', async () => {
+    // The case above this one proves nothing about the past: both `withoutField` and
+    // `withUndefinedSpread` are signed under TODAY's `payloadOf`, so a regression that made
+    // `payloadOf` always encode the field — `?? false` in place of the spread-omit at
+    // `naming.ts`'s line documented in this file's own history — would move both sides of
+    // that comparison together and the case would stay green. Comparing two outputs of the
+    // same function proves the function is consistent with itself, never that it matches
+    // what shipped before this field was added.
+    //
+    // So this case does not call `signName` from this module at all. The signature below is
+    // a LITERAL, captured by running `signName` from `naming.ts` as it stood at commit
+    // 707ec0e — the last commit before this phase touched the file, before
+    // `wantsNetworkReach` existed anywhere in it — against the fixture built here. The
+    // fixture: private key = 32 bytes of `0x2a` (42), name `"pre-existence-fixture"`,
+    // `version: 1`, `expiresAt: 2_000_000_000_000`, cid = `canonicalCid({ artifact:
+    // 'pre-existence-fixture' })`, no `wantsNetworkReach`. Route taken: `git show
+    // 707ec0e:packages/core/src/naming.ts` written to a temporary file inside
+    // `packages/core/src/` (never committed — confirmed with `git status --porcelain`
+    // immediately after deleting it), `signName` imported from that file under Node's
+    // `--experimental-strip-types`, run once, the signature printed and pasted below, then
+    // the temporary file and script deleted. `canonical/encode.ts` and `capability.ts` —
+    // everything `naming.ts` depends on for this path — are unchanged between 707ec0e and
+    // HEAD (`git log 707ec0e..HEAD -- packages/core/src/canonical/encode.ts
+    // packages/core/src/capability.ts` is empty), so the pre-phase `signName` ran against
+    // today's `encodeCanonical` and today's ed25519 — the only thing that differs between
+    // the two sides of this comparison is `payloadOf`'s field list, which is exactly the
+    // property CAP-01 claims to hold.
+    //
+    // A future "simplification" back to comparing two calls to today's `signName` would
+    // make this case exercisable again by every regression it exists to catch. Don't.
+    const priv = new Uint8Array(32).fill(42)
+    const cid = await cidFor('pre-existence-fixture')
+    const record = signName(priv, {
+      name: 'pre-existence-fixture',
+      cid,
+      version: 1,
+      expiresAt: 2_000_000_000_000,
+    })
+
+    expect(record.signer).toBe('197f6b23e16c8532c6abc838facd5ea789be0c76b2920334039bfa8b3d368d61')
+    expect(record.signature).toBe(
+      'f8b1d88ff2295bd82d89fda0771600e2482029731f594348bd324b260fd287b790f703a58a7aba55a8ba30bfdcb2351cd95b267c1533bf15cf25734826210b09',
+    )
+  })
+
+  it('round-trips it through the wire form, and refuses a record whose declaration was widened to anything but true rather than dropping it', async () => {
+    const cid = await cidFor('reaches-out-2')
+    const record = signName(seed, {
+      name: 'reacher2',
+      cid,
+      version: 1,
+      expiresAt: LATER,
+      wantsNetworkReach: true,
+    })
+    const back = decodeNameRecord(encodeNameRecord(record))
+    expect(back?.wantsNetworkReach).toBe(true)
+    // And it still verifies after the round trip.
+    expect(new SignedNameResolver([record.signer]).accept(back as NameRecord, NOW).ok).toBe(true)
+
+    // Present and not the literal `true` is a malformed record, not a record without the
+    // field — including `false`, which a genuine signer's canonical form never encodes.
+    const good: Record<string, unknown> = JSON.parse(encodeNameRecord(record))
+    expect(decodeNameRecord(JSON.stringify({ ...good, wantsNetworkReach: false }))).toBeNull()
+    expect(decodeNameRecord(JSON.stringify({ ...good, wantsNetworkReach: 'yes' }))).toBeNull()
+    expect(decodeNameRecord(JSON.stringify({ ...good, wantsNetworkReach: 1 }))).toBeNull()
+    expect(decodeNameRecord(JSON.stringify(good))).not.toBeNull()
+  })
+})
+
+/**
  * Task #4, half 2 — a root that can stay offline.
  *
  * The property under test is not "a delegation verifies". It is that **every way a delegation
