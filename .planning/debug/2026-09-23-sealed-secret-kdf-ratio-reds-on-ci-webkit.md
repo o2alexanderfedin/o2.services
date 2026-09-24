@@ -201,5 +201,39 @@ verification: |
   5.67, 6.15, 5.01, 7.89} — a 2.3x spread within one engine's own run, exactly the kind of
   single-sample variance that could have landed under 2 on an unlucky rep. Medians for all
   three engines in that run: 5.67, 4.26, 4.66 — all comfortably passing.
+reproduction_attempt_2026_09_24: |
+  **The local reproduction was ATTEMPTED and FAILED, under conditions harsher than CI's.** This
+  entry exists because the session report listed "did not reproduce locally" as an open gap, and
+  an untested admission is weaker than a measured negative.
+
+  Both arms run the real browser lane — all three engines concurrently, exactly CI's shape
+  (`vitest.config.ts`'s `browser.instances`).
+
+  QUIET, `--project browser packages/core/src/sealed-secret.test.ts`, EXIT=0:
+  all fifteen reps across the three engines fell in **4.63-4.85**, medians 4.72 / 4.73 / 4.74.
+  That is the theoretical work ratio `(19456*2)/(8192*1) = 4.75` to within 3%. Spread 0.22.
+
+  LOADED, same command with **ten** `node` busy loops against **eight** cores, EXIT=0:
+  reps fell in **4.03-5.24**, medians 4.78 / 4.71 / 4.36. Spread widened to 1.21 — five times
+  the quiet spread — and **nothing came near 2, let alone CI's 1.50**. `uptime` read load
+  average 6.34 before and 23.70 after; all 54 cases passed.
+
+  **What this does and does not establish.** It does NOT support the proposed mechanism: generic
+  CPU starvation on this host does not collapse the ratio, so the JavaScriptCore
+  background-tiering explanation recorded above remains a hypothesis that fits the CI numbers
+  and has no reproduction behind it. It DOES narrow the cause to something environment-specific
+  that this host cannot supply — a different core count, a different OS, or the Linux WebKit
+  build CI uses rather than the macOS one here. And it independently strengthens the FIX while
+  weakening the STORY: the widening spread under load is the variance a single sample was
+  exposed to, and the median absorbed it in every arm.
+
+  **A finding about the instrument, worth more than the negative result.** The
+  `[host conditions]` banner called this host **quiet** — "load/core 0.79 before, 1.44 after
+  (8 cores, ceiling 4.00)" — while ten CPU-bound processes were running against eight cores. Its
+  ceiling is 4.00 load/core, i.e. 4x oversubscription, so **it cannot flag moderate contention at
+  all**, and "the banner said quiet" is not a statement that a host was uncontended. `CLAUDE.md`
+  already warns that the banner samples before and after only; this adds that its threshold is
+  generous enough for ten busy loops to pass under it.
+
 files_changed:
   - packages/core/src/sealed-secret.test.ts

@@ -361,6 +361,17 @@ describe('cost is read comparatively, never against a millisecond bound', () => 
     // samples can, because a `DEFAULT_KDF_PARAMS` that genuinely cost no more than
     // `CHEAP_PARAMS` would have to win that race on a MAJORITY of samples to pass — which a
     // single-sample assertion never required and a median-of-5 makes exponentially unlikely.
+    //
+    // **The mechanism above is a hypothesis with no reproduction behind it, and 2026-09-24
+    // failed to give it one.** This same browser lane was run on a quiet host and again with
+    // TEN CPU-bound processes against EIGHT cores. Quiet: all fifteen reps across the three
+    // engines fell in 4.63-4.85, within 3% of the work ratio. Loaded: 4.03-5.24 — the spread
+    // widened five-fold and nothing came near 2, let alone CI's 1.50. So generic CPU starvation
+    // does not collapse this ratio, and whatever CI's webkit did remains unexplained rather than
+    // explained; the cause is narrowed to something this host cannot supply, most likely the
+    // Linux WebKit build or the runner's core count. **What the attempt did establish is the
+    // fix**: the widening spread is exactly the variance one sample was exposed to, and the
+    // median absorbed it in every arm. Do not read the paragraph above as settled.
     const REPS = 5
     const ratios: number[] = []
     for (let i = 0; i < REPS; i++) {
