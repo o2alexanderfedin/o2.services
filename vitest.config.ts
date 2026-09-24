@@ -976,9 +976,33 @@ const NODE_MEASUREMENT = {
    * (`elf-fixtures.node.test.ts`, Docker unavailable on this host); same two other
    * pre-existing skips. Host banner: `HOST WAS OVERSUBSCRIBED — load/core 1.26 before, 16.56
    * after (8 cores, ceiling 4.00)`. Nothing failed; no duration quoted.
+   *
+   * **`tests` 3925 -> 3929 on 2026-09-23, two arrivals, no new file, `files` unchanged.**
+   * `state-frontmatter.node.test.ts` gained three cases proving `.planning/STATE.md`'s
+   * `milestone`/`milestone_name` name the same milestone ROADMAP.md's last `## Milestone`
+   * heading is on — a mismatch between the two had stood for five days on 2026-09-17 with
+   * this file's prior 8/8 never reading the roadmap at all. `mutation-ledger.ts` gained one
+   * entry, `KDF1`, for today's earlier `DEFAULT_KDF_PARAMS` -> median-of-five fix
+   * (`9e05ff2`), which added `mutation-guard.node.test.ts` one more per-entry case. `3 + 1 =
+   * 4`, and the read below confirms it rather than assuming it.
+   *
+   * Measured, not derived: `npx vitest run --project node` collected `Test Files  269
+   * passed | 1 failed | 1 skipped (271)` and `Tests  3917 passed | 1 failed | 11 skipped
+   * (3929)`, `EXIT=$?` read immediately after, no pipe — `EXIT=1`. The one failure is
+   * `requirements-ledger.node.test.ts`'s stale-promise case, unrelated to this arrival:
+   * `git diff 8d6ad94 HEAD --stat` touches only `mutation-ledger.ts` and
+   * `state-frontmatter.node.test.ts`, and the failing case's own findings name `BENCH-06`
+   * and `NET-12` outstanding 15 days against a 14-day bound in a register this arrival never
+   * touched — a date crossing a fixed bound, not a regression, and it fails identically with
+   * no commit scope on `8d6ad94` itself for the same reason (confirmed by reading the
+   * register's `reread` dates, not by re-running the base commit). Same one skipped file as
+   * the layer above; same 11 pre-existing skips. Host banner: `HOST WAS OVERSUBSCRIBED AND 1
+   * TEST(S) FAILED — load/core 0.96 before, 6.98 after (8 cores, ceiling 4.00)`. Per that
+   * banner's own rule the wall clock (235.95 s) is void and not quoted as a reading; the
+   * counts are not — they survive an oversubscribed host, durations do not.
    */
   files: 271,
-  tests: 3925,
+  tests: 3929,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
@@ -1460,9 +1484,27 @@ const NODE_MEASUREMENT = {
    * `EXIT=$?` read immediately after, no pipe — `EXIT=0`. Host banner: `HOST WAS
    * OVERSUBSCRIBED — load/core 15.02 before, 11.82 after (8 cores, ceiling 4.00)`. Nothing
    * failed; no duration quoted.
+   *
+   * **`unitTests` 3153 -> 3157 on 2026-09-23, and `unitFiles` unchanged at 188.** The same
+   * two arrivals the `files`/`tests` note above describes — three cases in
+   * `state-frontmatter.node.test.ts`, one in `mutation-guard.node.test.ts` via
+   * `mutation-ledger.ts`'s `KDF1` — and both files are confirmed in this run's own file
+   * list, both already counted in `unitFiles` before this arrival, so only `unitTests`
+   * moves.
+   *
+   * Measured, not derived: `O2_UNIT_ONLY=1 npx vitest run --project node` collected `Test
+   * Files  186 passed | 1 failed | 1 skipped (188)` and `Tests  3147 passed | 1 failed | 9
+   * skipped (3157)`, `EXIT=$?` read immediately after, no pipe — `EXIT=1`. Same
+   * unrelated `requirements-ledger.node.test.ts` stale-promise failure the `files`/`tests`
+   * note above explains — this run touches no file that finding names. `state-frontmatter.
+   * node.test.ts` printed `11 tests`, `mutation-guard.node.test.ts` printed `190 tests`, both
+   * confirmed present in this run's own output. Host banner: `HOST WAS OVERSUBSCRIBED AND 1
+   * TEST(S) FAILED — load/core 4.07 before, 3.64 after (8 cores, ceiling 4.00)`. Per that
+   * banner's own rule the wall clock (28.15 s) is void and not quoted as a reading; the
+   * counts are not — they survive an oversubscribed host, durations do not.
    */
   unitFiles: 188,
-  unitTests: 3153,
+  unitTests: 3157,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
   unitWallClockMs: 10_240,
