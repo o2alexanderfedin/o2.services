@@ -3764,6 +3764,31 @@ export const MUTATIONS: readonly Mutation[] = [
     signature: 'refuses a sovereign task whose module declares network reach, before inner.execute runs',
     signatureSource: 'test-title',
   },
+  {
+    id: 'KDF1',
+    why:
+      'The whole point of raising the default KDF cost above the cheap test parameters is that ' +
+      'it actually costs more. If a future edit quietly lands the two params objects on the same ' +
+      'work — the exact regression this fix exists to catch on CI, restated as a source mutation ' +
+      "rather than a config drift — sealing a real secret under `DEFAULT_KDF_PARAMS` buys none of " +
+      'the slowdown an offline guesser is supposed to pay for, and nothing before this entry would ' +
+      'have noticed short of a full planted run.',
+    file: 'packages/core/src/sealed-secret.ts',
+    find: 'export const DEFAULT_KDF_PARAMS: SealKdfParams = { t: 2, m: 19_456, p: 1, dkLen: 32 }',
+    replace: 'export const DEFAULT_KDF_PARAMS: SealKdfParams = { t: 1, m: 8192, p: 1, dkLen: 32 }',
+    caughtBy: ['packages/core/src/sealed-secret.test.ts'],
+    // Observed 2026-09-23: EXIT=1, `Tests  2 failed | 16 passed (18)`. Two cases reddened, not
+    // one — `criterion 5`'s literal-pinned `expect(DEFAULT_KDF_PARAMS.m).toBe(19456)` failed
+    // first (`expected 8192 to be 19456`), and the median case failed on
+    // `expected 0.9807864850687442 to be greater than 2` (median of five reps read 0.97-0.98,
+    // both params objects now doing identical work). The median's ratio is a fresh sample
+    // every run and cannot be a signature; its compound title, which vitest renders verbatim
+    // on the FAIL line, is used instead. Restored by the surgical inverse; `cmp` exit 0.
+    signature:
+      'cost is read comparatively, never against a millisecond bound > costs more at the ' +
+      'defaults than at the cheap parameters, by a MEDIAN ratio taken inside one run',
+    signatureSource: 'test-title',
+  },
   // ── CL1, RETIRED 2026-08-24 ───────────────────────────────────────────────────────────
   //
   // It planted `export { Subject } from './cert-lifecycle.ts'` onto `@o2/core`'s barrel and was
