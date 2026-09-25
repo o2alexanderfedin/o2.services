@@ -137,17 +137,32 @@ the expensive way.
 
 ## Status
 
-**Milestone v1.1 ("Wire What Was Built") is in progress at 5 of 14 phases verified.**
+**Current milestone: v2.1 — Run Somebody Else's Lambda**, status `planning` in
+`.planning/STATE.md`. Its one planned phase so far, Phase 46 ("A Module Declares Its
+Reach, and the Data Decides"), is complete and verified 6/6.
 
-v1.0 left 36 capabilities **built but unreachable** — real code, with its own tests,
-that no runnable program ever called. That count is now **22**, with 11 more partly
-wired. Reducing it is what this milestone measures.
+The milestone before it, v2.0 "Open the Doors", closed 2026-09-17 by owner ruling at
+29 of 38 milestone requirements. Its own closing document opens with the sentence this
+section owes the reader before any other number does:
 
-Requirements ledger: **40 closed, 42 open.**
+> **The doors are open and nobody has walked through them.**
 
-A phase closes when an independent pass says so, scored against its own success
-criteria — not when its plans finish. Two phases sit at "nearly done" and are
-deliberately **not** counted, because one criterion each is only half-proven.
+The hosted tier is deployed and the browser client can reach it, but that milestone's
+other half — a real scaling curve across hundreds of independently-owned devices on
+the public internet, which is this project's stated Core Value — was not taken, and
+closing the milestone did not take it. No invitation has been sent to the tester
+cohort; that is unspent. See `.planning/milestones/v2.0-SHIPPED.md`.
+
+Requirements ledger, counted from `.planning/REQUIREMENTS.md`'s own checkboxes:
+**123 closed, 13 open.**
+
+v1.1 ("Wire What Was Built", shipped 2026-08-18 at 15 of 15 phases) was measured
+against how many of v1.0's capabilities were built but never called by a runnable
+program. That count is not tracked any more — it retired with the milestone it
+measured. The nearest live figure today is a different metric entirely:
+`ORPHAN_MODULE_CEILING` in `packages/node/src/reachability-guard.node.test.ts`, which
+bounds unimported production **modules**, not capabilities, and must not be read as a
+continuation of the old count.
 
 ### What is demonstrated
 
