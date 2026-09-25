@@ -1000,9 +1000,23 @@ const NODE_MEASUREMENT = {
    * TEST(S) FAILED — load/core 0.96 before, 6.98 after (8 cores, ceiling 4.00)`. Per that
    * banner's own rule the wall clock (235.95 s) is void and not quoted as a reading; the
    * counts are not — they survive an oversubscribed host, durations do not.
+   *
+   * **`files` 271 -> 272, `tests` 3929 -> 3937 on 2026-09-24, one new file, eight cases.**
+   * `readme-status.node.test.ts` arrived to guard `README.md`'s `## Status` section
+   * against `.planning/STATE.md`'s milestone and `.planning/REQUIREMENTS.md`'s checkbox
+   * counts, the fix for the section describing v1.1 at 5/14 phases and a 40/42 ledger
+   * seven weeks after v1.1 shipped 15/15 and the ledger moved to 123/13. `1 + 1 = 272`,
+   * `8 + 8 = 3937`, read below rather than assumed.
+   *
+   * Measured, not derived: `npx vitest run --project node` collected `Test Files  271
+   * passed | 1 skipped (272)` and `Tests  3926 passed | 11 skipped (3937)`, `EXIT=$?`
+   * read immediately after, no pipe — `EXIT=0`. Same one skipped file as the layer
+   * above (`elf-fixtures.node.test.ts`, Docker unavailable on this host); same ten other
+   * pre-existing skips. Host banner: `HOST WAS OVERSUBSCRIBED — load/core 16.90 before,
+   * 21.64 after (8 cores, ceiling 4.00)`. Nothing failed; no duration quoted.
    */
-  files: 271,
-  tests: 3929,
+  files: 272,
+  tests: 3937,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
@@ -1502,9 +1516,19 @@ const NODE_MEASUREMENT = {
    * TEST(S) FAILED — load/core 4.07 before, 3.64 after (8 cores, ceiling 4.00)`. Per that
    * banner's own rule the wall clock (28.15 s) is void and not quoted as a reading; the
    * counts are not — they survive an oversubscribed host, durations do not.
+   *
+   * **`unitFiles` 188 -> 189, `unitTests` 3157 -> 3165 on 2026-09-24.** Same arrival the
+   * `files`/`tests` note above describes — `readme-status.node.test.ts` reads tracked
+   * bytes off disk with no subprocess, so it counts as unit.
+   *
+   * Measured, not derived: `O2_UNIT_ONLY=1 npx vitest run --project node` collected
+   * `Test Files  188 passed | 1 skipped (189)` and `Tests  3156 passed | 9 skipped
+   * (3165)`, `EXIT=$?` read immediately after, no pipe — `EXIT=0`. Host banner: `HOST
+   * WAS OVERSUBSCRIBED — load/core 21.60 before, 21.94 after (8 cores, ceiling 4.00)`.
+   * Nothing failed; no duration quoted.
    */
-  unitFiles: 188,
-  unitTests: 3157,
+  unitFiles: 189,
+  unitTests: 3165,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
   unitWallClockMs: 10_240,
