@@ -116,9 +116,18 @@ the expensive way.
 - **Browser→browser is WebRTC, and only WebRTC.** There is no alternative and no
   fallback. Every browser peer needs a reachable Circuit Relay v2 server to be
   dialable at all.
-- **The relay is a signalling channel, not a data path.** Verified js-libp2p
-  defaults: 2-minute duration limit, 128 KiB data limit, 15 concurrent
-  reservations. Once two browsers complete their handshake, the relay drops out.
+- **The relay is a signalling channel, not a data path** — and the two figures that
+  used to be quoted here as verified defaults were re-measured on 2026-08-24 against
+  a relay this project runs, with both moving. **The data limit counts BOTH
+  directions**, so the `131072` default gives a symmetric request/response 64 KiB
+  each way rather than 128 KiB, and the cut lands on the same byte whether it is
+  written in sixteen chunks or one. **The duration limit was not observed at all**:
+  a relayed connection held 206 s through ten pings with no cut, reproduced, while
+  `conn.limits` reported no limits and the data limit was being enforced. The
+  asymmetry is recorded and not explained. What survives is the conclusion, on the
+  64 KiB reading rather than the 128 KiB one. 15 concurrent reservations is
+  unamended. These are defaults **of the relay server**, so an operator running one
+  sets them; read as facts about the fabric they are wrong twice over.
 - **The browser mesh cannot carry bulk data.** WebRTC caps messages at 16 KiB in
   js-libp2p; Chromium closes the channel above 256 KiB and will not reassemble
   Firefox's fragments. Partials stay small; artifacts fetch over an IPFS gateway.
@@ -267,13 +276,20 @@ npm test              # everything
 npm run typecheck     # tsc --noEmit
 ```
 
-Vitest runs **four** projects from one config — `node`, `browser` (Playwright:
+Vitest runs **five** projects from one config — `node`, `aot`, `browser` (Playwright:
 Chromium, Firefox, WebKit), `e2e`, and `perf` (gated behind `O2_PERF=1`) — over the
 same test files where applicable. Test suffixes are load-bearing:
 `*.node.test.ts`, `*.browser.test.ts`, `*.e2e.test.ts`, `*.perf.test.ts`.
 
+**`aot` is routed by PATH rather than by suffix, and it is a lane rather than a
+subset.** It takes `tools/**/*.node.test.ts` at `fileParallelism: false`, so a
+`.node.test.ts` file under `tools/` runs there and not in `node`. Run it alone: the
+eleven container specs it holds competed inside the `node` project and a full sweep
+lost five of them at once. Separated, the two lanes are both faster and greener than
+the combination.
+
 Select a project explicitly (`vitest run --project node`). A bare path filter fans
-out across all four and is far slower than it looks.
+out across all five and is far slower than it looks.
 
 Multi-node tests come in three shapes: in-process over a memory transport for
 determinism, real OS processes spawned via `spawn(process.execPath, …)` for
@@ -282,8 +298,11 @@ genuine cross-process behaviour, and Playwright browser contexts for real WebRTC
 **Testing standard:** same machine, different browsers, browser contexts, or OS
 processes. "A second machine" is not a blocker on any criterion in this project.
 
-Two guard suites protect constraints that are easy to erode silently:
-`vocabulary.node.test.ts` and `disclosure-gate.node.test.ts`.
+**Nine guard suites** protect constraints that are easy to erode silently, and
+`scripts/cheap-guards.sh` runs all of them on every commit: `vocabulary`,
+`disclosure-gate`, `purity`, `mutation-guard`, `slow-specs`, `state-frontmatter`,
+`requirements-ledger`, `acceptance-traceability` and `reachability-guard`. A
+failure there is a finding about the staged tree, not flake.
 
 ---
 
