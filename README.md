@@ -194,38 +194,69 @@ continuation of the old count.
   down and asserted dead, so nobody could have been consulted.
 - **Browser tabs enrolled on identical terms**, including on a plain-HTTP LAN
   origin where WebCrypto is unavailable.
+- **V8's own WASM code cache, not just the streaming compiler.** A gateway-served
+  artifact writes a `wasm.SerializeModule` entry on its first load and reads it
+  back through `wasm.GetNativeModuleFromCache`, `wasm.Deserialize` and
+  `wasm.CompilationAfterDeserialization` on the second, through the raw platform
+  API and the shipped loader alike (AOT-05). An earlier reading of no cache entry
+  was a fixture defect — a synthetic module whose functions called nothing never
+  produced enough top-tier code to cross V8's caching threshold — not a fact about
+  the loader or the engine.
+- **A spawned agent accepting a peer it dialled, not only refusing a forged one.**
+  `bin/agent.ts --peer-addr` connects one process to another over a real process
+  boundary and `PeerVerifier` reaches a verdict on it; the accepting node fetches a
+  block only the dialled peer holds, and a node that refuses the same peer cannot
+  fetch it, so the identical task fails (AUTH-02).
+- **Parallel speedup, measured on one host.** N node identities run as N spawned
+  operating-system processes rather than N objects sharing one event loop, and
+  makespan moves 1591.1 ms to 590.0 ms from N=1 to N=8 — a measured 2.70×
+  (BENCH-07). Speedup across machines that do not share a scheduler is a separate,
+  still-open claim; see below.
 
 ### What is explicitly *not* demonstrated
 
 The project distinguishes **descoped** from **satisfied**, and **unmeasured** from
 **met**. These are recorded as unmet:
 
-- **Peers on genuinely different machines over the public internet.** Needs a
-  hosted relay with automatic TLS.
-- **Cross-machine reproducibility (AOT-03) and distinct-machine benchmarking
-  (BENCH-06).** Descoped to same-machine testing by owner decision; closing either
-  would need hardware the project does not have. A `CROSS_MACHINE_BLIND_SPOT`
-  marker stays attached to every lifted artifact.
-- **V8 WASM code caching.** Measured and *not* observed: at 4.8 MB,
-  `application/wasm`, query-free CID URL, `compileStreaming`, across three visits —
-  no code-cache entry, while the same profile grew a 2 MB JavaScript cache.
-  Reported unmet rather than reworded.
-- **Parallel speedup at scale.** Every published benchmark curve currently runs N
-  nodes on one event loop, so no parallel speedup is measurable at any N. A
-  multi-process driver is planned.
-- **A cost on creating fake identities.** Enrollment is rate-limited and the
-  threshold is stated in the refusal — but the limit is keyed on a user key, which
-  costs one key generation, and the budget is per provider *process*. So the
-  hundredth fake identity costs what the first did. Rate-limiting is measured; cost
-  is not, and the difference is recorded rather than blurred.
-- **Peer-to-peer acceptance across separate processes.** A node rejecting a forged
-  certificate is proven across processes; a node *accepting* a valid one is not,
-  because no command-line flag yet makes one spawned agent dial another. Scheduled,
-  not assumed.
-- **Distribution of large artifacts.** A lifted native program is 5.40 MiB and
-  nothing has yet moved one between machines that did not already have it — the demo
-  embeds its module in the bundle. Content addressing says whether the bytes are
-  right, never whether anyone still holds them.
+- **A map/reduce job across independently-owned devices on the public internet,
+  at scale.** The hosted relay is deployed and dialable — a Cloudflare Durable
+  Object holding one PeerId across evictions since 2026-08-27, see Status — so the
+  precondition this bullet used to name is met. What is missing is the run itself:
+  no invitation has gone out to the tester cohort (RUN-01, RUN-07), so this
+  project's stated Core Value has been exercised past one LAN in owner-observed
+  form only, never measured at scale.
+- **Distinct-machine benchmarking, and the parallel speedup that would ride on it
+  (BENCH-06).** Every published curve — including the process-per-node one above
+  that measures real operating-system parallelism — still runs on one host: one
+  CPU, one V8 and one libc hold constant the exact variables a distinct-machine
+  measurement exists to expose, so contention is measured and divergence is not.
+  No curve yet shows parallel speedup across machines that do not share a
+  scheduler. The gate is not hardware: the owner's tester cohort spans continents
+  and is ready as soon as there is something to give it access to. Named closer:
+  Phase 39 criterion 4 (RUN-01, RUN-07).
+- **Cross-machine reproducible CID (AOT-03).** Repeated lifts on one host are
+  byte-identical; two lifts on two separate hosts have never been compared, and
+  `CROSS_MACHINE_BLIND_SPOT` stays on every artifact — Phase 10 found the blind
+  spot structural, an address-order-dependent hash map inside elfconv's own
+  register promotion, not configurational. The second host is obtainable — a
+  GitHub-hosted `aarch64` runner, wired and guarded in
+  `.github/workflows/aot-cross-host.yml` — and dispatching it is an un-run owner
+  act (a push to a public repository), not an unmet hardware need.
+- **A cost on creating fake identities.** Enrollment is rate-limited two ways — a
+  cap per user key and a separate aggregate cap per provider per window, held in a
+  ledger durable enough to survive a provider restart — but nothing in an
+  enrolment request is scarce: a fresh user key is one `ed25519.keygen()`, and
+  twenty distinct ones were issued with none of them slowed down. So the
+  hundredth fake identity costs an attacker what the first did. Rate-limiting is
+  measured; cost is not, and the difference is recorded rather than blurred.
+- **Distribution of large lifted artifacts.** A visitor can bring a CID and have
+  the page fetch, verify and store the bytes over a real HTTP path — but every
+  fetch exercised so far serves one of the two small bundled demo kernels, not
+  the elfconv-lifted native program, which is 5.40 MiB at its smallest and stays
+  either bundled into the demo bundle or read straight off local disk in every
+  fixture that touches it. Nothing has yet moved that artifact between two
+  processes that did not already hold it. Content addressing says whether the
+  bytes are right, never whether anyone still holds them.
 
 ---
 
