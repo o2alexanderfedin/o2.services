@@ -41,6 +41,35 @@ import { describe, expect, it } from 'vitest'
  * matches is not evidence of an empty section — it is evidence of nothing, and this
  * file's "sees more than zero" cases exist so a blinded parser reddens instead of
  * agreeing for free with a Status section that also says nothing.
+ *
+ * ## The sibling defect this file was extended to catch
+ *
+ * `## Status` was not the only section that rotted silently. `### What is explicitly
+ * *not* demonstrated` carried three bullets an external reviewer read and repeated as
+ * this project's own findings, after this repository's own records had already
+ * corrected each one: a hosted relay the bullets said did not exist, a "needs
+ * hardware" reason for `AOT-03`/`BENCH-06` that `v1.0-MILESTONE-AUDIT.md` and
+ * `REQUIREMENTS.md` had retired in favour of tester-cohort access, and a "multi-process
+ * driver is planned" sentence `BENCHMARK-RESULTS.md:36` explicitly retracts.
+ *
+ * A guard cannot check whether prose is *true*. It can check one mechanical fact: this
+ * section names `XXX-NN` requirement ids, and `.planning/REQUIREMENTS.md` has its own
+ * checkbox verdict for each of those ids. A bullet claiming a requirement is unmet
+ * while the ledger's own checkbox for it reads `[x]` is a contradiction inside this
+ * repository's own records, independent of whatever else the prose says — and it is
+ * exactly the shape of the three defects above: each one named (or, for the code-cache
+ * and peer-acceptance bullets, *should* have named) a requirement whose ledger row had
+ * already moved to `Done`.
+ *
+ * ## Two ways this check itself can go blind, and why both are covered
+ *
+ * A requirement id that is simply misspelled (`BENCH-60` for `BENCH-06`) would find no
+ * ledger row at all — and a lookup that treats "no row found" as "nothing to
+ * contradict, therefore pass" would let a typo through for free, the same blind-parser
+ * shape `disclosure-gate.node.test.ts` already taught this repository once. So an id
+ * with no matching checkbox row reddens exactly as loudly as an id whose row reads
+ * `[x]` — both are a "this guard cannot vouch for this bullet" state, and neither is
+ * silently accepted as true.
  */
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -165,5 +194,86 @@ describe('README.md Status section stays true', () => {
 
   it('states the same open count the ledger counts', () => {
     expect(README_LEDGER?.open).toBe(LEDGER_OPEN)
+  })
+})
+
+/**
+ * README's `### What is explicitly *not* demonstrated` section body: from its
+ * heading to the next `## ` heading. The heading has literal asterisks around
+ * "not", escaped here so the regex matches the character rather than opening an
+ * unintended alternation.
+ */
+function notDemonstratedSectionOf(readme: string): string | null {
+  const match = /\n### What is explicitly \*not\* demonstrated\n(.*?)\n## /s.exec(readme)
+  return match?.[1] ?? null
+}
+
+const NOT_DEMONSTRATED = notDemonstratedSectionOf(README)
+
+/**
+ * Every `XXX-NN` requirement id this section names, in first-seen order but
+ * de-duplicated — a bullet may cite the same id twice (once naming the blocker,
+ * once naming its closer) and that is not two separate claims to check.
+ *
+ * `\b[A-Z]{2,5}-\d{2}\b` deliberately does not match `v2.0` (lowercase `v`, one
+ * digit before the dot) or `CROSS_MACHINE_BLIND_SPOT` (no hyphen), which is what
+ * lets this run over the section's free prose rather than a hand-delimited list.
+ */
+function requirementIdsIn(section: string): readonly string[] {
+  const ids = section.match(/\b[A-Z]{2,5}-\d{2}\b/g) ?? []
+  return [...new Set(ids)]
+}
+
+const NOT_DEMONSTRATED_IDS = NOT_DEMONSTRATED === null ? [] : requirementIdsIn(NOT_DEMONSTRATED)
+
+/**
+ * A requirement id's own checkbox verdict in `.planning/REQUIREMENTS.md` —
+ * `true` for `- [x] **XXX-01**`, `false` for `- [ ] **XXX-01**`, `null` if no
+ * checkbox row for that id exists at all (a typo, or an id that names a phase
+ * criterion rather than a ledger requirement).
+ *
+ * Deliberately the FIRST match, not every match: an id is discussed in prose
+ * dozens of times across this file, and exactly one of those mentions is the
+ * canonical `- [ ]`/`- [x]` row this repository's own convention treats as the
+ * requirement's row. `readmeLedgerOf`'s sibling above already keys on this same
+ * shape.
+ */
+function ledgerVerdictOf(requirements: string, id: string): boolean | null {
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const row = new RegExp(`^- \\[([x ])\\] \\*\\*${escaped}\\*\\*`, 'm').exec(requirements)
+  const box = row?.[1]
+  if (box === undefined) return null
+  return box === 'x'
+}
+
+describe('README.md "not demonstrated" section stays true against the ledger', () => {
+  it('has a "not demonstrated" section this guard can actually see — otherwise everything below is vacuous', () => {
+    // Ordered first in this describe, deliberately: if the heading regex ever
+    // goes blind — a rewording, an extra asterisk, anything — this is the case
+    // that reddens, rather than the id-count case below silently reading an
+    // empty string as "no ids, nothing to check, pass".
+    expect(NOT_DEMONSTRATED).not.toBeNull()
+    expect(NOT_DEMONSTRATED?.length ?? 0).toBeGreaterThan(100)
+  })
+
+  it('states more than a couple of unmet bullets — otherwise the list has been hollowed out rather than corrected', () => {
+    const bullets = NOT_DEMONSTRATED?.match(/^- \*\*/gm)?.length ?? 0
+    expect(bullets).toBeGreaterThan(3)
+  })
+
+  it('names more than one requirement id in this section — otherwise the id parser below is blind and the checks that depend on it are vacuous', () => {
+    // Anti-vacuity with a literal, same shape as LEDGER_CLOSED/LEDGER_OPEN above.
+    // Before this rewrite the section named exactly two ids (AOT-03, BENCH-06);
+    // a rewrite that dropped every id back to zero would make every case below
+    // pass over nothing rather than fail loudly.
+    expect(NOT_DEMONSTRATED_IDS.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it.each(NOT_DEMONSTRATED_IDS)('%s has a ledger row this guard can find — an id with no row is as unverifiable as one that contradicts the ledger', (id) => {
+    expect(ledgerVerdictOf(REQUIREMENTS, id)).not.toBeNull()
+  })
+
+  it.each(NOT_DEMONSTRATED_IDS)('%s is not marked Done in the ledger — a bullet in this section claims it unmet', (id) => {
+    expect(ledgerVerdictOf(REQUIREMENTS, id)).toBe(false)
   })
 })
