@@ -405,9 +405,14 @@ strictly more than those terms allowed.
 
 ## Contributions
 
-**Not accepted.** Pull requests will be closed without review — see
-[CONTRIBUTING.md](CONTRIBUTING.md). This keeps the dual-license model intact by
-construction: the licensor owns every right in the software, so the commercial
-track stays available for all of it.
+**Not accepted by default**, and merged only by an owner ruling naming the author —
+see [CONTRIBUTING.md](CONTRIBUTING.md). This keeps the dual-license model intact by
+construction: the licensor owns every right in the software, so the commercial track
+stays available for all of it.
+
+**One ruling has been made**, on 2026-09-27, for two documentation files by Praxis, an
+external AI agent the owner works with over Telegram. Their authorship is preserved in
+`git log`, each file carries a header naming them, and those two files sit outside the
+commercial track as a stated consequence. Nothing under `packages/` is affected.
 
 Bug reports are welcome as issues. Security reports go to **af@O2.services**.

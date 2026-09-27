@@ -1015,8 +1015,32 @@ const NODE_MEASUREMENT = {
    * pre-existing skips. Host banner: `HOST WAS OVERSUBSCRIBED — load/core 16.90 before,
    * 21.64 after (8 cores, ceiling 4.00)`. Nothing failed; no duration quoted.
    */
+  /**
+   * **`tests` 3 937 -> 3 950 and `unitTests` 3 165 -> 3 178 on 2026-09-27, `files`/`unitFiles`
+   * unchanged at 272/189 — and the +13 is attributed rather than accepted, because two commits
+   * moved it and neither re-measured.**
+   *
+   * `a0b6570` (the README not-demonstrated audit) added **11**: three literal `it(` blocks plus
+   * **eight generated** — `readme-status.node.test.ts:272,276` uses `it.each(NOT_DEMONSTRATED_IDS)`
+   * twice, and that section of `README.md` currently names four requirement ids (`AOT-03`,
+   * `BENCH-06`, `RUN-01`, `RUN-07`). `3a52684` (the lease heartbeat fix) added the other **2**.
+   * Neither touched this file, so the recorded totals were stale for three days.
+   *
+   * **A coupling that is new in this file's history and that the next reader must know about:
+   * these two counts now move when somebody edits PROSE.** Adding or removing a requirement id
+   * from `README.md`'s not-demonstrated list changes the generated case count by two, with no
+   * spec file touched. `it.each` was the right call for its diagnostics — a failure names the
+   * offending id — so the coupling is recorded rather than engineered away, but a count drift
+   * with no spec change is now an expected outcome rather than a symptom.
+   *
+   * Measured, not derived: `npx vitest run --project node` collected `Test Files 272 passed
+   * (272)` and `Tests 3947 passed | 3 skipped (3950)`, exit 0; `O2_UNIT_ONLY=1 npx vitest run
+   * --project node` collected `189 passed (189)` and `3178 passed (3178)`, exit 0. **Both runs
+   * were on an oversubscribed host and both banners said so** — load/core 7.6 against a ceiling
+   * of 4.00 — so the counts stand, nothing failed, and no duration from either run is recorded.
+   */
   files: 272,
-  tests: 3937,
+  tests: 3950,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
@@ -1528,7 +1552,7 @@ const NODE_MEASUREMENT = {
    * Nothing failed; no duration quoted.
    */
   unitFiles: 189,
-  unitTests: 3165,
+  unitTests: 3178,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
   unitWallClockMs: 10_240,
