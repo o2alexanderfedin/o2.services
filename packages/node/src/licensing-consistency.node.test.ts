@@ -197,8 +197,21 @@ describe('DEMO-06 — no document promises terms the licence does not carry', ()
 })
 
 describe('DEMO-05 — CONTRIBUTING.md states the policy the requirement names', () => {
-  it('says pull requests are triaged and never merged', () => {
-    expect(flatten(CONTRIBUTING)).toMatch(/triaged, never merged/i)
+  it('says pull requests are triaged and merged only by an owner ruling naming the author', () => {
+    // AMENDED 2026-09-27, and the amendment came from a ruling rather than from a preference.
+    // This read `/triaged, never merged/i` until the owner allowed two documentation files by
+    // Praxis to be merged with their authorship intact. `never` became false, so DEMO-05's own
+    // text was widened first and this assertion follows it — the requirement is the authority,
+    // not the guard. **This case reddened on the commit that changed the policy**, with
+    // `expected '# Contributing …' to match /triaged, never merged/i`, which is the guard doing
+    // exactly its job: prose and requirement are not allowed to drift apart silently.
+    expect(flatten(CONTRIBUTING)).toMatch(/triaged, and merged only by an owner ruling naming the author/i)
+    // The exception must name its own scope where a reader meets it, or "by ruling" degrades
+    // into "sometimes, ask around". One ruling exists; the file says which author and which files.
+    expect(flatten(CONTRIBUTING)).toMatch(/Praxis/)
+    // And the cost must be stated rather than deferred: a merged third-party file cannot be
+    // sublicensed, and a commercial licensee is the person who needs to know that.
+    expect(flatten(COMMERCIAL)).toMatch(/cannot be sublicensed under this agreement/i)
   })
 
   it('says a fix is implemented independently of the reported diff', () => {

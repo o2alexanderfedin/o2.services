@@ -1,3 +1,38 @@
+<!-- EDITORIAL HEADER — added on merge, 2026-09-27. The body below is UNEDITED. -->
+
+> **Written by Praxis**, an external AI agent the owner works with over Telegram, at the
+> owner's request. Submitted as GitHub PR #34 / #35 on 2026-09-17 and merged by owner ruling
+> on 2026-09-27. Authorship is structural rather than stated: `git log` and `git blame` on
+> this file name Praxis, because the author's own commit was merged rather than re-committed.
+>
+> **The text below is as submitted. This header is the only thing this project added**, and it
+> exists because several of the document's numbers were already false when it was written —
+> some of them because they were read out of this repository's own README, which was stale by
+> two milestones at the time and has since been corrected. **Do not read the following as this
+> project's findings.**
+
+### What was already wrong when this was written, and what is true
+
+| The document says | What is true, and where it is settled |
+|---|---|
+| it describes "milestone v1.1, 5/14 phases" | v1.1 shipped 15 of 15 on 2026-08-18; v2.0 closed 2026-09-17 at 29 of 38 by owner ruling; the milestone now is v2.1. The requirements ledger reads **123 closed, 13 open**. The document's figures came from `README.md`, whose Status section was seven weeks stale until 2026-09-24 — **this is a defect this document exposed, and it is fixed** |
+| the relay's "2-minute duration limit, 128 KiB data limit" are verified defaults, and the relay "drops out" after the handshake | Both figures were re-measured on 2026-08-24 against a relay this project runs, and both moved. **The data limit counts BOTH directions**, so a symmetric request/response gets 64 KiB each way. **The duration limit was not observed at all** — a relayed connection held 206 s through ten pings with no cut, reproduced, while `conn.limits` reported no limits. The conclusion that the relay is a signalling channel survives, on the 64 KiB reading. See `CLAUDE.md`'s Connectivity constraint |
+| the benchmark curves "run N nodes on one event loop", so a multi-process driver is owed | `.planning/BENCHMARK-RESULTS.md:36` **retracts that exact wording** — true of the first rig, false of the second — and `BENCH-07` closed 2026-08-06 with a driver spawning real operating-system processes, verified by PID. Real-process speedup is measured at **2.70× from N=1 to N=8** |
+| cross-machine work needs hardware the project does not have | Retired on 2026-08-24. The gate is **access to a tester cohort**, and access is the disclosure event, not a purchase. `AOT-03` waits on dispatching a workflow that already exists; `BENCH-06` waits on the cohort |
+| *(omission)* N-version verification is described without it | **No result this fabric produces is labelled `independent` today.** Phase 45 narrowed the label: a quorum vouched for by one issuer is `single-issuer`, and the owner ruled one certificate provider, so `single-issuer` is the ceiling |
+
+**What it got right, checked against the tree:** the 16 KiB WebRTC message cap (held by a
+regression test), bulk artifacts fetching over an IPFS gateway path, the nine-package layout
+exactly as named, and — stated more sharply here than in the document — that **the cost of
+creating a fake identity is unmeasured**. This project's own `THREAT-MODEL.md` calls that the
+weakest link, and `VER-11` records the price: one `ed25519.keygen()`.
+
+**The super-linear capacity claim is a hypothesis and the document is right to mark it.** The
+distinct-machine half of `BENCH-06` has not been run. The document named a mechanism this
+repository had already withdrawn, and the conclusion it drew still stands.
+
+---
+
 # o2.services — Architecture Overview
 
 > Draft architecture documentation by an external reviewer (Praxis), based on the public

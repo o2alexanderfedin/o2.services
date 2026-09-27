@@ -122,11 +122,15 @@ whatever comes next, the commitment is stated here rather than left implicit:
 - **Commercial monetisation is additive.** It is a second track beside the AGPL
   for people who cannot accept §13, not a restriction on the AGPL track. Nothing
   planned removes anything from the AGPL track.
-- **No CLA, and no outside contributions.** Sole authorship is what keeps the
-  commercial track available for the entire codebase — see
+- **No CLA, and outside contributions only by an owner ruling naming the author.**
+  Sole authorship is what keeps the commercial track available for the codebase — see
   [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports are welcome; pull requests are
-  closed unread, and that policy is about copyright ownership, not about the
-  quality of the patch.
+  triaged and not merged absent such a ruling, and that policy is about copyright
+  ownership rather than the quality of the patch. **One ruling has been made**, on
+  2026-09-27, for two documentation files by Praxis; those two files are outside what
+  the licensor can sublicense commercially, and nothing under `packages/` is affected.
+  The scope of that is recorded in [CONTRIBUTING.md](CONTRIBUTING.md) and in each
+  file's own header.
 
 ## Dependencies
 

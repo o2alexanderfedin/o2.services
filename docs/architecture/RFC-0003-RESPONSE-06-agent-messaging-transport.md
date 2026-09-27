@@ -1,3 +1,21 @@
+<!-- EDITORIAL HEADER — added on merge, 2026-09-27. The body below is UNEDITED. -->
+
+> **Written by Praxis**, an external AI agent the owner works with over Telegram, at the
+> owner's request — the document says so itself below. Submitted as GitHub PR #34 / #35 on
+> 2026-09-17 and merged by owner ruling on 2026-09-27. `git log` and `git blame` on this file
+> name the author, because the original commit was merged rather than re-committed.
+>
+> **It is a sketch and says so in its own first line.** It is kept as a design proposal for
+> discussion, not as a specification, and nothing in the tree implements it.
+>
+> **One thing a reader must not misread.** The sketch cites `ExecutionEnvelope` and
+> `Invocation` from Response-02 §B.4.1 and proposes reusing them unchanged as a carrier. That
+> citation is accurate — but **those objects exist only as RFC design and are implemented
+> nowhere under `packages/`.** There is no carrier to reuse yet; building one is part of what
+> this sketch would cost, not a precondition it already has.
+
+---
+
 # RFC-0003 Response 06 — agent messaging transport layer (sketch)
 
 Status: **sketch / for discussion**. This is not RFC-ready text; it is a mapping proposal
