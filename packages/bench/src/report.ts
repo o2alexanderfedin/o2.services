@@ -151,14 +151,30 @@ export interface ParticipantReading {
  * The label that goes beside a participant count, and the noun it will not say.
  *
  * **This function will not print `machines` without a source, and the reason is arithmetic
- * rather than caution.** A peer id is what a tab has; a tab announces nothing about the
- * machine it runs on, because `AgentOptions` carries no machine field and
- * `browser-id.ts` refuses `platform` and `hardwareConcurrency` by name. So two tabs on one
- * laptop are two peer ids and one machine, and rendering that pair as "2 machines" is
- * precisely the report BENCH-06 exists to forbid — its own row says sixteen nodes on one
- * laptop are sixteen processes on one machine, not sixteen of anything else. Until an
- * announced machine datum exists on the job path, the honest sentence names peers, states
- * that the machine count was not measured, and tells the reader why the two differ.
+ * rather than caution.** A peer announces nothing about the machine it runs on, because
+ * `AgentOptions` carries no machine field and `browser-id.ts` refuses `platform` and
+ * `hardwareConcurrency` by name. So a device can hold several peers and rendering that as
+ * several machines is precisely the report BENCH-06 exists to forbid — its own row says
+ * sixteen nodes on one laptop are sixteen processes on one machine, not sixteen of anything
+ * else. Until an announced machine datum exists on the job path, the honest sentence names
+ * peers, states that the machine count was not measured, and tells the reader why the two
+ * differ.
+ *
+ * **CORRECTED 2026-09-28: a peer is NOT a tab, and the old caveat said it was.** This label
+ * printed *"peers are tabs, and two tabs on one device are two peers"*, which describes the
+ * demo's arrangement rather than a visitor's. `browser-node.ts` opens `IdbIdentityStore`,
+ * loads a stored seed when one exists and mints only when none does, and
+ * `libp2p/src/identity.ts:110` derives the key with `generateKeyPairFromSeed` — from the seed
+ * alone, with no per-tab component. So the identity is one per **origin** and every later tab
+ * loads it: `disclosure.ts` states exactly this, and `gated-seed.e2e.test.ts` pins it as
+ * *"same origin, same IndexedDB, therefore the same peer id"*. The two-tab demo gets two
+ * peers only because `demo/main.ts` hands the tabs **distinct `blockstoreName`s**
+ * (`o2-colouring-a` and `o2-colouring-b`), which a cohort visitor does not do.
+ *
+ * The direction of the caveat is unchanged and still the honest one — a device can carry
+ * more than one peer, through a second profile, a second browser or a node process, so the
+ * count remains an upper bound on machines. What changed is the mechanism it names, and it
+ * was understating the figure: distinct peers count profiles, not tabs.
  *
  * In `machineLabel`'s shape, and for `machineLabel`'s reason: the label is derived from
  * what was counted, never declared beside it, and it travels in the same string as the
@@ -168,8 +184,9 @@ export function participantLabel(reading: ParticipantReading): string {
   const { peers, announcedMachines } = reading
   if (announcedMachines === null) {
     return (
-      `${peers} distinct peers — machine count not measured; peers are tabs, ` +
-      'and two tabs on one device are two peers'
+      `${peers} distinct peers — machine count not measured; a peer is one browser ` +
+      'profile per origin, so tabs of one profile are one peer and two profiles on one ' +
+      'device are two'
     )
   }
   return `${peers} distinct peers on ${announcedMachines} announced machines`
