@@ -750,3 +750,48 @@ describe('the demo is buildable, because building is not publishing', () => {
     for (const { pattern } of PUBLISHING) expect(pattern.test(body)).toBe(false)
   })
 })
+
+describe('the README describes the rule this suite enforces, not the one it replaced', () => {
+  /**
+   * **This case exists because the README was wrong about money for a month and nothing
+   * noticed.** Its `## Deployment` section stated *"no deploy workflow file may exist in
+   * this repository at all — absent, not disabled"*, which was `DEMO-04`'s original rule.
+   * That rule was a **proxy**: absence of a file standing in for the real claim, that a
+   * public deployment is an explicitly triggered act and never an automatic consequence.
+   * The owner replaced the proxy with a direct check on 2026-08-27, `deploy.yml` landed,
+   * and every assertion above went on passing — because they check the workflow, and
+   * nothing checked the sentence describing them.
+   *
+   * A reader of the front page therefore believed no deploy workflow existed while one
+   * did. That is the most expensive kind of stale sentence in this repository: it is about
+   * the account with no hard spending ceiling, and it understates what is there.
+   *
+   * The two halves are asserted separately on purpose. Requiring the new description
+   * alone would pass on a section that contradicted itself, which is exactly how
+   * `README.md`'s contribution policy came to state two incompatible rules 390 lines
+   * apart — see `licensing-consistency.node.test.ts`.
+   */
+  const README = readFileSync(join(ROOT, 'README.md'), 'utf8').replace(/\s+/g, ' ')
+
+  it('no longer claims a deploy workflow cannot exist, since one does', () => {
+    // Anti-vacuity first: a mis-read path would make the absence check below pass for free.
+    expect(README.length).toBeGreaterThan(5000)
+    expect(existsSync(join(ROOT, '.github', 'workflows', 'deploy.yml'))).toBe(true)
+    // The retired claim, quoted as the section quotes it when it retires it. A sentence
+    // asserting it outside a dated correction is the defect.
+    for (const sentence of README.split(/(?<=[.!?])\s+(?=[A-Z*`[])/)) {
+      if (/CORRECTED|AMENDED|read \*"/i.test(sentence)) continue
+      expect(
+        /no deploy workflow file may exist/i.test(sentence),
+        'README asserts the retired absence rule outside a dated correction',
+      ).toBe(false)
+    }
+  })
+
+  it('names the trigger kind this suite actually requires', () => {
+    // Not "a human act" in the abstract — the concrete trigger, because that is the thing
+    // a future edit would change and the thing `deploy.yml` has to keep.
+    expect(README).toMatch(/release: types: \[published\]/)
+    expect(README).toMatch(/may not fire on `push`/i)
+  })
+})

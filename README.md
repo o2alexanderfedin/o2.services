@@ -13,10 +13,11 @@ visitor to a web page a potential compute node.
 Built by [Alexander Fedin](https://linkedin.com/in/alex-fedin).
 
 Sole authorship is deliberate rather than incidental — pull requests are triaged and
-never merged, and any fix is implemented independently of the reported diff, so that
-provenance for the later relicensing track is preserved by one person holding it. See
-`CONTRIBUTING.md`. Saying who that person is makes the claim checkable rather than
-merely stated.
+merged only by an owner ruling naming the author, and absent one any fix is implemented
+independently of the reported diff, so that provenance for the later relicensing track is
+preserved by one person holding it. **One ruling has been made, on 2026-09-27**, for two
+documentation files by an external author; see `CONTRIBUTING.md` for its scope and its
+cost. Saying who holds provenance makes the claim checkable rather than merely stated.
 
 > That page is a real node, but it cannot join anything on its own and it says so.
 > A browser cannot accept incoming connections, so two tabs need a publicly
@@ -250,7 +251,11 @@ The project distinguishes **descoped** from **satisfied**, and **unmeasured** fr
   register promotion, not configurational. The second host is obtainable — a
   GitHub-hosted `aarch64` runner, wired and guarded in
   `.github/workflows/aot-cross-host.yml` — and dispatching it is an un-run owner
-  act (a push to a public repository), not an unmet hardware need.
+  act, not an unmet hardware need. **CORRECTED 2026-09-27** — this read *"a push to a
+  public repository"*, and no push is involved: the workflow's only trigger is
+  `workflow_dispatch`, it is already present on the default branch, and GitHub lists it
+  as active. Dispatching it is one command against a workflow that is registered and
+  waiting, and it is the owner's to run because it acts outward under their account.
 - **A cost on creating fake identities.** Enrollment is rate-limited two ways — a
   cap per user key and a separate aggregate cap per provider per window, held in a
   ledger durable enough to survive a provider restart — but nothing in an
@@ -311,12 +316,30 @@ failure there is a finding about the staged tree, not flake.
 **A deploy spends money on an account with no hard spending ceiling**, so it is a
 separately-triggered act rather than something a merge can cause.
 
-Consequently: **no deploy workflow file may exist in this repository at all** —
-absent, not disabled — and no `package.json` script may publish.
-`disclosure-gate.node.test.ts` enforces both, checks for workflow files by
-*content* so relocation does not evade it, and verifies its own publish-command
-patterns actually match the commands they claim to catch. `build:demo` builds and
-publishes nothing. Deployment is a separately-triggered human act.
+**CORRECTED 2026-09-27.** This paragraph read *"no deploy workflow file may exist in
+this repository at all — absent, not disabled"* and had been false for a month.
+`.github/workflows/deploy.yml` exists, on `develop` and on `main`, and its own first
+line says what it is: the one file in the repository that spends money. The absence was
+only ever a **proxy** for the real claim, and the proxy was replaced on 2026-08-27 by
+owner ruling so the claim could be checked directly instead.
+
+What is enforced now, by `disclosure-gate.node.test.ts`:
+
+- A workflow that deploys is found by **content**, so renaming it or moving the
+  directory does not hide it from the rule.
+- It may not fire on `push`, on `pull_request`, or on a `schedule`, and its trigger must
+  require a human act. `deploy.yml`'s is `release: types: [published]`.
+- **Why `release:` and not `on: push: tags:`** — both fire on a tag, but a tag filter
+  widens into `branches: ['**']` in a two-word diff that reads like a widening rather
+  than a change of kind. A `release:` trigger cannot be widened that way, so the human
+  act is structural rather than remembered.
+- The dry-run build stays out of the deploy definition, so CI may still build.
+- No `package.json` script publishes, root or workspace, and none is named `deploy`.
+- Each publish-command pattern is itself proved live: it must match every command it
+  claims to catch and leave the commands that publish nothing alone.
+
+`build:demo` builds and publishes nothing. Deployment remains a separately-triggered
+human act — now because a trigger is checked rather than because a file is missing.
 
 ---
 
