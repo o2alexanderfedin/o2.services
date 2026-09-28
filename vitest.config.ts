@@ -1059,15 +1059,24 @@ const NODE_MEASUREMENT = {
    * with a theory is not the theory's proof, and the only thing that settled it was grepping
    * the two logs for the filename.
    *
+   * **3953 -> 3955 and 3179 -> 3181, the same day and the same shape.** Auditing the one
+   * README section left unaudited found a third stale front-page claim, and chasing its dangling
+   * `[Disclosure](#disclosure)` link found a fourth: there has been no `## Disclosure` heading
+   * since that section was renamed `## Deployment`. `readme-status.node.test.ts` gains two —
+   * every in-page link resolves to a heading, plus the anti-vacuity case that guards it. Both
+   * lanes move by two because that file runs in both. The anti-vacuity case justifies itself
+   * immediately: blinding the anchor regex leaves the resolution rule GREEN and fires only that
+   * one.
+   *
    * Measured, not derived: `npx vitest run --project node` collected `Test Files 272 passed
-   * (272)` and `Tests 3951 passed | 2 skipped (3953)`, exit 0; `O2_UNIT_ONLY=1 npx vitest run
-   * --project node` collected `189 passed (189)` and `3179 passed (3179)`, exit 0. **Both runs
-   * were on an oversubscribed host and both banners said so** — load/core 5.39 against a
+   * (272)` and `Tests 3953 passed | 2 skipped (3955)`, exit 0; `O2_UNIT_ONLY=1 npx vitest run
+   * --project node` collected `189 passed (189)` and `3181 passed (3181)`, exit 0. **Both runs
+   * were on an oversubscribed host and both banners said so** — load/core 15.37 against a
    * ceiling of 4.00 — so the counts stand, nothing failed, and no duration from either run is
    * recorded.
    */
   files: 272,
-  tests: 3953,
+  tests: 3955,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
@@ -1579,7 +1588,7 @@ const NODE_MEASUREMENT = {
    * Nothing failed; no duration quoted.
    */
   unitFiles: 189,
-  unitTests: 3179,
+  unitTests: 3181,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
   unitWallClockMs: 10_240,

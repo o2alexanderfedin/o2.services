@@ -25,9 +25,15 @@ cost. Saying who holds provenance makes the claim checkable rather than merely s
 > peer to exchange WebRTC signalling, and GitHub Pages runs no server process.
 > Supply one with `?relay=<multiaddr>`.
 >
-> The deployed bundle predates Phase 9 — the consent gate, the running bar and the
-> colouring job are in this repository but not on that URL. Republishing is a
-> deliberate human act (see [Disclosure](#disclosure)).
+> **CORRECTED 2026-09-27.** This read *"The deployed bundle predates Phase 9 — the
+> consent gate, the running bar and the colouring job are in this repository but not on
+> that URL."* All three are on that URL. The page was republished on 2026-09-24 from
+> `4bd3e6a`, verified against node `2.1.0-rc.1`, and the deployed `index.html` has ten
+> lines mentioning `consent` — including a consent screen with a heading — fifty-seven
+> mentioning `colouring`, and eight mentioning `running`. Phase 9 merged on 2026-07-27,
+> two months before that publish. Republishing is still a deliberate human act, and the
+> link that used to sit here pointed at a `## Disclosure` section this file does not
+> have: see [Deployment](#deployment).
 
 ---
 
@@ -255,7 +261,9 @@ The project distinguishes **descoped** from **satisfied**, and **unmeasured** fr
   public repository"*, and no push is involved: the workflow's only trigger is
   `workflow_dispatch`, it is already present on the default branch, and GitHub lists it
   as active. Dispatching it is one command against a workflow that is registered and
-  waiting, and it is the owner's to run because it acts outward under their account.
+  waiting, and it is the owner's to run for the reason `.planning/OWNER-ACTIONS.md` §7
+  gives in its own words — it *runs against* a public repository, which is not the same
+  sentence as a push to one.
 - **A cost on creating fake identities.** Enrollment is rate-limited two ways — a
   cap per user key and a separate aggregate cap per provider per window, held in a
   ledger durable enough to survive a provider restart — but nothing in an
