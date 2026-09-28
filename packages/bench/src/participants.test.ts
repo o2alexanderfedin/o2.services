@@ -23,9 +23,9 @@ import { distinctParticipants, participantLabel } from './report.ts'
 /** Written out rather than composed — a spec that builds its expectation from the same
  * value the function reads moves with it and proves nothing. */
 const TWO_PEER_LABEL =
-  '2 distinct peers — machine count not measured; peers are tabs, and two tabs on one device are two peers'
+  '2 distinct peers — machine count not measured; a peer is one browser profile per origin, so tabs of one profile are one peer and two profiles on one device are two'
 const FIVE_PEER_LABEL =
-  '5 distinct peers — machine count not measured; peers are tabs, and two tabs on one device are two peers'
+  '5 distinct peers — machine count not measured; a peer is one browser profile per origin, so tabs of one profile are one peer and two profiles on one device are two'
 
 describe('distinctParticipants counts peers, not contributions', () => {
   it('counts the distinct executor peer ids', () => {

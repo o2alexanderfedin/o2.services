@@ -808,7 +808,12 @@ Row 15, the mid-run kill-switch exercise, happens **inside** 14, at a stage boun
 > **One property the next reader is owed.** A peer id is stable per origin, so a published
 > *list* of them would let anyone link one participant's activity from stage to stage —
 > pseudonymous rather than anonymous. This ruling permits publishing them; the criterion needs
-> only the count, so the count is what gets published unless the owner asks for the list.
+> only the count. **RULED 2026-09-28: no list — the count only.** And the shape of what exists
+> already enforces it rather than leaving it to somebody's memory: the funnel journal is a single
+> key overwritten in place whose only dimension is `country` (`funnel-journal.ts:64,280`), so there
+> is nowhere for a per-visitor identity to accumulate, and the count itself comes from
+> `distinctParticipants(outcome.executedBy)` over a `ReduceOutcome` rather than from any store. A
+> published list would have to be built on purpose.
 >
 > `BENCH-06`'s distinct-machine half therefore stays unmeasured **by decision** rather than by
 > omission. That is a different sentence from the one the row used to carry, and the honest one.

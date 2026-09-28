@@ -31,13 +31,26 @@ run.
 `participantLabel` in the same file renders the reading, and when nothing announced a machine it
 produces exactly this sentence:
 
-> `N distinct peers — machine count not measured; peers are tabs, and two tabs on one device are two peers`
+> `N distinct peers — machine count not measured; a peer is one browser profile per origin, so tabs of one profile are one peer and two profiles on one device are two`
 
 The caveat travels inside the string with the number, for `machineLabel`'s reason: a label that sits
 in a separate paragraph gets separated from its figure the first time somebody copies the figure out.
-And the trailing clause is the whole point — a peer id is what a browser tab has, so two tabs open on
-one laptop are two peers and one device. Publishing that pair as a device count is the exact
-over-count `BENCH-06`'s own row forbids.
+
+**CORRECTED 2026-09-28 — the trailing clause said "peers are tabs, and two tabs on one device are
+two peers", and that described this demo rather than a visitor.** `browser-node.ts` opens
+`IdbIdentityStore`, loads a stored seed when one exists and mints only when none does, and
+`libp2p/src/identity.ts:110` derives the key with `generateKeyPairFromSeed` — from the seed alone,
+no per-tab component. So the identity is one per **origin** and every later tab loads it;
+`disclosure.ts` states it and `gated-seed.e2e.test.ts` pins it as *"same origin, same IndexedDB,
+therefore the same peer id"*. The two-tab arrangement in this repository gets two peers only
+because `demo/main.ts:860` hands the tabs **distinct `blockstoreName`s** — `o2-colouring-a` and
+`o2-colouring-b` — which a cohort visitor does not do.
+
+The direction of the caveat is unchanged: a device can still carry more than one peer, through a
+second profile, a second browser or a node process, so the count stays an **upper bound** on
+machines and publishing it as a device count is the over-count `BENCH-06`'s own row forbids. What
+was wrong was the mechanism, and it understated the figure — distinct peers count profiles, not
+tabs.
 
 **What the peer count is not.** It is not identity-hardened. Nothing stops one operator presenting
 many peer ids, so the figure is an upper bound on independent participants rather than a measurement
