@@ -96,6 +96,19 @@ uses correctly in four places.
 
 ## 3. The three routes to the missing half, and what each costs
 
+**RULED 2026-09-28: route (b).** The owner ruled that a peer id is not personal data — *"не IP
+address, не email, не имя владельца, не PII"* — and that publishing it is fine. Measured while
+answering the question that came with the ruling: **a peer id is not a hash.** libp2p uses the
+`identity` multihash for Ed25519 (code `0x00`), so the peer id carries the 32-byte public key
+verbatim and `publicKeyFromProtobuf` recovers it from the peer id alone. It is a key generated in
+the visitor's browser, tied to no name and no address.
+
+So the run publishes the **distinct-peer count as a pair of bounds** — profiles over-count
+machines, countries under-count them — which is what §1 already builds. No machine descriptor is
+announced, `disclosure.ts` is untouched, `DISCLOSURE_VERSION` stays `'8'`, and nobody is re-asked.
+Route (a) is not taken and `BENCH-06`'s distinct-machine half stays unmeasured **by decision**.
+Full reasoning in `OWNER-ACTIONS.md` row 10.
+
 ### (a) Announce a coarse machine descriptor on the job path
 
 A per-visit datum — enough to tell two tabs on one laptop from two laptops — announced with the peer

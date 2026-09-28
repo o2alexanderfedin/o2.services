@@ -784,6 +784,36 @@ Row 15, the mid-run kill-switch exercise, happens **inside** 14, at a stage boun
 
 ## 10. What a peer may announce about its machine — `BENCH-06`
 
+> **RULED 2026-09-28 — route (b). The page's promise does not move and nobody is re-asked.**
+> Owner's words: *"peer id выводится из ключа? он — хэш? публикуй, пофигу. Это не IP address,
+> не email, не имя владельца, не PII."*
+>
+> **The question was settled by running it, and the answer is the opposite of the usual
+> assumption: a peer id is not a hash.** For an Ed25519 key libp2p uses the `identity`
+> multihash — code `0x00`, no hashing — so the 36-byte digest is a four-byte protobuf header
+> followed by the 32-byte public key **verbatim**, and `publicKeyFromProtobuf` recovers the
+> identical key from the peer id alone. `12D3KooW…` *is* the public key, base58-encoded. An RSA
+> key would be sha256'd because it exceeds the 42-byte identity limit; this project generates
+> Ed25519 (`visitor-key.ts:19`).
+>
+> So publishing a peer id publishes a public key that was generated in the visitor's own
+> browser and is attached to no name, no address and no network address. The owner's reading
+> holds on the measurement, not just on the intent.
+>
+> **What gets published: the distinct-peer count, as a pair of bounds.** The key persists in
+> IndexedDB and is per **origin**, so ten tabs on one laptop are one peer id — distinct peer
+> ids count browser profiles, which over-count machines, while countries under-count them.
+> Published as bounds they bracket the real number honestly, at no disclosure cost.
+>
+> **One property the next reader is owed.** A peer id is stable per origin, so a published
+> *list* of them would let anyone link one participant's activity from stage to stage —
+> pseudonymous rather than anonymous. This ruling permits publishing them; the criterion needs
+> only the count, so the count is what gets published unless the owner asks for the list.
+>
+> `BENCH-06`'s distinct-machine half therefore stays unmeasured **by decision** rather than by
+> omission. That is a different sentence from the one the row used to carry, and the honest one.
+
+
 | | |
 |---|---|
 | **Act** | Choose one of the three routes in `39-PARTICIPANT-COUNT.md` § 3 |
@@ -810,7 +840,7 @@ machine count than this row originally assumed. Published as a pair of bounds (p
 over-count, countries under-count) it brackets the real number honestly and costs no disclosure
 change and no extra byte on the wire.
 
-**What to say back:** which route, in one word.
+**Answered 2026-09-28: (b).** Nothing further is owed on this row.
 
 ---
 

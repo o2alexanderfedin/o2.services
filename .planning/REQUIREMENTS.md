@@ -876,7 +876,12 @@ code, not the reports. -->
       because it has one CPU, one V8 and one libc: every process shares an instruction set,
       an engine build and a system library, so the very variables a cross-machine benchmark
       exists to expose are held constant by construction. The original cross-machine risk
-      stands exactly where Phase 8 left it, unmeasured and now unscheduled. *(**`unscheduled`
+      stands exactly where Phase 8 left it, unmeasured and now unscheduled. **RULED 2026-09-28 —
+      it is unmeasured BY DECISION, which is a different sentence.** The owner chose route (b) of
+      `39-PARTICIPANT-COUNT.md` §3: the run publishes distinct-peer counts as bounds and announces
+      no machine descriptor, so nothing widens what the page promises a visitor and no consent is
+      re-asked. The route that would have produced a true machine count was declined knowingly,
+      not overlooked. *(**`unscheduled`
       is stale — corrected 2026-08-25 by a hand re-read of this row.** It is scheduled:
       **Phase 39 criterion 4** is its named closer, and this file's own v2.0 carried-ids table
       already said so while this sentence went on denying it. `unmeasured` stands and is the
