@@ -277,3 +277,46 @@ describe('README.md "not demonstrated" section stays true against the ledger', (
     expect(ledgerVerdictOf(REQUIREMENTS, id)).toBe(false)
   })
 })
+
+/**
+ * Every in-page link in `README.md` points at a heading that exists.
+ *
+ * **The defect this closes shipped in the same change that made it invisible.** The quote
+ * block at the top of the file sent a reader to `[Disclosure](#disclosure)` for the reason
+ * republishing is a human act. There has been no `## Disclosure` heading since the section
+ * was renamed to `## Deployment`, so the link silently scrolled nowhere — and it sat two
+ * screens above a `## Deployment` section that had itself gone stale about the same subject.
+ * One rename, two defects, and nothing in the repository could see either.
+ *
+ * A dangling anchor cannot be caught by reading the sentence it is in: the sentence is
+ * correct. It can only be caught by resolving the link, which is arithmetic over the
+ * document and therefore belongs in a test rather than in a reviewer's attention.
+ *
+ * GitHub's slug rule, as much of it as this file needs: lowercase, drop anything that is
+ * not a word character, a space or a hyphen, then spaces to hyphens. Written narrowly on
+ * purpose — a permissive approximation that resolved everything would be the vacuous pass
+ * this file's other rules are built to avoid.
+ */
+describe('README.md links to headings it actually has', () => {
+  const slug = (heading: string): string =>
+    heading
+      .trim()
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, '')
+      .replace(/\s+/g, '-')
+
+  const HEADINGS = [...README.matchAll(/^#{1,6}\s+(.+?)\s*$/gm)].map((m) => slug(m[1] ?? ''))
+  const ANCHORS = [...README.matchAll(/\]\(#([^)]+)\)/g)].map((m) => m[1] ?? '')
+
+  it('has headings and in-page links, so the rule below is not passing over an empty set', () => {
+    // Anti-vacuity, and it is the case that matters most here: a regex that stopped
+    // matching would make every anchor resolve against nothing and report success.
+    expect(HEADINGS.length).toBeGreaterThan(8)
+    expect(ANCHORS.length).toBeGreaterThan(0)
+  })
+
+  it('resolves every in-page link to a heading, naming the ones it cannot', () => {
+    const dangling = ANCHORS.filter((anchor) => !HEADINGS.includes(anchor))
+    expect(dangling).toEqual([])
+  })
+})
