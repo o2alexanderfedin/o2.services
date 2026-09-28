@@ -791,9 +791,17 @@ Row 15, the mid-run kill-switch exercise, happens **inside** 14, at a stage boun
 | **Why not an agent** | It changes what the page promises a visitor. `packages/browser/src/disclosure.ts:241` promises *"no identifiers beyond the key named below"*, and that promise is the thing being widened |
 | **Unblocks** | Criterion 4's distinct-machine half, partially — the rest waits on the run itself |
 
-**Decide this BEFORE row 11.** The release cut re-asks every returning visitor once whatever you
-choose, so a decision taken now rides a re-ask that is already owed. Taken afterwards it costs a
-second one, from a few hundred people who will grant it once.
+**The ordering this row used to ask for has EXPIRED — corrected 2026-09-28.** It read: *"Decide
+this BEFORE row 11. The release cut re-asks every returning visitor once whatever you choose, so a
+decision taken now rides a re-ask that is already owed."* That was true while the published page
+lagged the tree's `DISCLOSURE_VERSION`. It stopped being true on **2026-09-07**, when a publish
+built from `779443e` carried version `'8'` — the tree's own value — and three releases since have
+kept it there. There is no owed re-ask left to ride.
+
+**So route (a) is no longer the cheap option it was, and that is the whole change to this
+decision.** It now costs a fresh re-ask of a few hundred people who will grant it once, rather
+than riding one they were owed anyway. Route (b) still costs nothing. Nothing about the choice is
+urgent any more; what was urgent was a window that is closed.
 
 One correction worth carrying into the choice, because it changes what the cheap route buys: a
 browser peer id is per **origin**, not per tab. Ten tabs on one laptop are one peer id, so
@@ -824,8 +832,12 @@ change and no extra byte on the wire.
 > **Row 10's ordering was not spent by this release either, measured the same way as below.**
 > `packages/browser/src/disclosure.ts` is byte-identical between `v2.1.0-rc.1` and
 > `v2.1.0-rc.2` and `DISCLOSURE_VERSION` is still `'8'`, so no stored consent was invalidated
-> and nobody was re-asked. Row 10's decision still rides a re-ask nobody has spent — now
-> across three releases.
+> and nobody was re-asked. **What does NOT follow, and was written here anyway a few hours
+> before being corrected: that row 10's decision still rides an unspent re-ask.** It does not.
+> The owed re-ask was a consequence of the published page lagging the tree's version, and the
+> publish caught up on 2026-09-07 — see the correction in the block below, which this one
+> repeated instead of checking. Route (a) of row 10 now costs a **fresh** re-ask of the whole
+> cohort, not a free ride on one already owed.
 >
 > **This block had been stale for four days before it was written.** It said `v2.0.0-rc.14`
 > was the deployed version while `v2.1.0-rc.1` had been deployed on 2026-09-24. The reading
@@ -843,7 +855,18 @@ change and no extra byte on the wire.
 > that the release spent the re-ask row 10 was counting on riding. It did not:
 > `packages/browser/src/disclosure.ts` is byte-identical across `v2.0.0-rc.13..v2.0.0-rc.14`
 > and `DISCLOSURE_VERSION` stayed `'8'`, so no stored consent was invalidated and no visitor
-> was re-asked. Row 10's decision still rides a re-ask nobody has spent.
+> was re-asked.>
+> **CORRECTED 2026-09-28, and this sentence was a non-sequitur rather than a stale figure.**
+> "`disclosure.ts` is unchanged between two releases, so nobody was re-asked" is true and was
+> measured correctly. "Therefore the re-ask row 10 was counting on riding is still owed" does
+> **not** follow from it. That re-ask existed only while the PUBLISHED page lagged the tree's
+> `DISCLOSURE_VERSION`; once the publish caught up, there is no owed re-ask to ride, and a
+> release that keeps the version steady re-asks nobody — which is the opposite of one waiting
+> to be spent. **The publish caught up on 2026-09-07 at the latest**: `gh-pages` commit
+> `12871d0` was built from `779443e`, where `DISCLOSURE_VERSION` was already `'8'`, and the
+> live page carries version 8's headline word `passphrase` seven times in `index.html`.
+> So this block was already wrong the day it was written, and row 10's cheap window had
+> closed ten days earlier.
 >
 > **What this row does NOT mean.** Nothing has been sent to anybody. The doors are open and the
 > funnel has seen development traces only. Row 13 — one timestamped funnel reading — is the next

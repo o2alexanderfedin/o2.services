@@ -129,11 +129,27 @@ what a run reports if no ruling is made before it.
 by construction with a schema frozen at digest `3911527f1a04abee`. A figure captioned as a device
 count and derived from any of them would be precisely the substitution criterion 4 forbids.
 
-### The sequencing fact that makes (a) cheap, if it is chosen soon
+### The sequencing fact that made (a) cheap — EXPIRED, corrected 2026-09-28
 
-**The published page is behind the tree, so the next release cut re-asks everyone once regardless** —
-and a disclosure change ruled on *before* that cut therefore rides a re-ask that is already owed
-rather than buying a second one.
+**This section's premise was false when written, and its own caveat is what caught it.** It read:
+*"The published page is behind the tree, so the next release cut re-asks everyone once regardless"*
+— and therefore that a disclosure change ruled on before that cut would ride a re-ask already owed.
+
+The reading below was taken on 2026-09-07 off `origin/gh-pages` **without fetching**, and it says so
+in its own last sentence. What it read was `edf132a`, a publish from **2026-09-02** built from
+`8261793`. Two fresher publishes existed the same day: `12871d0` and `928a4bf`, both built from
+`779443e`, where `DISCLOSURE_VERSION` was already `'8'` — the tree's own value. The positive control
+confirms it from the other side: `passphrase`, named here as version 8's headline change and counted
+at **zero** in the published page, appears **seven** times in every published `index.html` back to
+and including 2026-09-07.
+
+**So the published page was never behind after 2026-09-07, and three releases since have held
+`'8'`.** There is no owed re-ask. Route (a) now costs a fresh re-ask of the cohort rather than
+riding one; route (b) still costs nothing. The decision did not get harder, it got more expensive,
+and nothing about it is time-critical any more.
+
+The stale reading is kept below rather than deleted, because it is the clearest example this
+repository has of a caveat that named the exact failure and was trusted anyway.
 
 Read 2026-09-07 off the locally-held `origin/gh-pages` ref, which is the publication mechanism:
 commit `edf132a`, committed `2026-09-02T01:59:49+00:00`. That predates the version `'5'` bump
