@@ -105,8 +105,20 @@ relicensed commercially, because the contributor retains their copyright — one
 such contribution is enough to break the commercial track for that file
 permanently.
 
-**This project therefore accepts no contributions** — see
-[CONTRIBUTING.md](CONTRIBUTING.md). Sole authorship is what keeps the commercial
-track available for the entire codebase. Should that policy ever change, a
-Contributor License Agreement granting the licensor the right to sublicense
-under commercial terms must be in place *before* the first patch is merged.
+**This project therefore accepts contributions only by an owner ruling naming the
+author** — see [CONTRIBUTING.md](CONTRIBUTING.md). Sole authorship is what keeps the
+commercial track available, and no Contributor License Agreement is in place.
+
+**One ruling has been made and its cost is stated rather than deferred.** On
+2026-09-27 two documentation files by Praxis were merged with their authorship intact:
+`docs/architecture/ARCHITECTURE.md` and
+`docs/architecture/RFC-0003-RESPONSE-06-agent-messaging-transport.md`. By the paragraph
+above, **those two files cannot be sublicensed under this agreement.** The break is
+scoped to them; every file under `packages/` remains solely authored and fully
+sublicensable. An assignment or a sublicensing grant from that author would close it,
+and until one exists a commercial licensee receives those two files under the AGPL
+rather than under these terms.
+
+Any further contribution requires the same explicit ruling, and a CLA granting the
+licensor the right to sublicense would be the right instrument before a *code* patch
+is ever merged — the exception so far is documentation only.

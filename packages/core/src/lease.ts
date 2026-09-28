@@ -63,6 +63,13 @@ export interface Lease {
   readonly taskId: string
   readonly nodeId: string
   readonly grantedAt: number
+  /**
+   * When the current term began, if it is a renewal. Absent on a lease that has never
+   * been renewed, whose term began at `grantedAt`. `grantedAt` itself stays the original
+   * grant, so the two together say both when the task was handed out and when the
+   * holder last proved it was still working.
+   */
+  readonly renewedAt?: number
   readonly expiresAt: number
   /** Dispatch count for this task, including this one. Starts at 1. */
   readonly generation: number
@@ -207,7 +214,7 @@ export class LeaseTable {
     if (lease === undefined || lease.nodeId !== nodeId) return null
     if (lease.expiresAt <= now) return null
 
-    const renewed: Lease = { ...lease, expiresAt: now + this.#leaseMs }
+    const renewed: Lease = { ...lease, renewedAt: now, expiresAt: now + this.#leaseMs }
     this.#held.set(taskId, renewed)
     this.#history.push({ kind: 'renewed', taskId, nodeId, at: now, expiresAt: renewed.expiresAt })
     return renewed
@@ -388,9 +395,20 @@ export function checkLease(lease: Lease, now: number): LeaseCheck {
  */
 export const RENEW_AT: number = 2 / 3
 
-/** Whether a worker holding this lease should send a heartbeat now. */
+/**
+ * Whether a worker holding this lease should send a heartbeat now.
+ *
+ * Measured over the **current term** — from the last renewal, or from the grant if there
+ * has been none. Measuring from the grant is wrong on a renewed lease: each renewal
+ * pushes `expiresAt` out by a whole lease, the grant-to-deadline span grows with it, and
+ * two-thirds of that growing span arrives earlier and earlier in each new term. Past two
+ * leases of elapsed time it lands before the renewal that just happened, and a worker
+ * that polls this — `submitJob`'s speculation watchdog does, every 250 ms — probes and
+ * renews on every poll.
+ */
 export function shouldRenew(lease: Lease, now: number): boolean {
-  const elapsed = now - lease.grantedAt
-  const span = lease.expiresAt - lease.grantedAt
+  const termStart = lease.renewedAt ?? lease.grantedAt
+  const elapsed = now - termStart
+  const span = lease.expiresAt - termStart
   return span > 0 && elapsed >= span * RENEW_AT && now < lease.expiresAt
 }

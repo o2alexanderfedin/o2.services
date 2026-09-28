@@ -12,8 +12,16 @@
  *
  * That the workflow has run. It has not. Criterion 1 asks for two hosts and this is one half
  * of the arrangement for obtaining the second; the reading itself is a dispatch away and a
- * dispatch is an owner act, because it is a push to a public repository. Nothing here should
- * be read as `AOT-03` closing.
+ * dispatch is an owner act. Nothing here should be read as `AOT-03` closing.
+ *
+ * **CORRECTED 2026-09-27: not "because it is a push to a public repository".** No push is
+ * involved. The `on:` stanza below is `workflow_dispatch` and nothing else, the file is
+ * already on the default branch, and GitHub lists the workflow as active — so the dispatch
+ * is one command against something registered and waiting. It is the owner's for the reason
+ * `OWNER-ACTIONS.md` §7 gives in its own words — *"recorded as an owner act by a prior ruling,
+ * because it runs against a public repository"* — which is a different sentence from a push to
+ * one. The push wording described effort that does not exist, and it had been written seven
+ * times across six files.
  */
 
 import { readFileSync } from 'node:fs'

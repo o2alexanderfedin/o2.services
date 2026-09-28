@@ -221,4 +221,41 @@ describe('the worker’s own view of its lease', () => {
     // Past the deadline there is nothing to renew — the task has moved on.
     expect(shouldRenew(lease, T0 + LEASE)).toBe(false)
   })
+
+  it('on a renewed lease, waits for the last third of the new term again', () => {
+    // `renew` pushes the deadline out by a whole lease. The next heartbeat is due when a
+    // third of *that* term is left — not two-thirds of the way from the original grant,
+    // which moves earlier with every renewal.
+    const leases = table()
+    leases.grant('t0', 'n0', T0)
+    const renewed = leases.renew('t0', 'n0', T0 + 6_667)
+    if (renewed === null) throw new Error('the renewal was refused')
+
+    const dueAt = renewed.expiresAt - LEASE / 3
+    expect(shouldRenew(renewed, T0 + 11_200)).toBe(false)
+    expect(shouldRenew(renewed, Math.floor(dueAt) - 1)).toBe(false)
+    expect(shouldRenew(renewed, Math.ceil(dueAt))).toBe(true)
+  })
+
+  it('a worker polling shouldRenew renews once per two-thirds of a lease, however long it runs', () => {
+    // A holder asked on every watchdog tick. Measured before the fix: the renewal point
+    // crept toward the current instant and, past two leases of elapsed time, every tick
+    // renewed — 169 heartbeats where eight were due.
+    const leases = table()
+    let lease = leases.grant('t0', 'n0', T0)
+    const TICK = 250
+    const RUN = 6 * LEASE
+    for (let now = T0; now < T0 + RUN; now += TICK) {
+      if (lease !== null && shouldRenew(lease, now)) lease = leases.renew('t0', 'n0', now)
+    }
+    expect(lease).not.toBeNull()
+
+    const renewals = leases.history.filter((e) => e.kind === 'renewed')
+    // One heartbeat per two-thirds of a lease, rounded up to the tick grid.
+    const cadence = Math.ceil(((2 / 3) * LEASE) / TICK) * TICK
+    expect(renewals.length).toBe(Math.floor((RUN - 1) / cadence))
+    for (const [index, event] of renewals.entries()) {
+      expect(event.at - T0).toBe((index + 1) * cadence)
+    }
+  })
 })

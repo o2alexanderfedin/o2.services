@@ -13,10 +13,11 @@ visitor to a web page a potential compute node.
 Built by [Alexander Fedin](https://linkedin.com/in/alex-fedin).
 
 Sole authorship is deliberate rather than incidental — pull requests are triaged and
-never merged, and any fix is implemented independently of the reported diff, so that
-provenance for the later relicensing track is preserved by one person holding it. See
-`CONTRIBUTING.md`. Saying who that person is makes the claim checkable rather than
-merely stated.
+merged only by an owner ruling naming the author, and absent one any fix is implemented
+independently of the reported diff, so that provenance for the later relicensing track is
+preserved by one person holding it. **One ruling has been made, on 2026-09-27**, for two
+documentation files by an external author; see `CONTRIBUTING.md` for its scope and its
+cost. Saying who holds provenance makes the claim checkable rather than merely stated.
 
 > That page is a real node, but it cannot join anything on its own and it says so.
 > A browser cannot accept incoming connections, so two tabs need a publicly
@@ -24,9 +25,15 @@ merely stated.
 > peer to exchange WebRTC signalling, and GitHub Pages runs no server process.
 > Supply one with `?relay=<multiaddr>`.
 >
-> The deployed bundle predates Phase 9 — the consent gate, the running bar and the
-> colouring job are in this repository but not on that URL. Republishing is a
-> deliberate human act (see [Disclosure](#disclosure)).
+> **CORRECTED 2026-09-27.** This read *"The deployed bundle predates Phase 9 — the
+> consent gate, the running bar and the colouring job are in this repository but not on
+> that URL."* All three are on that URL. The page was republished on 2026-09-24 from
+> `4bd3e6a`, verified against node `2.1.0-rc.1`, and the deployed `index.html` has ten
+> lines mentioning `consent` — including a consent screen with a heading — fifty-seven
+> mentioning `colouring`, and eight mentioning `running`. Phase 9 merged on 2026-07-27,
+> two months before that publish. Republishing is still a deliberate human act, and the
+> link that used to sit here pointed at a `## Disclosure` section this file does not
+> have: see [Deployment](#deployment).
 
 ---
 
@@ -116,9 +123,18 @@ the expensive way.
 - **Browser→browser is WebRTC, and only WebRTC.** There is no alternative and no
   fallback. Every browser peer needs a reachable Circuit Relay v2 server to be
   dialable at all.
-- **The relay is a signalling channel, not a data path.** Verified js-libp2p
-  defaults: 2-minute duration limit, 128 KiB data limit, 15 concurrent
-  reservations. Once two browsers complete their handshake, the relay drops out.
+- **The relay is a signalling channel, not a data path** — and the two figures that
+  used to be quoted here as verified defaults were re-measured on 2026-08-24 against
+  a relay this project runs, with both moving. **The data limit counts BOTH
+  directions**, so the `131072` default gives a symmetric request/response 64 KiB
+  each way rather than 128 KiB, and the cut lands on the same byte whether it is
+  written in sixteen chunks or one. **The duration limit was not observed at all**:
+  a relayed connection held 206 s through ten pings with no cut, reproduced, while
+  `conn.limits` reported no limits and the data limit was being enforced. The
+  asymmetry is recorded and not explained. What survives is the conclusion, on the
+  64 KiB reading rather than the 128 KiB one. 15 concurrent reservations is
+  unamended. These are defaults **of the relay server**, so an operator running one
+  sets them; read as facts about the fabric they are wrong twice over.
 - **The browser mesh cannot carry bulk data.** WebRTC caps messages at 16 KiB in
   js-libp2p; Chromium closes the channel above 256 KiB and will not reassemble
   Firefox's fragments. Partials stay small; artifacts fetch over an IPFS gateway.
@@ -137,17 +153,32 @@ the expensive way.
 
 ## Status
 
-**Milestone v1.1 ("Wire What Was Built") is in progress at 5 of 14 phases verified.**
+**Current milestone: v2.1 — Run Somebody Else's Lambda**, status `planning` in
+`.planning/STATE.md`. Its one planned phase so far, Phase 46 ("A Module Declares Its
+Reach, and the Data Decides"), is complete and verified 6/6.
 
-v1.0 left 36 capabilities **built but unreachable** — real code, with its own tests,
-that no runnable program ever called. That count is now **22**, with 11 more partly
-wired. Reducing it is what this milestone measures.
+The milestone before it, v2.0 "Open the Doors", closed 2026-09-17 by owner ruling at
+29 of 38 milestone requirements. Its own closing document opens with the sentence this
+section owes the reader before any other number does:
 
-Requirements ledger: **40 closed, 42 open.**
+> **The doors are open and nobody has walked through them.**
 
-A phase closes when an independent pass says so, scored against its own success
-criteria — not when its plans finish. Two phases sit at "nearly done" and are
-deliberately **not** counted, because one criterion each is only half-proven.
+The hosted tier is deployed and the browser client can reach it, but that milestone's
+other half — a real scaling curve across hundreds of independently-owned devices on
+the public internet, which is this project's stated Core Value — was not taken, and
+closing the milestone did not take it. No invitation has been sent to the tester
+cohort; that is unspent. See `.planning/milestones/v2.0-SHIPPED.md`.
+
+Requirements ledger, counted from `.planning/REQUIREMENTS.md`'s own checkboxes:
+**123 closed, 13 open.**
+
+v1.1 ("Wire What Was Built", shipped 2026-08-18 at 15 of 15 phases) was measured
+against how many of v1.0's capabilities were built but never called by a runnable
+program. That count is not tracked any more — it retired with the milestone it
+measured. The nearest live figure today is a different metric entirely:
+`ORPHAN_MODULE_CEILING` in `packages/node/src/reachability-guard.node.test.ts`, which
+bounds unimported production **modules**, not capabilities, and must not be read as a
+continuation of the old count.
 
 ### What is demonstrated
 
@@ -179,38 +210,75 @@ deliberately **not** counted, because one criterion each is only half-proven.
   down and asserted dead, so nobody could have been consulted.
 - **Browser tabs enrolled on identical terms**, including on a plain-HTTP LAN
   origin where WebCrypto is unavailable.
+- **V8's own WASM code cache, not just the streaming compiler.** A gateway-served
+  artifact writes a `wasm.SerializeModule` entry on its first load and reads it
+  back through `wasm.GetNativeModuleFromCache`, `wasm.Deserialize` and
+  `wasm.CompilationAfterDeserialization` on the second, through the raw platform
+  API and the shipped loader alike (AOT-05). An earlier reading of no cache entry
+  was a fixture defect — a synthetic module whose functions called nothing never
+  produced enough top-tier code to cross V8's caching threshold — not a fact about
+  the loader or the engine.
+- **A spawned agent accepting a peer it dialled, not only refusing a forged one.**
+  `bin/agent.ts --peer-addr` connects one process to another over a real process
+  boundary and `PeerVerifier` reaches a verdict on it; the accepting node fetches a
+  block only the dialled peer holds, and a node that refuses the same peer cannot
+  fetch it, so the identical task fails (AUTH-02).
+- **Parallel speedup, measured on one host.** N node identities run as N spawned
+  operating-system processes rather than N objects sharing one event loop, and
+  makespan moves 1591.1 ms to 590.0 ms from N=1 to N=8 — a measured 2.70×
+  (BENCH-07). Speedup across machines that do not share a scheduler is a separate,
+  still-open claim; see below.
 
 ### What is explicitly *not* demonstrated
 
 The project distinguishes **descoped** from **satisfied**, and **unmeasured** from
 **met**. These are recorded as unmet:
 
-- **Peers on genuinely different machines over the public internet.** Needs a
-  hosted relay with automatic TLS.
-- **Cross-machine reproducibility (AOT-03) and distinct-machine benchmarking
-  (BENCH-06).** Descoped to same-machine testing by owner decision; closing either
-  would need hardware the project does not have. A `CROSS_MACHINE_BLIND_SPOT`
-  marker stays attached to every lifted artifact.
-- **V8 WASM code caching.** Measured and *not* observed: at 4.8 MB,
-  `application/wasm`, query-free CID URL, `compileStreaming`, across three visits —
-  no code-cache entry, while the same profile grew a 2 MB JavaScript cache.
-  Reported unmet rather than reworded.
-- **Parallel speedup at scale.** Every published benchmark curve currently runs N
-  nodes on one event loop, so no parallel speedup is measurable at any N. A
-  multi-process driver is planned.
-- **A cost on creating fake identities.** Enrollment is rate-limited and the
-  threshold is stated in the refusal — but the limit is keyed on a user key, which
-  costs one key generation, and the budget is per provider *process*. So the
-  hundredth fake identity costs what the first did. Rate-limiting is measured; cost
-  is not, and the difference is recorded rather than blurred.
-- **Peer-to-peer acceptance across separate processes.** A node rejecting a forged
-  certificate is proven across processes; a node *accepting* a valid one is not,
-  because no command-line flag yet makes one spawned agent dial another. Scheduled,
-  not assumed.
-- **Distribution of large artifacts.** A lifted native program is 5.40 MiB and
-  nothing has yet moved one between machines that did not already have it — the demo
-  embeds its module in the bundle. Content addressing says whether the bytes are
-  right, never whether anyone still holds them.
+- **A map/reduce job across independently-owned devices on the public internet,
+  at scale.** The hosted relay is deployed and dialable — a Cloudflare Durable
+  Object holding one PeerId across evictions since 2026-08-27, see Status — so the
+  precondition this bullet used to name is met. What is missing is the run itself:
+  no invitation has gone out to the tester cohort (RUN-01, RUN-07), so this
+  project's stated Core Value has been exercised past one LAN in owner-observed
+  form only, never measured at scale.
+- **Distinct-machine benchmarking, and the parallel speedup that would ride on it
+  (BENCH-06).** Every published curve — including the process-per-node one above
+  that measures real operating-system parallelism — still runs on one host: one
+  CPU, one V8 and one libc hold constant the exact variables a distinct-machine
+  measurement exists to expose, so contention is measured and divergence is not.
+  No curve yet shows parallel speedup across machines that do not share a
+  scheduler. The gate is not hardware: the owner's tester cohort spans continents
+  and is ready as soon as there is something to give it access to. Named closer:
+  Phase 39 criterion 4 (RUN-01, RUN-07).
+- **Cross-machine reproducible CID (AOT-03).** Repeated lifts on one host are
+  byte-identical; two lifts on two separate hosts have never been compared, and
+  `CROSS_MACHINE_BLIND_SPOT` stays on every artifact — Phase 10 found the blind
+  spot structural, an address-order-dependent hash map inside elfconv's own
+  register promotion, not configurational. The second host is obtainable — a
+  GitHub-hosted `aarch64` runner, wired and guarded in
+  `.github/workflows/aot-cross-host.yml` — and dispatching it is an un-run owner
+  act, not an unmet hardware need. **CORRECTED 2026-09-27** — this read *"a push to a
+  public repository"*, and no push is involved: the workflow's only trigger is
+  `workflow_dispatch`, it is already present on the default branch, and GitHub lists it
+  as active. Dispatching it is one command against a workflow that is registered and
+  waiting, and it is the owner's to run for the reason `.planning/OWNER-ACTIONS.md` §7
+  gives in its own words — it *runs against* a public repository, which is not the same
+  sentence as a push to one.
+- **A cost on creating fake identities.** Enrollment is rate-limited two ways — a
+  cap per user key and a separate aggregate cap per provider per window, held in a
+  ledger durable enough to survive a provider restart — but nothing in an
+  enrolment request is scarce: a fresh user key is one `ed25519.keygen()`, and
+  twenty distinct ones were issued with none of them slowed down. So the
+  hundredth fake identity costs an attacker what the first did. Rate-limiting is
+  measured; cost is not, and the difference is recorded rather than blurred.
+- **Distribution of large lifted artifacts.** A visitor can bring a CID and have
+  the page fetch, verify and store the bytes over a real HTTP path — but every
+  fetch exercised so far serves one of the two small bundled demo kernels, not
+  the elfconv-lifted native program, which is 5.40 MiB at its smallest and stays
+  either bundled into the demo bundle or read straight off local disk in every
+  fixture that touches it. Nothing has yet moved that artifact between two
+  processes that did not already hold it. Content addressing says whether the
+  bytes are right, never whether anyone still holds them.
 
 ---
 
@@ -221,13 +289,20 @@ npm test              # everything
 npm run typecheck     # tsc --noEmit
 ```
 
-Vitest runs **four** projects from one config — `node`, `browser` (Playwright:
+Vitest runs **five** projects from one config — `node`, `aot`, `browser` (Playwright:
 Chromium, Firefox, WebKit), `e2e`, and `perf` (gated behind `O2_PERF=1`) — over the
 same test files where applicable. Test suffixes are load-bearing:
 `*.node.test.ts`, `*.browser.test.ts`, `*.e2e.test.ts`, `*.perf.test.ts`.
 
+**`aot` is routed by PATH rather than by suffix, and it is a lane rather than a
+subset.** It takes `tools/**/*.node.test.ts` at `fileParallelism: false`, so a
+`.node.test.ts` file under `tools/` runs there and not in `node`. Run it alone: the
+eleven container specs it holds competed inside the `node` project and a full sweep
+lost five of them at once. Separated, the two lanes are both faster and greener than
+the combination.
+
 Select a project explicitly (`vitest run --project node`). A bare path filter fans
-out across all four and is far slower than it looks.
+out across all five and is far slower than it looks.
 
 Multi-node tests come in three shapes: in-process over a memory transport for
 determinism, real OS processes spawned via `spawn(process.execPath, …)` for
@@ -236,8 +311,11 @@ genuine cross-process behaviour, and Playwright browser contexts for real WebRTC
 **Testing standard:** same machine, different browsers, browser contexts, or OS
 processes. "A second machine" is not a blocker on any criterion in this project.
 
-Two guard suites protect constraints that are easy to erode silently:
-`vocabulary.node.test.ts` and `disclosure-gate.node.test.ts`.
+**Nine guard suites** protect constraints that are easy to erode silently, and
+`scripts/cheap-guards.sh` runs all of them on every commit: `vocabulary`,
+`disclosure-gate`, `purity`, `mutation-guard`, `slow-specs`, `state-frontmatter`,
+`requirements-ledger`, `acceptance-traceability` and `reachability-guard`. A
+failure there is a finding about the staged tree, not flake.
 
 ---
 
@@ -246,12 +324,30 @@ Two guard suites protect constraints that are easy to erode silently:
 **A deploy spends money on an account with no hard spending ceiling**, so it is a
 separately-triggered act rather than something a merge can cause.
 
-Consequently: **no deploy workflow file may exist in this repository at all** —
-absent, not disabled — and no `package.json` script may publish.
-`disclosure-gate.node.test.ts` enforces both, checks for workflow files by
-*content* so relocation does not evade it, and verifies its own publish-command
-patterns actually match the commands they claim to catch. `build:demo` builds and
-publishes nothing. Deployment is a separately-triggered human act.
+**CORRECTED 2026-09-27.** This paragraph read *"no deploy workflow file may exist in
+this repository at all — absent, not disabled"* and had been false for a month.
+`.github/workflows/deploy.yml` exists, on `develop` and on `main`, and its own first
+line says what it is: the one file in the repository that spends money. The absence was
+only ever a **proxy** for the real claim, and the proxy was replaced on 2026-08-27 by
+owner ruling so the claim could be checked directly instead.
+
+What is enforced now, by `disclosure-gate.node.test.ts`:
+
+- A workflow that deploys is found by **content**, so renaming it or moving the
+  directory does not hide it from the rule.
+- It may not fire on `push`, on `pull_request`, or on a `schedule`, and its trigger must
+  require a human act. `deploy.yml`'s is `release: types: [published]`.
+- **Why `release:` and not `on: push: tags:`** — both fire on a tag, but a tag filter
+  widens into `branches: ['**']` in a two-word diff that reads like a widening rather
+  than a change of kind. A `release:` trigger cannot be widened that way, so the human
+  act is structural rather than remembered.
+- The dry-run build stays out of the deploy definition, so CI may still build.
+- No `package.json` script publishes, root or workspace, and none is named `deploy`.
+- Each publish-command pattern is itself proved live: it must match every command it
+  claims to catch and leave the commands that publish nothing alone.
+
+`build:demo` builds and publishes nothing. Deployment remains a separately-triggered
+human act — now because a trigger is checked rather than because a file is missing.
 
 ---
 
@@ -340,9 +436,14 @@ strictly more than those terms allowed.
 
 ## Contributions
 
-**Not accepted.** Pull requests will be closed without review — see
-[CONTRIBUTING.md](CONTRIBUTING.md). This keeps the dual-license model intact by
-construction: the licensor owns every right in the software, so the commercial
-track stays available for all of it.
+**Not accepted by default**, and merged only by an owner ruling naming the author —
+see [CONTRIBUTING.md](CONTRIBUTING.md). This keeps the dual-license model intact by
+construction: the licensor owns every right in the software, so the commercial track
+stays available for all of it.
+
+**One ruling has been made**, on 2026-09-27, for two documentation files by Praxis, an
+external AI agent the owner works with over Telegram. Their authorship is preserved in
+`git log`, each file carries a header naming them, and those two files sit outside the
+commercial track as a stated consequence. Nothing under `packages/` is affected.
 
 Bug reports are welcome as issues. Security reports go to **af@O2.services**.

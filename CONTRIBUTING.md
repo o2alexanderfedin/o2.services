@@ -1,9 +1,34 @@
 # Contributing
 
-**This project does not accept contributions.**
+**The default is that this project does not accept contributions, and it has been
+departed from exactly once — by owner ruling, for a named author, on the record.**
 
-Pull requests will be closed without review. Patches, diffs, and code suggestions
-sent by any channel will not be merged.
+Pull requests are not merged. Patches, diffs, and code suggestions sent by any
+channel are not merged. If you are reading this to decide whether to send one: the
+answer is still no, and the reason below is a copyright-ownership reason rather than
+a judgement about your work.
+
+## The one exception so far, 2026-09-27
+
+Two documentation files by **Praxis**, an external AI agent the owner works with over
+Telegram, were merged by owner ruling: `docs/architecture/ARCHITECTURE.md` and
+`docs/architecture/RFC-0003-RESPONSE-06-agent-messaging-transport.md`, submitted as
+PR #34 / #35. The second was written at the owner's own request and says so in its
+own header.
+
+**Authorship is preserved structurally** — the author's commits were merged rather
+than re-implemented, so `git log` and `git blame` name them. Each file carries an
+editorial header stating who wrote it and which of its claims were already false when
+written.
+
+**The cost is stated rather than hidden.** Those two files carry a third party's
+copyright, so the licensor cannot sublicense them under the commercial track. Per
+`LICENSE-COMMERCIAL.md`'s own wording the break is scoped **to those files**, not to
+the codebase — nothing under `packages/` is affected. An assignment or a sublicensing
+grant from the author would close it; none is in place.
+
+**This exception is not a precedent you can invoke.** It names one author and two
+files. Anything else still gets the answer above.
 
 This is deliberate, not an oversight, and it has exactly one reason:
 
@@ -30,10 +55,17 @@ AGPL as §5 requires, and do not expect a pull request here to be merged.
 
 ## What happens to a patch anyway
 
-Pull requests are **triaged, never merged.** A report may well identify a real
-defect, and the defect gets fixed — but the fix is implemented **independently of
-the reported diff**, from the description of the problem rather than from the
-code. This is the discipline that keeps sole authorship intact without CLA
+Pull requests are **triaged, and merged only by an owner ruling naming the author.**
+A report may well identify a real defect, and the defect gets fixed — but absent such
+a ruling the fix is implemented **independently of the reported diff**, from the
+description of the problem rather than from the code.
+
+**Triaged, and not "closed unread".** `LICENSING.md` used the second phrase and this
+page used the first; they are different acts and the disagreement is resolved here in
+favour of triage, because triage is what has actually happened every time. PR #34 was
+triaged before it was ruled on, and that triage found **nine false statements in this
+project's own README** — the submission's numbers were wrong because ours were. A
+policy of not reading would have cost that. This is the discipline that keeps sole authorship intact without CLA
 machinery (owner ruling 2026-08-24: rely on the civilised world rather than
 build the paperwork). Reading a diff closely and then absorbing its approach is
 the exact failure this policy exists to prevent, so the policy binds the

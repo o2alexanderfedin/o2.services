@@ -1000,9 +1000,83 @@ const NODE_MEASUREMENT = {
    * TEST(S) FAILED — load/core 0.96 before, 6.98 after (8 cores, ceiling 4.00)`. Per that
    * banner's own rule the wall clock (235.95 s) is void and not quoted as a reading; the
    * counts are not — they survive an oversubscribed host, durations do not.
+   *
+   * **`files` 271 -> 272, `tests` 3929 -> 3937 on 2026-09-24, one new file, eight cases.**
+   * `readme-status.node.test.ts` arrived to guard `README.md`'s `## Status` section
+   * against `.planning/STATE.md`'s milestone and `.planning/REQUIREMENTS.md`'s checkbox
+   * counts, the fix for the section describing v1.1 at 5/14 phases and a 40/42 ledger
+   * seven weeks after v1.1 shipped 15/15 and the ledger moved to 123/13. `1 + 1 = 272`,
+   * `8 + 8 = 3937`, read below rather than assumed.
+   *
+   * Measured, not derived: `npx vitest run --project node` collected `Test Files  271
+   * passed | 1 skipped (272)` and `Tests  3926 passed | 11 skipped (3937)`, `EXIT=$?`
+   * read immediately after, no pipe — `EXIT=0`. Same one skipped file as the layer
+   * above (`elf-fixtures.node.test.ts`, Docker unavailable on this host); same ten other
+   * pre-existing skips. Host banner: `HOST WAS OVERSUBSCRIBED — load/core 16.90 before,
+   * 21.64 after (8 cores, ceiling 4.00)`. Nothing failed; no duration quoted.
    */
-  files: 271,
-  tests: 3929,
+  /**
+   * **`tests` 3 937 -> 3 950 and `unitTests` 3 165 -> 3 178 on 2026-09-27, `files`/`unitFiles`
+   * unchanged at 272/189 — and the +13 is attributed rather than accepted, because two commits
+   * moved it and neither re-measured.**
+   *
+   * `a0b6570` (the README not-demonstrated audit) added **11**: three literal `it(` blocks plus
+   * **eight generated** — `readme-status.node.test.ts:272,276` uses `it.each(NOT_DEMONSTRATED_IDS)`
+   * twice, and that section of `README.md` currently names four requirement ids (`AOT-03`,
+   * `BENCH-06`, `RUN-01`, `RUN-07`). `3a52684` (the lease heartbeat fix) added the other **2**.
+   * Neither touched this file, so the recorded totals were stale for three days.
+   *
+   * **A coupling that is new in this file's history and that the next reader must know about:
+   * these two counts now move when somebody edits PROSE.** Adding or removing a requirement id
+   * from `README.md`'s not-demonstrated list changes the generated case count by two, with no
+   * spec file touched. `it.each` was the right call for its diagnostics — a failure names the
+   * offending id — so the coupling is recorded rather than engineered away, but a count drift
+   * with no spec change is now an expected outcome rather than a symptom.
+   *
+   * **3950 -> 3953 and 3178 -> 3179 on 2026-09-27, three absence checks and no new file.**
+   * File counts are unchanged at 272/189 because all three landed in specs that already
+   * existed, and each closes a hole the same shape: a guard that checked the NEW wording was
+   * present and never that the OLD wording was gone.
+   *
+   * - `licensing-consistency.node.test.ts` gains one — *"states no retired contribution policy
+   *   outside a sentence that names the ruling"*. It found six live statements of the policy the
+   *   owner overruled on 2026-09-27, one of them in `README.md`'s own opening blurb, 390 lines
+   *   above the `## Contributions` section that contradicted it.
+   * - `disclosure-gate.node.test.ts` gains two — the `## Deployment` section had claimed *"no
+   *   deploy workflow file may exist in this repository at all"* for a month while
+   *   `.github/workflows/deploy.yml` sat on `develop` and on `main`. Every assertion in that
+   *   suite passed throughout, because they read the workflow and nothing read the sentence.
+   *
+   * **`unitTests` moves by one, not by three, and the reason is lane membership.**
+   * `disclosure-gate.node.test.ts` costs more than `SLOW_CUTOFF_MS`, so `O2_UNIT_ONLY=1`
+   * excludes it — measured on these two runs rather than reasoned about: the file appears once
+   * in the full lane's output and not at all in the unit lane's, while
+   * `licensing-consistency.node.test.ts` appears in both. So 3178 + 1 = 3179, exactly.
+   *
+   * Worth keeping because the first explanation written here was wrong. It blamed the
+   * `it.each` coupling above, which is a real coupling in this file and had nothing to do with
+   * this delta; the numbers fit and the mechanism was invented. A derived figure that agrees
+   * with a theory is not the theory's proof, and the only thing that settled it was grepping
+   * the two logs for the filename.
+   *
+   * **3953 -> 3955 and 3179 -> 3181, the same day and the same shape.** Auditing the one
+   * README section left unaudited found a third stale front-page claim, and chasing its dangling
+   * `[Disclosure](#disclosure)` link found a fourth: there has been no `## Disclosure` heading
+   * since that section was renamed `## Deployment`. `readme-status.node.test.ts` gains two —
+   * every in-page link resolves to a heading, plus the anti-vacuity case that guards it. Both
+   * lanes move by two because that file runs in both. The anti-vacuity case justifies itself
+   * immediately: blinding the anchor regex leaves the resolution rule GREEN and fires only that
+   * one.
+   *
+   * Measured, not derived: `npx vitest run --project node` collected `Test Files 272 passed
+   * (272)` and `Tests 3953 passed | 2 skipped (3955)`, exit 0; `O2_UNIT_ONLY=1 npx vitest run
+   * --project node` collected `189 passed (189)` and `3181 passed (3181)`, exit 0. **Both runs
+   * were on an oversubscribed host and both banners said so** — load/core 15.37 against a
+   * ceiling of 4.00 — so the counts stand, nothing failed, and no duration from either run is
+   * recorded.
+   */
+  files: 272,
+  tests: 3955,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
@@ -1502,9 +1576,19 @@ const NODE_MEASUREMENT = {
    * TEST(S) FAILED — load/core 4.07 before, 3.64 after (8 cores, ceiling 4.00)`. Per that
    * banner's own rule the wall clock (28.15 s) is void and not quoted as a reading; the
    * counts are not — they survive an oversubscribed host, durations do not.
+   *
+   * **`unitFiles` 188 -> 189, `unitTests` 3157 -> 3165 on 2026-09-24.** Same arrival the
+   * `files`/`tests` note above describes — `readme-status.node.test.ts` reads tracked
+   * bytes off disk with no subprocess, so it counts as unit.
+   *
+   * Measured, not derived: `O2_UNIT_ONLY=1 npx vitest run --project node` collected
+   * `Test Files  188 passed | 1 skipped (189)` and `Tests  3156 passed | 9 skipped
+   * (3165)`, `EXIT=$?` read immediately after, no pipe — `EXIT=0`. Host banner: `HOST
+   * WAS OVERSUBSCRIBED — load/core 21.60 before, 21.94 after (8 cores, ceiling 4.00)`.
+   * Nothing failed; no duration quoted.
    */
-  unitFiles: 188,
-  unitTests: 3157,
+  unitFiles: 189,
+  unitTests: 3181,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
   unitWallClockMs: 10_240,

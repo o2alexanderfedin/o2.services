@@ -225,8 +225,11 @@ stopped_at: >-
   runner, a refusal to lift where `uname -m` is not `aarch64`). NOTHING IS MEASURED YET: no
   second reading exists, nothing has been compared, `CROSS_MACHINE_BLIND_SPOT` stays on every
   artifact, and whether `ubuntu-24.04-arm` is schedulable here is read off documentation
-  rather than run. THE DISPATCH IS OWNER-OWNED, because it is a push to a public repository
-  and publication is a separately-triggered gate here.
+  rather than run. THE DISPATCH IS OWNER-OWNED — CORRECTED 2026-09-27: not because it is a
+  push to a public repository. The workflow is `workflow_dispatch`-only, already on the
+  default branch, and listed active, so the dispatch is ONE COMMAND, cost zero. It is the
+  owner's for the reason `OWNER-ACTIONS.md` §7 gives — it RUNS AGAINST a public repository,
+  which is not the same sentence as a push to one.
   build (Phase 39 criterion 4). STILL OPEN AND MINE: the load-sensitive
   multi-process specs — late-combine's two recorded defects are fixed AND IT STILL
   FAILED ONCE on 2026-08-28, one of six cold combines hitting the 1500 ms budget
