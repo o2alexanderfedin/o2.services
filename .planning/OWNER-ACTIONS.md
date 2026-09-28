@@ -808,6 +808,29 @@ change and no extra byte on the wire.
 
 ## 11. Cut the release — the disclosure gate
 
+> **DONE AGAIN 2026-09-28 — `v2.1.0-rc.2` is deployed, and the read-back was taken in full.**
+> `GET /self` answers `version: 2.1.0-rc.2`, `enrolment: {maxIssuedPerWindow: 600, issues: true}`
+> and `killSwitch.operable: true`, and the object kept its PeerId
+> `12D3KooWKm587fnGat5xncq9kaWUk4bN5gUJQiF4q8EwJnrb7rsz` across the deploy. On the published
+> bundle `assets/index-KIkEkfAC.js` both greps read `1`, the positive control included, so the
+> instrument was reading the bundle rather than returning zero for having read nothing.
+> `gh-pages` is at `83f4188`, built from `6da6e735`.
+>
+> **The issuance budget was carried rather than dropped, and the mechanism is worth naming**:
+> `deploy.yml:91` passes `vars.O2_MAX_ISSUED_PER_WINDOW` (set to `600`) into
+> `scripts/deploy-hosted.sh`, which **refuses the deploy** rather than silently switching
+> issuance off when it is absent. A release cannot quietly turn enrolment off.
+>
+> **Row 10's ordering was not spent by this release either, measured the same way as below.**
+> `packages/browser/src/disclosure.ts` is byte-identical between `v2.1.0-rc.1` and
+> `v2.1.0-rc.2` and `DISCLOSURE_VERSION` is still `'8'`, so no stored consent was invalidated
+> and nobody was re-asked. Row 10's decision still rides a re-ask nobody has spent — now
+> across three releases.
+>
+> **This block had been stale for four days before it was written.** It said `v2.0.0-rc.14`
+> was the deployed version while `v2.1.0-rc.1` had been deployed on 2026-09-24. The reading
+> below is kept, dated, because its reasoning about row 10 is what this one reuses.
+
 > **DONE 2026-09-17 — `v2.0.0-rc.14` is deployed, and the read-back below was taken.**
 > The node answers with the version that was deployed, `killSwitch.operable` is `true`, and the
 > published client's `bootstrap.json` carries an `enrollmentProvider` — which it had never
