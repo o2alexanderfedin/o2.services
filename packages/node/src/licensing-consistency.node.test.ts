@@ -49,6 +49,19 @@ const read = (path: string): string => readFileSync(join(ROOT, path), 'utf8')
  */
 const flatten = (text: string): string => text.replace(/\s+/g, ' ')
 
+/**
+ * Prose cut into the units a retraction actually covers.
+ *
+ * Extracted on 2026-09-27, when a second rule needed the same cut, so the two cannot
+ * drift apart — this repository has been bitten by a list maintained beside a rule.
+ * Each of its three properties was paid for by a false reading, and the comments inside
+ * the first rule below record which: flattened, because markdown hard-wraps and a line is
+ * not a claim; split at sentence ends rather than paragraph ends, because a false claim
+ * pasted into the same paragraph as its own retraction was excused by it; and the
+ * lookahead keeps quoted and emphasised material with the sentence that carries it.
+ */
+const sentencesOf = (text: string): string[] => flatten(text).split(/(?<=[.!?])\s+(?=[A-Z*`[])/)
+
 const LICENSE = read('LICENSE')
 const LICENSING = read('LICENSING.md')
 const README = read('README.md')
@@ -81,6 +94,31 @@ const PROSE: readonly (readonly [string, string])[] = [
   ['CONTRIBUTING.md', CONTRIBUTING],
   ['.planning/PROJECT.md', PROJECT],
   ['docs/recruitment/telegram-invite.md', TELEGRAM],
+]
+
+/**
+ * The corpus for the contribution-policy rule, which is the prose above **plus
+ * `CLAUDE.md`** — and the widening is the point rather than a convenience.
+ *
+ * `CLAUDE.md`'s first 90 lines are a copy of `.planning/PROJECT.md`, marked
+ * `<!-- GSD:project-start source:PROJECT.md -->`, and the two have already diverged in
+ * both directions: on 2026-09-27 `PROJECT.md` carried a contribution policy the owner had
+ * overruled earlier the same day while `CLAUDE.md` carried the same stale sentence, and
+ * separately `CLAUDE.md` holds an elfconv correction `PROJECT.md` never received. So the
+ * copy is hand-maintained in practice, which means it drifts, and it is the file every
+ * agent working in this repository reads as authoritative. A stale policy there is read by
+ * a machine that then acts on it.
+ *
+ * **It is NOT added to `PROSE`, and the reason is measured rather than stylistic.** The
+ * AGPL rule above keys on the bare word `default` and then demands `AGPL` in the same
+ * document. `CLAUDE.md` uses `default` 25 times — about libp2p relay limits, `clientMode`,
+ * and npm resolution — and contains `AGPL` zero times, so adding it to `PROSE` would turn
+ * that rule red for a reason that has nothing to do with licensing. A second, narrower
+ * corpus costs one line and keeps each rule over the documents it can actually read.
+ */
+const POLICY_PROSE: readonly (readonly [string, string])[] = [
+  ...PROSE,
+  ['CLAUDE.md', read('CLAUDE.md')],
 ]
 
 describe('the installed LICENSE is the AGPL, unmodified', () => {
@@ -150,9 +188,7 @@ describe('DEMO-06 — no document promises terms the licence does not carry', ()
     // in, and an exemption any wider is an exemption an author can drift into by accident.
     const found: string[] = []
     for (const [name, text] of PROSE) {
-      const flat = text.replace(/\s+/g, ' ')
-      // Split on sentence ends, keeping quoted material with the sentence that quotes it.
-      for (const sentence of flat.split(/(?<=[.!?])\s+(?=[A-Z*`[])/)) {
+      for (const sentence of sentencesOf(text)) {
         // A correction QUOTES the wrong claim — that is how this repository retires one,
         // preserving the old reading rather than deleting it. What it may not do is assert
         // it with nothing marking it retired.
@@ -233,6 +269,51 @@ describe('DEMO-05 — CONTRIBUTING.md states the policy the requirement names', 
   it('does not tell a reader they may not fork, which the AGPL entitles them to do', () => {
     // The 2026-08-30 defect, kept as a case rather than a memory.
     expect(flatten(CONTRIBUTING)).toMatch(/may fork this software and modify it freely/i)
+  })
+
+  /**
+   * The retired spellings of the contribution policy.
+   *
+   * Each was accurate until 2026-09-27 and states, unqualified, that this project merges
+   * nothing from outside. One owner ruling merged two documentation files by a named
+   * author, so each of these sentences is now false wherever it stands alone.
+   *
+   * **This rule exists because the four-document fix above was incomplete and nothing
+   * said so.** `CONTRIBUTING.md`, `LICENSING.md`, `LICENSE-COMMERCIAL.md` and the
+   * `## Contributions` section of `README.md` were all updated on the merge commit, and the
+   * guard went green because every assertion here checks that the NEW phrasing is
+   * *present*. Five statements of the old policy survived elsewhere — including
+   * `README.md`'s own opening blurb, 390 lines above its `## Contributions` section, so
+   * the front page contradicted itself and a reader met the false half first. A presence
+   * check cannot see that; only an absence check can.
+   */
+  const RETIRED_POLICY: readonly (readonly [RegExp, string])[] = [
+    [/triaged and never merged/i, 'one owner ruling merged two files on 2026-09-27'],
+    [/triaged, never merged/i, 'same'],
+    [/\bNone accepted\b/i, 'the policy is refusal by default, departed from once'],
+    [/\bNo outside contributions\b/i, 'same'],
+    [/\bAccepting outside contributions\b/i, 'same'],
+  ]
+
+  it('states no retired contribution policy outside a sentence that names the ruling', () => {
+    // **The exemption is the qualifier itself, which is what makes this rule safe to state
+    // so broadly.** The default really is still refusal, so a document saying so is not
+    // wrong — it is wrong only when it says so without the qualification that makes it
+    // true. A sentence naming the ruling, its date, or the words `by default` passes;
+    // this repository's ordinary retirement markers pass too, because a correction here
+    // QUOTES the claim it retires rather than deleting it.
+    const qualified =
+      /2026-09-27|owner ruling|by default|AMENDED|CORRECTED|is now false|stood here|no longer follows/i
+    const found: string[] = []
+    for (const [name, text] of POLICY_PROSE) {
+      for (const sentence of sentencesOf(text)) {
+        if (qualified.test(sentence)) continue
+        for (const [pattern, why] of RETIRED_POLICY) {
+          if (pattern.test(sentence)) found.push(`${name}: ${sentence.trim().slice(0, 90)} — ${why}`)
+        }
+      }
+    }
+    expect(found).toEqual([])
   })
 })
 

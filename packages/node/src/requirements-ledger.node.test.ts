@@ -1830,6 +1830,32 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   // `Partial` for the reason the row itself states, and the dispatch is still an owner act
   // because it is a push to a public repository — unrelated to and untouched by this plan,
   // which does not deploy, dispatch a workflow, or read a Cloudflare account. Bucket unchanged.
+  //
+  // **Re-read 2026-09-27, on the countdown rather than beside other work — this is the first
+  // time this guard has actually gone red.** The bound was crossed at `2026-09-28T00:00Z`:
+  // `daysOutstanding` floors both dates to UTC midnight, so the last CI run on `develop`
+  // (`2026-09-27T23:30:58Z`) still read 14 days and passed, and thirty minutes later the same
+  // tree read 15 and failed. The row is dated by this session's local date while the register's
+  // clock is UTC, which is why it reads one day outstanding here and not zero.
+  //
+  // Read against the row and the three witnesses: **nothing material has moved.** All three
+  // witness specs are present; `.github/workflows/aot-cross-host.yml` is unchanged since
+  // `c1d0339`; and `gh run list --workflow=aot-cross-host.yml` returns **no runs at all**, so
+  // the experiment has still never been attempted. The row is still unticked in
+  // `REQUIREMENTS.md` and the bucket is still `experiment-not-run`, correctly.
+  //
+  // **One thing the re-read found, and it is a reason rather than a fact: "because it is a push
+  // to a public repository" is false, and the two readings above both carried it forward.** The
+  // workflow's `on:` stanza is `workflow_dispatch` and nothing else, the file is present on the
+  // default branch as well as on `develop`, and GitHub lists it as `active` with id
+  // `346311015`. So no push is required — the dispatch is a single `gh workflow run` call
+  // against a workflow that is already registered and waiting. It stays an owner act on the
+  // grounds `OWNER-ACTIONS.md` §7 actually gives: it is an outward-facing act on a public
+  // repository, publishing a run under the owner's account. **The arrangement is complete and
+  // the cost is zero** — that row records arm64 runners as free for public repositories — so
+  // what holds `AOT-03` open is one deliberate owner act, not an obstacle. Stating the blocker
+  // as a push described effort that does not exist, which is the failure this register's own
+  // head warns about: name what is genuinely unobtainable, or the row is not blocked by it.
   {
     // ── Added 2026-09-02 by Phase 34 (34-01), and the promise it carries is precise ──────
     //
@@ -1964,7 +1990,7 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
   {
     id: 'AOT-03',
     because: 'experiment-not-run',
-    reread: '2026-09-13',
+    reread: '2026-09-27',
     witnesses: [
       'tools/aot/cross-host-lift.node.test.ts',
       'tools/aot/cross-host-workflow.node.test.ts',

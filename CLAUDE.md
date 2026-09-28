@@ -85,8 +85,16 @@ manifest and coverage report, not by a quorum.
   of stripped **and** no unwind tables. **And it exits `0` on binaries it could not
   fully translate** — 174 addresses on a hello-world — so the exit code is never
   trusted; the driver measures the produced module
-- **Contributions**: None accepted; sole authorship preserves the commercial
-  license track
+- **Contributions**: refused by default, and merged only by an owner ruling naming the
+  author; sole authorship preserves the commercial license track. **AMENDED 2026-09-27** —
+  this line read *"None accepted"*, which stopped being true when the owner ruled two
+  documentation files by Praxis, an external author, into `docs/architecture/` with their
+  authorship preserved. The default did not move; the exception names one author and two
+  files and is not a precedent. Those two files cannot be sublicensed commercially, scoped
+  to them, with nothing under `packages/` affected. **This block is a copy of
+  `.planning/PROJECT.md`** and the two have drifted apart in both directions before, so a
+  change to either belongs in both by hand — no regeneration, which would overwrite the
+  elfconv correction above that `PROJECT.md` never received
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:research/STACK.md -->

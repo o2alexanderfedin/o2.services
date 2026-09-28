@@ -1033,14 +1033,41 @@ const NODE_MEASUREMENT = {
    * offending id — so the coupling is recorded rather than engineered away, but a count drift
    * with no spec change is now an expected outcome rather than a symptom.
    *
+   * **3950 -> 3953 and 3178 -> 3179 on 2026-09-27, three absence checks and no new file.**
+   * File counts are unchanged at 272/189 because all three landed in specs that already
+   * existed, and each closes a hole the same shape: a guard that checked the NEW wording was
+   * present and never that the OLD wording was gone.
+   *
+   * - `licensing-consistency.node.test.ts` gains one — *"states no retired contribution policy
+   *   outside a sentence that names the ruling"*. It found six live statements of the policy the
+   *   owner overruled on 2026-09-27, one of them in `README.md`'s own opening blurb, 390 lines
+   *   above the `## Contributions` section that contradicted it.
+   * - `disclosure-gate.node.test.ts` gains two — the `## Deployment` section had claimed *"no
+   *   deploy workflow file may exist in this repository at all"* for a month while
+   *   `.github/workflows/deploy.yml` sat on `develop` and on `main`. Every assertion in that
+   *   suite passed throughout, because they read the workflow and nothing read the sentence.
+   *
+   * **`unitTests` moves by one, not by three, and the reason is lane membership.**
+   * `disclosure-gate.node.test.ts` costs more than `SLOW_CUTOFF_MS`, so `O2_UNIT_ONLY=1`
+   * excludes it — measured on these two runs rather than reasoned about: the file appears once
+   * in the full lane's output and not at all in the unit lane's, while
+   * `licensing-consistency.node.test.ts` appears in both. So 3178 + 1 = 3179, exactly.
+   *
+   * Worth keeping because the first explanation written here was wrong. It blamed the
+   * `it.each` coupling above, which is a real coupling in this file and had nothing to do with
+   * this delta; the numbers fit and the mechanism was invented. A derived figure that agrees
+   * with a theory is not the theory's proof, and the only thing that settled it was grepping
+   * the two logs for the filename.
+   *
    * Measured, not derived: `npx vitest run --project node` collected `Test Files 272 passed
-   * (272)` and `Tests 3947 passed | 3 skipped (3950)`, exit 0; `O2_UNIT_ONLY=1 npx vitest run
-   * --project node` collected `189 passed (189)` and `3178 passed (3178)`, exit 0. **Both runs
-   * were on an oversubscribed host and both banners said so** — load/core 7.6 against a ceiling
-   * of 4.00 — so the counts stand, nothing failed, and no duration from either run is recorded.
+   * (272)` and `Tests 3951 passed | 2 skipped (3953)`, exit 0; `O2_UNIT_ONLY=1 npx vitest run
+   * --project node` collected `189 passed (189)` and `3179 passed (3179)`, exit 0. **Both runs
+   * were on an oversubscribed host and both banners said so** — load/core 5.39 against a
+   * ceiling of 4.00 — so the counts stand, nothing failed, and no duration from either run is
+   * recorded.
    */
   files: 272,
-  tests: 3950,
+  tests: 3953,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
@@ -1552,7 +1579,7 @@ const NODE_MEASUREMENT = {
    * Nothing failed; no duration quoted.
    */
   unitFiles: 189,
-  unitTests: 3178,
+  unitTests: 3179,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
   unitWallClockMs: 10_240,
