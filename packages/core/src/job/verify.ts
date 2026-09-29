@@ -200,6 +200,14 @@ export type VerificationResult =
        */
       partitions: readonly { resultCid: string; nodes: readonly string[] }[]
       failures: readonly { nodeId: string; reason: string }[]
+      /**
+       * Fuel every answering replica burned, summed across the split — the same sum the
+       * `agreed` arm carries. A replica that answered differently still did the work, and
+       * this arm once dropped the sum it had just computed, so a job whose shards
+       * disagreed reported a gross fuel of zero for work that was paid in full. No
+       * `usefulFuel` here: no run produced the answer, because there is none.
+       */
+      grossFuel: number
     }
   | {
       status: 'insufficient'
@@ -248,6 +256,7 @@ export async function executeVerified(
       status: 'disagreed',
       partitions: [...groups.entries()].map(([resultCid, nodes]) => ({ resultCid, nodes })),
       failures,
+      grossFuel,
     }
   }
 

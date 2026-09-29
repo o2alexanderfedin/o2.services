@@ -350,6 +350,16 @@ describe('disagreement is surfaced, never voted away (VER-01)', () => {
     }
   })
 
+  it('reports the fuel a split burned, because every replica that answered did the work', async () => {
+    // VER-06's gross fuel is "every replica that answered", and a replica that answered
+    // with a different result answered. The sum was computed on this arm and dropped, so
+    // a disagreement cost nothing by the requestor's ledger — at the one moment the
+    // verification tax was paid in full and bought no answer.
+    const r = await executeVerified(task, [honest('a'), honest('b'), liar('c', 7)])
+    expect(r.status).toBe('disagreed')
+    if (r.status === 'disagreed') expect(r.grossFuel).toBe(300)
+  })
+
   it('reports three different answers as three partitions, each naming who gave it', async () => {
     const r = await executeVerified(task, [honest('a'), liar('b', 1), liar('c', 2)])
     expect(r.status).toBe('disagreed')
