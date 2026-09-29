@@ -104,6 +104,32 @@ export interface HostConditionsReading {
  * contention it stands for: `transport-bounds.node.test.ts` records a suite that began at load
  * 5.20 and read 51 MB against a 40 MB threshold as its other files spun up. A before-only
  * sample cannot see that, because at the moment it sampled the host really was quiet.
+ *
+ * **What the `after` sample costs, measured 2026-09-29 and never written down before.** It
+ * cannot tell foreign work arriving mid-run from THIS RUN'S OWN worker pool, because both land
+ * in the same average. Measured on a machine cleared on purpose — a peer session had finished
+ * its build and was holding a multi-hour job, nothing else computing, 1-minute load **3.07** on
+ * 8 cores before the start — the `node` lane printed `HOST WAS OVERSUBSCRIBED`, load/core
+ * **0.33 before, 4.60 after**, and an `uptime` sampled during the run read a 1-minute load of
+ * **36.77**. That 36.77 is this lane's own parallelism.
+ *
+ * So for a parallel run this verdict is close to unconditional, and it invalidates its own
+ * durations whenever the thing it measures is the thing generating the load. **That makes the
+ * `timings-unsound` verdict far more reliable than the `sound` one**, which is the opposite of
+ * how a reader naturally takes it: `sound` is a real claim about the host, `OVERSUBSCRIBED` on
+ * a parallel lane may be a claim about nothing but the lane.
+ *
+ * **Not fixed here, and the reason is that no cheap fix is correct.** Dropping the `after`
+ * sample reinstates exactly the blindness the paragraph above paid for. Subtracting "our own
+ * load" needs load attributed per process, which `loadavg` does not offer. The instrument that
+ * does answer is `(user+sys)/real` from `/usr/bin/time -p`, which measures the process rather
+ * than the host — and the main vitest process cannot compute it for a worker pool. Two readings
+ * taken the same day: `node` real 200.43 user 951.75 sys 197.48, ratio **5.73**; `unit` real
+ * 22.06 user 111.51 sys 12.41, ratio **5.62**, against **5.37** recorded in `CLAUDE.md` for the
+ * `node` lane — 6.8 % more CPU per wall second, which is the quietness claim the wall clock
+ * could not carry. Until this function can say which load is its own, prefer that ratio for any
+ * comparability claim and read `OVERSUBSCRIBED` on a parallel lane as unproven rather than as
+ * evidence about the machine.
  */
 export function hostConditionsVerdict(conditions: HostConditions): HostConditionsReading {
   const cores = conditions.cpus > 0 ? conditions.cpus : 1
