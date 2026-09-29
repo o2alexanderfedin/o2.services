@@ -48,7 +48,6 @@
  * attribution matcher, both applied) rather than by eye.
  */
 
-import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -66,6 +65,7 @@ import { FUNNEL_STAGES } from '@o2/net'
 import type { FunnelStage } from '@o2/net'
 import { rawLocationClaims } from '../../node/src/location-claims.ts'
 import { HOSTED_OBJECT_NAME, HOSTED_OBJECT_NAMES } from './hosted-object.ts'
+import { killGroup, spawnGroup } from './process-group.ts'
 import type { HostedObjectName } from './hosted-object.ts'
 
 /**
@@ -334,7 +334,8 @@ beforeAll(async () => {
     persistDirs.set(region, persistDir)
     children.set(
       region,
-      spawn(
+      // A group of its own, so the kill below reaches `workerd` — see `process-group.ts`.
+      spawnGroup(
         'npx',
         [
           'wrangler',
@@ -363,7 +364,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
-    for (const child of children.values()) child.kill('SIGTERM')
+    for (const child of children.values()) {
+      // The killed region's group is already empty; an ESRCH there is not a failure.
+      try {
+        killGroup(child, 'SIGTERM')
+      } catch {
+        // Nothing left in that group.
+      }
+    }
   } finally {
     for (const dir of persistDirs.values()) await rm(dir, { recursive: true, force: true }).catch(() => {})
   }
@@ -423,7 +431,8 @@ describe('NET-15 — a region taken out, read as a delta between two arms of one
 
       // ---- The kill. One object in the arrangement — the local stand-in for a region's ----
       // ---- loss. Not restarted; its persist directory is not removed. ----
-      mustGet(children, KILLED_REGION).kill('SIGTERM')
+      // The whole group: signalling the `npx` process alone leaves `workerd` serving on Linux.
+      killGroup(mustGet(children, KILLED_REGION), 'SIGTERM')
       await waitForDown(PORTS[KILLED_REGION], 60_000)
 
       const survivors = survivorsOf(KILLED_REGION)
