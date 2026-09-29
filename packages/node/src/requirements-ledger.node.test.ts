@@ -2054,6 +2054,18 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     // fact about the fabric; it is recorded here so nobody reads the green schedule witness as
     // a drill that ran. What the row waits on is unchanged: owner act 2 is still not taken,
     // and `HOST-06` still reads *Not started*. Re-recorded rather than ticked.
+    //
+    // **2026-09-29, same day: the stand-in defect is found and fixed; the verdict still does
+    // not move.** The drill sent `SIGTERM` to the `npx` process only. On Linux that ends
+    // `npm exec` and leaves wrangler and `workerd` re-parented to init, still serving 8832; on
+    // macOS the signal reached the whole chain, which is why it passed locally. A dispatch on
+    // `develop` (run 36620165716) and a `node:22` container reproduced the red. The drill now
+    // signals the child's whole process group (`packages/cloudflare/src/process-group.ts`),
+    // and the same workflow dispatched on the fix branch passed (run 36621655477) and uploaded
+    // its two-arm table. That is a drill that ran against three LOCAL stand-ins on a branch,
+    // not a scheduled reading: the schedule runs on `main`, which gets the fix only with the
+    // next release. And none of it is the live reading the row waits on — owner act 2 and
+    // `HOST-06` are exactly where they were above.
     id: 'NET-15',
     because: 'experiment-not-run',
     reread: '2026-09-29',
