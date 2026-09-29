@@ -44,6 +44,13 @@ import { wasiEcho } from './fixtures/wasi-fixtures.ts'
 const NODE_ID = 'abi-router-spec-node'
 
 /**
+ * A clock that never moves, for every executor in the field-for-field comparisons. The
+ * guest's run time is the host's reading, so two real clocks would make a routed run and
+ * a bare one differ in `execMs` whatever the router did.
+ */
+const STOPPED = (): number => 0
+
+/**
  * A valid module with no imports and no exports — the eight-byte header alone.
  *
  * It compiles and instantiates, so it reaches the entrypoint check rather than
@@ -123,15 +130,15 @@ interface Harness {
 function harness(): Harness {
   const store = new MemoryBlockstore()
   const counting = new CountingBlockstore(store)
-  const native = new Recording(new WasmExecutor({ nodeId: NODE_ID, blockstore: store }))
-  const wasi = new Recording(new WasiExecutor({ nodeId: NODE_ID, blockstore: store }))
+  const native = new Recording(new WasmExecutor({ nodeId: NODE_ID, blockstore: store, now: STOPPED }))
+  const wasi = new Recording(new WasiExecutor({ nodeId: NODE_ID, blockstore: store, now: STOPPED }))
   return {
     store,
     counting,
     native,
     wasi,
     router: new AbiExecutor({ blockstore: counting, native, wasi }),
-    bare: new WasmExecutor({ nodeId: NODE_ID, blockstore: store }),
+    bare: new WasmExecutor({ nodeId: NODE_ID, blockstore: store, now: STOPPED }),
   }
 }
 
@@ -177,7 +184,7 @@ describe('AbiExecutor routes on the module and never on the node', () => {
     // adding, dropping or rewriting a field would show up here rather than in prose.
     const wasiTask = taskOf(wasiCid, inputCid)
     expect(await h.router.execute(wasiTask)).toEqual(
-      await new WasiExecutor({ nodeId: NODE_ID, blockstore: h.store }).execute(wasiTask),
+      await new WasiExecutor({ nodeId: NODE_ID, blockstore: h.store, now: STOPPED }).execute(wasiTask),
     )
 
     const nativeTask = taskOf(nativeCid, inputCid)

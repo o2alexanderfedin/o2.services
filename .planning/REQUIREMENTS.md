@@ -384,6 +384,23 @@ itself. The work is real and the table says so; the box tracks delivery.
       node metadata sit outside the signed digest
 - [x] **VER-06**: Redundancy factor is a per-job dial reaching 1 (off), and the
       verification tax is reported as a measured cost on every job
+      *(**Extended 2026-09-29 — cost now has a time figure beside the fuel figure, and the
+      time figure is a claim, not a measurement this fabric can check.** Fuel is bytes moved
+      across the guest ABI, so a guest that loops for an hour and returns eight bytes cost
+      what an instant one cost. The owner asked for time as well. Every executor that reports
+      `fuelUsed` — `WasmExecutor`, the worker pool's `runTask`, `@o2/aot`'s `WasiExecutor` —
+      now reports `execMs`: a monotonic reading on the executing node from just before the
+      guest is invoked to just after it returns, with the clock injected so tests state it.
+      It rides every path fuel rides — `executeVerified`, `executeCommitReveal` and the wire
+      for both, disagreed arms included, and the generation fold — to
+      `JobResult.grossExecMs` / `usefulExecMs`. **Self-reported and unverified:** a node can
+      inflate or deflate its own figure and nothing notices, so it sits outside the compared
+      digest with fuel (VER-05, tested: 5 ms and 5000 ms for one answer agree) and no
+      agreement, placement or standing decision reads it. A peer on an older build answers
+      without the field and reads as `0 ms`. `verificationMultiplier` stays the fuel ratio.
+      Not done: a speculative copy still outstanding when the job settles is counted in
+      neither figure, as for fuel; the bench's `Observation` does not publish it, because
+      `grossFuel` is published nowhere either; CPU time is not measured.)*
 - [x] **VER-08**: When an owner has two or more live nodes, a sovereignty-pinned
       task executes redundantly across the owner's own node set and the outputs
       are compared — no data leaves the owner's trust domain

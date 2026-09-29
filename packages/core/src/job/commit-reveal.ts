@@ -198,6 +198,11 @@ export type RevealOutcome =
       readonly nonce: Uint8Array
       readonly output: CanonicalValue
       readonly fuelUsed: number
+      /**
+       * The node's own reading of the run it committed to — `ExecutionOutcome.execMs`,
+       * withheld with the answer in round 1. Outside the commitment preimage, as fuel is.
+       */
+      readonly execMs: number
       readonly attestation: AttestedResult
     }
   | { readonly ok: false; readonly reason: string }
@@ -381,6 +386,7 @@ export async function executeCommitReveal(
     resultCid: CID
     output: CanonicalValue
     fuelUsed: number
+    execMs: number
     attestation: AttestedResult
   }[] = []
 
@@ -427,6 +433,7 @@ export async function executeCommitReveal(
       resultCid: hashed.cid,
       output: outcome.output,
       fuelUsed: outcome.fuelUsed,
+      execMs: outcome.execMs,
       attestation: outcome.attestation,
     })
   }
@@ -453,6 +460,7 @@ export async function executeCommitReveal(
       partitions: [...groups.entries()].map(([resultCid, nodes]) => ({ resultCid, nodes })),
       failures,
       grossFuel: answered.reduce((sum, r) => sum + r.fuelUsed, 0),
+      grossExecMs: answered.reduce((sum, r) => sum + r.execMs, 0),
     }
   }
 
@@ -470,5 +478,7 @@ export async function executeCommitReveal(
     failures,
     grossFuel: answered.reduce((sum, r) => sum + r.fuelUsed, 0),
     usefulFuel: winner.fuelUsed,
+    grossExecMs: answered.reduce((sum, r) => sum + r.execMs, 0),
+    usefulExecMs: winner.execMs,
   }
 }

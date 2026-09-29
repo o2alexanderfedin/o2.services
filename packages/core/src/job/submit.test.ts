@@ -20,6 +20,8 @@ import type { ResultSigner } from '../result-attestation.ts'
 import { DEFAULT_SPECULATION_FRACTION, MIN_SAMPLES } from '../speculation.ts'
 import { publicNodes } from '../sovereignty.ts'
 import type { NodeDescriptor } from '../sovereignty.ts'
+import { MODULE_WRITES_PARTITION } from '../executor/fixtures.ts'
+import { WasmExecutor } from '../executor/wasm.ts'
 import { DEFAULT_SPECULATION_WATCHDOG_MS, jobIdOf, submitJob } from './submit.ts'
 import type {
   CheckpointSink,
@@ -43,6 +45,7 @@ function honest(nodeId: string): Executor {
         ok: true,
         output: { shard: task.partitionIndex, of: task.partitionCount, sum: task.partitionIndex * 10 },
         fuelUsed: 100,
+        execMs: 0,
         attestation: 'signed-by-nobody',
       }
     },
@@ -58,8 +61,23 @@ function liar(nodeId: string): Executor {
         ok: true,
         output: { shard: task.partitionIndex, of: task.partitionCount, sum: 999 },
         fuelUsed: 100,
+        execMs: 0,
         attestation: 'signed-by-nobody',
       }
+    },
+  }
+}
+
+/**
+ * `inner`, reporting `execMs` as the time its run took — the executing node's own claim,
+ * which is all an execution time ever is. Wraps the answer and leaves a failure alone.
+ */
+function timedAs(inner: Executor, execMs: number): Executor {
+  return {
+    nodeId: inner.nodeId,
+    async execute(task: Task): Promise<ExecutionOutcome> {
+      const outcome = await inner.execute(task)
+      return outcome.ok ? { ...outcome, execMs } : outcome
     },
   }
 }
@@ -88,7 +106,7 @@ function nanProducer(nodeId: string): Executor {
   return {
     nodeId,
     async execute(): Promise<ExecutionOutcome> {
-      return { ok: true, output: { mean: Number.NaN } as CanonicalValue, fuelUsed: 100, attestation: 'signed-by-nobody' }
+      return { ok: true, output: { mean: Number.NaN } as CanonicalValue, fuelUsed: 100, execMs: 0, attestation: 'signed-by-nobody' }
     },
   }
 }
@@ -193,13 +211,13 @@ describe('what is compared covers (task, output) only (VER-05)', () => {
     const first: Executor = {
       nodeId: '12D3KooWHPSVMPEezVCXvka2ahwT26JGL8EBr61LpGEU3ujHQM9Q',
       async execute(t) {
-        return { ok: true, output: { shard: t.partitionIndex, sum: 7 }, fuelUsed: 5, attestation: 'signed-by-nobody' }
+        return { ok: true, output: { shard: t.partitionIndex, sum: 7 }, fuelUsed: 5, execMs: 0, attestation: 'signed-by-nobody' }
       },
     }
     const second: Executor = {
       nodeId: 'a-node-whose-id-shares-nothing-with-the-first',
       async execute(t) {
-        return { ok: true, output: { shard: t.partitionIndex, sum: 7 }, fuelUsed: 5, attestation: 'signed-by-nobody' }
+        return { ok: true, output: { shard: t.partitionIndex, sum: 7 }, fuelUsed: 5, execMs: 0, attestation: 'signed-by-nobody' }
       },
     }
 
@@ -215,13 +233,13 @@ describe('what is compared covers (task, output) only (VER-05)', () => {
     const slow: Executor = {
       nodeId: 'slow',
       async execute(t) {
-        return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 0 }, fuelUsed: 99999, attestation: 'signed-by-nobody' }
+        return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 0 }, fuelUsed: 99999, execMs: 0, attestation: 'signed-by-nobody' }
       },
     }
     const fast: Executor = {
       nodeId: 'fast',
       async execute(t) {
-        return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 0 }, fuelUsed: 1, attestation: 'signed-by-nobody' }
+        return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 0 }, fuelUsed: 1, execMs: 0, attestation: 'signed-by-nobody' }
       },
     }
     const r = await executeVerified(task, [slow, fast])
@@ -380,6 +398,99 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
     expect(r.job.grossFuel).toBe(400)
     // Useful fuel stays zero: no shard produced an answer, so no run was the answer's.
     expect(r.job.usefulFuel).toBe(0)
+  })
+
+  it('reports the execution time a real guest took, off the executing node’s clock', async () => {
+    // End to end with a real `WasmExecutor`, and its clock is the fixture's: the guest's
+    // run reads 1000 before and 1250 after, so the job must report 250 ms and nothing
+    // else. No sleep and no threshold — the time is whatever the injected clock says.
+    const store = new MemoryBlockstore()
+    const moduleCid = await store.put(MODULE_WRITES_PARTITION)
+    const readings = [1000, 1250]
+    const executor = new WasmExecutor({
+      nodeId: 'a',
+      blockstore: store,
+      now: () => readings.shift() ?? Number.NaN,
+    })
+    const r = await submitJob(
+      {
+        moduleCid,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: [executor],
+        nodes: publicNodes([executor]),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.job.shards[0]?.verification.status).toBe('agreed')
+    expect(r.job.grossExecMs).toBe(250)
+    expect(r.job.usefulExecMs).toBe(250)
+    // Both readings were taken, so the 250 is the clock's and not a coincidence.
+    expect(readings).toStrictEqual([])
+  })
+
+  it('sums every replica’s execution time into gross, and only the answer’s into useful', async () => {
+    // Two shards at redundancy 2 on nodes that report 30 ms and 70 ms: 200 ms spent.
+    // Useful is each shard's answering replica — the first agreeing one, the replica
+    // `usefulFuel` is read from — so it is derived from the result, not assumed.
+    const times: Readonly<Record<string, number>> = { a: 30, b: 70 }
+    const executors = [timedAs(honest('a'), 30), timedAs(honest('b'), 70)]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ n: 1 }, { n: 2 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.job.grossExecMs).toBe(200)
+    let answersTime = 0
+    for (const s of r.job.shards) {
+      expect(s.verification.status).toBe('agreed')
+      if (s.verification.status !== 'agreed') return
+      answersTime += times[s.verification.agreeing[0]?.nodeId ?? ''] ?? Number.NaN
+    }
+    expect(r.job.usefulExecMs).toBe(answersTime)
+    expect(r.job.usefulExecMs).toBeLessThan(r.job.grossExecMs)
+    // Fuel is untouched by any of this.
+    expect(r.job.grossFuel).toBe(400)
+    expect(r.job.verificationMultiplier).toBe(2)
+  })
+
+  it('counts the time a disagreeing shard spent in gross, and none of it in useful', async () => {
+    // PR #39's fuel case, for time: both shards disagree, four replicas spent
+    // 10 + 40 each, and no shard produced an answer for any of it to be useful to.
+    const executors = [timedAs(honest('a'), 10), timedAs(liar('c'), 40)]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ n: 1 }, { n: 2 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.job.shards.map((s) => s.verification.status)).toStrictEqual(['disagreed', 'disagreed'])
+    expect(r.job.grossExecMs).toBe(100)
+    expect(r.job.usefulExecMs).toBe(0)
   })
 
   it('an executor that throws is one failed replica, not a rejected submitJob', async () => {
@@ -596,7 +707,7 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
       nodeId: 'replica-1',
       async execute(task: Task): Promise<ExecutionOutcome> {
         replicaCalls += 1
-        return { ok: true, output: { shard: task.partitionIndex, of: task.partitionCount, sum: 0 }, fuelUsed: 1, attestation: 'signed-by-nobody' }
+        return { ok: true, output: { shard: task.partitionIndex, of: task.partitionCount, sum: 0 }, fuelUsed: 1, execMs: 0, attestation: 'signed-by-nobody' }
       },
     }
     const executors = [honest('alice-1'), replicaExecutor]
@@ -717,7 +828,7 @@ describe('DET-03/DATA-08 — the signed module record reaches every task submitJ
         nodeId,
         async execute(task: Task): Promise<ExecutionOutcome> {
           captured = task
-          return { ok: true, output: { shard: task.partitionIndex }, fuelUsed: 1, attestation: 'signed-by-nobody' }
+          return { ok: true, output: { shard: task.partitionIndex }, fuelUsed: 1, execMs: 0, attestation: 'signed-by-nobody' }
         },
       },
       seen: () => captured,
@@ -1381,6 +1492,71 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
     expect(r.job.grossFuel).toBe(300)
   })
 
+  it('keeps every generation’s execution time across a top-up, agreed or split', async () => {
+    // The two top-up routes above, with times. Agreed: `n1` (10 ms) answers, `n2` dies,
+    // the top-up lands on `n3` (20 ms) — 30 spent, and the answer is generation one's.
+    const agreedRan: string[] = []
+    const agreedExecutors = [
+      watched('n1', agreedRan, timedAs(honest('n1'), 10)),
+      watched('n2', agreedRan, failing('n2', 'died between the offer and the dispatch')),
+      watched('n3', agreedRan, timedAs(honest('n3'), 20)),
+      watched('n4', agreedRan, timedAs(honest('n4'), 1000)),
+    ]
+    const agreed = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: agreedExecutors,
+        nodes: publicNodes(agreedExecutors),
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    expect(agreed.ok).toBe(true)
+    if (!agreed.ok) return
+    expect(agreedRan).toStrictEqual(['n1', 'n2', 'n3'])
+    expect(agreed.job.shards[0]?.generations).toBe(2)
+    expect(agreed.job.grossExecMs).toBe(30)
+    expect(agreed.job.usefulExecMs).toBe(10)
+
+    // Split: generation one agrees on `n1` (10 ms) alone, and the top-up's two replicas
+    // disagree — `n4` honest at 20 ms, `n5` lying at 40 ms. All 70 was spent, none useful.
+    const splitRan: string[] = []
+    const splitExecutors = [
+      watched('n1', splitRan, timedAs(honest('n1'), 10)),
+      watched('n2', splitRan, failing('n2', 'died between the offer and the dispatch')),
+      watched('n3', splitRan, failing('n3', 'died between the offer and the dispatch')),
+      watched('n4', splitRan, timedAs(honest('n4'), 20)),
+      watched('n5', splitRan, timedAs(liar('n5'), 40)),
+    ]
+    const split = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: splitExecutors,
+        nodes: publicNodes(splitExecutors),
+        redundancy: 3,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    expect(split.ok).toBe(true)
+    if (!split.ok) return
+    expect([...splitRan].sort()).toStrictEqual(['n1', 'n2', 'n3', 'n4', 'n5'])
+    const shard = split.job.shards[0] as ShardResult
+    expect(shard.generations).toBe(2)
+    expect(shard.verification.status).toBe('disagreed')
+    if (shard.verification.status !== 'disagreed') return
+    expect(shard.verification.grossExecMs).toBe(70)
+    expect(split.job.grossExecMs).toBe(70)
+    expect(split.job.usefulExecMs).toBe(0)
+  })
+
   it('keeps a sovereign shard on its owner’s nodes across generations, and stops rather than leaving them', async () => {
     // Two owners in one fixture, run as two submissions, because the pair is the claim:
     // the first shows a second generation happening at all under sovereignty, the second
@@ -1586,6 +1762,7 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
               ok: true,
               output: { shard: 0, of: 1, sum: 0 },
               fuelUsed: 100,
+              execMs: 0,
               attestation: 'signed-by-nobody',
             })
           }
@@ -1917,6 +2094,7 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
                 ok: true,
                 output: (options.output ?? agreeingOutput)(handed),
                 fuelUsed: 100,
+                execMs: 0,
                 attestation: 'signed-by-nobody',
               }
             : { ok: false, reason: options.failWith },
@@ -1970,6 +2148,41 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
   function allowanceOf(shards: number, fraction = DEFAULT_SPECULATION_FRACTION): number {
     return Math.floor(shards * fraction)
   }
+
+  it('counts a speculative copy’s execution time exactly where its fuel is counted', async () => {
+    // The straggler case above, with every node reporting its own time: node `nNN` takes
+    // NN + 1 ms. Shards 1–9 run on n01–n09 (2 + … + 10 = 54 ms) and the held `n00` never
+    // answers, so shard 0's answer is the duplicate on `n01` (2 ms). The held copy is
+    // outstanding, not compared, and spent nothing this job can see — for fuel and time
+    // alike. Ten runs of fuel, ten runs of time.
+    const ran: string[] = []
+    const straggler = holding(nodeName(0), ran)
+    const executors: readonly Executor[] = Array.from({ length: 10 }, (_, i) =>
+      i === 0 ? straggler.executor : watched(nodeName(i), ran, timedAs(honest(nodeName(i)), i + 1)),
+    )
+    const clock = fixtureClock({ horizon: DEFAULT_LEASE_MS * 10 })
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: publicShards(10),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 1,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      { checkpoints: 'checkpoints-nothing', clock },
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.job.speculationSpent).toBe(1)
+    expect((r.job.shards[0] as ShardResult).attempted).toStrictEqual([nodeName(0), nodeName(1)])
+    expect(r.job.grossFuel).toBe(10 * 100)
+    expect(r.job.grossExecMs).toBe(54 + 2)
+    // Redundancy 1: every counted run is an answer, so useful is the whole of it.
+    expect(r.job.usefulExecMs).toBe(54 + 2)
+  })
 
   it('duplicates a shard that has fallen behind its peers, onto a node the placement did not choose', async () => {
     // Ten shards so the default fraction yields an allowance at all, and nine of them
@@ -3129,6 +3342,7 @@ function signing(node: Enrolled, signer: ResultSigner = node.signer): Executor {
         ok: true,
         output,
         fuelUsed: 100,
+        execMs: 0,
         attestation: signResult(signer, {
           moduleCid: task.moduleCid,
           inputCid: task.inputCid,
@@ -3155,6 +3369,7 @@ function signingSomethingElse(node: Enrolled): Executor {
         ok: true,
         output: answerFor(task),
         fuelUsed: 100,
+        execMs: 0,
         attestation: signResult(node.signer, {
           moduleCid: task.moduleCid,
           inputCid: task.inputCid,
@@ -3899,6 +4114,7 @@ describe('CHURN-05 — the one job path reports how many of its owners contribut
           ok: true,
           output: { shard: handed.partitionIndex, of: handed.partitionCount, sum: handed.partitionIndex * 10 },
           fuelUsed: 100,
+          execMs: 0,
           attestation: 'signed-by-nobody',
         })
       },
@@ -4383,6 +4599,7 @@ describe('CHURN-03 — a departed requestor leaves a record, and a second one fi
           ok: true,
           output: { shard: shardTask.partitionIndex, pad: 'x'.repeat(width) },
           fuelUsed: 100,
+          execMs: 0,
           attestation: 'signed-by-nobody',
         }
       },

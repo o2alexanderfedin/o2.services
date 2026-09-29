@@ -59,6 +59,22 @@ describe('WasmExecutor — the four-function host ABI (DET-06)', () => {
     if (out.ok) expect(partitionOf(out.output)).toBe(3)
   })
 
+  it('reports the guest’s run time off the injected clock, read once either side of it', async () => {
+    // A fake clock: 1000 before the guest, 1250 after. The executor reports 250 ms and
+    // reads the clock exactly twice — not around compilation, not around decoding.
+    const { store, moduleCid, inputCid } = await setup(MODULE_WRITES_PARTITION)
+    const readings = [1000, 1250]
+    const exec = new WasmExecutor({
+      nodeId: 'n1',
+      blockstore: store,
+      now: () => readings.shift() ?? Number.NaN,
+    })
+    const out = await exec.execute({ moduleCid, inputCid, partitionIndex: 3, partitionCount: 8 })
+    expect(out.ok).toBe(true)
+    if (out.ok) expect(out.execMs).toBe(250)
+    expect(readings).toStrictEqual([])
+  })
+
   it('passes the partition index through to the guest for every shard', async () => {
     const { store, moduleCid, inputCid } = await setup(MODULE_WRITES_PARTITION)
     const exec = new WasmExecutor({ nodeId: 'n1', blockstore: store })

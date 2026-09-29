@@ -51,6 +51,19 @@ export interface WasmExecutorOptions {
    * the task rather than to the node, which is a different requirement.
    */
   readonly maxOutputBytes?: number
+  /**
+   * The monotonic clock the guest's run time is read from, in milliseconds. Defaults to
+   * `performance.now()`, which exists in Node and in every browser; injected so a test
+   * can state the time rather than wait for it. Read exactly twice per run — just before
+   * the guest's entrypoint is called and just after it returns — and never by the guest,
+   * whose only imports are the four above.
+   */
+  readonly now?: () => number
+}
+
+/** The default guest-time clock: monotonic, and present on every tier this file runs on. */
+function monotonicNow(): number {
+  return performance.now()
 }
 
 /**
@@ -69,11 +82,13 @@ export class WasmExecutor implements Executor {
   readonly nodeId: string
   readonly #blockstore: Blockstore
   readonly #maxOutputBytes: number
+  readonly #now: () => number
 
   constructor(options: WasmExecutorOptions) {
     this.nodeId = options.nodeId
     this.#blockstore = options.blockstore
     this.#maxOutputBytes = options.maxOutputBytes ?? 1024 * 1024
+    this.#now = options.now ?? monotonicNow
   }
 
   async execute(task: Task): Promise<ExecutionOutcome> {
@@ -178,6 +193,9 @@ export class WasmExecutor implements Executor {
       return { ok: false, reason: `module exports no "${TASK_ENTRYPOINT}" function` }
     }
 
+    // The guest's run and nothing else: compilation, instantiation and decoding are the
+    // host's work and sit outside the two readings.
+    const started = this.#now()
     try {
       ;(entry as () => void)()
     } catch (cause) {
@@ -186,6 +204,8 @@ export class WasmExecutor implements Executor {
         reason: `trap during execution: ${cause instanceof Error ? cause.message : String(cause)}`,
       }
     }
+
+    const execMs = this.#now() - started
 
     const wrote = sink.at
     if (wrote.state === 'refused') return { ok: false, reason: wrote.reason }
@@ -206,6 +226,8 @@ export class WasmExecutor implements Executor {
     // Fuel is a deterministic proxy — bytes moved across the ABI. Wall time would
     // be nondeterministic, and fuel sits outside the compared digest (VER-05)
     // precisely so a cost metric can never cause honest nodes to disagree.
+    // `execMs` is that wall time, carried beside fuel rather than instead of it: this
+    // node's own reading, outside the digest for the same reason, and unverifiable.
     // Unsigned by construction, and the sentinel is what says so. This class is kernel
     // code: it holds a blockstore and a node id, and no key and no certificate. A
     // kernel that signed would need an identity, which is the thing `ports.ts` exists to
@@ -215,6 +237,7 @@ export class WasmExecutor implements Executor {
       ok: true,
       output: decoded,
       fuelUsed: inputBytes.length + output.length,
+      execMs,
       attestation: 'signed-by-nobody',
     }
   }

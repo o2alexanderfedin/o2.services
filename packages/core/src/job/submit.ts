@@ -1024,6 +1024,33 @@ export interface JobResult {
    */
   readonly verificationMultiplier: number
   /**
+   * Milliseconds of guest execution spent including redundant work — **wall time as each
+   * executing node reported it**, the figure fuel cannot give.
+   *
+   * Fuel is bytes moved across the guest ABI, so a guest that loops for an hour and
+   * returns eight bytes costs what an instant one costs. This is the time: each executed
+   * run's own monotonic reading from just before the guest was invoked to just after it
+   * returned, summed over the same runs `grossFuel` sums — every answering replica, a
+   * disagreeing shard's included, every generation of a re-dispatched shard, and a
+   * speculative copy wherever its answer was the one taken. A copy still outstanding when
+   * the job settled is in neither figure.
+   *
+   * **Self-reported and unverified, unlike fuel.** Fuel is deterministic, so a replica
+   * that misstated it would stand out; time is not, and nothing checks it. A node can
+   * inflate or deflate its own figure and this sum carries the lie. It is outside the
+   * compared digest (VER-05), and nothing that decides agreement, placement or standing
+   * reads it. A peer on a build from before this field reports `0`.
+   */
+  readonly grossExecMs: number
+  /**
+   * Milliseconds of the runs that produced the answer — per agreed shard, the replica
+   * `usefulFuel` is read from. Same unit and same caveat as {@link JobResult.grossExecMs}.
+   * No ratio is derived from the pair: honest replicas report different times, so
+   * gross ÷ useful here would measure clock spread as much as redundancy, and
+   * `verificationMultiplier` stays the fuel ratio it always was.
+   */
+  readonly usefulExecMs: number
+  /**
    * Dispatches beyond the first, summed over every shard — CHURN-01.
    *
    * `0` says this job never had to retry anything. It is the figure `Observation.
@@ -1621,6 +1648,9 @@ function carriedResult(
       failures: [],
       grossFuel: 0,
       usefulFuel: 0,
+      // Measured zeroes for the same reason: this requestor ran nothing for this shard.
+      grossExecMs: 0,
+      usefulExecMs: 0,
     },
     // Nothing was asked, nothing was placed, no generation ran, no lease was granted.
     // Measured zeroes, the same reading the `never-placed` arm takes — and `ending` is
@@ -1694,17 +1724,26 @@ function mergeVerifications(first: VerificationResult, second: VerificationResul
   const agreeing: AgreeingReplica[] = []
   const failures: { nodeId: string; reason: string }[] = []
   const reasons: string[] = []
-  let winner: { resultCid: CID; output: CanonicalValue; usefulFuel: number } | null = null
+  let winner: {
+    resultCid: CID
+    output: CanonicalValue
+    usefulFuel: number
+    usefulExecMs: number
+  } | null = null
   let grossFuel = 0
+  // Time is folded exactly as fuel is, arm for arm — see `VerificationResult.grossExecMs`.
+  let grossExecMs = 0
 
   for (const generation of [first, second]) {
     if (generation.status === 'agreed') {
       grossFuel += generation.grossFuel
+      grossExecMs += generation.grossExecMs
       if (winner === null) {
         winner = {
           resultCid: generation.resultCid,
           output: generation.output,
           usefulFuel: generation.usefulFuel,
+          usefulExecMs: generation.usefulExecMs,
         }
       }
       const key = generation.resultCid.toString()
@@ -1720,6 +1759,7 @@ function mergeVerifications(first: VerificationResult, second: VerificationResul
       // Its replicas answered, so they burned fuel — counted here as on the `agreed` arm,
       // or a fold that ends in disagreement reports the work of every generation as free.
       grossFuel += generation.grossFuel
+      grossExecMs += generation.grossExecMs
       for (const partition of generation.partitions) {
         nodesByCid.set(partition.resultCid, [
           ...(nodesByCid.get(partition.resultCid) ?? []),
@@ -1737,6 +1777,7 @@ function mergeVerifications(first: VerificationResult, second: VerificationResul
       partitions: [...nodesByCid].map(([resultCid, nodes]) => ({ resultCid, nodes })),
       failures,
       grossFuel,
+      grossExecMs,
     }
   }
   if (winner === null) {
@@ -1770,6 +1811,8 @@ function mergeVerifications(first: VerificationResult, second: VerificationResul
     failures,
     grossFuel,
     usefulFuel: winner.usefulFuel,
+    grossExecMs,
+    usefulExecMs: winner.usefulExecMs,
   }
 }
 
@@ -3507,13 +3550,20 @@ export async function submitJob(
 
   let gross = 0
   let useful = 0
+  let grossExecMs = 0
+  let usefulExecMs = 0
   for (const s of shards) {
     // Gross is what was spent, so a shard that disagreed counts: its replicas did the
-    // work. Useful is what bought the answer, so only an agreed shard has any.
+    // work. Useful is what bought the answer, so only an agreed shard has any. Time is
+    // tallied on the same two rules as fuel, term for term.
     if (s.verification.status === 'agreed' || s.verification.status === 'disagreed') {
       gross += s.verification.grossFuel
+      grossExecMs += s.verification.grossExecMs
     }
-    if (s.verification.status === 'agreed') useful += s.verification.usefulFuel
+    if (s.verification.status === 'agreed') {
+      useful += s.verification.usefulFuel
+      usefulExecMs += s.verification.usefulExecMs
+    }
   }
 
   return {
@@ -3531,6 +3581,8 @@ export async function submitJob(
       grossFuel: gross,
       usefulFuel: useful,
       verificationMultiplier: useful === 0 ? 0 : gross / useful,
+      grossExecMs,
+      usefulExecMs,
       redispatches: leases.redispatches,
       leaseHistory: leases.history,
       speculationMultiplier: ledger.multiplier,
