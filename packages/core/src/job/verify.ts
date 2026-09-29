@@ -26,6 +26,12 @@
  *    redundant execution disagree, and the disagreement would be misdiagnosed as
  *    a determinism problem in the guest.
  *
+ * 3. **Execution time is carried, summed and never judged.** `grossExecMs` and
+ *    `usefulExecMs` follow `grossFuel` and `usefulFuel` exactly — every answering replica
+ *    into gross, the answer's replica into useful — but each figure is a node's own
+ *    clock reading and nothing here can check it. It is reported so a requestor can
+ *    see what a job cost in time, and read by nothing that decides agreement.
+ *
  * Disagreement is surfaced, never majority-voted away (VER-01). The caller
  * decides what to do about it; silently picking a winner would hide exactly the
  * event this mechanism exists to detect.
@@ -56,6 +62,8 @@ export type Receipt =
       resultCid: CID
       output: CanonicalValue
       fuelUsed: number
+      /** The node's own reading of its run — see `ExecutionOutcome.execMs`. */
+      execMs: number
       attestation: AttestedResult
     }
   | { ok: false; nodeId: string; reason: string }
@@ -96,6 +104,7 @@ async function runOne(executor: Executor, task: Task): Promise<Receipt> {
     resultCid: hashed.cid,
     output: outcome.output,
     fuelUsed: outcome.fuelUsed,
+    execMs: outcome.execMs,
     attestation: outcome.attestation,
   }
 }
@@ -187,6 +196,14 @@ export type VerificationResult =
       failures: readonly { nodeId: string; reason: string }[]
       grossFuel: number
       usefulFuel: number
+      /**
+       * Milliseconds every answering replica reported running for, summed — the time
+       * counterpart of `grossFuel`, over the same replicas. **Self-reported**: each term
+       * is one node's own clock reading, and a node can inflate or deflate it unseen.
+       */
+      grossExecMs: number
+      /** The answer's replica's reported milliseconds — the replica `usefulFuel` is read from. */
+      usefulExecMs: number
     }
   | {
       status: 'disagreed'
@@ -208,6 +225,11 @@ export type VerificationResult =
        * `usefulFuel` here: no run produced the answer, because there is none.
        */
       grossFuel: number
+      /**
+       * Milliseconds every answering replica reported, summed across the split — carried
+       * here for `grossFuel`'s reason. Self-reported, as on the `agreed` arm.
+       */
+      grossExecMs: number
     }
   | {
       status: 'insufficient'
@@ -250,6 +272,7 @@ export async function executeVerified(
   }
 
   const grossFuel = answered.reduce((sum, r) => sum + r.fuelUsed, 0)
+  const grossExecMs = answered.reduce((sum, r) => sum + r.execMs, 0)
 
   if (groups.size > 1) {
     return {
@@ -257,6 +280,7 @@ export async function executeVerified(
       partitions: [...groups.entries()].map(([resultCid, nodes]) => ({ resultCid, nodes })),
       failures,
       grossFuel,
+      grossExecMs,
     }
   }
 
@@ -278,5 +302,7 @@ export async function executeVerified(
     failures,
     grossFuel,
     usefulFuel: winner.fuelUsed,
+    grossExecMs,
+    usefulExecMs: winner.execMs,
   }
 }

@@ -173,6 +173,8 @@ function agreedShard(
       failures: [],
       grossFuel: 0,
       usefulFuel: 0,
+      grossExecMs: 0,
+      usefulExecMs: 0,
     },
   }
 }
@@ -219,6 +221,8 @@ function jobWith(shards: readonly ShardResult[]): JobResult {
     },
     grossFuel: 0,
     usefulFuel: 0,
+    grossExecMs: 0,
+    usefulExecMs: 0,
     verificationMultiplier: 1,
     redispatches: 0,
     leaseHistory: [],

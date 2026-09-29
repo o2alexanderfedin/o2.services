@@ -71,6 +71,9 @@ function fakeExecutor(nodeId: string, sum: number): Executor {
         ok: true,
         output: { shard: t.partitionIndex, sum },
         fuelUsed: 10,
+        // The serving node's own claim about its run, withheld with the answer in round 1
+        // and handed back with it in round 2.
+        execMs: 17,
         attestation: 'signed-by-nobody',
       }
     },
@@ -187,6 +190,7 @@ describe('VER-02 — the nonce is bounded at the wire, exactly rather than at a 
         nonce: new Uint8Array(nonceBytes),
         output,
         fuelUsed: 1,
+        execMs: 0,
         attestation: 'signed-by-nobody',
       },
     })
@@ -206,9 +210,34 @@ describe('VER-02 — the nonce is bounded at the wire, exactly rather than at a 
     expect(parseResponse(revealFrame(0))).toBeNull()
   })
 
+  it('carries the execution time, and reads a reveal from a build that sent none as 0 ms', () => {
+    const framed = encodeResponse({
+      kind: 'reveal',
+      outcome: {
+        ok: true,
+        nonce: new Uint8Array(CEREMONY_NONCE_BYTES),
+        output,
+        fuelUsed: 1,
+        execMs: 4,
+        attestation: 'signed-by-nobody',
+      },
+    }) as { readonly [k: string]: CanonicalValue }
+    const parsed = parseResponse(framed)
+    if (parsed?.kind !== 'reveal' || !parsed.outcome.ok) throw new Error('expected a reveal')
+    expect(parsed.outcome.execMs).toBe(4)
+
+    // A previous build's reveal has no `execMs` key; refusing it would fail every old
+    // peer's ceremony during a rollout.
+    const { execMs: _dropped, ...old } = framed
+    const fromOld = parseResponse(old as CanonicalValue)
+    if (fromOld?.kind !== 'reveal' || !fromOld.outcome.ok) throw new Error('expected a reveal')
+    expect(fromOld.outcome.execMs).toBe(0)
+    expect(parseResponse({ ...framed, execMs: -3 } as CanonicalValue)).toBeNull()
+  })
+
   it('refuses a reveal with no nonce at all rather than reading it as unsigned', () => {
     expect(
-      parseResponse({ kind: 'reveal', ok: true, output, fuelUsed: 1, attestation: 'signed-by-nobody' }),
+      parseResponse({ kind: 'reveal', ok: true, output, fuelUsed: 1, execMs: 0, attestation: 'signed-by-nobody' }),
     ).toBeNull()
     expect(
       parseResponse({
@@ -217,6 +246,7 @@ describe('VER-02 — the nonce is bounded at the wire, exactly rather than at a 
         nonce: 'not-bytes',
         output,
         fuelUsed: 1,
+        execMs: 0,
         attestation: 'signed-by-nobody',
       }),
     ).toBeNull()
@@ -259,6 +289,8 @@ describe('VER-02 — a served node hands its pending answer to nobody but the co
       expect(revealed.ok).toBe(true)
       if (!revealed.ok) return
       expect(revealed.output).toEqual({ shard: 1, sum: 42 })
+      // The time the serving node measured when it ran the task crosses with the answer.
+      expect(revealed.execMs).toBe(17)
 
       // The digest the requestor was handed in round 1 checks out against the answer it
       // hashes itself in round 2 — computed here the way `executeCommitReveal` computes
@@ -376,6 +408,7 @@ describe('VER-02 — the holding area expires what nobody came back for', () => 
     nonce: new Uint8Array(CEREMONY_NONCE_BYTES),
     output: { sum: 1 } as CanonicalValue,
     fuelUsed: 1,
+    execMs: 0,
     attestation: 'signed-by-nobody' as const,
   }
 

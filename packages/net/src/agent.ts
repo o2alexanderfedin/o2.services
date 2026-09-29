@@ -1363,6 +1363,7 @@ export function serveAgent(options: AgentOptions): void {
             nonce: taken.pending.nonce,
             output: taken.pending.output,
             fuelUsed: taken.pending.fuelUsed,
+            execMs: taken.pending.execMs,
             attestation: taken.pending.attestation,
           } as const)
         : ({ ok: false, reason: taken.reason } as const)
@@ -1651,6 +1652,7 @@ export function serveAgent(options: AgentOptions): void {
           nonce,
           output: outcome.output,
           fuelUsed: outcome.fuelUsed,
+          execMs: outcome.execMs,
           attestation: outcome.attestation,
           at: Date.now(),
         })

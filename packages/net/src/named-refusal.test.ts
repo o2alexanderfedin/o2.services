@@ -139,7 +139,7 @@ function stubExecutor(nodeId: string): Executor {
   return {
     nodeId,
     execute(): Promise<ExecutionOutcome> {
-      return Promise.resolve({ ok: true, output: { rows: 3 }, fuelUsed: 0, attestation: 'signed-by-nobody' })
+      return Promise.resolve({ ok: true, output: { rows: 3 }, fuelUsed: 0, execMs: 0, attestation: 'signed-by-nobody' })
     },
   }
 }

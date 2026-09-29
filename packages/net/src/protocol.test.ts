@@ -482,7 +482,7 @@ describe('what a node said about its own result survives the wire', async () => 
   const reply = (outcomeAttestation: AttestedResult) =>
     ({
       kind: 'exec',
-      outcome: { ok: true, output: { rows: 3 }, fuelUsed: 12, attestation: outcomeAttestation },
+      outcome: { ok: true, output: { rows: 3 }, fuelUsed: 12, execMs: 9.5, attestation: outcomeAttestation },
     }) as const
 
   it('round-trips an attestation exactly, certificate field by certificate field', () => {
@@ -512,6 +512,29 @@ describe('what a node said about its own result survives the wire', async () => 
     expect(parseResponse(encodeResponse(reply('signed-by-nobody')))).toStrictEqual(
       reply('signed-by-nobody'),
     )
+  })
+
+  it('reads an answer from a build that sent no execution time as 0 ms, not as a broken frame', () => {
+    // Every peer running the previous build answers without `execMs`. Refusing that frame
+    // would fail one replica per old peer for the whole of a rollout — a restriction
+    // invented from silence. It reads as 0 ms, an understatement the peer never claimed.
+    const old = encodeResponse(reply('signed-by-nobody')) as { readonly [k: string]: CanonicalValue }
+    const { execMs: _dropped, ...withoutTime } = old
+    expect(_dropped).toBe(9.5)
+    const parsed = parseResponse(withoutTime as CanonicalValue)
+    expect(parsed).not.toBeNull()
+    if (parsed?.kind !== 'exec' || !parsed.outcome.ok) throw new Error('expected an exec answer')
+    expect(parsed.outcome.execMs).toBe(0)
+    expect(parsed.outcome.fuelUsed).toBe(12)
+  })
+
+  it('refuses an execution time that is present and not a non-negative finite number', () => {
+    const frame = (execMs: CanonicalValue): CanonicalValue =>
+      ({ ...(encodeResponse(reply('signed-by-nobody')) as object), execMs }) as CanonicalValue
+    expect(parseResponse(frame(3))).not.toBeNull() // the control
+    expect(parseResponse(frame(-1))).toBeNull()
+    expect(parseResponse(frame('fast'))).toBeNull()
+    expect(parseResponse(frame(null))).toBeNull()
   })
 
   it('refuses a malformed attestation rather than quietly downgrading it', () => {

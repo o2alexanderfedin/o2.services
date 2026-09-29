@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { encodeCanonical } from '../canonical/encode.ts'
 import { MODULE_WRITES_PARTITION } from './fixtures.ts'
-import { runTaskAndPost } from './task-run.ts'
+import { runTask, runTaskAndPost } from './task-run.ts'
 import type { WorkerTaskRequest, WorkerTaskResponse } from './task-run.ts'
 
 /**
@@ -115,7 +115,7 @@ describe('runTaskAndPost — a response that could not be posted comes back as a
     if (first === undefined) throw new Error('nothing was posted')
     // The fixture is doing its job — this is the response that could not cross.
     expect(first.ok).toBe(true)
-    expect(Object.keys(first).sort()).toEqual(['fuelUsed', 'id', 'ok', 'outputBytes'])
+    expect(Object.keys(first).sort()).toEqual(['execMs', 'fuelUsed', 'id', 'ok', 'outputBytes'])
 
     const substitute = sink.seen[1]
     if (substitute === undefined) throw new Error('no substitute was posted')
@@ -151,5 +151,16 @@ describe('runTaskAndPost — a response that could not be posted comes back as a
         throw new DOMException('port is closed', 'DataCloneError')
       }),
     ).rejects.toThrow('port is closed')
+  })
+})
+
+describe('runTask — the thread measures the guest’s time and sends it back', () => {
+  it('reports the time off the clock it was handed, beside the fuel', async () => {
+    const readings = [40, 47]
+    const response = await runTask(SUCCEEDS, () => readings.shift() ?? Number.NaN)
+    expect(response.ok).toBe(true)
+    if (!response.ok) return
+    expect(response.execMs).toBe(7)
+    expect(readings).toStrictEqual([])
   })
 })
