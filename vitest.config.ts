@@ -1073,10 +1073,51 @@ const NODE_MEASUREMENT = {
    * --project node` collected `189 passed (189)` and `3181 passed (3181)`, exit 0. **Both runs
    * were on an oversubscribed host and both banners said so** — load/core 15.37 against a
    * ceiling of 4.00 — so the counts stand, nothing failed, and no duration from either run is
-   * recorded.
+   * recorded. *
+* **3955 -> 3976 and 272 -> 273 on 2026-09-29, and NONE of it was this pass's work.** Three
+   * commits from other sessions landed in this shared tree while the counts sat still:
+   * `a043bce` (the region-loss drill) added `packages/cloudflare/src/process-group.node.test.ts`,
+   * which is the one arriving FILE, and `2b1928b` (a job reports its guests' run time) plus
+   * `2ae3650` (a disagreeing shard's fuel is counted) added cases to files that already existed.
+   * Nobody updated these fields, so they were stale by one file and twenty-one tests, and the
+   * last commit to touch this one was two days earlier and mine. **Recorded here rather than
+   * left for whoever notices**, because a count nobody owns is a count nobody re-measures.
+   *
+   * Measured, not derived: `/usr/bin/time -p npx vitest run --project node` collected
+   * `Test Files 273 passed (273)` and `Tests 3973 passed | 3 skipped (3976)`, exit 0 read from
+   * a status file rather than from a wrapper's own code; `O2_UNIT_ONLY=1` collected
+   * `190 passed (190)` and `3202 passed (3202)`, exit 0.
+   *
+   * ## Why there is still no quiet wall clock here, and why there may never be one
+   *
+   * This pass was taken on a deliberately cleared machine — a peer session had finished a build
+   * and was holding a three-to-six-hour job for it, 1-minute load 3.07 on 8 cores before the
+   * start, no foreign compiler, no coverage run. **The banner still printed `HOST WAS
+   * OVERSUBSCRIBED`, load/core 0.33 before and 4.60 after**, and `uptime` sampled during the
+   * node lane read a 1-minute load of **36.77**. That load is this lane's own worker pool.
+   *
+   * So the banner samples load AROUND the run and cannot tell a parallel test run from foreign
+   * contention — it invalidates its own durations whenever the thing it measures is parallel.
+   * `wallClockMs` and `unitWallClockMs` are therefore NOT moved again, and the reason has
+   * changed: it is not that this host was busy, it is that this measurement cannot be taken
+   * with this instrument. A wall clock for this lane needs a different instrument or a
+   * different claim.
+   *
+   * **What IS valid from this pass is the ratio, because it measures the process rather than
+   * the host's mood** — `(user+sys)/real`, the comparability key `CLAUDE.md` asks for:
+   *
+   * ```
+   * node   real 200.43  user 951.75  sys 197.48   ratio 5.73
+   * unit   real  22.06  user 111.51  sys  12.41   ratio 5.62
+   * ```
+   *
+   * Read comparatively rather than absolutely: `CLAUDE.md` records the node lane alone at
+   * ratio **5.37**, so at 5.73 this run took 6.8 % more CPU per wall second than that
+   * reference — the signature of a process that was less starved, which is the quietness claim
+   * the wall clock could not carry. No absolute duration from this pass is recorded anywhere.
    */
-  files: 272,
-  tests: 3955,
+  files: 273,
+  tests: 3976,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
@@ -1587,8 +1628,8 @@ const NODE_MEASUREMENT = {
    * WAS OVERSUBSCRIBED — load/core 21.60 before, 21.94 after (8 cores, ceiling 4.00)`.
    * Nothing failed; no duration quoted.
    */
-  unitFiles: 189,
-  unitTests: 3181,
+  unitFiles: 190,
+  unitTests: 3202,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
   unitWallClockMs: 10_240,
