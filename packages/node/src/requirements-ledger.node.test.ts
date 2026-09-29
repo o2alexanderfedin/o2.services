@@ -1527,7 +1527,16 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     // last re-read is elsewhere: the hosted tier gained three placement configurations and a
     // browser pair now upgrades away from it under a committed spec (`HOST-02`). Neither
     // touches a certificate, which is why the date moves and the verdict does not.
-    reread: '2026-09-14',
+    //
+    // **RE-READ 2026-09-29 at 15 days outstanding, bound 14 — the verdict is unmoved again.**
+    // All three witnesses were run rather than read: `auto-tls` and `relaying` together with
+    // NET-15's node-lane witness 34 of 34, `EXIT=0`; `seed-binary-join` 2 of 2 on the e2e
+    // project, `EXIT=0`. The host was oversubscribed for the first run, which voids its
+    // durations and not its verdicts. Neither gate moved: `auto-tls.node.test.ts` still orders
+    // from `local-acme.ts`, and this host still has no interface outside RFC 1918, a ULA or
+    // link-local. No commit since 2026-09-14 touches any of the three witnesses or
+    // `local-acme.ts`.
+    reread: '2026-09-29',
     witnesses: [
       'packages/node/src/auto-tls.node.test.ts',
       'packages/node/src/relaying.node.test.ts',
@@ -2035,9 +2044,19 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     ],
   },
   {
+    // **RE-READ 2026-09-29 at 15 days outstanding, bound 14 — the verdict does not move, and
+    // the scheduled drill has not produced a reading since the last one.** The schedule witness
+    // passes (run with NET-03's node-lane pair, 34 of 34, `EXIT=0`). The drill itself failed on
+    // both Monday runs of `region-loss-drill.yml` on `main` since then — 2026-09-21 run
+    // 35567943605 and 2026-09-28 run 36385978584 — each with `port 8832 was still answering
+    // after 60000 ms — the kill did not take`. So the region was never taken out, and neither
+    // run is a degradation reading. That is a defect in the drill's local stand-in and not a
+    // fact about the fabric; it is recorded here so nobody reads the green schedule witness as
+    // a drill that ran. What the row waits on is unchanged: owner act 2 is still not taken,
+    // and `HOST-06` still reads *Not started*. Re-recorded rather than ticked.
     id: 'NET-15',
     because: 'experiment-not-run',
-    reread: '2026-09-14',
+    reread: '2026-09-29',
     witnesses: [
       'packages/cloudflare/src/region-loss-drill.e2e.test.ts',
       'packages/node/src/region-loss-drill-schedule.node.test.ts',
