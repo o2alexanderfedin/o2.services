@@ -452,6 +452,7 @@ export async function executeCommitReveal(
       status: 'disagreed',
       partitions: [...groups.entries()].map(([resultCid, nodes]) => ({ resultCid, nodes })),
       failures,
+      grossFuel: answered.reduce((sum, r) => sum + r.fuelUsed, 0),
     }
   }
 

@@ -355,6 +355,33 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
     }
   })
 
+  it('counts the fuel a disagreeing shard burned in the job’s gross fuel (VER-06)', async () => {
+    // Two shards, redundancy 2, over one honest node and one liar: both shards run on
+    // both nodes, both disagree, and four replicas at 100 fuel each did the work. The
+    // job reported a gross fuel of 0 for it — a run that burned 400 and bought no answer
+    // read as a run that cost nothing.
+    const executors = [honest('a'), liar('c')]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ n: 1 }, { n: 2 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.job.shards.map((s) => s.verification.status)).toStrictEqual(['disagreed', 'disagreed'])
+    expect(r.job.grossFuel).toBe(400)
+    // Useful fuel stays zero: no shard produced an answer, so no run was the answer's.
+    expect(r.job.usefulFuel).toBe(0)
+  })
+
   it('an executor that throws is one failed replica, not a rejected submitJob', async () => {
     const store = new MemoryBlockstore()
     const executors = [honest('good'), throwing('bad', 'blockstore ENOSPC')]
@@ -1312,6 +1339,46 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
     // here and stays green on the case above, which is why this one and not that one
     // carries the second trigger. It cannot catch the bound (three nodes is under the
     // cap) and it cannot catch a widened gate (public shard).
+  })
+
+  it('keeps every generation’s fuel when a top-up discovers a disagreement', async () => {
+    // Redundancy 3: generation one agrees at `replicas: 1` on `n1` because `n2` and `n3`
+    // die, so the top-up asks for the shortfall of 2 — and its two replicas split, one
+    // honest and one lying. That generation is `disagreed` on its own, and the fold turns
+    // the whole shard `disagreed`. Three replicas answered at 100 fuel each, and the
+    // fold counted fuel on its `agreed` arm alone, so the top-up's 200 vanished.
+    const ran: string[] = []
+    const executors = [
+      watched('n1', ran),
+      watched('n2', ran, failing('n2', 'died between the offer and the dispatch')),
+      watched('n3', ran, failing('n3', 'died between the offer and the dispatch')),
+      watched('n4', ran),
+      watched('n5', ran, liar('n5')),
+    ]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 3,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const shard = r.job.shards[0] as ShardResult
+    // The route is the top-up route, read off the executors rather than inferred.
+    expect([...ran].sort()).toStrictEqual(['n1', 'n2', 'n3', 'n4', 'n5'])
+    expect(shard.generations).toBe(2)
+    expect(shard.verification.status).toBe('disagreed')
+    if (shard.verification.status !== 'disagreed') return
+    expect(shard.verification.grossFuel).toBe(300)
+    expect(r.job.grossFuel).toBe(300)
   })
 
   it('keeps a sovereign shard on its owner’s nodes across generations, and stops rather than leaving them', async () => {

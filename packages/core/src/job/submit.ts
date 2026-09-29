@@ -1717,6 +1717,9 @@ function mergeVerifications(first: VerificationResult, second: VerificationResul
     }
     failures.push(...generation.failures)
     if (generation.status === 'disagreed') {
+      // Its replicas answered, so they burned fuel — counted here as on the `agreed` arm,
+      // or a fold that ends in disagreement reports the work of every generation as free.
+      grossFuel += generation.grossFuel
       for (const partition of generation.partitions) {
         nodesByCid.set(partition.resultCid, [
           ...(nodesByCid.get(partition.resultCid) ?? []),
@@ -1733,6 +1736,7 @@ function mergeVerifications(first: VerificationResult, second: VerificationResul
       status: 'disagreed',
       partitions: [...nodesByCid].map(([resultCid, nodes]) => ({ resultCid, nodes })),
       failures,
+      grossFuel,
     }
   }
   if (winner === null) {
@@ -3504,10 +3508,12 @@ export async function submitJob(
   let gross = 0
   let useful = 0
   for (const s of shards) {
-    if (s.verification.status === 'agreed') {
+    // Gross is what was spent, so a shard that disagreed counts: its replicas did the
+    // work. Useful is what bought the answer, so only an agreed shard has any.
+    if (s.verification.status === 'agreed' || s.verification.status === 'disagreed') {
       gross += s.verification.grossFuel
-      useful += s.verification.usefulFuel
     }
+    if (s.verification.status === 'agreed') useful += s.verification.usefulFuel
   }
 
   return {

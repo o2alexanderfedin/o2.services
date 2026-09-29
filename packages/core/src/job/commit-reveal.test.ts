@@ -534,6 +534,9 @@ describe('VER-02 — the ceremony composes with what already verifies', () => {
     if (result.status !== 'disagreed') return
     expect(result.partitions).toHaveLength(2)
     expect(result.partitions.flatMap((p) => p.nodes).sort()).toEqual(['n1', 'n2', 'n3'])
+    // Three reveals matched their commitments, so three replicas did the work — the same
+    // gross fuel `executeVerified` reports for the same split.
+    expect(result.grossFuel).toBe(300)
   })
 })
 
