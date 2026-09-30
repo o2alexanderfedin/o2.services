@@ -143,8 +143,16 @@
 
 import { Fd, WASI, wasi as wasiDefs } from '@bjorn3/browser_wasi_shim'
 import { sha256 } from '@noble/hashes/sha2.js'
-import { countingHostCalls, decodeCanonical, memoryPages } from '@o2/core'
-import type { Blockstore, CanonicalValue, ExecutionOutcome, Executor, Task } from '@o2/core'
+import {
+  assertMemoryCap,
+  checkMemoryCap,
+  countingHostCalls,
+  decodeCanonical,
+  DEFAULT_MAX_MEMORY_PAGES,
+  describeMemoryRefusal,
+  memoryPages,
+} from '@o2/core'
+import type { Blockstore, CanonicalValue, ExecutionOutcome, Executor, MemoryRefusal, Task } from '@o2/core'
 
 /** The one import namespace a WASI preview1 command module may use. */
 export const WASI_NAMESPACE = 'wasi_snapshot_preview1'
@@ -650,6 +658,12 @@ export type WasiFailure =
   | { readonly kind: 'output-too-large'; readonly limit: number }
   | { readonly kind: 'no-output' }
   | { readonly kind: 'not-dag-cbor'; readonly detail: string }
+  /**
+   * The module's memory has no declared maximum, or one above this node's cap — refused
+   * before instantiation. Core's `MemoryRefusal`, carried whole, so `WasmExecutor` and
+   * this executor refuse with the same kinds and the same words.
+   */
+  | MemoryRefusal
 
 export type WasiRunOutcome =
   | {
@@ -705,6 +719,10 @@ export function describeWasiFailure(failure: WasiFailure): string {
       return 'guest wrote nothing to stdout'
     case 'not-dag-cbor':
       return `output is not valid DAG-CBOR: ${failure.detail}`
+    case 'memory-uncapped':
+    case 'memory-over-cap':
+    case 'memory-unreadable':
+      return describeMemoryRefusal(failure)
   }
 }
 
@@ -748,6 +766,18 @@ export interface WasiExecutorOptions {
   /** Cap on stdout, to bound a misbehaving guest. Default 1 MiB, as `WasmExecutor`. */
   readonly maxOutputBytes?: number
   /**
+   * The most linear memory a guest may declare, in 64 KiB pages. Default
+   * `DEFAULT_MAX_MEMORY_PAGES` (256 MiB), as `WasmExecutor`, and refused the same way:
+   * before instantiation, as a `memory-uncapped` or `memory-over-cap` failure.
+   *
+   * **Every elfconv lift in the tree declares no maximum** (`hello.wasm`, the lifted
+   * echo and hello guests, `lifted-subject.wasm`, `workload-lifted.wasm`: a minimum of 8
+   * to 10 pages and nothing else), so this executor refuses them as they come out of the
+   * lifter. They run again once the lift declares a maximum; `wasi-real.node.test.ts`
+   * shows the same artifact running with one.
+   */
+  readonly maxMemoryPages?: number
+  /**
    * The HOST's monotonic clock for the guest's run time, in milliseconds — never handed
    * to the guest, which sees only the pinned clock above. Defaults to `performance.now()`;
    * injected so a test states the time. Read once either side of `_start`.
@@ -759,12 +789,14 @@ export class WasiExecutor implements Executor {
   readonly nodeId: string
   readonly #blockstore: Blockstore
   readonly #maxOutputBytes: number
+  readonly #maxMemoryPages: number
   readonly #now: () => number
 
   constructor(options: WasiExecutorOptions) {
     this.nodeId = options.nodeId
     this.#blockstore = options.blockstore
     this.#maxOutputBytes = options.maxOutputBytes ?? 1024 * 1024
+    this.#maxMemoryPages = assertMemoryCap(options.maxMemoryPages ?? DEFAULT_MAX_MEMORY_PAGES)
     this.#now = options.now ?? ((): number => performance.now())
   }
 
@@ -854,13 +886,23 @@ export class WasiExecutor implements Executor {
     )
     const imports = { [WASI_NAMESPACE]: wasiImports.imports }
 
+    let module: WebAssembly.Module
     let instance: WebAssembly.Instance
     try {
-      const module = await WebAssembly.compile(moduleBytes)
+      module = await WebAssembly.compile(moduleBytes)
+    } catch (cause) {
+      // Malformed bytes or failed validation.
+      return { ok: false, failure: { kind: 'instantiation-failed', detail: messageOf(cause) } }
+    }
+    // After compiling and before instantiating — `WasmExecutor`'s place for it, and its
+    // reasons: the bytes are known valid, and nothing has been allocated yet.
+    const memoryCap = checkMemoryCap(moduleBytes, this.#maxMemoryPages)
+    if (!memoryCap.ok) return { ok: false, failure: memoryCap.refusal }
+    try {
       instance = await WebAssembly.instantiate(module, imports)
     } catch (cause) {
-      // Malformed bytes, failed validation, and — importantly — any import the host
-      // does not supply. The runtime names it; no allow-list is involved.
+      // Importantly, any import the host does not supply. The runtime names it; no
+      // allow-list is involved.
       return { ok: false, failure: { kind: 'instantiation-failed', detail: messageOf(cause) } }
     }
 

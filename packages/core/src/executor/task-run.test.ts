@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { encodeCanonical } from '../canonical/encode.ts'
-import { MODULE_METERED, MODULE_WRITES_PARTITION } from './fixtures.ts'
+import { MODULE_METERED, MODULE_WRITES_PARTITION, moduleEchoWithMemory } from './fixtures.ts'
 import { runTask, runTaskAndPost } from './task-run.ts'
 import type { WorkerTaskRequest, WorkerTaskResponse } from './task-run.ts'
 
@@ -175,5 +175,21 @@ describe('runTask — the thread counts the guest’s host calls and memory and 
     if (!response.ok) return
     expect(response.hostCalls).toBe(7)
     expect(response.peakMemoryPages).toBe(3)
+  })
+})
+
+describe('runTask — the thread refuses a guest whose memory has no bound', () => {
+  it('refuses a module declaring no maximum, as a failed task and not a thrown error', async () => {
+    const response = await runTask({ ...SUCCEEDS, moduleBytes: moduleEchoWithMemory(1, null) })
+    expect(response.ok).toBe(false)
+    if (!response.ok) expect(response.reason).toMatch(/^memory-uncapped: /)
+  })
+
+  it('holds the cap the calling thread sent, not only the default', async () => {
+    // MODULE_METERED declares a maximum of 3 pages: under a cap of 3 it runs, under 2 it is refused.
+    expect((await runTask({ ...SUCCEEDS, moduleBytes: MODULE_METERED, maxMemoryPages: 3 })).ok).toBe(true)
+    const refused = await runTask({ ...SUCCEEDS, moduleBytes: MODULE_METERED, maxMemoryPages: 2 })
+    expect(refused.ok).toBe(false)
+    if (!refused.ok) expect(refused.reason).toMatch(/^memory-over-cap: .*cap of 2 pages/)
   })
 })

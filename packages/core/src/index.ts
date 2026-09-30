@@ -69,6 +69,15 @@ export { MAX_PARTITIONS, TASK_ENTRYPOINT, WasmExecutor } from './executor/wasm.t
 export type { WasmExecutorOptions } from './executor/wasm.ts'
 // Host-call count and peak memory, shared by every executor that reports fuel.
 export { countingHostCalls, memoryPages, WASM_PAGE_BYTES } from './executor/guest-meter.ts'
+export {
+  assertMemoryCap,
+  checkMemoryCap,
+  DEFAULT_MAX_MEMORY_PAGES,
+  describeMemoryRefusal,
+  MAX_WASM32_PAGES,
+  readDeclaredMemories,
+} from './executor/guest-memory.ts'
+export type { DeclaredMemory, MemoryCapVerdict, MemoryRefusal } from './executor/guest-memory.ts'
 // The cross-thread ABI both tiers speak, and the executor that bounds it.
 export { runTask, runTaskAndPost } from './executor/task-run.ts'
 export type { WorkerTaskRequest, WorkerTaskResponse } from './executor/task-run.ts'

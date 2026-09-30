@@ -17,6 +17,7 @@ import {
   wasiShard,
   wasiThreadSpawn,
 } from './fixtures/wasi-fixtures.ts'
+import { withMemoryLimits } from './fixtures/memory-limits.ts'
 import {
   describeWasiFailure,
   FIXED_MONOTONIC_NANOS,
@@ -718,6 +719,100 @@ describe('an artifact that is not a WASI command module is named as such', () =>
     const executor = new WasiExecutor({ nodeId: 'n1', blockstore })
     const failure = failureOf(await executor.run(task(moduleCid, absent)))
     expect(failure.kind).toBe('input-missing')
+  })
+})
+
+// ---- the memory cap ------------------------------------------------------------
+
+/**
+ * A WASI command module that imports its memory (`env.memory`) instead of defining it,
+ * exports it back, and has an empty `_start`. Hand-assembled because no fixture here
+ * imports memory, and every real elfconv lift defines its own.
+ */
+function wasiImportingMemory(maximum: number | null): Uint8Array<ArrayBuffer> {
+  const limits = maximum === null ? [0x00, 0x01] : [0x01, 0x01, maximum]
+  const importPayload = [0x01, 0x03, ...'env'.split('').map((c) => c.charCodeAt(0)), 0x06,
+    ...'memory'.split('').map((c) => c.charCodeAt(0)), 0x02, ...limits]
+  const exportPayload = [0x02, 0x06, ...'_start'.split('').map((c) => c.charCodeAt(0)), 0x00, 0x00,
+    0x06, ...'memory'.split('').map((c) => c.charCodeAt(0)), 0x02, 0x00]
+  return new Uint8Array([
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type 0: () -> ()
+    0x02, importPayload.length, ...importPayload,
+    0x03, 0x02, 0x01, 0x00, // one function of type 0
+    0x07, exportPayload.length, ...exportPayload,
+    0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // an empty body
+  ])
+}
+
+describe('a guest that could grow memory without bound is refused before it runs', () => {
+  // The echo guest with only its memory declaration changed: declared `1 1` it round-trips
+  // its input, so each refusal below is the cap and nothing else.
+  it('validates every re-declared module, so a refusal is never a malformed module', () => {
+    for (const bytes of [
+      withMemoryLimits(wasiEcho, 1, null),
+      withMemoryLimits(wasiEcho, 1, 4096),
+      withMemoryLimits(wasiEcho, 1, 4097),
+      wasiImportingMemory(null),
+      wasiImportingMemory(2),
+    ]) {
+      expect(WebAssembly.validate(bytes)).toBe(true)
+    }
+  })
+
+  it('refuses a module whose memory declares no maximum, as a named failure', async () => {
+    const failure = failureOf(await run(withMemoryLimits(wasiEcho, 1, null), { a: 1 }))
+    expect(failure.kind).toBe('memory-uncapped')
+    expect(describeWasiFailure(failure)).toMatch(/^memory-uncapped: .*no maximum/)
+  })
+
+  it('refuses a maximum one page above the default 256 MiB cap', async () => {
+    const failure = failureOf(await run(withMemoryLimits(wasiEcho, 1, 4097), { a: 1 }))
+    expect(failure).toEqual({
+      kind: 'memory-over-cap',
+      memory: { origin: 'defined', minimumPages: 1, maximumPages: 4097 },
+      capPages: 4096,
+    })
+  })
+
+  it('runs a module whose maximum is exactly the cap', async () => {
+    const outcome = await run(withMemoryLimits(wasiEcho, 1, 4096), { a: 1 })
+    expect(outcome.ok).toBe(true)
+    if (outcome.ok) expect(outcome.value).toEqual({ a: 1 })
+  })
+
+  it('holds a configured cap — wasi-meter grows to 3 pages: a cap of 3 runs it, 2 refuses it', async () => {
+    async function under(maxMemoryPages: number): Promise<WasiRunOutcome> {
+      const { blockstore, moduleCid, inputCid } = await store(wasiMeter, {})
+      return new WasiExecutor({ nodeId: 'n1', blockstore, maxMemoryPages }).run(task(moduleCid, inputCid))
+    }
+    expect((await under(3)).ok).toBe(true)
+    expect(failureOf(await under(2)).kind).toBe('memory-over-cap')
+  })
+
+  it('surfaces the refusal through the Executor port as a failed task, not a thrown error', async () => {
+    const { blockstore, moduleCid, inputCid } = await store(withMemoryLimits(wasiEcho, 1, null), {})
+    const outcome = await new WasiExecutor({ nodeId: 'n1', blockstore }).execute(task(moduleCid, inputCid))
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.reason).toMatch(/^memory-uncapped: /)
+  })
+
+  it('refuses an imported memory with no maximum before trying to link it', async () => {
+    const failure = failureOf(await run(wasiImportingMemory(null)))
+    expect(failure.kind).toBe('memory-uncapped')
+    expect(describeWasiFailure(failure)).toContain('imports as env.memory')
+  })
+
+  it('still supplies no memory to a guest that imports a capped one — it fails to link, as before', async () => {
+    expect(failureOf(await run(wasiImportingMemory(2))).kind).toBe('instantiation-failed')
+  })
+
+  it('refuses a cap that is not a page count at construction', () => {
+    for (const maxMemoryPages of [0, 1.5, 65537]) {
+      expect(() => new WasiExecutor({ nodeId: 'n1', blockstore: new MemoryBlockstore(), maxMemoryPages })).toThrow(
+        RangeError,
+      )
+    }
   })
 })
 

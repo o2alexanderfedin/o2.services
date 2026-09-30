@@ -30,6 +30,7 @@ import { decodeCanonical } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
 import type { Blockstore, ExecutionOutcome, Executor, Task } from '../ports.ts'
 import { countingHostCalls, memoryPages } from './guest-meter.ts'
+import { assertMemoryCap, checkMemoryCap, DEFAULT_MAX_MEMORY_PAGES, describeMemoryRefusal } from './guest-memory.ts'
 
 /** Name of the export a task module must provide. */
 export const TASK_ENTRYPOINT = 'run'
@@ -52,6 +53,18 @@ export interface WasmExecutorOptions {
    * the task rather than to the node, which is a different requirement.
    */
   readonly maxOutputBytes?: number
+  /**
+   * The most linear memory a guest may declare, in 64 KiB pages. Default
+   * {@link DEFAULT_MAX_MEMORY_PAGES} (256 MiB).
+   *
+   * A module whose memory — defined or imported — declares no maximum, or a maximum above
+   * this, is refused before it is instantiated, so the engine never allocates for it. The
+   * engine then holds every admitted guest to its own declared maximum, exactly and the
+   * same way on every host. Per node, with the same caveat as `maxOutputBytes`: two nodes
+   * with different caps can reach different verdicts on one module, and the refusal names
+   * both numbers so that is diagnosable.
+   */
+  readonly maxMemoryPages?: number
   /**
    * The monotonic clock the guest's run time is read from, in milliseconds. Defaults to
    * `performance.now()`, which exists in Node and in every browser; injected so a test
@@ -83,12 +96,14 @@ export class WasmExecutor implements Executor {
   readonly nodeId: string
   readonly #blockstore: Blockstore
   readonly #maxOutputBytes: number
+  readonly #maxMemoryPages: number
   readonly #now: () => number
 
   constructor(options: WasmExecutorOptions) {
     this.nodeId = options.nodeId
     this.#blockstore = options.blockstore
     this.#maxOutputBytes = options.maxOutputBytes ?? 1024 * 1024
+    this.#maxMemoryPages = assertMemoryCap(options.maxMemoryPages ?? DEFAULT_MAX_MEMORY_PAGES)
     this.#now = options.now ?? monotonicNow
   }
 
@@ -176,13 +191,28 @@ export class WasmExecutor implements Executor {
     // start function makes during instantiation is counted too — the guest made it.
     const counted = countingHostCalls(imports.o2)
 
+    let module: WebAssembly.Module
     let instance: WebAssembly.Instance
     try {
-      const module = await WebAssembly.compile(moduleBytes)
+      module = await WebAssembly.compile(moduleBytes)
+    } catch (cause) {
+      // Malformed bytes or a failed validation.
+      return {
+        ok: false,
+        reason: `instantiation failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      }
+    }
+    // Between compiling and instantiating, on purpose. After compiling, because the bytes
+    // are then known to be a valid module, so a declaration the reader cannot follow is a
+    // refusal rather than a malformed module's error. Before instantiating, because that is
+    // where the engine allocates the memory and runs any start function.
+    const memoryCap = checkMemoryCap(moduleBytes, this.#maxMemoryPages)
+    if (!memoryCap.ok) return { ok: false, reason: describeMemoryRefusal(memoryCap.refusal) }
+    try {
       instance = await WebAssembly.instantiate(module, { o2: counted.imports })
     } catch (cause) {
-      // Covers malformed bytes, a failed validation, and — importantly — any
-      // import the host does not provide.
+      // Covers — importantly — any import the host does not provide, and a start
+      // function that traps.
       return {
         ok: false,
         reason: `instantiation failed: ${cause instanceof Error ? cause.message : String(cause)}`,

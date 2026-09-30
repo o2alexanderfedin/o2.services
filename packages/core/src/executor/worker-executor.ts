@@ -73,6 +73,7 @@ import type {
   Task,
 } from '../ports.ts'
 import { hostCoreCount } from './core-count.ts'
+import { assertMemoryCap } from './guest-memory.ts'
 import type { WorkerTaskRequest } from './task-run.ts'
 
 /**
@@ -93,6 +94,12 @@ export interface WorkerExecutorOptions {
   readonly blockstore: Blockstore
   readonly createThread: ComputeThreadFactory
   readonly maxOutputBytes?: number
+  /**
+   * The memory cap in pages, posted with every task — `WasmExecutorOptions.maxMemoryPages`.
+   * Checked where the guest runs, because that is where its bytes are compiled; a cap set
+   * here and not posted would quietly become the default on the thread.
+   */
+  readonly maxMemoryPages?: number
   readonly deadlineMs?: number
   /**
    * Tasks that may run at once. Defaults to {@link hostCoreCount}.
@@ -122,6 +129,7 @@ export class WorkerExecutor implements Executor {
   readonly #blockstore: Blockstore
   readonly #createThread: ComputeThreadFactory
   readonly #maxOutputBytes: number | undefined
+  readonly #maxMemoryPages: number | undefined
   readonly #deadlineMs: number
   readonly #maxThreads: number
   readonly #pending = new Map<number, Pending>()
@@ -149,6 +157,8 @@ export class WorkerExecutor implements Executor {
     this.#blockstore = options.blockstore
     this.#createThread = options.createThread
     this.#maxOutputBytes = options.maxOutputBytes
+    this.#maxMemoryPages =
+      options.maxMemoryPages === undefined ? undefined : assertMemoryCap(options.maxMemoryPages)
     this.#deadlineMs = options.deadlineMs ?? DEFAULT_TASK_DEADLINE_MS
     this.#maxThreads = maxThreads
   }
@@ -322,6 +332,7 @@ export class WorkerExecutor implements Executor {
       partitionIndex: task.partitionIndex,
       partitionCount: task.partitionCount,
       ...(this.#maxOutputBytes === undefined ? {} : { maxOutputBytes: this.#maxOutputBytes }),
+      ...(this.#maxMemoryPages === undefined ? {} : { maxMemoryPages: this.#maxMemoryPages }),
     }
 
     return new Promise<ExecutionOutcome>((resolve) => {

@@ -63,6 +63,17 @@ budget, the module trapped at the same point on every run.
 1. **Now, at no cost.** Add the host-call count and peak memory (pages) beside today's byte count, and
    write a memory cap into the module at publish time. Keep PR #41's wall-clock milliseconds as
    self-reported telemetry for scheduling only — never in cost, verification or reputation.
+   **Amended 2026-09-30 — the cap is enforced by the node at admission, not written into the
+   module at publish.** Every node refuses, before instantiating, a module whose memory
+   (defined or imported) declares no maximum or a maximum above the node's cap (default 4096
+   pages, 256 MiB — the per-task budget in `research/PITFALLS.md`); the engine then enforces
+   each admitted guest's own declared maximum exactly, as this row's table entry says. The
+   signer applies the same check before signing. Why not at publish: the three shipped
+   guests already declare `initial === maximum`, so there is nothing to write, and the only
+   publish path (`demo/scripts/sign-kernel.ts`) makes new keys and new signed records on
+   every run — rotating them was not approved. Refusal at admission protects the same tab
+   and the same volunteer machine without touching a signature. Ledger: VER-06, note of
+   2026-09-30.
 2. **Next: the per-block counter as the primary, verifiable cost unit.** Bytes across the ABI remain the
    I/O part.
    - **Where the rewrite happens:** once per module at publish time, by the build authority that already
@@ -109,6 +120,10 @@ Per-instruction counting and sampling are ruled out.
 - Claims that Safari/Firefox fingerprinting protection caps the reported core count were not verified.
 - No published numbers were found for per-block counting on V8; the overhead figures above are this
   consult's own.
+- **Added 2026-09-30:** whether 256 MiB is the right default for the translated (elfconv) tier.
+  Measured on every lift in the tree: none declares a memory maximum, and the smallest maximum
+  each survives is 4116–4120 pages (257.25–257.5 MiB) — just over the default. Either the lift
+  must reserve less or that tier's cap must be raised; no ruling yet.
 
 ## 6. Sources
 

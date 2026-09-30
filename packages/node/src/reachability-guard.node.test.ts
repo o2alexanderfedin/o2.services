@@ -2808,7 +2808,20 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
 // Closing condition, checkable: none is scheduled. The entry leaves only if the drill's
 // process handling moves into a module some production entry point imports, which nothing
 // plans.
-const ORPHAN_MODULE_CEILING = 36
+//
+// 2026-09-30: 36 -> 38, raised by exactly two and named, both from the node's memory cap.
+// `packages/demo/src/publish-check.ts` is the check `demo/scripts/sign-kernel.ts` runs before
+// it signs; its importers are that script — run by hand, never by a production entry point —
+// and its own two specs. It is a module rather than code in the script because the script
+// cannot be imported by a test: every run makes new keys. `packages/aot/src/fixtures/memory-limits.ts`
+// re-declares a module's memory limits for the cap's specs, and sits beside
+// `wasi-fixtures.ts`, which is on this list for the same reason: test support that only specs
+// import.
+//
+// Closing condition, checkable: none is scheduled for either. `publish-check.ts` leaves if the
+// signer becomes a production entry point; `memory-limits.ts` if the lift driver ever
+// declares a maximum itself and imports it.
+const ORPHAN_MODULE_CEILING = 38
 
 /**
  * A production module that reaches **no barrel at all**, named by path.
