@@ -222,6 +222,9 @@ export class WorkerExecutor implements Executor {
           // The thread's reading, forwarded. Not re-measured here: this side's clock
           // would count the queue and the `postMessage` hop as the guest's time.
           execMs: response.execMs,
+          // Counted on the thread that ran the guest, and forwarded as counted.
+          hostCalls: response.hostCalls,
+          peakMemoryPages: response.peakMemoryPages,
           // Unsigned by construction — see `WasmExecutor`. This executor holds a thread
           // factory and a deadline, not an identity, and the thread on the other side
           // of `WorkerTaskResponse` holds even less.

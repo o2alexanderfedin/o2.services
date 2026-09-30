@@ -86,8 +86,18 @@ class Participant implements CommittingExecutor {
 
   /** The execution time this node reports on reveal — its own claim, never checked. */
   readonly #execMs: number
+  /** Host calls and pages this node reports on reveal — outside the commitment, as fuel is. */
+  readonly #cost: { readonly hostCalls: number; readonly peakMemoryPages: number }
 
-  constructor(nodeId: string, sum: number, log: string[] = [], commitDelayMs = 0, execMs = 0) {
+  constructor(
+    nodeId: string,
+    sum: number,
+    log: string[] = [],
+    commitDelayMs = 0,
+    execMs = 0,
+    cost: { readonly hostCalls: number; readonly peakMemoryPages: number } = { hostCalls: 0, peakMemoryPages: 0 },
+  ) {
+    this.#cost = cost
     this.nodeId = nodeId
     this.#sum = sum
     this.log = log
@@ -121,6 +131,8 @@ class Participant implements CommittingExecutor {
       output: this.pending.output,
       fuelUsed: 100,
       execMs: this.#execMs,
+      hostCalls: this.#cost.hostCalls,
+      peakMemoryPages: this.#cost.peakMemoryPages,
       attestation: 'signed-by-nobody',
     }
   }
@@ -178,7 +190,7 @@ class Replayer implements CommittingExecutor {
       nonce: first.nonce,
       output: first.output,
       fuelUsed: 100,
-      execMs: 0,
+      execMs: 0, hostCalls: 0, peakMemoryPages: 0,
       attestation: 'signed-by-nobody',
     }
   }
@@ -545,6 +557,33 @@ describe('VER-02 — the ceremony composes with what already verifies', () => {
     expect(result.grossFuel).toBe(300)
   })
 
+  it('carries each reveal’s host calls and memory as it carries fuel, split or not', async () => {
+    // Outside the commitment preimage as fuel is: 0 calls (a replica on the previous
+    // build) and 7 calls for one answer still agree, and the answer's figures are the
+    // first matching reveal's.
+    const agreed = await executeCommitReveal(task, [
+      new Participant('n1', 42, [], 0, 0, { hostCalls: 7, peakMemoryPages: 3 }),
+      new Participant('n2', 42, [], 0, 0, { hostCalls: 0, peakMemoryPages: 0 }),
+    ])
+    expect(agreed.status).toBe('agreed')
+    if (agreed.status !== 'agreed') return
+    expect(agreed.grossHostCalls).toBe(7)
+    expect(agreed.usefulHostCalls).toBe(7)
+    expect(agreed.grossPeakMemoryPages).toBe(3)
+    expect(agreed.usefulPeakMemoryPages).toBe(3)
+
+    // Every matching reveal did the work, whichever side of the split it is on.
+    const split = await executeCommitReveal(task, [
+      new Participant('n1', 42, [], 0, 0, { hostCalls: 2, peakMemoryPages: 1 }),
+      new Participant('n2', 42, [], 0, 0, { hostCalls: 3, peakMemoryPages: 2 }),
+      new Participant('n3', 7, [], 0, 0, { hostCalls: 5, peakMemoryPages: 4 }),
+    ])
+    expect(split.status).toBe('disagreed')
+    if (split.status !== 'disagreed') return
+    expect(split.grossHostCalls).toBe(10)
+    expect(split.grossPeakMemoryPages).toBe(7)
+  })
+
   it('carries each reveal’s execution time as it carries fuel, split or not', async () => {
     // Time is outside the commitment preimage exactly as fuel is, so 5 ms and 5000 ms
     // for one answer still agree — and the answer's time is the first matching reveal's.
@@ -573,7 +612,7 @@ describe('VER-02 — which executors the ceremony is selected for', () => {
     const kernelShaped: Executor = {
       nodeId: 'local',
       async execute() {
-        return { ok: true, output: null, fuelUsed: 0, execMs: 0, attestation: 'signed-by-nobody' }
+        return { ok: true, output: null, fuelUsed: 0, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' }
       },
     }
     expect(isCommitting(kernelShaped)).toBe(false)

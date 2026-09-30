@@ -203,6 +203,13 @@ export type RevealOutcome =
        * withheld with the answer in round 1. Outside the commitment preimage, as fuel is.
        */
       readonly execMs: number
+      /**
+       * Host calls the guest made — `ExecutionOutcome.hostCalls`. Outside the commitment
+       * preimage, as fuel is: binding it would make it compared, which is not decided.
+       */
+      readonly hostCalls: number
+      /** The guest's memory at the end, in 64 KiB pages — `ExecutionOutcome.peakMemoryPages`. */
+      readonly peakMemoryPages: number
       readonly attestation: AttestedResult
     }
   | { readonly ok: false; readonly reason: string }
@@ -387,6 +394,8 @@ export async function executeCommitReveal(
     output: CanonicalValue
     fuelUsed: number
     execMs: number
+    hostCalls: number
+    peakMemoryPages: number
     attestation: AttestedResult
   }[] = []
 
@@ -434,6 +443,8 @@ export async function executeCommitReveal(
       output: outcome.output,
       fuelUsed: outcome.fuelUsed,
       execMs: outcome.execMs,
+      hostCalls: outcome.hostCalls,
+      peakMemoryPages: outcome.peakMemoryPages,
       attestation: outcome.attestation,
     })
   }
@@ -461,6 +472,8 @@ export async function executeCommitReveal(
       failures,
       grossFuel: answered.reduce((sum, r) => sum + r.fuelUsed, 0),
       grossExecMs: answered.reduce((sum, r) => sum + r.execMs, 0),
+      grossHostCalls: answered.reduce((sum, r) => sum + r.hostCalls, 0),
+      grossPeakMemoryPages: answered.reduce((sum, r) => sum + r.peakMemoryPages, 0),
     }
   }
 
@@ -480,5 +493,9 @@ export async function executeCommitReveal(
     usefulFuel: winner.fuelUsed,
     grossExecMs: answered.reduce((sum, r) => sum + r.execMs, 0),
     usefulExecMs: winner.execMs,
+    grossHostCalls: answered.reduce((sum, r) => sum + r.hostCalls, 0),
+    usefulHostCalls: winner.hostCalls,
+    grossPeakMemoryPages: answered.reduce((sum, r) => sum + r.peakMemoryPages, 0),
+    usefulPeakMemoryPages: winner.peakMemoryPages,
   }
 }

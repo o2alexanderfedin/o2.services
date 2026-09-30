@@ -26,7 +26,14 @@
  *    redundant execution disagree, and the disagreement would be misdiagnosed as
  *    a determinism problem in the guest.
  *
- * 3. **Execution time is carried, summed and never judged.** `grossExecMs` and
+ * 3. **Host calls and peak memory are carried and summed, and not yet compared.**
+ *    `grossHostCalls`/`usefulHostCalls` and `grossPeakMemoryPages`/`usefulPeakMemoryPages`
+ *    follow fuel's two rules exactly. Unlike time they are exact and the same on every
+ *    engine, so they *could* be held to — but they stay out of the digest for rule 2's
+ *    reason until that is decided on its own, and a replica on a build from before them
+ *    reports 0 for an answer a current replica reports 7 for.
+ *
+ * 4. **Execution time is carried, summed and never judged.** `grossExecMs` and
  *    `usefulExecMs` follow `grossFuel` and `usefulFuel` exactly — every answering replica
  *    into gross, the answer's replica into useful — but each figure is a node's own
  *    clock reading and nothing here can check it. It is reported so a requestor can
@@ -64,6 +71,10 @@ export type Receipt =
       fuelUsed: number
       /** The node's own reading of its run — see `ExecutionOutcome.execMs`. */
       execMs: number
+      /** Host calls the guest made — see `ExecutionOutcome.hostCalls`. */
+      hostCalls: number
+      /** The guest's memory at the end, in 64 KiB pages — see `ExecutionOutcome.peakMemoryPages`. */
+      peakMemoryPages: number
       attestation: AttestedResult
     }
   | { ok: false; nodeId: string; reason: string }
@@ -105,6 +116,8 @@ async function runOne(executor: Executor, task: Task): Promise<Receipt> {
     output: outcome.output,
     fuelUsed: outcome.fuelUsed,
     execMs: outcome.execMs,
+    hostCalls: outcome.hostCalls,
+    peakMemoryPages: outcome.peakMemoryPages,
     attestation: outcome.attestation,
   }
 }
@@ -204,6 +217,20 @@ export type VerificationResult =
       grossExecMs: number
       /** The answer's replica's reported milliseconds — the replica `usefulFuel` is read from. */
       usefulExecMs: number
+      /**
+       * Host calls every answering replica's guest made, summed — over the same replicas
+       * `grossFuel` sums. A count, exact per run.
+       */
+      grossHostCalls: number
+      /** The answer's replica's host calls — the replica `usefulFuel` is read from. */
+      usefulHostCalls: number
+      /**
+       * Every answering replica's peak linear memory, in 64 KiB pages, summed — a sum of
+       * per-run peaks (page-runs), **not** the most memory any one run held at once.
+       */
+      grossPeakMemoryPages: number
+      /** The answer's replica's peak memory, in 64 KiB pages. */
+      usefulPeakMemoryPages: number
     }
   | {
       status: 'disagreed'
@@ -230,6 +257,10 @@ export type VerificationResult =
        * here for `grossFuel`'s reason. Self-reported, as on the `agreed` arm.
        */
       grossExecMs: number
+      /** Host calls every answering replica made, summed across the split — `grossFuel`'s reason. */
+      grossHostCalls: number
+      /** Every answering replica's peak memory in 64 KiB pages, summed across the split. */
+      grossPeakMemoryPages: number
     }
   | {
       status: 'insufficient'
@@ -273,6 +304,8 @@ export async function executeVerified(
 
   const grossFuel = answered.reduce((sum, r) => sum + r.fuelUsed, 0)
   const grossExecMs = answered.reduce((sum, r) => sum + r.execMs, 0)
+  const grossHostCalls = answered.reduce((sum, r) => sum + r.hostCalls, 0)
+  const grossPeakMemoryPages = answered.reduce((sum, r) => sum + r.peakMemoryPages, 0)
 
   if (groups.size > 1) {
     return {
@@ -281,6 +314,8 @@ export async function executeVerified(
       failures,
       grossFuel,
       grossExecMs,
+      grossHostCalls,
+      grossPeakMemoryPages,
     }
   }
 
@@ -304,5 +339,9 @@ export async function executeVerified(
     usefulFuel: winner.fuelUsed,
     grossExecMs,
     usefulExecMs: winner.execMs,
+    grossHostCalls,
+    usefulHostCalls: winner.hostCalls,
+    grossPeakMemoryPages,
+    usefulPeakMemoryPages: winner.peakMemoryPages,
   }
 }

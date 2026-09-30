@@ -72,8 +72,8 @@ function fakeExecutor(nodeId: string, sum: number): Executor {
         output: { shard: t.partitionIndex, sum },
         fuelUsed: 10,
         // The serving node's own claim about its run, withheld with the answer in round 1
-        // and handed back with it in round 2.
-        execMs: 17,
+        // and handed back with it in round 2 — its host calls and memory with it.
+        execMs: 17, hostCalls: 7, peakMemoryPages: 3,
         attestation: 'signed-by-nobody',
       }
     },
@@ -190,7 +190,7 @@ describe('VER-02 — the nonce is bounded at the wire, exactly rather than at a 
         nonce: new Uint8Array(nonceBytes),
         output,
         fuelUsed: 1,
-        execMs: 0,
+        execMs: 0, hostCalls: 0, peakMemoryPages: 0,
         attestation: 'signed-by-nobody',
       },
     })
@@ -218,7 +218,7 @@ describe('VER-02 — the nonce is bounded at the wire, exactly rather than at a 
         nonce: new Uint8Array(CEREMONY_NONCE_BYTES),
         output,
         fuelUsed: 1,
-        execMs: 4,
+        execMs: 4, hostCalls: 0, peakMemoryPages: 0,
         attestation: 'signed-by-nobody',
       },
     }) as { readonly [k: string]: CanonicalValue }
@@ -235,9 +235,39 @@ describe('VER-02 — the nonce is bounded at the wire, exactly rather than at a 
     expect(parseResponse({ ...framed, execMs: -3 } as CanonicalValue)).toBeNull()
   })
 
+  it('carries host calls and memory on a reveal, and reads a reveal from a build that sent none as 0', () => {
+    const framed = encodeResponse({
+      kind: 'reveal',
+      outcome: {
+        ok: true,
+        nonce: new Uint8Array(CEREMONY_NONCE_BYTES),
+        output,
+        fuelUsed: 1,
+        execMs: 0,
+        hostCalls: 7,
+        peakMemoryPages: 3,
+        attestation: 'signed-by-nobody',
+      },
+    }) as { readonly [k: string]: CanonicalValue }
+    const parsed = parseResponse(framed)
+    if (parsed?.kind !== 'reveal' || !parsed.outcome.ok) throw new Error('expected a reveal')
+    expect(parsed.outcome.hostCalls).toBe(7)
+    expect(parsed.outcome.peakMemoryPages).toBe(3)
+
+    // A previous build's reveal has neither key; refusing it would fail every old peer's
+    // ceremony during a rollout.
+    const { hostCalls: _calls, peakMemoryPages: _pages, ...old } = framed
+    const fromOld = parseResponse(old as CanonicalValue)
+    if (fromOld?.kind !== 'reveal' || !fromOld.outcome.ok) throw new Error('expected a reveal')
+    expect(fromOld.outcome.hostCalls).toBe(0)
+    expect(fromOld.outcome.peakMemoryPages).toBe(0)
+    expect(parseResponse({ ...framed, hostCalls: -1 } as CanonicalValue)).toBeNull()
+    expect(parseResponse({ ...framed, peakMemoryPages: 2.5 } as CanonicalValue)).toBeNull()
+  })
+
   it('refuses a reveal with no nonce at all rather than reading it as unsigned', () => {
     expect(
-      parseResponse({ kind: 'reveal', ok: true, output, fuelUsed: 1, execMs: 0, attestation: 'signed-by-nobody' }),
+      parseResponse({ kind: 'reveal', ok: true, output, fuelUsed: 1, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' }),
     ).toBeNull()
     expect(
       parseResponse({
@@ -246,7 +276,7 @@ describe('VER-02 — the nonce is bounded at the wire, exactly rather than at a 
         nonce: 'not-bytes',
         output,
         fuelUsed: 1,
-        execMs: 0,
+        execMs: 0, hostCalls: 0, peakMemoryPages: 0,
         attestation: 'signed-by-nobody',
       }),
     ).toBeNull()
@@ -291,6 +321,9 @@ describe('VER-02 — a served node hands its pending answer to nobody but the co
       expect(revealed.output).toEqual({ shard: 1, sum: 42 })
       // The time the serving node measured when it ran the task crosses with the answer.
       expect(revealed.execMs).toBe(17)
+      // So do its host calls and memory, kept in the pending commitment between rounds.
+      expect(revealed.hostCalls).toBe(7)
+      expect(revealed.peakMemoryPages).toBe(3)
 
       // The digest the requestor was handed in round 1 checks out against the answer it
       // hashes itself in round 2 — computed here the way `executeCommitReveal` computes
@@ -408,7 +441,7 @@ describe('VER-02 — the holding area expires what nobody came back for', () => 
     nonce: new Uint8Array(CEREMONY_NONCE_BYTES),
     output: { sum: 1 } as CanonicalValue,
     fuelUsed: 1,
-    execMs: 0,
+    execMs: 0, hostCalls: 0, peakMemoryPages: 0,
     attestation: 'signed-by-nobody' as const,
   }
 

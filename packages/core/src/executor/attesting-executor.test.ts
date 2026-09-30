@@ -63,7 +63,7 @@ function inner(nodeId: string, calls: { count: number } = { count: 0 }): Executo
         ok: true,
         output: { shard: task.partitionIndex, sum: task.partitionIndex * 7 },
         fuelUsed: 11,
-        execMs: 0,
+        execMs: 0, hostCalls: 0, peakMemoryPages: 0,
         attestation: 'signed-by-nobody',
       })
     },
@@ -228,7 +228,7 @@ describe('the kernel executors are unsigned by construction', () => {
       ok: true,
       outputBytes: encoded.bytes,
       fuelUsed: 3,
-      execMs: 0,
+      execMs: 0, hostCalls: 0, peakMemoryPages: 0,
     })
 
     const outcome = await pending

@@ -143,7 +143,7 @@
 
 import { Fd, WASI, wasi as wasiDefs } from '@bjorn3/browser_wasi_shim'
 import { sha256 } from '@noble/hashes/sha2.js'
-import { decodeCanonical } from '@o2/core'
+import { countingHostCalls, decodeCanonical, memoryPages } from '@o2/core'
 import type { Blockstore, CanonicalValue, ExecutionOutcome, Executor, Task } from '@o2/core'
 
 /** The one import namespace a WASI preview1 command module may use. */
@@ -666,6 +666,13 @@ export type WasiRunOutcome =
        * `ExecutionOutcome.execMs` for what it is and is not trusted for.
        */
       readonly execMs: number
+      /**
+       * Calls the guest made into `wasi_snapshot_preview1`, the one that ended the run
+       * (`proc_exit`) included — see `ExecutionOutcome.hostCalls`.
+       */
+      readonly hostCalls: number
+      /** The guest's memory when `_start` ended, in 64 KiB pages — the peak. */
+      readonly peakMemoryPages: number
     }
   | { readonly ok: false; readonly failure: WasiFailure }
 
@@ -776,6 +783,9 @@ export class WasiExecutor implements Executor {
       fuelUsed: outcome.inputBytes + outcome.stdoutBytes,
       // This node's own reading of `_start`, outside the digest beside fuel.
       execMs: outcome.execMs,
+      // Exact, and outside the digest beside fuel — see `ExecutionOutcome.hostCalls`.
+      hostCalls: outcome.hostCalls,
+      peakMemoryPages: outcome.peakMemoryPages,
       // Unsigned by construction, for `WasmExecutor`'s reason and with no exception for
       // the lifted-binary path: this class holds a blockstore and a node id, never a key
       // or a certificate. Signing is `attestResults`, composed at a node's construction.
@@ -837,9 +847,12 @@ export class WasiExecutor implements Executor {
       { debug: false },
     )
     const memoryRef: MemoryRef = { memory: null }
-    const imports = {
-      [WASI_NAMESPACE]: pinnedWasiImports(wasi.wasiImport, memoryRef, seededStream(taskSeed(task))),
-    }
+    // Counted around the pinned surface, so a call the executor pins (the clocks, entropy)
+    // and a call the shim answers are one call each — "a host call" as `WasmExecutor` means it.
+    const wasiImports = countingHostCalls(
+      pinnedWasiImports(wasi.wasiImport, memoryRef, seededStream(taskSeed(task))),
+    )
+    const imports = { [WASI_NAMESPACE]: wasiImports.imports }
 
     let instance: WebAssembly.Instance
     try {
@@ -924,6 +937,8 @@ export class WasiExecutor implements Executor {
       stdoutBytes: output.length,
       stdinConsumed: stdin.consumed,
       execMs,
+      hostCalls: wasiImports.calls(),
+      peakMemoryPages: memoryPages(memory),
     }
   }
 }

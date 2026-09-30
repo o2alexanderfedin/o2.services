@@ -48,22 +48,28 @@ const task: Task = {
   partitionCount: 4,
 }
 
+/** What a replica reports it cost beyond fuel and time — host calls and pages of memory. */
+interface GuestCost {
+  readonly hostCalls?: number
+  readonly peakMemoryPages?: number
+}
+
 /** Deterministic and honest: the same task always produces the same output. */
-function honest(nodeId: string, fuelUsed = 100, execMs = 0): Executor {
+function honest(nodeId: string, fuelUsed = 100, execMs = 0, cost: GuestCost = {}): Executor {
   return {
     nodeId,
     async execute(t: Task): Promise<ExecutionOutcome> {
-      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 42 }, fuelUsed, execMs, attestation: 'signed-by-nobody' }
+      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 42 }, fuelUsed, execMs, hostCalls: cost.hostCalls ?? 0, peakMemoryPages: cost.peakMemoryPages ?? 0, attestation: 'signed-by-nobody' }
     },
   }
 }
 
 /** Answers, and what it answers is wrong. `sum` is what diverges. */
-function liar(nodeId: string, sum: number, execMs = 0): Executor {
+function liar(nodeId: string, sum: number, execMs = 0, cost: GuestCost = {}): Executor {
   return {
     nodeId,
     async execute(t: Task): Promise<ExecutionOutcome> {
-      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum }, fuelUsed: 100, execMs, attestation: 'signed-by-nobody' }
+      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum }, fuelUsed: 100, execMs, hostCalls: cost.hostCalls ?? 0, peakMemoryPages: cost.peakMemoryPages ?? 0, attestation: 'signed-by-nobody' }
     },
   }
 }
@@ -140,7 +146,7 @@ function nanProducer(nodeId: string): Executor {
   return {
     nodeId,
     async execute(): Promise<ExecutionOutcome> {
-      return { ok: true, output: { mean: Number.NaN } as CanonicalValue, fuelUsed: 100, execMs: 0, attestation: 'signed-by-nobody' }
+      return { ok: true, output: { mean: Number.NaN } as CanonicalValue, fuelUsed: 100, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' }
     },
   }
 }
@@ -194,7 +200,7 @@ describe('what an agreement claims', () => {
       nodeId,
       async execute(t: Task): Promise<ExecutionOutcome> {
         seen.push({ nodeId, task: t })
-        return { ok: true, output: { sum: 42 }, fuelUsed: 100, execMs: 0, attestation: 'signed-by-nobody' }
+        return { ok: true, output: { sum: 42 }, fuelUsed: 100, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' }
       },
     })
 
@@ -315,6 +321,48 @@ describe('what is compared covers (task, output) only', () => {
     expect(r.status).toBe('agreed')
   })
 
+  it('does not compare host calls or memory — identical outputs agree whatever the counts say', async () => {
+    // Not yet part of what replicas are held to. The case that matters is a rollout: a
+    // replica on the previous build reports 0 calls and 0 pages, a current one 7 and 3,
+    // and the answer is the same answer. Folded into the digest they would split every
+    // mixed-build shard; the result CID must stay the output's and nothing else's.
+    const r = await executeVerified(task, [
+      honest('old-build', 100, 0, { hostCalls: 0, peakMemoryPages: 0 }),
+      honest('current', 100, 0, { hostCalls: 7, peakMemoryPages: 3 }),
+    ])
+    expect(r.status).toBe('agreed')
+    if (r.status !== 'agreed') return
+    expect(r.replicas).toBe(2)
+    const hashed = await canonicalCid(r.output)
+    expect(hashed.ok).toBe(true)
+    if (hashed.ok) expect(r.resultCid.toString()).toBe(hashed.cid.toString())
+
+    // And with the counts equal, the CID is still the output's alone.
+    const same = await executeVerified(task, [
+      honest('a', 100, 0, { hostCalls: 7, peakMemoryPages: 3 }),
+      honest('b', 100, 0, { hostCalls: 7, peakMemoryPages: 3 }),
+    ])
+    expect(same.status).toBe('agreed')
+    if (same.status !== 'agreed' || !hashed.ok) return
+    expect(same.resultCid.toString()).toBe(hashed.cid.toString())
+  })
+
+  it('carries host calls and memory as it carries fuel — gross is every replica, useful is the answer’s', async () => {
+    // 7 + 9 + 11 calls and 3 + 4 + 5 pages spent; the first replica's 7 and 3 bought the
+    // answer — the replica `usefulFuel` is read from.
+    const r = await executeVerified(task, [
+      honest('a', 100, 0, { hostCalls: 7, peakMemoryPages: 3 }),
+      honest('b', 100, 0, { hostCalls: 9, peakMemoryPages: 4 }),
+      honest('c', 100, 0, { hostCalls: 11, peakMemoryPages: 5 }),
+    ])
+    expect(r.status).toBe('agreed')
+    if (r.status !== 'agreed') return
+    expect(r.grossHostCalls).toBe(27)
+    expect(r.usefulHostCalls).toBe(7)
+    expect(r.grossPeakMemoryPages).toBe(12)
+    expect(r.usefulPeakMemoryPages).toBe(3)
+  })
+
   it('does not compare execution time — replicas reporting 5 ms and 5000 ms for one answer agree', async () => {
     // Time is the executing node's own clock reading, and two honest nodes never read the
     // same one. Folded into the digest it would turn every redundant run into a
@@ -382,6 +430,20 @@ describe('disagreement is surfaced, never voted away (VER-01)', () => {
     const r = await executeVerified(task, [honest('a'), honest('b'), liar('c', 7)])
     expect(r.status).toBe('disagreed')
     if (r.status === 'disagreed') expect(r.grossFuel).toBe(300)
+  })
+
+  it('reports the host calls and memory a split spent, for the same reason it reports the fuel', async () => {
+    // Every replica that answered did its work, whichever side it landed on:
+    // 2 + 3 + 5 calls, 1 + 2 + 4 pages.
+    const r = await executeVerified(task, [
+      honest('a', 100, 0, { hostCalls: 2, peakMemoryPages: 1 }),
+      honest('b', 100, 0, { hostCalls: 3, peakMemoryPages: 2 }),
+      liar('c', 7, 0, { hostCalls: 5, peakMemoryPages: 4 }),
+    ])
+    expect(r.status).toBe('disagreed')
+    if (r.status !== 'disagreed') return
+    expect(r.grossHostCalls).toBe(10)
+    expect(r.grossPeakMemoryPages).toBe(7)
   })
 
   it('reports the time a split spent, for the same reason it reports the fuel', async () => {

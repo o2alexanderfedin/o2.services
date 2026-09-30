@@ -401,6 +401,26 @@ itself. The work is real and the table says so; the box tracks delivery.
       Not done: a speculative copy still outstanding when the job settles is counted in
       neither figure, as for fuel; the bench's `Observation` does not publish it, because
       `grossFuel` is published nowhere either; CPU time is not measured.)*
+      *(**Extended 2026-09-30 — cost now also counts host calls and peak memory, and both are
+      exact.** The owner approved §3 item 1 of
+      `consults/2026-09-29-what-a-browser-node-can-measure-about-a-guest.md`. Every executor
+      that reports `fuelUsed` — `WasmExecutor`, the worker pool's `runTask`, `@o2/aot`'s
+      `WasiExecutor` — now reports `hostCalls` (every call the guest made into an imported
+      function, counted on entry, so WASI's `proc_exit` counts) and `peakMemoryPages` (the
+      guest's linear memory when the run ended, in 64 KiB pages; memory never shrinks, so
+      that is the peak). They ride every path fuel rides — `executeVerified` and
+      `executeCommitReveal`, disagreed arms included, the exec and reveal wire frames, the
+      pending commitment, the generation fold — to `JobResult.grossHostCalls` /
+      `usefulHostCalls` and `grossPeakMemoryPages` / `usefulPeakMemoryPages` (gross pages is
+      a sum of per-run peaks, not the job's peak). Unlike `execMs` both are the same on every
+      engine for the same module and input — except that a `memory.grow` within the module's
+      maximum can still fail on a host short of memory. **Still outside the compared digest
+      (VER-05)**: holding replicas to them is §3 item 2, not approved; tested — 0 calls and
+      7 calls for one answer agree. A peer on an older build omits both and reads as `0`; a
+      present value that is negative, fractional or unsafe is a broken frame. Fuel,
+      `execMs` and `verificationMultiplier` are unchanged. Not done: the memory cap written
+      into the module at publish time (§3 item 1's third part) — every shipped guest already
+      declares `initial === maximum`, and changing one means re-signing every record.)*
 - [x] **VER-08**: When an owner has two or more live nodes, a sovereignty-pinned
       task executes redundantly across the owner's own node set and the outputs
       are compared — no data leaves the owner's trust domain

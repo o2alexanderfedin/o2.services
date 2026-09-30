@@ -87,9 +87,9 @@ function code(body: number[], i32Locals = 0): number[] {
   return section(10, [0x01, ...uleb(withLocals.length), ...withLocals])
 }
 
-const build = (body: number[], i32Locals = 0): Uint8Array<ArrayBuffer> =>
+const build = (body: number[], i32Locals = 0, memory = MEMORY): Uint8Array<ArrayBuffer> =>
   new Uint8Array([
-    ...HEADER, ...TYPES, ...IMPORTS, ...FUNCS, ...MEMORY, ...EXPORTS,
+    ...HEADER, ...TYPES, ...IMPORTS, ...FUNCS, ...memory, ...EXPORTS,
     ...code(body, i32Locals),
   ])
 
@@ -166,6 +166,36 @@ export const MODULE_COUNTS_INPUT_BYTES: Uint8Array<ArrayBuffer> = build([
   0x36, 0x00, 0x00, // i32.store align=0 offset=0
   ...WRITE(0, 8),
 ])
+
+/**
+ * A guest whose cost is known by hand: **seven host calls, three pages**.
+ *
+ * Each of the four imports is called a different number of times — `input_len` twice,
+ * `partition` three times, `input_read` once, `output_write` once — so a counter that
+ * missed any one of them reports a total that names which. Memory is declared one page
+ * with a maximum of three and grown by two before the answer is written, so "size after
+ * the run" (3) and "size before it" (1) are different numbers.
+ *
+ * `initial < maximum` here and nowhere else in this file, on purpose: every other fixture
+ * pins its memory so `memory.grow` cannot fail differently on two hosts, and that would
+ * leave the peak-memory figure untested. The growth is two pages under a declared cap.
+ *
+ * Output: the byte at 200, still zero — DAG-CBOR for the integer `0`.
+ */
+export const MODULE_METERED: Uint8Array<ArrayBuffer> = build(
+  [
+    0x10, 0x00, 0x1a, // input_len(), drop
+    0x10, 0x00, 0x1a, // input_len(), drop
+    0x10, 0x03, 0x1a, // partition(), drop
+    0x10, 0x03, 0x1a, // partition(), drop
+    0x10, 0x03, 0x1a, // partition(), drop
+    ...i32(100), ...i32(0), 0x10, 0x01, 0x1a, // input_read(100, 0), drop
+    ...i32(2), 0x40, 0x00, 0x1a, // memory.grow 2, drop
+    ...WRITE(200, 1),
+  ],
+  0,
+  section(5, [0x01, 0x01, 0x01, 0x03]), // flags=has-max, min=1, max=3
+)
 
 /**
  * Writes once, over the cap, and nothing else.

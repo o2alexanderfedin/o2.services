@@ -1364,6 +1364,8 @@ export function serveAgent(options: AgentOptions): void {
             output: taken.pending.output,
             fuelUsed: taken.pending.fuelUsed,
             execMs: taken.pending.execMs,
+            hostCalls: taken.pending.hostCalls,
+            peakMemoryPages: taken.pending.peakMemoryPages,
             attestation: taken.pending.attestation,
           } as const)
         : ({ ok: false, reason: taken.reason } as const)
@@ -1653,6 +1655,8 @@ export function serveAgent(options: AgentOptions): void {
           output: outcome.output,
           fuelUsed: outcome.fuelUsed,
           execMs: outcome.execMs,
+          hostCalls: outcome.hostCalls,
+          peakMemoryPages: outcome.peakMemoryPages,
           attestation: outcome.attestation,
           at: Date.now(),
         })
