@@ -39,6 +39,37 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # ## Which tree this drills, and why it is named rather than inherited
+          #
+          # A `schedule:` fires on the default branch, so without this line the weekly run
+          # measures a release snapshot — and that snapshot goes stale the moment the drill's
+          # own harness is improved. Measured, not feared: every run of this workflow failed
+          # from the day it landed until 2026-09-30, because the fix sat on `develop` while the
+          # schedule kept reading the default branch, and the failure was in the harness rather
+          # than in anything the drill was pointed at.
+          #
+          # **A literal, not `${{ github.event_name == 'schedule' && … }}`.** An expression
+          # would leave the arm only a real schedule can reach unexercised until the next
+          # firing, and nothing here can produce that event on demand. One literal means a
+          # dispatch and a scheduled firing take the same line, so dispatching is a reading
+          # about both.
+          #
+          # **What it costs, stated because the next person will look for it.** A dispatch can
+          # no longer be aimed at another branch to try a harness change; push the change to
+          # `develop` and dispatch, which drills it.
+          #
+          # **The residual coupling.** Only the tree moves. The steps below still come from the
+          # default branch's copy of this file, so renaming the drill's spec is a change to
+          # BOTH branches, or the weekly run names a path that is not there.
+          ref: develop
+      - name: Name the tree this run measured
+        # So the claim "the weekly run drilled the integration branch" is read off the run
+        # rather than off the line above.
+        run: |
+          echo "event: ${{ github.event_name }}"
+          echo "head: $(git rev-parse HEAD)"
+          git log --format='subject %s%n committed %cI' -1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'

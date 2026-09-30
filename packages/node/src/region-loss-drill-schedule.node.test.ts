@@ -92,6 +92,32 @@ function referencedSpecPath(source: string): string {
   return value
 }
 
+/**
+ * The checkout step's own block — from its `- uses:` line to the next step at the same level.
+ *
+ * Read by line, for the reason {@link triggerBlock} gives: a `/m`-anchored regex over the whole
+ * file would happily find a `ref:` belonging to some later step and report it as this one's.
+ */
+function checkoutBlock(source: string): string {
+  const lines = source.split('\n')
+  const start = lines.findIndex((line) => /^\s*-\s+uses:\s*actions\/checkout@/.test(line))
+  if (start === -1) return ''
+  const indent = /^(\s*)-/.exec(lines[start] ?? '')?.[1] ?? ''
+  const block: string[] = []
+  for (const line of lines.slice(start + 1)) {
+    if (new RegExp(`^${indent}-\\s`).test(line)) break
+    if (/^[A-Za-z_]/.test(line)) break
+    block.push(line)
+  }
+  return block.join('\n')
+}
+
+/** The branch or sha the checkout step asks for, or `''` when it asks for none. */
+function checkoutRef(source: string): string {
+  const match = /^\s*ref:\s*(\S.*?)\s*$/m.exec(checkoutBlock(source))
+  return match?.[1] ?? ''
+}
+
 describe('NET-15 — the region-loss drill fires on a schedule that cannot silently narrow or widen', () => {
   it('reads a file big enough for the assertions below to mean something', () => {
     // The anti-vacuity floor. A truncated or emptied workflow would satisfy every `not.toContain`
@@ -177,5 +203,46 @@ describe('NET-15 — the region-loss drill fires on a schedule that cannot silen
   it('uploads the two-arm table with `if-no-files-found: error`, so a run that measured nothing fails', () => {
     expect(WORKFLOW).toContain('if-no-files-found: error')
     expect(WORKFLOW).toContain('two-arm-table.csv')
+  })
+
+  it('parses a real checkout step, so the three cases below are reading something', () => {
+    // The anti-vacuity floor for `checkoutBlock`. A renamed action, a reindented step or a
+    // checkout that lost its `with:` block all collapse the parse to `''`, and every
+    // assertion about the ref below would then be an assertion about an empty string.
+    expect(WORKFLOW).toMatch(/^\s*-\s+uses:\s*actions\/checkout@/m)
+    expect(
+      checkoutBlock(WORKFLOW).length,
+      `the checkout step's block parsed to ${String(checkoutBlock(WORKFLOW).length)} characters`,
+    ).toBeGreaterThan(2)
+  })
+
+  it('drills the integration branch by name, not whatever branch the firing came from', () => {
+    // A `schedule:` fires on the default branch, so without this the weekly run measures a
+    // release snapshot that goes stale the moment the drill's own harness is improved. That is
+    // not hypothetical: every run of this workflow failed from the day it landed until
+    // 2026-09-30, because the fix for it sat on `develop` while the schedule kept reading the
+    // default branch. The steps still come from the default branch's copy of this file — only
+    // the tree moves — so renaming the spec is a change to BOTH branches or the weekly run
+    // names a path that is not there.
+    expect(
+      checkoutRef(WORKFLOW),
+      `${WORKFLOW_PATH}'s checkout step asks for '${checkoutRef(WORKFLOW)}'`,
+    ).toBe('develop')
+  })
+
+  it('asks for that branch with no expression, so a dispatch exercises the same path a schedule takes', () => {
+    // The whole reason the ref is a literal. A `${{ github.event_name == 'schedule' && ... }}`
+    // form would leave the arm that only a real schedule can reach unexercised until the next
+    // firing, and this repository has no way to produce that event from inside a test. One
+    // literal means a dispatch and a schedule check out the same tree by the same line, so
+    // dispatching proves the behaviour for both.
+    expect(checkoutRef(WORKFLOW)).not.toContain('${{')
+  })
+
+  it('records which tree it measured, so the run log carries the evidence rather than this file', () => {
+    // Without this the claim "the weekly run drilled the integration branch" rests on reading
+    // the ref above and trusting the action. The step prints the resolved sha and subject, so
+    // every run states it.
+    expect(WORKFLOW).toContain('git rev-parse HEAD')
   })
 })

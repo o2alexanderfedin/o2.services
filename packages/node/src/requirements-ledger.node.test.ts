@@ -2066,9 +2066,43 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     // not a scheduled reading: the schedule runs on `main`, which gets the fix only with the
     // next release. And none of it is the live reading the row waits on — owner act 2 and
     // `HOST-06` are exactly where they were above.
+    // **RE-READ 2026-09-30 — the drill has produced its first reading, and the sentence
+    // directly above about "the next release" is now false.** `main` took the fix without a
+    // release, by `0a1db736`, a `develop` into `main` merge. Carrying only the one fix was
+    // tried first and measured: CI on that branch failed `typecheck`, `node` and `audit`, none
+    // of it the fix — two re-read promises in this very file had come due since 2.1.0-rc.2 was
+    // cut, and an `undici` advisory was published after it. So the narrow push would have
+    // reddened the release branch, and the whole integrated branch came over instead. Nothing
+    // was released: `deploy.yml` answers only a published release, `package.json` read
+    // 2.1.0-rc.2 on both sides, and v2.1.0-rc.2 still points at `6da6e735`.
+    //
+    // **The reading itself**, from the table the run uploaded (dispatch on `main`, run
+    // 36682608701, 37 s, arms A and B of one run): at the `wss-bootstrap` stage arm A shows
+    // all three regions `entered: 4` with `stalledAt: 0`, and arm B — `bootstrap-eu`
+    // terminated between the arms and reported `unreachable` — shows the two survivors
+    // `entered: 8` each with `stalledAt: 4` on `bootstrap-us` and `0` on `bootstrap-sam`. The
+    // moving stage is named by the table rather than inferred: `wss-bootstrap`. Every other
+    // stage is `0` in both arms, which is what a funnel counter reads when no visitor got that
+    // far in either arm.
+    //
+    // **And the drift that produced the two-month gap is closed at the schedule rather than by
+    // hand.** The weekly firing checked out the default branch, so it measured a release
+    // snapshot and went stale the moment the drill's own harness was improved — which is
+    // exactly how it failed from the day it landed. The checkout now names `develop`, with a
+    // step that prints the sha it got, and the schedule witness gained three cases reading
+    // that ref out of the file. Watched: `ref: main` reddens the branch case, an expression
+    // form reddens that case and the no-expression case together, deleting the printing line
+    // reddens the record case; all three restored, `cmp` clean.
+    //
+    // **What does NOT move.** Both readings so far are dispatches, and a dispatch is not the
+    // repeated scheduled series the requirement asks for — the first scheduled firing under
+    // the named ref is 2026-10-05 06:00 UTC, and that arm is unproven until it lands. The
+    // bucket therefore stays `experiment-not-run`: what has not run is the schedule. The live
+    // reading the row waits on is where it was — owner act 2 is still not taken and `HOST-06`
+    // still reads *Not started*, so all of the above is three LOCAL stand-ins on one runner.
     id: 'NET-15',
     because: 'experiment-not-run',
-    reread: '2026-09-29',
+    reread: '2026-09-30',
     witnesses: [
       'packages/cloudflare/src/region-loss-drill.e2e.test.ts',
       'packages/node/src/region-loss-drill-schedule.node.test.ts',
