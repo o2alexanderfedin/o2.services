@@ -305,7 +305,12 @@ const BINARY_EXTENSIONS: readonly string[] = [
 ]
 
 function isDeclaredBinary(file: string): boolean {
-  return BINARY_EXTENSIONS.some((ext) => file.endsWith(ext))
+  // Folded to lower case because {@link BINARY_EXTENSIONS} is written in lower case and a
+  // format is not a different format when its extension is shouted. A camera writes `.PNG`,
+  // and the case-sensitive version of this line reported such a file as one that had escaped
+  // the scan — a red over a filename, with nothing wrong inside the file.
+  const lowered = file.toLowerCase()
+  return BINARY_EXTENSIONS.some((ext) => lowered.endsWith(ext))
 }
 
 /**
@@ -515,6 +520,22 @@ describe('a NUL byte cannot buy a file its way out of the scan', () => {
     )
     expect(nulVerdict('docs/p2p-native-cloud-design.md', Buffer.from(NUL))).toBe('invisible')
     expect(nulVerdict('packages/browser/demo/index.html', Buffer.from(NUL))).toBe('invisible')
+  })
+
+  it('calls a NUL in a declared binary a binary whatever case the extension is written in', () => {
+    // A phone names its photographs `.PNG`, and `endsWith('.png')` answered no — so a real
+    // image added to this repository was reported as a file that had ESCAPED the scan, and the
+    // tree went red over a filename rather than over anything inside it. An extension is a
+    // statement about the format, and the format does not change with the case it is spelled
+    // in; on this machine's own filesystem the two spellings are the same name. Nothing is
+    // newly exempted by this: the class of contents skipped is unchanged, only which
+    // filenames are recognised as belonging to it.
+    expect(nulVerdict('259C68F2-7F99-4370-9951-2EF20F45A702.PNG', Buffer.from(NUL))).toBe(
+      'declared-binary',
+    )
+    expect(nulVerdict('tools/aot/fixtures/SUBJECT.WASM', Buffer.from(`x${NUL}y`))).toBe(
+      'declared-binary',
+    )
   })
 
   it('calls a NUL in a declared binary a binary', () => {
