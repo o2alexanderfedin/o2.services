@@ -65,6 +65,7 @@ export const FIXTURES = [
   'wasi-no-start',
   'wasi-no-memory',
   'wasi-thread-spawn',
+  'wasi-meter',
 ]
 
 /** Compile WAT source to wasm bytes, validating on the way through. */

@@ -6,6 +6,7 @@ import { publicNodes } from '../sovereignty.ts'
 import {
   MODULE_ECHOES_INPUT,
   MODULE_IMPORTS_CLOCK,
+  MODULE_METERED,
   MODULE_NO_OUTPUT,
   MODULE_OUTPUT_NEGATIVE_LENGTH,
   MODULE_OUTPUT_OVER_CAP,
@@ -45,6 +46,7 @@ describe('fixtures are genuinely valid WASM', () => {
     ['no-output', MODULE_NO_OUTPUT],
     ['traps', MODULE_TRAPS],
     ['imports-clock', MODULE_IMPORTS_CLOCK],
+    ['metered', MODULE_METERED],
   ])('%s validates', (_name, bytes) => {
     expect(WebAssembly.validate(bytes)).toBe(true)
   })
@@ -73,6 +75,34 @@ describe('WasmExecutor — the four-function host ABI (DET-06)', () => {
     expect(out.ok).toBe(true)
     if (out.ok) expect(out.execMs).toBe(250)
     expect(readings).toStrictEqual([])
+  })
+
+  it('counts every host call and reads the memory the guest ended with — 7 calls, 3 pages', async () => {
+    // Counted by hand from the fixture: input_len x2, partition x3, input_read x1,
+    // output_write x1. A counter that skipped any one import reports a different total.
+    // Memory is declared at 1 page and grown by 2 during the run, so a reading taken
+    // before the run would say 1.
+    const { store, moduleCid, inputCid } = await setup(MODULE_METERED)
+    const exec = new WasmExecutor({ nodeId: 'n1', blockstore: store })
+    const out = await exec.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.output).toBe(0)
+    expect(out.hostCalls).toBe(7)
+    expect(out.peakMemoryPages).toBe(3)
+  })
+
+  it('reports the same counts on every run of the same guest — they are a property of the program', async () => {
+    // MODULE_WRITES_PARTITION calls partition() once and output_write once, in 1 page.
+    const { store, moduleCid, inputCid } = await setup(MODULE_WRITES_PARTITION)
+    const exec = new WasmExecutor({ nodeId: 'n1', blockstore: store })
+    for (const index of [0, 7]) {
+      const out = await exec.execute({ moduleCid, inputCid, partitionIndex: index, partitionCount: 8 })
+      expect(out.ok).toBe(true)
+      if (!out.ok) return
+      expect(out.hostCalls).toBe(2)
+      expect(out.peakMemoryPages).toBe(1)
+    }
   })
 
   it('passes the partition index through to the guest for every shard', async () => {

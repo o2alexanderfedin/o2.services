@@ -40,6 +40,7 @@
   },
   "overrides": {
     "multiformats": "14.0.5",
-    "uint8arrays": "6.1.1"
+    "uint8arrays": "6.1.1",
+    "axios": "1.20.0"
   }
 }

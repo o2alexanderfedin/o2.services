@@ -68,6 +68,10 @@ export type WorkerTaskResponse =
        * the queue wait and the `postMessage` round trip.
        */
       readonly execMs: number
+      /** Host calls the guest made — `ExecutionOutcome.hostCalls`, counted on this thread. */
+      readonly hostCalls: number
+      /** The guest's memory at the end, in 64 KiB pages — `ExecutionOutcome.peakMemoryPages`. */
+      readonly peakMemoryPages: number
     }
   | { readonly id: number; readonly ok: false; readonly reason: string }
 
@@ -119,6 +123,8 @@ export async function runTask(
       outputBytes: encoded.bytes,
       fuelUsed: outcome.fuelUsed,
       execMs: outcome.execMs,
+      hostCalls: outcome.hostCalls,
+      peakMemoryPages: outcome.peakMemoryPages,
     }
   } catch (cause) {
     return {

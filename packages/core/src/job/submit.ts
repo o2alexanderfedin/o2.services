@@ -1051,6 +1051,34 @@ export interface JobResult {
    */
   readonly usefulExecMs: number
   /**
+   * How many times the guests called host (imported) functions, including redundant work —
+   * summed over exactly the runs `grossFuel` sums: every answering replica, a disagreeing
+   * shard's included, every generation of a re-dispatched shard.
+   *
+   * **Exact, unlike time.** Each term is a count the executor took at the ABI boundary,
+   * and the same module on the same input makes the same calls on every engine. It is a
+   * cost figure fuel cannot give: fuel counts bytes across the ABI, this counts crossings.
+   * Still outside the compared digest (VER-05) — honest replicas are not yet held to it.
+   * A peer on a build from before this field reports `0`.
+   */
+  readonly grossHostCalls: number
+  /** Host calls of the runs that produced the answer — per agreed shard, the replica `usefulFuel` is read from. */
+  readonly usefulHostCalls: number
+  /**
+   * Peak guest linear memory, in **64 KiB WebAssembly pages**, summed over the same runs
+   * `grossFuel` sums — a sum of per-run peaks (page-runs), not the most memory any one run
+   * held at once.
+   *
+   * Each term is the guest's memory size when its run ended; linear memory never shrinks,
+   * so that is the run's peak. Exact and the same on every engine, with one exception: a
+   * `memory.grow` inside the module's declared maximum can still fail when a host is short
+   * of memory, and a guest that handles that differently ends at a different size. Outside
+   * the compared digest, as `grossHostCalls`. A peer on a previous build reports `0`.
+   */
+  readonly grossPeakMemoryPages: number
+  /** Peak memory of the runs that produced the answer, in 64 KiB pages — the replica `usefulFuel` is read from. */
+  readonly usefulPeakMemoryPages: number
+  /**
    * Dispatches beyond the first, summed over every shard — CHURN-01.
    *
    * `0` says this job never had to retry anything. It is the figure `Observation.
@@ -1651,6 +1679,10 @@ function carriedResult(
       // Measured zeroes for the same reason: this requestor ran nothing for this shard.
       grossExecMs: 0,
       usefulExecMs: 0,
+      grossHostCalls: 0,
+      usefulHostCalls: 0,
+      grossPeakMemoryPages: 0,
+      usefulPeakMemoryPages: 0,
     },
     // Nothing was asked, nothing was placed, no generation ran, no lease was granted.
     // Measured zeroes, the same reading the `never-placed` arm takes — and `ending` is
@@ -1729,21 +1761,30 @@ function mergeVerifications(first: VerificationResult, second: VerificationResul
     output: CanonicalValue
     usefulFuel: number
     usefulExecMs: number
+    usefulHostCalls: number
+    usefulPeakMemoryPages: number
   } | null = null
   let grossFuel = 0
   // Time is folded exactly as fuel is, arm for arm — see `VerificationResult.grossExecMs`.
   let grossExecMs = 0
+  // And so are host calls and memory — see `VerificationResult.grossHostCalls`.
+  let grossHostCalls = 0
+  let grossPeakMemoryPages = 0
 
   for (const generation of [first, second]) {
     if (generation.status === 'agreed') {
       grossFuel += generation.grossFuel
       grossExecMs += generation.grossExecMs
+      grossHostCalls += generation.grossHostCalls
+      grossPeakMemoryPages += generation.grossPeakMemoryPages
       if (winner === null) {
         winner = {
           resultCid: generation.resultCid,
           output: generation.output,
           usefulFuel: generation.usefulFuel,
           usefulExecMs: generation.usefulExecMs,
+          usefulHostCalls: generation.usefulHostCalls,
+          usefulPeakMemoryPages: generation.usefulPeakMemoryPages,
         }
       }
       const key = generation.resultCid.toString()
@@ -1760,6 +1801,8 @@ function mergeVerifications(first: VerificationResult, second: VerificationResul
       // or a fold that ends in disagreement reports the work of every generation as free.
       grossFuel += generation.grossFuel
       grossExecMs += generation.grossExecMs
+      grossHostCalls += generation.grossHostCalls
+      grossPeakMemoryPages += generation.grossPeakMemoryPages
       for (const partition of generation.partitions) {
         nodesByCid.set(partition.resultCid, [
           ...(nodesByCid.get(partition.resultCid) ?? []),
@@ -1778,6 +1821,8 @@ function mergeVerifications(first: VerificationResult, second: VerificationResul
       failures,
       grossFuel,
       grossExecMs,
+      grossHostCalls,
+      grossPeakMemoryPages,
     }
   }
   if (winner === null) {
@@ -1813,6 +1858,10 @@ function mergeVerifications(first: VerificationResult, second: VerificationResul
     usefulFuel: winner.usefulFuel,
     grossExecMs,
     usefulExecMs: winner.usefulExecMs,
+    grossHostCalls,
+    usefulHostCalls: winner.usefulHostCalls,
+    grossPeakMemoryPages,
+    usefulPeakMemoryPages: winner.usefulPeakMemoryPages,
   }
 }
 
@@ -3552,6 +3601,10 @@ export async function submitJob(
   let useful = 0
   let grossExecMs = 0
   let usefulExecMs = 0
+  let grossHostCalls = 0
+  let usefulHostCalls = 0
+  let grossPeakMemoryPages = 0
+  let usefulPeakMemoryPages = 0
   for (const s of shards) {
     // Gross is what was spent, so a shard that disagreed counts: its replicas did the
     // work. Useful is what bought the answer, so only an agreed shard has any. Time is
@@ -3559,10 +3612,14 @@ export async function submitJob(
     if (s.verification.status === 'agreed' || s.verification.status === 'disagreed') {
       gross += s.verification.grossFuel
       grossExecMs += s.verification.grossExecMs
+      grossHostCalls += s.verification.grossHostCalls
+      grossPeakMemoryPages += s.verification.grossPeakMemoryPages
     }
     if (s.verification.status === 'agreed') {
       useful += s.verification.usefulFuel
       usefulExecMs += s.verification.usefulExecMs
+      usefulHostCalls += s.verification.usefulHostCalls
+      usefulPeakMemoryPages += s.verification.usefulPeakMemoryPages
     }
   }
 
@@ -3583,6 +3640,10 @@ export async function submitJob(
       verificationMultiplier: useful === 0 ? 0 : gross / useful,
       grossExecMs,
       usefulExecMs,
+      grossHostCalls,
+      usefulHostCalls,
+      grossPeakMemoryPages,
+      usefulPeakMemoryPages,
       redispatches: leases.redispatches,
       leaseHistory: leases.history,
       speculationMultiplier: ledger.multiplier,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { encodeCanonical } from '../canonical/encode.ts'
-import { MODULE_WRITES_PARTITION } from './fixtures.ts'
+import { MODULE_METERED, MODULE_WRITES_PARTITION } from './fixtures.ts'
 import { runTask, runTaskAndPost } from './task-run.ts'
 import type { WorkerTaskRequest, WorkerTaskResponse } from './task-run.ts'
 
@@ -115,7 +115,9 @@ describe('runTaskAndPost — a response that could not be posted comes back as a
     if (first === undefined) throw new Error('nothing was posted')
     // The fixture is doing its job — this is the response that could not cross.
     expect(first.ok).toBe(true)
-    expect(Object.keys(first).sort()).toEqual(['execMs', 'fuelUsed', 'id', 'ok', 'outputBytes'])
+    expect(Object.keys(first).sort()).toEqual([
+      'execMs', 'fuelUsed', 'hostCalls', 'id', 'ok', 'outputBytes', 'peakMemoryPages',
+    ])
 
     const substitute = sink.seen[1]
     if (substitute === undefined) throw new Error('no substitute was posted')
@@ -162,5 +164,16 @@ describe('runTask — the thread measures the guest’s time and sends it back',
     if (!response.ok) return
     expect(response.execMs).toBe(7)
     expect(readings).toStrictEqual([])
+  })
+})
+
+describe('runTask — the thread counts the guest’s host calls and memory and sends them back', () => {
+  it('reports what the guest did, counted on the thread that ran it', async () => {
+    // The metered fixture: 7 host calls, memory grown from 1 page to 3.
+    const response = await runTask({ ...SUCCEEDS, moduleBytes: MODULE_METERED })
+    expect(response.ok).toBe(true)
+    if (!response.ok) return
+    expect(response.hostCalls).toBe(7)
+    expect(response.peakMemoryPages).toBe(3)
   })
 })

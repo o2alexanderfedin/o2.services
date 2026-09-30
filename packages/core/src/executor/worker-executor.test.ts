@@ -163,7 +163,7 @@ describe('SCHED-06 — a task that will not come back is bounded by wall clock',
     const output = encodeCanonical(42)
     expect(output.ok).toBe(true)
     if (!output.ok) return
-    threads[1]?.answer({ id: request.id, ok: true, outputBytes: output.bytes, fuelUsed: 3, execMs: 0 })
+    threads[1]?.answer({ id: request.id, ok: true, outputBytes: output.bytes, fuelUsed: 3, execMs: 0, hostCalls: 0, peakMemoryPages: 0 })
 
     const outcome = await second
     expect(outcome.ok).toBe(true)
@@ -236,7 +236,7 @@ describe('SCHED-06 — a task that will not come back is bounded by wall clock',
     const output = encodeCanonical(7)
     expect(output.ok).toBe(true)
     if (!output.ok) return
-    threads[1]?.answer({ id: request.id, ok: true, outputBytes: output.bytes, fuelUsed: 1, execMs: 0 })
+    threads[1]?.answer({ id: request.id, ok: true, outputBytes: output.bytes, fuelUsed: 1, execMs: 0, hostCalls: 0, peakMemoryPages: 0 })
 
     const b = await second
     expect(b.ok, 'a queued task must survive the death of the thread it was waiting on').toBe(true)
@@ -403,7 +403,7 @@ describe('the pool runs as many tasks at once as the host has cores, and no more
     const firstRequest = thread.posted[0]
     expect(firstRequest).toBeDefined()
     if (firstRequest === undefined) return
-    thread.answer({ id: firstRequest.id, ok: true, outputBytes: output.bytes, fuelUsed: 1, execMs: 0 })
+    thread.answer({ id: firstRequest.id, ok: true, outputBytes: output.bytes, fuelUsed: 1, execMs: 0, hostCalls: 0, peakMemoryPages: 0 })
     expect((await first).ok).toBe(true)
 
     // The SAME thread took the queued task — the pool reuses rather than rebuilding.
@@ -414,7 +414,7 @@ describe('the pool runs as many tasks at once as the host has cores, and no more
     const secondRequest = thread.posted[1]
     expect(secondRequest).toBeDefined()
     if (secondRequest === undefined) return
-    thread.answer({ id: secondRequest.id, ok: true, outputBytes: output.bytes, fuelUsed: 1, execMs: 0 })
+    thread.answer({ id: secondRequest.id, ok: true, outputBytes: output.bytes, fuelUsed: 1, execMs: 0, hostCalls: 0, peakMemoryPages: 0 })
     expect((await second).ok).toBe(true)
   })
 
@@ -554,10 +554,30 @@ describe('the pool runs as many tasks at once as the host has cores, and no more
     if (request === undefined) return
     const output = encodeCanonical(42)
     if (!output.ok) throw new Error('fixture output will not canonicalise')
-    thread.answer({ id: request.id, ok: true, outputBytes: output.bytes, fuelUsed: 3, execMs: 12 })
+    thread.answer({ id: request.id, ok: true, outputBytes: output.bytes, fuelUsed: 3, execMs: 12, hostCalls: 0, peakMemoryPages: 0 })
     const outcome = await pending
     expect(outcome.ok).toBe(true)
     if (outcome.ok) expect(outcome.execMs).toBe(12)
+  })
+
+  it('passes on the host calls and memory the thread counted, unchanged', async () => {
+    // Counted where the guest ran; this side forwards them. 9 calls and 4 pages in, the
+    // same out — neither is re-derived here, and nothing here could re-derive them.
+    const { blockstore, task } = await seeded()
+    const thread = fakeThread()
+    const executor = new WorkerExecutor({ nodeId: 'tab', blockstore, createThread: () => thread })
+    const pending = executor.execute(task)
+    await until('the task to reach the thread', () => thread.posted.length === 1)
+    const request = thread.posted[0]
+    if (request === undefined) return
+    const output = encodeCanonical(42)
+    if (!output.ok) throw new Error('fixture output will not canonicalise')
+    thread.answer({ id: request.id, ok: true, outputBytes: output.bytes, fuelUsed: 3, execMs: 0, hostCalls: 9, peakMemoryPages: 4 })
+    const outcome = await pending
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.hostCalls).toBe(9)
+    expect(outcome.peakMemoryPages).toBe(4)
   })
 
   it('refuses a bound that is not a number of threads', () => {

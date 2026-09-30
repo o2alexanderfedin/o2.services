@@ -5,6 +5,7 @@ import type { CID } from 'multiformats/cid'
 import { describe, expect, it, vi } from 'vitest'
 import {
   wasiEcho,
+  wasiMeter,
   wasiEnv,
   wasiFail,
   wasiFdstat,
@@ -229,6 +230,26 @@ describe("the task's input reaches the guest and its output comes back decoded",
     // both halves are the same size.
     const inputBytes = await blockstore.get(inputCid)
     if (outcome.ok) expect(outcome.fuelUsed).toBe((inputBytes?.length ?? 0) * 2)
+  })
+
+  it('counts every host call, the one that never returns included — 5 calls, 3 pages', async () => {
+    // `wasi-meter.wat`, counted by hand: clock_time_get x3 (pinned by this executor),
+    // fd_write x1 (the shim's own), proc_exit x1 — which throws through the host to end
+    // the run, so it is only counted if the count is taken on the way in. Memory is
+    // declared at 1 page and grown to 3 during the run.
+    const outcome = await run(wasiMeter, {})
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.value).toBe(0)
+    expect(outcome.hostCalls).toBe(5)
+    expect(outcome.peakMemoryPages).toBe(3)
+
+    const { blockstore, moduleCid, inputCid } = await store(wasiMeter, {})
+    const executed = await new WasiExecutor({ nodeId: 'n1', blockstore }).execute(task(moduleCid, inputCid))
+    expect(executed.ok).toBe(true)
+    if (!executed.ok) return
+    expect(executed.hostCalls).toBe(5)
+    expect(executed.peakMemoryPages).toBe(3)
   })
 
   it('reports the guest’s run time off the injected clock, as WasmExecutor does', async () => {

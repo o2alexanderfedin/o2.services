@@ -20,7 +20,7 @@ import type { ResultSigner } from '../result-attestation.ts'
 import { DEFAULT_SPECULATION_FRACTION, MIN_SAMPLES } from '../speculation.ts'
 import { publicNodes } from '../sovereignty.ts'
 import type { NodeDescriptor } from '../sovereignty.ts'
-import { MODULE_WRITES_PARTITION } from '../executor/fixtures.ts'
+import { MODULE_METERED, MODULE_WRITES_PARTITION } from '../executor/fixtures.ts'
 import { WasmExecutor } from '../executor/wasm.ts'
 import { DEFAULT_SPECULATION_WATCHDOG_MS, jobIdOf, submitJob } from './submit.ts'
 import type {
@@ -45,7 +45,7 @@ function honest(nodeId: string): Executor {
         ok: true,
         output: { shard: task.partitionIndex, of: task.partitionCount, sum: task.partitionIndex * 10 },
         fuelUsed: 100,
-        execMs: 0,
+        execMs: 0, hostCalls: 0, peakMemoryPages: 0,
         attestation: 'signed-by-nobody',
       }
     },
@@ -61,9 +61,24 @@ function liar(nodeId: string): Executor {
         ok: true,
         output: { shard: task.partitionIndex, of: task.partitionCount, sum: 999 },
         fuelUsed: 100,
-        execMs: 0,
+        execMs: 0, hostCalls: 0, peakMemoryPages: 0,
         attestation: 'signed-by-nobody',
       }
+    },
+  }
+}
+
+/**
+ * `inner`, reporting the host calls and pages of memory its run took. Unlike time these
+ * are exact, but they are the executing node's own figures all the same, and here they
+ * are whatever the test says. Wraps the answer and leaves a failure alone.
+ */
+function costedAs(inner: Executor, hostCalls: number, peakMemoryPages: number): Executor {
+  return {
+    nodeId: inner.nodeId,
+    async execute(task: Task): Promise<ExecutionOutcome> {
+      const outcome = await inner.execute(task)
+      return outcome.ok ? { ...outcome, hostCalls, peakMemoryPages } : outcome
     },
   }
 }
@@ -106,7 +121,7 @@ function nanProducer(nodeId: string): Executor {
   return {
     nodeId,
     async execute(): Promise<ExecutionOutcome> {
-      return { ok: true, output: { mean: Number.NaN } as CanonicalValue, fuelUsed: 100, execMs: 0, attestation: 'signed-by-nobody' }
+      return { ok: true, output: { mean: Number.NaN } as CanonicalValue, fuelUsed: 100, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' }
     },
   }
 }
@@ -211,13 +226,13 @@ describe('what is compared covers (task, output) only (VER-05)', () => {
     const first: Executor = {
       nodeId: '12D3KooWHPSVMPEezVCXvka2ahwT26JGL8EBr61LpGEU3ujHQM9Q',
       async execute(t) {
-        return { ok: true, output: { shard: t.partitionIndex, sum: 7 }, fuelUsed: 5, execMs: 0, attestation: 'signed-by-nobody' }
+        return { ok: true, output: { shard: t.partitionIndex, sum: 7 }, fuelUsed: 5, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' }
       },
     }
     const second: Executor = {
       nodeId: 'a-node-whose-id-shares-nothing-with-the-first',
       async execute(t) {
-        return { ok: true, output: { shard: t.partitionIndex, sum: 7 }, fuelUsed: 5, execMs: 0, attestation: 'signed-by-nobody' }
+        return { ok: true, output: { shard: t.partitionIndex, sum: 7 }, fuelUsed: 5, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' }
       },
     }
 
@@ -233,13 +248,13 @@ describe('what is compared covers (task, output) only (VER-05)', () => {
     const slow: Executor = {
       nodeId: 'slow',
       async execute(t) {
-        return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 0 }, fuelUsed: 99999, execMs: 0, attestation: 'signed-by-nobody' }
+        return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 0 }, fuelUsed: 99999, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' }
       },
     }
     const fast: Executor = {
       nodeId: 'fast',
       async execute(t) {
-        return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 0 }, fuelUsed: 1, execMs: 0, attestation: 'signed-by-nobody' }
+        return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 0 }, fuelUsed: 1, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' }
       },
     }
     const r = await executeVerified(task, [slow, fast])
@@ -467,6 +482,107 @@ describe('submitJob — sharding and content addressing (MR-01, DATA-01)', () =>
     // Fuel is untouched by any of this.
     expect(r.job.grossFuel).toBe(400)
     expect(r.job.verificationMultiplier).toBe(2)
+  })
+
+  it('reports the host calls and memory real guests used, gross over every replica and useful for the answer', async () => {
+    // End to end over two real `WasmExecutor`s running the metered fixture — 7 host calls
+    // and 3 pages each, counted by hand from its bytes — at redundancy 2 on one shard.
+    // Both replicas did the work (14 calls, 6 pages); one of them bought the answer.
+    const store = new MemoryBlockstore()
+    const moduleCid = await store.put(MODULE_METERED)
+    const executors = [
+      new WasmExecutor({ nodeId: 'a', blockstore: store }),
+      new WasmExecutor({ nodeId: 'b', blockstore: store }),
+    ]
+    const r = await submitJob(
+      {
+        moduleCid,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      store,
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.job.shards[0]?.verification.status).toBe('agreed')
+    expect(r.job.grossHostCalls).toBe(14)
+    expect(r.job.usefulHostCalls).toBe(7)
+    expect(r.job.grossPeakMemoryPages).toBe(6)
+    expect(r.job.usefulPeakMemoryPages).toBe(3)
+    // Fuel and its ratio are what they were: nothing here feeds them.
+    expect(r.job.verificationMultiplier).toBe(2)
+  })
+
+  it('sums every replica’s host calls and memory into gross, and only the answer’s into useful', async () => {
+    // Two shards at redundancy 2 on nodes that report 7 calls / 3 pages and 11 calls /
+    // 5 pages: 36 calls and 16 pages spent. Useful is each shard's answering replica,
+    // derived from the result rather than assumed.
+    const costs: Readonly<Record<string, readonly [number, number]>> = { a: [7, 3], b: [11, 5] }
+    const executors = [costedAs(honest('a'), 7, 3), costedAs(honest('b'), 11, 5)]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ n: 1 }, { n: 2 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.job.grossHostCalls).toBe(36)
+    expect(r.job.grossPeakMemoryPages).toBe(16)
+    let answersCalls = 0
+    let answersPages = 0
+    for (const s of r.job.shards) {
+      expect(s.verification.status).toBe('agreed')
+      if (s.verification.status !== 'agreed') return
+      const [calls, pages] = costs[s.verification.agreeing[0]?.nodeId ?? ''] ?? [Number.NaN, Number.NaN]
+      answersCalls += calls
+      answersPages += pages
+    }
+    expect(r.job.usefulHostCalls).toBe(answersCalls)
+    expect(r.job.usefulPeakMemoryPages).toBe(answersPages)
+    expect(r.job.usefulHostCalls).toBeLessThan(r.job.grossHostCalls)
+    // Fuel is untouched by any of this.
+    expect(r.job.grossFuel).toBe(400)
+    expect(r.job.verificationMultiplier).toBe(2)
+  })
+
+  it('counts the host calls and memory a disagreeing shard spent in gross, and none in useful', async () => {
+    // PR #39's fuel case, for these figures: both shards disagree, each with one replica
+    // at 2 calls / 1 page and one at 5 calls / 4 pages. 14 calls and 10 pages spent,
+    // none of it bought an answer.
+    const executors = [costedAs(honest('a'), 2, 1), costedAs(liar('c'), 5, 4)]
+    const r = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ n: 1 }, { n: 2 }].map((value) => ({ value, label: 'public' as const })),
+        executors,
+        nodes: publicNodes(executors),
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.job.shards.map((s) => s.verification.status)).toStrictEqual(['disagreed', 'disagreed'])
+    expect(r.job.grossHostCalls).toBe(14)
+    expect(r.job.grossPeakMemoryPages).toBe(10)
+    expect(r.job.usefulHostCalls).toBe(0)
+    expect(r.job.usefulPeakMemoryPages).toBe(0)
   })
 
   it('counts the time a disagreeing shard spent in gross, and none of it in useful', async () => {
@@ -707,7 +823,7 @@ describe('DATA-03/DATA-04 — sovereignty wired onto submitJob', () => {
       nodeId: 'replica-1',
       async execute(task: Task): Promise<ExecutionOutcome> {
         replicaCalls += 1
-        return { ok: true, output: { shard: task.partitionIndex, of: task.partitionCount, sum: 0 }, fuelUsed: 1, execMs: 0, attestation: 'signed-by-nobody' }
+        return { ok: true, output: { shard: task.partitionIndex, of: task.partitionCount, sum: 0 }, fuelUsed: 1, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' }
       },
     }
     const executors = [honest('alice-1'), replicaExecutor]
@@ -828,7 +944,7 @@ describe('DET-03/DATA-08 — the signed module record reaches every task submitJ
         nodeId,
         async execute(task: Task): Promise<ExecutionOutcome> {
           captured = task
-          return { ok: true, output: { shard: task.partitionIndex }, fuelUsed: 1, execMs: 0, attestation: 'signed-by-nobody' }
+          return { ok: true, output: { shard: task.partitionIndex }, fuelUsed: 1, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' }
         },
       },
       seen: () => captured,
@@ -1492,6 +1608,78 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
     expect(r.job.grossFuel).toBe(300)
   })
 
+  it('keeps every generation’s host calls and memory across a top-up, agreed or split', async () => {
+    // The two top-up routes, with counts. Agreed: `n1` (7 calls, 3 pages) answers, `n2`
+    // dies, the top-up lands on `n3` (11 calls, 5 pages) — 18 and 8 spent, and the answer
+    // is generation one's, so useful is 7 and 3.
+    const agreedRan: string[] = []
+    const agreedExecutors = [
+      watched('n1', agreedRan, costedAs(honest('n1'), 7, 3)),
+      watched('n2', agreedRan, failing('n2', 'died between the offer and the dispatch')),
+      watched('n3', agreedRan, costedAs(honest('n3'), 11, 5)),
+      watched('n4', agreedRan, costedAs(honest('n4'), 1000, 1000)),
+    ]
+    const agreed = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: agreedExecutors,
+        nodes: publicNodes(agreedExecutors),
+        redundancy: 2,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    expect(agreed.ok).toBe(true)
+    if (!agreed.ok) return
+    expect(agreedRan).toStrictEqual(['n1', 'n2', 'n3'])
+    expect(agreed.job.shards[0]?.generations).toBe(2)
+    expect(agreed.job.grossHostCalls).toBe(18)
+    expect(agreed.job.usefulHostCalls).toBe(7)
+    expect(agreed.job.grossPeakMemoryPages).toBe(8)
+    expect(agreed.job.usefulPeakMemoryPages).toBe(3)
+
+    // Split: generation one agrees on `n1` (2 calls, 1 page) alone, and the top-up's two
+    // replicas disagree — `n4` honest at 3 / 2, `n5` lying at 5 / 4. 10 calls and 7 pages
+    // spent, none useful.
+    const splitRan: string[] = []
+    const splitExecutors = [
+      watched('n1', splitRan, costedAs(honest('n1'), 2, 1)),
+      watched('n2', splitRan, failing('n2', 'died between the offer and the dispatch')),
+      watched('n3', splitRan, failing('n3', 'died between the offer and the dispatch')),
+      watched('n4', splitRan, costedAs(honest('n4'), 3, 2)),
+      watched('n5', splitRan, costedAs(liar('n5'), 5, 4)),
+    ]
+    const split = await submitJob(
+      {
+        moduleCid: MODULE_CID,
+        shards: [{ value: { n: 1 }, label: 'public' }],
+        executors: splitExecutors,
+        nodes: publicNodes(splitExecutors),
+        redundancy: 3,
+        onQuorumShortfall: 'runs-at-available-redundancy',
+      },
+      new MemoryBlockstore(),
+      // CHURN-03 — this test asserts nothing about checkpointing.
+      { checkpoints: 'checkpoints-nothing' },
+    )
+    expect(split.ok).toBe(true)
+    if (!split.ok) return
+    expect([...splitRan].sort()).toStrictEqual(['n1', 'n2', 'n3', 'n4', 'n5'])
+    const shard = split.job.shards[0] as ShardResult
+    expect(shard.generations).toBe(2)
+    expect(shard.verification.status).toBe('disagreed')
+    if (shard.verification.status !== 'disagreed') return
+    expect(shard.verification.grossHostCalls).toBe(10)
+    expect(shard.verification.grossPeakMemoryPages).toBe(7)
+    expect(split.job.grossHostCalls).toBe(10)
+    expect(split.job.grossPeakMemoryPages).toBe(7)
+    expect(split.job.usefulHostCalls).toBe(0)
+    expect(split.job.usefulPeakMemoryPages).toBe(0)
+  })
+
   it('keeps every generation’s execution time across a top-up, agreed or split', async () => {
     // The two top-up routes above, with times. Agreed: `n1` (10 ms) answers, `n2` dies,
     // the top-up lands on `n3` (20 ms) — 30 spent, and the answer is generation one's.
@@ -1762,7 +1950,7 @@ describe('WIRE-04/CHURN-01 — a shard whose executor refuses or dies is placed 
               ok: true,
               output: { shard: 0, of: 1, sum: 0 },
               fuelUsed: 100,
-              execMs: 0,
+              execMs: 0, hostCalls: 0, peakMemoryPages: 0,
               attestation: 'signed-by-nobody',
             })
           }
@@ -2094,7 +2282,7 @@ describe('CHURN-02/CHURN-06 — a straggler is duplicated, and the loser is stil
                 ok: true,
                 output: (options.output ?? agreeingOutput)(handed),
                 fuelUsed: 100,
-                execMs: 0,
+                execMs: 0, hostCalls: 0, peakMemoryPages: 0,
                 attestation: 'signed-by-nobody',
               }
             : { ok: false, reason: options.failWith },
@@ -3342,7 +3530,7 @@ function signing(node: Enrolled, signer: ResultSigner = node.signer): Executor {
         ok: true,
         output,
         fuelUsed: 100,
-        execMs: 0,
+        execMs: 0, hostCalls: 0, peakMemoryPages: 0,
         attestation: signResult(signer, {
           moduleCid: task.moduleCid,
           inputCid: task.inputCid,
@@ -3369,7 +3557,7 @@ function signingSomethingElse(node: Enrolled): Executor {
         ok: true,
         output: answerFor(task),
         fuelUsed: 100,
-        execMs: 0,
+        execMs: 0, hostCalls: 0, peakMemoryPages: 0,
         attestation: signResult(node.signer, {
           moduleCid: task.moduleCid,
           inputCid: task.inputCid,
@@ -4114,7 +4302,7 @@ describe('CHURN-05 — the one job path reports how many of its owners contribut
           ok: true,
           output: { shard: handed.partitionIndex, of: handed.partitionCount, sum: handed.partitionIndex * 10 },
           fuelUsed: 100,
-          execMs: 0,
+          execMs: 0, hostCalls: 0, peakMemoryPages: 0,
           attestation: 'signed-by-nobody',
         })
       },
@@ -4599,7 +4787,7 @@ describe('CHURN-03 — a departed requestor leaves a record, and a second one fi
           ok: true,
           output: { shard: shardTask.partitionIndex, pad: 'x'.repeat(width) },
           fuelUsed: 100,
-          execMs: 0,
+          execMs: 0, hostCalls: 0, peakMemoryPages: 0,
           attestation: 'signed-by-nobody',
         }
       },

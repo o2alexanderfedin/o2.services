@@ -110,6 +110,9 @@ export interface PendingCommitment {
   readonly fuelUsed: number
   /** The run's own time, withheld with the answer — see `ExecutionOutcome.execMs`. */
   readonly execMs: number
+  /** Host calls and peak memory (64 KiB pages) of the run, withheld with the answer. */
+  readonly hostCalls: number
+  readonly peakMemoryPages: number
   readonly attestation: AttestedResult
   /** When {@link PendingCommitments.file} recorded it, in the caller's clock. */
   readonly at: number

@@ -482,7 +482,7 @@ describe('what a node said about its own result survives the wire', async () => 
   const reply = (outcomeAttestation: AttestedResult) =>
     ({
       kind: 'exec',
-      outcome: { ok: true, output: { rows: 3 }, fuelUsed: 12, execMs: 9.5, attestation: outcomeAttestation },
+      outcome: { ok: true, output: { rows: 3 }, fuelUsed: 12, execMs: 9.5, hostCalls: 7, peakMemoryPages: 3, attestation: outcomeAttestation },
     }) as const
 
   it('round-trips an attestation exactly, certificate field by certificate field', () => {
@@ -527,6 +527,50 @@ describe('what a node said about its own result survives the wire', async () => 
     expect(parsed.outcome.execMs).toBe(0)
     expect(parsed.outcome.fuelUsed).toBe(12)
   })
+
+  it('reads an answer from a build that sent no host calls or memory as 0, not as a broken frame', () => {
+    // The previous build answers without either field. Refusing it would fail one replica
+    // per old peer for a whole rollout; it reads as 0 — "claimed nothing" — for each field
+    // independently, and the rest of the frame is read as it was.
+    const current = encodeResponse(reply('signed-by-nobody')) as { readonly [k: string]: CanonicalValue }
+    const { hostCalls: droppedCalls, peakMemoryPages: droppedPages, ...old } = current
+    expect(droppedCalls).toBe(7)
+    expect(droppedPages).toBe(3)
+    const parsed = parseResponse(old as CanonicalValue)
+    if (parsed?.kind !== 'exec' || !parsed.outcome.ok) throw new Error('expected an exec answer')
+    expect(parsed.outcome.hostCalls).toBe(0)
+    expect(parsed.outcome.peakMemoryPages).toBe(0)
+    expect(parsed.outcome.fuelUsed).toBe(12)
+    expect(parsed.outcome.execMs).toBe(9.5)
+
+    const { hostCalls: _calls, ...withoutCalls } = current
+    const onlyPages = parseResponse(withoutCalls as CanonicalValue)
+    if (onlyPages?.kind !== 'exec' || !onlyPages.outcome.ok) throw new Error('expected an exec answer')
+    expect(onlyPages.outcome.hostCalls).toBe(0)
+    expect(onlyPages.outcome.peakMemoryPages).toBe(3)
+
+    const { peakMemoryPages: _pages, ...withoutPages } = current
+    const onlyCalls = parseResponse(withoutPages as CanonicalValue)
+    if (onlyCalls?.kind !== 'exec' || !onlyCalls.outcome.ok) throw new Error('expected an exec answer')
+    expect(onlyCalls.outcome.hostCalls).toBe(7)
+    expect(onlyCalls.outcome.peakMemoryPages).toBe(0)
+  })
+
+  it.each(['hostCalls', 'peakMemoryPages'])(
+    'refuses a %s that is present and not a non-negative whole number',
+    (field) => {
+      const frame = (value: CanonicalValue): CanonicalValue =>
+        ({ ...(encodeResponse(reply('signed-by-nobody')) as object), [field]: value }) as CanonicalValue
+      expect(parseResponse(frame(4))).not.toBeNull() // the control
+      expect(parseResponse(frame(0))).not.toBeNull() // zero is a count, not an absence
+      expect(parseResponse(frame(-1))).toBeNull()
+      expect(parseResponse(frame(1.5))).toBeNull()
+      expect(parseResponse(frame(Number.NaN))).toBeNull()
+      expect(parseResponse(frame(2 ** 53))).toBeNull()
+      expect(parseResponse(frame('7'))).toBeNull()
+      expect(parseResponse(frame(null))).toBeNull()
+    },
+  )
 
   it('refuses an execution time that is present and not a non-negative finite number', () => {
     const frame = (execMs: CanonicalValue): CanonicalValue =>

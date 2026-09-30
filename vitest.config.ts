@@ -1115,9 +1115,46 @@ const NODE_MEASUREMENT = {
    * ratio **5.37**, so at 5.73 this run took 6.8 % more CPU per wall second than that
    * reference — the signature of a process that was less starved, which is the quietness claim
    * the wall clock could not carry. No absolute duration from this pass is recorded anywhere.
+   *
+   * ## 2026-09-30: 3976 -> 3980 and 3202 -> 3206, four cases and no new file
+   *
+   * `packages/node/src/region-loss-drill-schedule.node.test.ts` gained four cases reading the
+   * drill workflow's checkout step: that it parses at all, that it names `develop` rather than
+   * inheriting whatever branch the firing came from, that the ref is a literal so a dispatch
+   * exercises the same line a scheduled firing takes, and that the run prints the sha it got.
+   * `files` and `unitFiles` do NOT move — the cases arrived in a file both lanes already held.
+   *
+   * Measured: `npx vitest run --project node` collected `Test Files 273 passed (273)` and
+   * `Tests 3978 passed | 2 skipped (3980)`; `O2_UNIT_ONLY=1` collected `190 passed (190)` and
+   * `3206 passed (3206)`. Both exit 0, read on the line immediately after the command with no
+   * pipe between them.
+   *
+   * **No duration is recorded from this pass, and the reason is the one directly above**: the
+   * banner printed `HOST WAS OVERSUBSCRIBED` at load/core 2.31 before and 20.17 after, which
+   * is this lane's own worker pool rather than foreign contention — the inversion recorded in
+   * `tools/measure/host-conditions-reporter.ts`. Pass and fail stand; every span in that run
+   * is void.
+   *
+   * **One thing moved that was not mine, named rather than quietly absorbed**: the skipped
+   * count went 3 -> 2, so a case that was skipped in the pass above now runs. Nothing in this
+   * change touches a `skipIf`, so the condition is environmental — most of this tree's skips
+   * are conditioned on a gitignored artifact being present. Not chased; recorded so the next
+   * reader does not read it as a case somebody deleted.
+   *
+   * ## 2026-09-30, same day: 3980 -> 3981, one case, and `unitTests` does NOT follow
+   *
+   * `packages/node/src/vocabulary.node.test.ts` gained one case: a NUL inside a file whose
+   * extension is spelled in upper case is a declared binary, not a file that escaped the scan.
+   * `isDeclaredBinary` compared with `endsWith` against a lower-case list, so a camera's
+   * `.PNG` reddened the tree over its filename. `unitTests` stays at 3206 because that file is
+   * the first entry in `scripts/cheap-guards.sh`'s list, so the unit lane never runs it —
+   * measured, not assumed: `O2_UNIT_ONLY=1` returned `3206 passed (3206)` before and after.
+   *
+   * Measured: `npx vitest run --project node` collected `Test Files 273 passed (273)` and
+   * `Tests 3979 passed | 2 skipped (3981)`, exit 0 on the line after the command.
    */
   files: 273,
-  tests: 3976,
+  tests: 3981,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
@@ -1629,7 +1666,7 @@ const NODE_MEASUREMENT = {
    * Nothing failed; no duration quoted.
    */
   unitFiles: 190,
-  unitTests: 3202,
+  unitTests: 3206,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
   unitWallClockMs: 10_240,

@@ -24,6 +24,7 @@ import {
   WASI_FAIL_BASE64,
   WASI_FDSTAT_BASE64,
   WASI_HOSTCALL_BASE64,
+  WASI_METER_BASE64,
   WASI_NO_MEMORY_BASE64,
   WASI_NO_START_BASE64,
   WASI_NOISY_BASE64,
@@ -72,6 +73,12 @@ export const wasiNoMemory: Uint8Array<ArrayBuffer> = decodeBase64(WASI_NO_MEMORY
 /** Imports `wasi_snapshot_preview1.thread_spawn`, which the host does not supply. */
 export const wasiThreadSpawn: Uint8Array<ArrayBuffer> = decodeBase64(WASI_THREAD_SPAWN_BASE64)
 
+/**
+ * Five host calls (three `clock_time_get`, one `fd_write`, one `proc_exit`), memory grown
+ * from one page to three, output DAG-CBOR `0` — a guest whose cost is known by hand.
+ */
+export const wasiMeter: Uint8Array<ArrayBuffer> = decodeBase64(WASI_METER_BASE64)
+
 /** Every fixture, keyed by the name its `.wat` and `.wasm` files carry. */
 export const WASI_FIXTURES: Readonly<Record<string, Uint8Array<ArrayBuffer>>> = {
   'wasi-echo': wasiEcho,
@@ -85,4 +92,5 @@ export const WASI_FIXTURES: Readonly<Record<string, Uint8Array<ArrayBuffer>>> = 
   'wasi-no-start': wasiNoStart,
   'wasi-no-memory': wasiNoMemory,
   'wasi-thread-spawn': wasiThreadSpawn,
+  'wasi-meter': wasiMeter,
 }
