@@ -108,6 +108,8 @@ export interface PendingCommitment {
   readonly nonce: Uint8Array<ArrayBuffer>
   readonly output: CanonicalValue
   readonly fuelUsed: number
+  /** The run's own time, withheld with the answer — see `ExecutionOutcome.execMs`. */
+  readonly execMs: number
   readonly attestation: AttestedResult
   /** When {@link PendingCommitments.file} recorded it, in the caller's clock. */
   readonly at: number

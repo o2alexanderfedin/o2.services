@@ -25,15 +25,19 @@ cost. Saying who holds provenance makes the claim checkable rather than merely s
 > peer to exchange WebRTC signalling, and GitHub Pages runs no server process.
 > Supply one with `?relay=<multiaddr>`.
 >
-> **CORRECTED 2026-09-27.** This read *"The deployed bundle predates Phase 9 — the
-> consent gate, the running bar and the colouring job are in this repository but not on
-> that URL."* All three are on that URL. The page was republished on 2026-09-24 from
-> `4bd3e6a`, verified against node `2.1.0-rc.1`, and the deployed `index.html` has ten
-> lines mentioning `consent` — including a consent screen with a heading — fifty-seven
-> mentioning `colouring`, and eight mentioning `running`. Phase 9 merged on 2026-07-27,
-> two months before that publish. Republishing is still a deliberate human act, and the
-> link that used to sit here pointed at a `## Disclosure` section this file does not
-> have: see [Deployment](#deployment).
+> **CORRECTED 2026-09-27, and the correction itself re-measured a day later.** This read
+> *"The deployed bundle predates Phase 9 — the consent gate, the running bar and the
+> colouring job are in this repository but not on that URL."* All three are on that URL, and
+> Phase 9 merged on 2026-07-27 — two months before the publish that was live when this was
+> written. The durable citation is the publish commit: `gh-pages` carries *"Publish the
+> browser client built from `6da6e735` — verified against node `2.1.0-rc.2`"*.
+>
+> **The first version of this correction counted lines in the deployed `index.html`, and the
+> count went stale inside a day** — fifty-seven mentions of `colouring` became fifty-one at
+> the next publish, with the claim's substance untouched. A number about a build artifact
+> cannot stay true across builds, so it is replaced here by the thing that can. Republishing
+> is still a deliberate human act, and the link that used to sit here pointed at a
+> `## Disclosure` section this file does not have: see [Deployment](#deployment).
 
 ---
 

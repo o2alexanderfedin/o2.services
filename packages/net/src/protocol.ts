@@ -1551,6 +1551,8 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
             nonce: ownBytes(response.outcome.nonce),
             output: response.outcome.output,
             fuelUsed: response.outcome.fuelUsed,
+            // Always emitted, so an absent key has exactly one meaning: a previous build.
+            execMs: response.outcome.execMs,
             attestation: attestationToValue(response.outcome.attestation),
           }
         : { kind: 'reveal', ok: false, reason: response.outcome.reason }
@@ -1561,10 +1563,30 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
             ok: true,
             output: response.outcome.output,
             fuelUsed: response.outcome.fuelUsed,
+            // Always emitted, so an absent key has exactly one meaning: a previous build.
+            execMs: response.outcome.execMs,
             attestation: attestationToValue(response.outcome.attestation),
           }
         : { kind: 'exec', ok: false, reason: response.outcome.reason }
   }
+}
+
+/**
+ * The `execMs` of an `exec` or `reveal` answer — the serving node's own reading of how
+ * long the guest ran — or `null` for a frame to refuse.
+ *
+ * **Absent reads as `0`, and that is an understatement, not a measurement.** Every peer on
+ * a build from before the field existed answers without it, and refusing those frames
+ * would fail one replica per old peer for the whole of a rollout: a restriction invented
+ * from silence, which `offer`'s `standing` above refuses in the same words. `0` says only
+ * that this peer claimed no time, and time is self-reported and unverified anyway — see
+ * `ExecutionOutcome.execMs`. **Present and wrong is refused**, the disposition `fuelUsed`
+ * takes: a negative or non-finite duration is a broken frame, not a claim to sum.
+ */
+function parseExecMs(value: CanonicalValue | undefined): number | null {
+  if (value === undefined) return 0
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null
+  return value
 }
 
 export function parseResponse(body: CanonicalValue): AgentResponse | null {
@@ -1720,11 +1742,13 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
         if (output === undefined || typeof fuelUsed !== 'number' || !Number.isFinite(fuelUsed)) {
           return null
         }
+        const execMs = parseExecMs(record['execMs'])
+        if (execMs === null) return null
         const attestation = parseAttestation(record['attestation'])
         if (attestation === null) return null
         return {
           kind: 'reveal',
-          outcome: { ok: true, nonce: ownBytes(nonce), output, fuelUsed, attestation },
+          outcome: { ok: true, nonce: ownBytes(nonce), output, fuelUsed, execMs, attestation },
         }
       }
       if (record['ok'] !== false) return null
@@ -1741,12 +1765,14 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
         if (output === undefined || typeof fuelUsed !== 'number' || !Number.isFinite(fuelUsed)) {
           return null
         }
+        const execMs = parseExecMs(record['execMs'])
+        if (execMs === null) return null
         // Refused, never downgraded. A frame whose attestation does not parse is a
         // protocol error, and reporting it as an honest peer that holds no certificate
         // would hand the requestor a weaker receipt with nothing to indicate why.
         const attestation = parseAttestation(record['attestation'])
         if (attestation === null) return null
-        return { kind: 'exec', outcome: { ok: true, output, fuelUsed, attestation } }
+        return { kind: 'exec', outcome: { ok: true, output, fuelUsed, execMs, attestation } }
       }
       if (record['ok'] !== false) return null
       const reason = record['reason']

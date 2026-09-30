@@ -31,13 +31,26 @@ run.
 `participantLabel` in the same file renders the reading, and when nothing announced a machine it
 produces exactly this sentence:
 
-> `N distinct peers — machine count not measured; peers are tabs, and two tabs on one device are two peers`
+> `N distinct peers — machine count not measured; a peer is one browser profile per origin, so tabs of one profile are one peer and two profiles on one device are two`
 
 The caveat travels inside the string with the number, for `machineLabel`'s reason: a label that sits
 in a separate paragraph gets separated from its figure the first time somebody copies the figure out.
-And the trailing clause is the whole point — a peer id is what a browser tab has, so two tabs open on
-one laptop are two peers and one device. Publishing that pair as a device count is the exact
-over-count `BENCH-06`'s own row forbids.
+
+**CORRECTED 2026-09-28 — the trailing clause said "peers are tabs, and two tabs on one device are
+two peers", and that described this demo rather than a visitor.** `browser-node.ts` opens
+`IdbIdentityStore`, loads a stored seed when one exists and mints only when none does, and
+`libp2p/src/identity.ts:110` derives the key with `generateKeyPairFromSeed` — from the seed alone,
+no per-tab component. So the identity is one per **origin** and every later tab loads it;
+`disclosure.ts` states it and `gated-seed.e2e.test.ts` pins it as *"same origin, same IndexedDB,
+therefore the same peer id"*. The two-tab arrangement in this repository gets two peers only
+because `demo/main.ts:860` hands the tabs **distinct `blockstoreName`s** — `o2-colouring-a` and
+`o2-colouring-b` — which a cohort visitor does not do.
+
+The direction of the caveat is unchanged: a device can still carry more than one peer, through a
+second profile, a second browser or a node process, so the count stays an **upper bound** on
+machines and publishing it as a device count is the over-count `BENCH-06`'s own row forbids. What
+was wrong was the mechanism, and it understated the figure — distinct peers count profiles, not
+tabs.
 
 **What the peer count is not.** It is not identity-hardened. Nothing stops one operator presenting
 many peer ids, so the figure is an upper bound on independent participants rather than a measurement
@@ -96,6 +109,19 @@ uses correctly in four places.
 
 ## 3. The three routes to the missing half, and what each costs
 
+**RULED 2026-09-28: route (b).** The owner ruled that a peer id is not personal data — *"не IP
+address, не email, не имя владельца, не PII"* — and that publishing it is fine. Measured while
+answering the question that came with the ruling: **a peer id is not a hash.** libp2p uses the
+`identity` multihash for Ed25519 (code `0x00`), so the peer id carries the 32-byte public key
+verbatim and `publicKeyFromProtobuf` recovers it from the peer id alone. It is a key generated in
+the visitor's browser, tied to no name and no address.
+
+So the run publishes the **distinct-peer count as a pair of bounds** — profiles over-count
+machines, countries under-count them — which is what §1 already builds. No machine descriptor is
+announced, `disclosure.ts` is untouched, `DISCLOSURE_VERSION` stays `'8'`, and nobody is re-asked.
+Route (a) is not taken and `BENCH-06`'s distinct-machine half stays unmeasured **by decision**.
+Full reasoning in `OWNER-ACTIONS.md` row 10.
+
 ### (a) Announce a coarse machine descriptor on the job path
 
 A per-visit datum — enough to tell two tabs on one laptop from two laptops — announced with the peer
@@ -129,11 +155,27 @@ what a run reports if no ruling is made before it.
 by construction with a schema frozen at digest `3911527f1a04abee`. A figure captioned as a device
 count and derived from any of them would be precisely the substitution criterion 4 forbids.
 
-### The sequencing fact that makes (a) cheap, if it is chosen soon
+### The sequencing fact that made (a) cheap — EXPIRED, corrected 2026-09-28
 
-**The published page is behind the tree, so the next release cut re-asks everyone once regardless** —
-and a disclosure change ruled on *before* that cut therefore rides a re-ask that is already owed
-rather than buying a second one.
+**This section's premise was false when written, and its own caveat is what caught it.** It read:
+*"The published page is behind the tree, so the next release cut re-asks everyone once regardless"*
+— and therefore that a disclosure change ruled on before that cut would ride a re-ask already owed.
+
+The reading below was taken on 2026-09-07 off `origin/gh-pages` **without fetching**, and it says so
+in its own last sentence. What it read was `edf132a`, a publish from **2026-09-02** built from
+`8261793`. Two fresher publishes existed the same day: `12871d0` and `928a4bf`, both built from
+`779443e`, where `DISCLOSURE_VERSION` was already `'8'` — the tree's own value. The positive control
+confirms it from the other side: `passphrase`, named here as version 8's headline change and counted
+at **zero** in the published page, appears **seven** times in every published `index.html` back to
+and including 2026-09-07.
+
+**So the published page was never behind after 2026-09-07, and three releases since have held
+`'8'`.** There is no owed re-ask. Route (a) now costs a fresh re-ask of the cohort rather than
+riding one; route (b) still costs nothing. The decision did not get harder, it got more expensive,
+and nothing about it is time-critical any more.
+
+The stale reading is kept below rather than deleted, because it is the clearest example this
+repository has of a caveat that named the exact failure and was trusted anyway.
 
 Read 2026-09-07 off the locally-held `origin/gh-pages` ref, which is the publication mechanism:
 commit `edf132a`, committed `2026-09-02T01:59:49+00:00`. That predates the version `'5'` bump

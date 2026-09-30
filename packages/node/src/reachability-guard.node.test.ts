@@ -2794,7 +2794,21 @@ describe('WIRE-02 — every unreachable export is named by a register, in both d
 // own barrel. The entry above is left in place rather than deleted, matching this list's own
 // convention of recording a raise and its close as a pair rather than erasing the history of
 // why the number moved.
-const ORPHAN_MODULE_CEILING = 35
+//
+// 2026-09-29: 35 -> 36, raised by exactly one and named.
+// `packages/cloudflare/src/process-group.ts` starts a `wrangler dev` child in a process group
+// of its own and signals the whole group, so killing a local region reaches the `workerd`
+// that holds its port. Signalling the `npx` process alone left `workerd` serving on Linux,
+// which is why every run of `region-loss-drill.yml` failed with "the kill did not take". It is
+// a test instrument in the same category as `do-storage.fixture.ts` and `local-acme.ts`: its
+// importers are `region-loss-drill.e2e.test.ts` and its own `process-group.node.test.ts`, and
+// the traced graph does not walk specs. It is a module rather than code inside the e2e file
+// because a unit spec cannot import an e2e file without booting three workers.
+//
+// Closing condition, checkable: none is scheduled. The entry leaves only if the drill's
+// process handling moves into a module some production entry point imports, which nothing
+// plans.
+const ORPHAN_MODULE_CEILING = 36
 
 /**
  * A production module that reaches **no barrel at all**, named by path.

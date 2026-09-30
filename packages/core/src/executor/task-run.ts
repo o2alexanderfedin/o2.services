@@ -61,6 +61,13 @@ export type WorkerTaskResponse =
       readonly ok: true
       readonly outputBytes: Uint8Array<ArrayBuffer>
       readonly fuelUsed: number
+      /**
+       * The guest's run time as THIS thread measured it — see `ExecutionOutcome.execMs`.
+       * Measured here and not on the calling thread, because only this side can put the
+       * two readings around the guest call and nothing else; the caller's clock would add
+       * the queue wait and the `postMessage` round trip.
+       */
+      readonly execMs: number
     }
   | { readonly id: number; readonly ok: false; readonly reason: string }
 
@@ -71,7 +78,10 @@ export type WorkerTaskResponse =
  * here are ABI-shaped, not thread-shaped, and a test that needs a real thread to
  * check them is a slower test that proves less.
  */
-export async function runTask(request: WorkerTaskRequest): Promise<WorkerTaskResponse> {
+export async function runTask(
+  request: WorkerTaskRequest,
+  now?: () => number,
+): Promise<WorkerTaskResponse> {
   try {
     const store = new MemoryBlockstore()
     const moduleCid = await store.put(request.moduleBytes)
@@ -80,6 +90,8 @@ export async function runTask(request: WorkerTaskRequest): Promise<WorkerTaskRes
       nodeId: 'worker',
       blockstore: store,
       ...(request.maxOutputBytes === undefined ? {} : { maxOutputBytes: request.maxOutputBytes }),
+      // `WasmExecutor`'s own monotonic default unless a test states the time.
+      ...(now === undefined ? {} : { now }),
     })
 
     const outcome = await executor.execute({
@@ -101,7 +113,13 @@ export async function runTask(request: WorkerTaskRequest): Promise<WorkerTaskRes
         reason: `output could not be re-encoded: ${JSON.stringify(encoded.error)}`,
       }
     }
-    return { id: request.id, ok: true, outputBytes: encoded.bytes, fuelUsed: outcome.fuelUsed }
+    return {
+      id: request.id,
+      ok: true,
+      outputBytes: encoded.bytes,
+      fuelUsed: outcome.fuelUsed,
+      execMs: outcome.execMs,
+    }
   } catch (cause) {
     return {
       id: request.id,

@@ -222,7 +222,7 @@ describe('CHURN-01 — an accepted dispatch names its result by its content addr
   const answering = (nodeId: string): Executor => ({
     nodeId,
     async execute(task: Task): Promise<ExecutionOutcome> {
-      return { ok: true, output: outputFor(task), fuelUsed: 7, attestation: 'signed-by-nobody' }
+      return { ok: true, output: outputFor(task), fuelUsed: 7, execMs: 0, attestation: 'signed-by-nobody' }
     },
   })
 

@@ -84,11 +84,15 @@ class Participant implements CommittingExecutor {
   /** Every call this node saw, in order — read by the barrier cases. */
   readonly log: string[]
 
-  constructor(nodeId: string, sum: number, log: string[] = [], commitDelayMs = 0) {
+  /** The execution time this node reports on reveal — its own claim, never checked. */
+  readonly #execMs: number
+
+  constructor(nodeId: string, sum: number, log: string[] = [], commitDelayMs = 0, execMs = 0) {
     this.nodeId = nodeId
     this.#sum = sum
     this.log = log
     this.#commitDelayMs = commitDelayMs
+    this.#execMs = execMs
   }
 
   async commit(t: Task): Promise<CommitOutcome> {
@@ -116,6 +120,7 @@ class Participant implements CommittingExecutor {
       nonce: this.pending.nonce,
       output: this.pending.output,
       fuelUsed: 100,
+      execMs: this.#execMs,
       attestation: 'signed-by-nobody',
     }
   }
@@ -173,6 +178,7 @@ class Replayer implements CommittingExecutor {
       nonce: first.nonce,
       output: first.output,
       fuelUsed: 100,
+      execMs: 0,
       attestation: 'signed-by-nobody',
     }
   }
@@ -534,6 +540,31 @@ describe('VER-02 — the ceremony composes with what already verifies', () => {
     if (result.status !== 'disagreed') return
     expect(result.partitions).toHaveLength(2)
     expect(result.partitions.flatMap((p) => p.nodes).sort()).toEqual(['n1', 'n2', 'n3'])
+    // Three reveals matched their commitments, so three replicas did the work — the same
+    // gross fuel `executeVerified` reports for the same split.
+    expect(result.grossFuel).toBe(300)
+  })
+
+  it('carries each reveal’s execution time as it carries fuel, split or not', async () => {
+    // Time is outside the commitment preimage exactly as fuel is, so 5 ms and 5000 ms
+    // for one answer still agree — and the answer's time is the first matching reveal's.
+    const agreed = await executeCommitReveal(task, [
+      new Participant('n1', 42, [], 0, 5),
+      new Participant('n2', 42, [], 0, 5000),
+    ])
+    expect(agreed.status).toBe('agreed')
+    if (agreed.status !== 'agreed') return
+    expect(agreed.grossExecMs).toBe(5005)
+    expect(agreed.usefulExecMs).toBe(5)
+
+    // Every matching reveal did the work, whichever side of the split it is on.
+    const split = await executeCommitReveal(task, [
+      new Participant('n1', 42, [], 0, 10),
+      new Participant('n2', 42, [], 0, 20),
+      new Participant('n3', 7, [], 0, 40),
+    ])
+    expect(split.status).toBe('disagreed')
+    if (split.status === 'disagreed') expect(split.grossExecMs).toBe(70)
   })
 })
 
@@ -542,7 +573,7 @@ describe('VER-02 — which executors the ceremony is selected for', () => {
     const kernelShaped: Executor = {
       nodeId: 'local',
       async execute() {
-        return { ok: true, output: null, fuelUsed: 0, attestation: 'signed-by-nobody' }
+        return { ok: true, output: null, fuelUsed: 0, execMs: 0, attestation: 'signed-by-nobody' }
       },
     }
     expect(isCommitting(kernelShaped)).toBe(false)

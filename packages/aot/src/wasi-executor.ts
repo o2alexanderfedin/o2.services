@@ -660,6 +660,12 @@ export type WasiRunOutcome =
       readonly stdoutBytes: number
       /** How much of stdin the guest actually read. Not part of `fuelUsed`; see below. */
       readonly stdinConsumed: number
+      /**
+       * Milliseconds `_start` ran for, off this executor's monotonic clock — the host's
+       * reading, which is unrelated to the pinned clock the guest is shown. See
+       * `ExecutionOutcome.execMs` for what it is and is not trusted for.
+       */
+      readonly execMs: number
     }
   | { readonly ok: false; readonly failure: WasiFailure }
 
@@ -734,17 +740,25 @@ export interface WasiExecutorOptions {
   readonly blockstore: Blockstore
   /** Cap on stdout, to bound a misbehaving guest. Default 1 MiB, as `WasmExecutor`. */
   readonly maxOutputBytes?: number
+  /**
+   * The HOST's monotonic clock for the guest's run time, in milliseconds — never handed
+   * to the guest, which sees only the pinned clock above. Defaults to `performance.now()`;
+   * injected so a test states the time. Read once either side of `_start`.
+   */
+  readonly now?: () => number
 }
 
 export class WasiExecutor implements Executor {
   readonly nodeId: string
   readonly #blockstore: Blockstore
   readonly #maxOutputBytes: number
+  readonly #now: () => number
 
   constructor(options: WasiExecutorOptions) {
     this.nodeId = options.nodeId
     this.#blockstore = options.blockstore
     this.#maxOutputBytes = options.maxOutputBytes ?? 1024 * 1024
+    this.#now = options.now ?? ((): number => performance.now())
   }
 
   async execute(task: Task): Promise<ExecutionOutcome> {
@@ -760,6 +774,8 @@ export class WasiExecutor implements Executor {
       ok: true,
       output: outcome.value,
       fuelUsed: outcome.inputBytes + outcome.stdoutBytes,
+      // This node's own reading of `_start`, outside the digest beside fuel.
+      execMs: outcome.execMs,
       // Unsigned by construction, for `WasmExecutor`'s reason and with no exception for
       // the lifted-binary path: this class holds a blockstore and a node id, never a key
       // or a certificate. Signing is `attestResults`, composed at a node's construction.
@@ -848,6 +864,8 @@ export class WasiExecutor implements Executor {
     }
 
     let code: number
+    // The guest's run and nothing else — `WasmExecutor`'s boundary, on this ABI.
+    const started = this.#now()
     try {
       code = wasi.start({ exports: { memory, _start: start } })
     } catch (cause) {
@@ -861,6 +879,8 @@ export class WasiExecutor implements Executor {
         },
       }
     }
+
+    const execMs = this.#now() - started
 
     // Overflow is checked before the exit status because *this host* caused the
     // status: a guest whose write came back `ENOSPC` usually exits non-zero, and
@@ -903,6 +923,7 @@ export class WasiExecutor implements Executor {
       inputBytes: inputBytes.length,
       stdoutBytes: output.length,
       stdinConsumed: stdin.consumed,
+      execMs,
     }
   }
 }

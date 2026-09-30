@@ -122,7 +122,29 @@ export interface Task {
  * is no output and therefore no statement to sign.
  */
 export type ExecutionOutcome =
-  | { ok: true; output: CanonicalValue; fuelUsed: number; attestation: AttestedResult }
+  | {
+      ok: true
+      output: CanonicalValue
+      fuelUsed: number
+      /**
+       * How long the guest ran, in milliseconds, **as the executing node measured it** —
+       * a monotonic clock read just before the guest is invoked and just after it returns.
+       *
+       * Fuel is bytes moved across the guest ABI, so it says nothing about compute: a
+       * guest that loops for an hour and returns eight bytes burns the fuel of one that
+       * returns at once. This is the figure that says how long the work took.
+       *
+       * **Self-reported and unverified.** Fuel is deterministic, so replicas can be held
+       * to it; time is not, and no replica can check another's. A node that lies here can
+       * inflate or deflate it and nothing will notice. So it sits outside the compared
+       * digest (VER-05) with fuel and node identity, and nothing that decides agreement,
+       * placement or standing reads it. Required rather than optional for `attestation`'s
+       * reason: an omitted field read as `0` would make "ran instantly" and "nobody
+       * measured" one value at the point a cost is summed.
+       */
+      execMs: number
+      attestation: AttestedResult
+    }
   | { ok: false; reason: string }
 
 /**

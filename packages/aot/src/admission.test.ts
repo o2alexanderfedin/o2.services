@@ -184,11 +184,16 @@ describe('a translated artifact reaches the fabric through the public entry poin
     const names = ['n1', 'n2', 'n3']
     const nativeLog: Dispatch[] = []
     const wasiLog: Dispatch[] = []
+    // One stopped clock for both pools. Execution time is this host's reading of how long
+    // the guest ran, not a property of the artifact, so two real clocks would make the two
+    // jobs differ for a reason that has nothing to do with the artifact — the `nodeId`
+    // argument above, for time.
+    const stopped = (): number => 0
     const nativeNodes = names.map((nodeId) =>
-      watched(new WasmExecutor({ nodeId, blockstore }), nativeLog),
+      watched(new WasmExecutor({ nodeId, blockstore, now: stopped }), nativeLog),
     )
     const wasiNodes = names.map((nodeId) =>
-      watched(new WasiExecutor({ nodeId, blockstore }), wasiLog),
+      watched(new WasiExecutor({ nodeId, blockstore, now: stopped }), wasiLog),
     )
 
     // The kernel *could* tell these apart — the two pools are different classes and

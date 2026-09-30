@@ -307,7 +307,7 @@ class WatchingExecutor implements Executor {
 
   async execute(task: Task): Promise<ExecutionOutcome> {
     this.#observe()
-    return { ok: true, output: { partition: task.partitionIndex }, fuelUsed: 1, attestation: 'signed-by-nobody' }
+    return { ok: true, output: { partition: task.partitionIndex }, fuelUsed: 1, execMs: 0, attestation: 'signed-by-nobody' }
   }
 }
 

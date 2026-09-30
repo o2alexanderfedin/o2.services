@@ -230,6 +230,22 @@ describe("the task's input reaches the guest and its output comes back decoded",
     const inputBytes = await blockstore.get(inputCid)
     if (outcome.ok) expect(outcome.fuelUsed).toBe((inputBytes?.length ?? 0) * 2)
   })
+
+  it('reports the guest’s run time off the injected clock, as WasmExecutor does', async () => {
+    // A fake clock read once either side of `_start`: 500 then 530, so 30 ms and nothing
+    // measured around compilation or decoding.
+    const { blockstore, moduleCid, inputCid } = await store(wasiEcho, { a: 1 })
+    const readings = [500, 530]
+    const executor = new WasiExecutor({
+      nodeId: 'n1',
+      blockstore,
+      now: () => readings.shift() ?? Number.NaN,
+    })
+    const outcome = await executor.execute(task(moduleCid, inputCid))
+    expect(outcome.ok).toBe(true)
+    if (outcome.ok) expect(outcome.execMs).toBe(30)
+    expect(readings).toStrictEqual([])
+  })
 })
 
 // ---- the shard reaches the guest as argv -------------------------------------

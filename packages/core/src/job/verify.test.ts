@@ -49,21 +49,21 @@ const task: Task = {
 }
 
 /** Deterministic and honest: the same task always produces the same output. */
-function honest(nodeId: string, fuelUsed = 100): Executor {
+function honest(nodeId: string, fuelUsed = 100, execMs = 0): Executor {
   return {
     nodeId,
     async execute(t: Task): Promise<ExecutionOutcome> {
-      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 42 }, fuelUsed, attestation: 'signed-by-nobody' }
+      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum: 42 }, fuelUsed, execMs, attestation: 'signed-by-nobody' }
     },
   }
 }
 
 /** Answers, and what it answers is wrong. `sum` is what diverges. */
-function liar(nodeId: string, sum: number): Executor {
+function liar(nodeId: string, sum: number, execMs = 0): Executor {
   return {
     nodeId,
     async execute(t: Task): Promise<ExecutionOutcome> {
-      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum }, fuelUsed: 100, attestation: 'signed-by-nobody' }
+      return { ok: true, output: { shard: t.partitionIndex, of: t.partitionCount, sum }, fuelUsed: 100, execMs, attestation: 'signed-by-nobody' }
     },
   }
 }
@@ -140,7 +140,7 @@ function nanProducer(nodeId: string): Executor {
   return {
     nodeId,
     async execute(): Promise<ExecutionOutcome> {
-      return { ok: true, output: { mean: Number.NaN } as CanonicalValue, fuelUsed: 100, attestation: 'signed-by-nobody' }
+      return { ok: true, output: { mean: Number.NaN } as CanonicalValue, fuelUsed: 100, execMs: 0, attestation: 'signed-by-nobody' }
     },
   }
 }
@@ -194,7 +194,7 @@ describe('what an agreement claims', () => {
       nodeId,
       async execute(t: Task): Promise<ExecutionOutcome> {
         seen.push({ nodeId, task: t })
-        return { ok: true, output: { sum: 42 }, fuelUsed: 100, attestation: 'signed-by-nobody' }
+        return { ok: true, output: { sum: 42 }, fuelUsed: 100, execMs: 0, attestation: 'signed-by-nobody' }
       },
     })
 
@@ -315,6 +315,30 @@ describe('what is compared covers (task, output) only', () => {
     expect(r.status).toBe('agreed')
   })
 
+  it('does not compare execution time — replicas reporting 5 ms and 5000 ms for one answer agree', async () => {
+    // Time is the executing node's own clock reading, and two honest nodes never read the
+    // same one. Folded into the digest it would turn every redundant run into a
+    // disagreement; the result CID is the output's and nothing else's.
+    const r = await executeVerified(task, [honest('quick', 100, 5), honest('slow', 100, 5000)])
+    expect(r.status).toBe('agreed')
+    if (r.status !== 'agreed') return
+    expect(r.replicas).toBe(2)
+    const hashed = await canonicalCid(r.output)
+    expect(hashed.ok).toBe(true)
+    if (hashed.ok) expect(r.resultCid.toString()).toBe(hashed.cid.toString())
+  })
+
+  it('carries execution time as it carries fuel — gross is every replica, useful is the answer’s', async () => {
+    // Unlike fuel, honest replicas report DIFFERENT times, so which replica is "the answer"
+    // matters here: it is the first answering replica, the same one `usefulFuel` is read
+    // from. 30 + 70 + 100 spent; 30 bought the answer.
+    const r = await executeVerified(task, [honest('a', 100, 30), honest('b', 100, 70), honest('c', 100, 100)])
+    expect(r.status).toBe('agreed')
+    if (r.status !== 'agreed') return
+    expect(r.grossExecMs).toBe(200)
+    expect(r.usefulExecMs).toBe(30)
+  })
+
   it('makes the redundancy tax readable as the difference between gross and useful fuel', async () => {
     // VER-06's cost, and the number `submitJob` divides to publish a verification
     // multiplier. Gross is every replica that answered; useful is the single run
@@ -348,6 +372,24 @@ describe('disagreement is surfaced, never voted away (VER-01)', () => {
         ['c'],
       ])
     }
+  })
+
+  it('reports the fuel a split burned, because every replica that answered did the work', async () => {
+    // VER-06's gross fuel is "every replica that answered", and a replica that answered
+    // with a different result answered. The sum was computed on this arm and dropped, so
+    // a disagreement cost nothing by the requestor's ledger — at the one moment the
+    // verification tax was paid in full and bought no answer.
+    const r = await executeVerified(task, [honest('a'), honest('b'), liar('c', 7)])
+    expect(r.status).toBe('disagreed')
+    if (r.status === 'disagreed') expect(r.grossFuel).toBe(300)
+  })
+
+  it('reports the time a split spent, for the same reason it reports the fuel', async () => {
+    // Execution time rides beside fuel: every replica that answered spent its time,
+    // whichever side of the split it landed on. 10 + 20 + 40.
+    const r = await executeVerified(task, [honest('a', 100, 10), honest('b', 100, 20), liar('c', 7, 40)])
+    expect(r.status).toBe('disagreed')
+    if (r.status === 'disagreed') expect(r.grossExecMs).toBe(70)
   })
 
   it('reports three different answers as three partitions, each naming who gave it', async () => {

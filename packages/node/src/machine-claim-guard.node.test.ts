@@ -285,7 +285,7 @@ describe('B — the sentences already published are not claims', () => {
     'SAME-MACHINE: 16 nodes on 1 host — a node count, not a machine count',
     "BENCH-06's distinct-machine half is descoped",
     'the distinct-machine half is descoped, and unmeasured is not met',
-    '5 distinct peers — machine count not measured; peers are tabs, and two tabs on one device are two peers',
+    '5 distinct peers — machine count not measured; a peer is one browser profile per origin, so tabs of one profile are one peer and two profiles on one device are two',
     '### 3.2 Machine inventory on every run',
   ]
 

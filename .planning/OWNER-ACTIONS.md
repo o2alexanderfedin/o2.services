@@ -784,6 +784,41 @@ Row 15, the mid-run kill-switch exercise, happens **inside** 14, at a stage boun
 
 ## 10. What a peer may announce about its machine — `BENCH-06`
 
+> **RULED 2026-09-28 — route (b). The page's promise does not move and nobody is re-asked.**
+> Owner's words: *"peer id выводится из ключа? он — хэш? публикуй, пофигу. Это не IP address,
+> не email, не имя владельца, не PII."*
+>
+> **The question was settled by running it, and the answer is the opposite of the usual
+> assumption: a peer id is not a hash.** For an Ed25519 key libp2p uses the `identity`
+> multihash — code `0x00`, no hashing — so the 36-byte digest is a four-byte protobuf header
+> followed by the 32-byte public key **verbatim**, and `publicKeyFromProtobuf` recovers the
+> identical key from the peer id alone. `12D3KooW…` *is* the public key, base58-encoded. An RSA
+> key would be sha256'd because it exceeds the 42-byte identity limit; this project generates
+> Ed25519 (`visitor-key.ts:19`).
+>
+> So publishing a peer id publishes a public key that was generated in the visitor's own
+> browser and is attached to no name, no address and no network address. The owner's reading
+> holds on the measurement, not just on the intent.
+>
+> **What gets published: the distinct-peer count, as a pair of bounds.** The key persists in
+> IndexedDB and is per **origin**, so ten tabs on one laptop are one peer id — distinct peer
+> ids count browser profiles, which over-count machines, while countries under-count them.
+> Published as bounds they bracket the real number honestly, at no disclosure cost.
+>
+> **One property the next reader is owed.** A peer id is stable per origin, so a published
+> *list* of them would let anyone link one participant's activity from stage to stage —
+> pseudonymous rather than anonymous. This ruling permits publishing them; the criterion needs
+> only the count. **RULED 2026-09-28: no list — the count only.** And the shape of what exists
+> already enforces it rather than leaving it to somebody's memory: the funnel journal is a single
+> key overwritten in place whose only dimension is `country` (`funnel-journal.ts:64,280`), so there
+> is nowhere for a per-visitor identity to accumulate, and the count itself comes from
+> `distinctParticipants(outcome.executedBy)` over a `ReduceOutcome` rather than from any store. A
+> published list would have to be built on purpose.
+>
+> `BENCH-06`'s distinct-machine half therefore stays unmeasured **by decision** rather than by
+> omission. That is a different sentence from the one the row used to carry, and the honest one.
+
+
 | | |
 |---|---|
 | **Act** | Choose one of the three routes in `39-PARTICIPANT-COUNT.md` § 3 |
@@ -791,9 +826,17 @@ Row 15, the mid-run kill-switch exercise, happens **inside** 14, at a stage boun
 | **Why not an agent** | It changes what the page promises a visitor. `packages/browser/src/disclosure.ts:241` promises *"no identifiers beyond the key named below"*, and that promise is the thing being widened |
 | **Unblocks** | Criterion 4's distinct-machine half, partially — the rest waits on the run itself |
 
-**Decide this BEFORE row 11.** The release cut re-asks every returning visitor once whatever you
-choose, so a decision taken now rides a re-ask that is already owed. Taken afterwards it costs a
-second one, from a few hundred people who will grant it once.
+**The ordering this row used to ask for has EXPIRED — corrected 2026-09-28.** It read: *"Decide
+this BEFORE row 11. The release cut re-asks every returning visitor once whatever you choose, so a
+decision taken now rides a re-ask that is already owed."* That was true while the published page
+lagged the tree's `DISCLOSURE_VERSION`. It stopped being true on **2026-09-07**, when a publish
+built from `779443e` carried version `'8'` — the tree's own value — and three releases since have
+kept it there. There is no owed re-ask left to ride.
+
+**So route (a) is no longer the cheap option it was, and that is the whole change to this
+decision.** It now costs a fresh re-ask of a few hundred people who will grant it once, rather
+than riding one they were owed anyway. Route (b) still costs nothing. Nothing about the choice is
+urgent any more; what was urgent was a window that is closed.
 
 One correction worth carrying into the choice, because it changes what the cheap route buys: a
 browser peer id is per **origin**, not per tab. Ten tabs on one laptop are one peer id, so
@@ -802,11 +845,38 @@ machine count than this row originally assumed. Published as a pair of bounds (p
 over-count, countries under-count) it brackets the real number honestly and costs no disclosure
 change and no extra byte on the wire.
 
-**What to say back:** which route, in one word.
+**Answered 2026-09-28: (b).** Nothing further is owed on this row.
 
 ---
 
 ## 11. Cut the release — the disclosure gate
+
+> **DONE AGAIN 2026-09-28 — `v2.1.0-rc.2` is deployed, and the read-back was taken in full.**
+> `GET /self` answers `version: 2.1.0-rc.2`, `enrolment: {maxIssuedPerWindow: 600, issues: true}`
+> and `killSwitch.operable: true`, and the object kept its PeerId
+> `12D3KooWKm587fnGat5xncq9kaWUk4bN5gUJQiF4q8EwJnrb7rsz` across the deploy. On the published
+> bundle `assets/index-KIkEkfAC.js` both greps read `1`, the positive control included, so the
+> instrument was reading the bundle rather than returning zero for having read nothing.
+> `gh-pages` is at `83f4188`, built from `6da6e735`.
+>
+> **The issuance budget was carried rather than dropped, and the mechanism is worth naming**:
+> `deploy.yml:91` passes `vars.O2_MAX_ISSUED_PER_WINDOW` (set to `600`) into
+> `scripts/deploy-hosted.sh`, which **refuses the deploy** rather than silently switching
+> issuance off when it is absent. A release cannot quietly turn enrolment off.
+>
+> **Row 10's ordering was not spent by this release either, measured the same way as below.**
+> `packages/browser/src/disclosure.ts` is byte-identical between `v2.1.0-rc.1` and
+> `v2.1.0-rc.2` and `DISCLOSURE_VERSION` is still `'8'`, so no stored consent was invalidated
+> and nobody was re-asked. **What does NOT follow, and was written here anyway a few hours
+> before being corrected: that row 10's decision still rides an unspent re-ask.** It does not.
+> The owed re-ask was a consequence of the published page lagging the tree's version, and the
+> publish caught up on 2026-09-07 — see the correction in the block below, which this one
+> repeated instead of checking. Route (a) of row 10 now costs a **fresh** re-ask of the whole
+> cohort, not a free ride on one already owed.
+>
+> **This block had been stale for four days before it was written.** It said `v2.0.0-rc.14`
+> was the deployed version while `v2.1.0-rc.1` had been deployed on 2026-09-24. The reading
+> below is kept, dated, because its reasoning about row 10 is what this one reuses.
 
 > **DONE 2026-09-17 — `v2.0.0-rc.14` is deployed, and the read-back below was taken.**
 > The node answers with the version that was deployed, `killSwitch.operable` is `true`, and the
@@ -820,7 +890,18 @@ change and no extra byte on the wire.
 > that the release spent the re-ask row 10 was counting on riding. It did not:
 > `packages/browser/src/disclosure.ts` is byte-identical across `v2.0.0-rc.13..v2.0.0-rc.14`
 > and `DISCLOSURE_VERSION` stayed `'8'`, so no stored consent was invalidated and no visitor
-> was re-asked. Row 10's decision still rides a re-ask nobody has spent.
+> was re-asked.>
+> **CORRECTED 2026-09-28, and this sentence was a non-sequitur rather than a stale figure.**
+> "`disclosure.ts` is unchanged between two releases, so nobody was re-asked" is true and was
+> measured correctly. "Therefore the re-ask row 10 was counting on riding is still owed" does
+> **not** follow from it. That re-ask existed only while the PUBLISHED page lagged the tree's
+> `DISCLOSURE_VERSION`; once the publish caught up, there is no owed re-ask to ride, and a
+> release that keeps the version steady re-asks nobody — which is the opposite of one waiting
+> to be spent. **The publish caught up on 2026-09-07 at the latest**: `gh-pages` commit
+> `12871d0` was built from `779443e`, where `DISCLOSURE_VERSION` was already `'8'`, and the
+> live page carries version 8's headline word `passphrase` seven times in `index.html`.
+> So this block was already wrong the day it was written, and row 10's cheap window had
+> closed ten days earlier.
 >
 > **What this row does NOT mean.** Nothing has been sent to anybody. The doors are open and the
 > funnel has seen development traces only. Row 13 — one timestamped funnel reading — is the next
