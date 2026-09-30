@@ -405,7 +405,7 @@ describe('the registration is released after the reply frame has settled', () =>
           // nothing at all.
           heldWhileRunning.push([...(server as Node).guard.registrations])
           ;(server as Node).close()
-          return { ok: true, output: 0, fuelUsed: 0, execMs: 0, attestation: 'signed-by-nobody' }
+          return { ok: true, output: 0, fuelUsed: 0, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' }
         },
       },
     })

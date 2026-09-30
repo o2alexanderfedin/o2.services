@@ -39,7 +39,7 @@ function watched(): { executor: Executor; count: () => number } {
     nodeId: 'w0',
     async execute(): Promise<ExecutionOutcome> {
       calls += 1
-      return { ok: true, output: null, fuelUsed: 1, execMs: 0, attestation: 'signed-by-nobody' }
+      return { ok: true, output: null, fuelUsed: 1, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' }
     },
   }
   return { executor, count: () => calls }
@@ -91,7 +91,7 @@ describe('guardNetworkReach — CAP-01 refusal before instantiation', () => {
     const outcome = await guarded.execute(task)
 
     expect(count()).toBe(1)
-    expect(outcome).toEqual({ ok: true, output: null, fuelUsed: 1, execMs: 0, attestation: 'signed-by-nobody' })
+    expect(outcome).toEqual({ ok: true, output: null, fuelUsed: 1, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' })
   })
 
   it('a sovereign task whose module record carries no wantsNetworkReach reaches inner.execute unchanged', async () => {
@@ -102,7 +102,7 @@ describe('guardNetworkReach — CAP-01 refusal before instantiation', () => {
     const outcome = await guarded.execute(task)
 
     expect(count()).toBe(1)
-    expect(outcome).toEqual({ ok: true, output: null, fuelUsed: 1, execMs: 0, attestation: 'signed-by-nobody' })
+    expect(outcome).toEqual({ ok: true, output: null, fuelUsed: 1, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' })
   })
 
   it('a sovereign task whose moduleRecord is entirely absent reaches inner.execute unchanged — this guard manufactures no refusal of its own', async () => {
@@ -113,7 +113,7 @@ describe('guardNetworkReach — CAP-01 refusal before instantiation', () => {
     const outcome = await guarded.execute(task)
 
     expect(count()).toBe(1)
-    expect(outcome).toEqual({ ok: true, output: null, fuelUsed: 1, execMs: 0, attestation: 'signed-by-nobody' })
+    expect(outcome).toEqual({ ok: true, output: null, fuelUsed: 1, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' })
   })
 
   it('the declares-nothing double control — a public task with no moduleRecord reaches inner.execute unchanged', async () => {
@@ -124,7 +124,7 @@ describe('guardNetworkReach — CAP-01 refusal before instantiation', () => {
     const outcome = await guarded.execute(task)
 
     expect(count()).toBe(1)
-    expect(outcome).toEqual({ ok: true, output: null, fuelUsed: 1, execMs: 0, attestation: 'signed-by-nobody' })
+    expect(outcome).toEqual({ ok: true, output: null, fuelUsed: 1, execMs: 0, hostCalls: 0, peakMemoryPages: 0, attestation: 'signed-by-nobody' })
   })
 
   it("passes the inner executor's nodeId through unchanged", () => {

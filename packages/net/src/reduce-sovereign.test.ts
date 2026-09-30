@@ -175,6 +175,10 @@ function agreedShard(
       usefulFuel: 0,
       grossExecMs: 0,
       usefulExecMs: 0,
+      grossHostCalls: 0,
+      usefulHostCalls: 0,
+      grossPeakMemoryPages: 0,
+      usefulPeakMemoryPages: 0,
     },
   }
 }
@@ -223,6 +227,10 @@ function jobWith(shards: readonly ShardResult[]): JobResult {
     usefulFuel: 0,
     grossExecMs: 0,
     usefulExecMs: 0,
+    grossHostCalls: 0,
+    usefulHostCalls: 0,
+    grossPeakMemoryPages: 0,
+    usefulPeakMemoryPages: 0,
     verificationMultiplier: 1,
     redispatches: 0,
     leaseHistory: [],

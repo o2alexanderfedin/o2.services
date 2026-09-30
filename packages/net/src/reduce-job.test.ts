@@ -135,6 +135,10 @@ function jobWith(shards: readonly ShardResult[]): JobResult {
     usefulFuel: 0,
     grossExecMs: 0,
     usefulExecMs: 0,
+    grossHostCalls: 0,
+    usefulHostCalls: 0,
+    grossPeakMemoryPages: 0,
+    usefulPeakMemoryPages: 0,
     verificationMultiplier: 1,
     // A fixture job that never had to retry anything, stated rather than omitted: these
     // literals stand for the *output* of a submission, and `submitJob` reports both of
@@ -218,6 +222,10 @@ function agreed(partitionIndex: number, output: CanonicalValue): ShardResult {
       usefulFuel: 0,
       grossExecMs: 0,
       usefulExecMs: 0,
+      grossHostCalls: 0,
+      usefulHostCalls: 0,
+      grossPeakMemoryPages: 0,
+      usefulPeakMemoryPages: 0,
     },
   }
 }

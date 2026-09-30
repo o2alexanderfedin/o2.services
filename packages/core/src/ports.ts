@@ -143,6 +143,28 @@ export type ExecutionOutcome =
        * measured" one value at the point a cost is summed.
        */
       execMs: number
+      /**
+       * How many times the guest called a host (imported) function during this run —
+       * every import counted, each call once, counted as the call is entered so a call
+       * that never returns (WASI `proc_exit`) is still counted.
+       *
+       * **Deterministic and exact**, unlike `execMs`: the same module on the same input
+       * makes the same calls on every engine, so honest replicas report the same number.
+       * It is nonetheless kept outside the compared digest (VER-05) for now, beside fuel —
+       * comparing it is a separate decision, not taken here.
+       */
+      hostCalls: number
+      /**
+       * The guest's linear memory when the run ended, in **64 KiB WebAssembly pages**.
+       * Linear memory never shrinks, so the size at the end is the peak.
+       *
+       * Deterministic for the same reason as `hostCalls` — with one exception: a
+       * `memory.grow` the module's own maximum allows can still fail when the host is
+       * short of memory, and a guest that reacts to that failure differently can end at a
+       * different size on a different host. Outside the compared digest, as `hostCalls`.
+       * `0` when the module exports no memory for the host to read.
+       */
+      peakMemoryPages: number
       attestation: AttestedResult
     }
   | { ok: false; reason: string }

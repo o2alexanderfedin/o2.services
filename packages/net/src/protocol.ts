@@ -1553,6 +1553,9 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
             fuelUsed: response.outcome.fuelUsed,
             // Always emitted, so an absent key has exactly one meaning: a previous build.
             execMs: response.outcome.execMs,
+            // Likewise always emitted: absent means a previous build and nothing else.
+            hostCalls: response.outcome.hostCalls,
+            peakMemoryPages: response.outcome.peakMemoryPages,
             attestation: attestationToValue(response.outcome.attestation),
           }
         : { kind: 'reveal', ok: false, reason: response.outcome.reason }
@@ -1565,6 +1568,9 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
             fuelUsed: response.outcome.fuelUsed,
             // Always emitted, so an absent key has exactly one meaning: a previous build.
             execMs: response.outcome.execMs,
+            // Likewise always emitted: absent means a previous build and nothing else.
+            hostCalls: response.outcome.hostCalls,
+            peakMemoryPages: response.outcome.peakMemoryPages,
             attestation: attestationToValue(response.outcome.attestation),
           }
         : { kind: 'exec', ok: false, reason: response.outcome.reason }
@@ -1586,6 +1592,25 @@ export function encodeResponse(response: AgentResponse): CanonicalValue {
 function parseExecMs(value: CanonicalValue | undefined): number | null {
   if (value === undefined) return 0
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null
+  return value
+}
+
+/**
+ * The `hostCalls` or `peakMemoryPages` of an `exec` or `reveal` answer, or `null` for a
+ * frame to refuse.
+ *
+ * **Absent reads as `0`**, on `parseExecMs`'s reasoning: a peer on a build from before the
+ * field answers without it, and refusing that frame would fail one replica per old peer for
+ * a whole rollout. `0` there means "claimed nothing", not "measured zero" — and both figures
+ * are outside the compared digest, so the understatement cannot split a shard.
+ *
+ * **Present and wrong is refused**, stricter than `execMs` because these are counts: a
+ * negative number, a fraction, or anything past `Number.MAX_SAFE_INTEGER` is a broken frame
+ * rather than a figure to sum.
+ */
+function parseGuestCount(value: CanonicalValue | undefined): number | null {
+  if (value === undefined) return 0
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) return null
   return value
 }
 
@@ -1744,11 +1769,24 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
         }
         const execMs = parseExecMs(record['execMs'])
         if (execMs === null) return null
+        const hostCalls = parseGuestCount(record['hostCalls'])
+        if (hostCalls === null) return null
+        const peakMemoryPages = parseGuestCount(record['peakMemoryPages'])
+        if (peakMemoryPages === null) return null
         const attestation = parseAttestation(record['attestation'])
         if (attestation === null) return null
         return {
           kind: 'reveal',
-          outcome: { ok: true, nonce: ownBytes(nonce), output, fuelUsed, execMs, attestation },
+          outcome: {
+            ok: true,
+            nonce: ownBytes(nonce),
+            output,
+            fuelUsed,
+            execMs,
+            hostCalls,
+            peakMemoryPages,
+            attestation,
+          },
         }
       }
       if (record['ok'] !== false) return null
@@ -1767,12 +1805,19 @@ export function parseResponse(body: CanonicalValue): AgentResponse | null {
         }
         const execMs = parseExecMs(record['execMs'])
         if (execMs === null) return null
+        const hostCalls = parseGuestCount(record['hostCalls'])
+        if (hostCalls === null) return null
+        const peakMemoryPages = parseGuestCount(record['peakMemoryPages'])
+        if (peakMemoryPages === null) return null
         // Refused, never downgraded. A frame whose attestation does not parse is a
         // protocol error, and reporting it as an honest peer that holds no certificate
         // would hand the requestor a weaker receipt with nothing to indicate why.
         const attestation = parseAttestation(record['attestation'])
         if (attestation === null) return null
-        return { kind: 'exec', outcome: { ok: true, output, fuelUsed, execMs, attestation } }
+        return {
+          kind: 'exec',
+          outcome: { ok: true, output, fuelUsed, execMs, hostCalls, peakMemoryPages, attestation },
+        }
       }
       if (record['ok'] !== false) return null
       const reason = record['reason']

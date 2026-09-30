@@ -29,6 +29,7 @@
 import { decodeCanonical } from '../canonical/encode.ts'
 import type { CanonicalValue } from '../canonical/encode.ts'
 import type { Blockstore, ExecutionOutcome, Executor, Task } from '../ports.ts'
+import { countingHostCalls, memoryPages } from './guest-meter.ts'
 
 /** Name of the export a task module must provide. */
 export const TASK_ENTRYPOINT = 'run'
@@ -170,10 +171,15 @@ export class WasmExecutor implements Executor {
       },
     }
 
+    // Every import counted, by wrapping the namespace rather than by editing each function:
+    // a function added to the ABI later is counted without anyone remembering to. A call a
+    // start function makes during instantiation is counted too — the guest made it.
+    const counted = countingHostCalls(imports.o2)
+
     let instance: WebAssembly.Instance
     try {
       const module = await WebAssembly.compile(moduleBytes)
-      instance = await WebAssembly.instantiate(module, imports)
+      instance = await WebAssembly.instantiate(module, { o2: counted.imports })
     } catch (cause) {
       // Covers malformed bytes, a failed validation, and — importantly — any
       // import the host does not provide.
@@ -238,6 +244,11 @@ export class WasmExecutor implements Executor {
       output: decoded,
       fuelUsed: inputBytes.length + output.length,
       execMs,
+      // Exact and the same on every engine, unlike `execMs` — and outside the digest all
+      // the same, beside fuel: holding replicas to them is a decision not taken yet.
+      hostCalls: counted.calls(),
+      // Read after the run from the `Memory` object; memory never shrinks, so this is the peak.
+      peakMemoryPages: memoryPages(memory),
       attestation: 'signed-by-nobody',
     }
   }

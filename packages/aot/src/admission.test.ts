@@ -70,7 +70,15 @@ interface Dispatch {
   readonly inputCid: string
   readonly partitionIndex: number
   readonly partitionCount: number
-  readonly outcome: ExecutionOutcome
+  /** The outcome less `hostCalls` — an ABI-shaped count, see {@link observeVerification}. */
+  readonly outcome: Record<string, unknown>
+}
+
+/** `outcome` without its host-call count, the one field the two ABIs differ in by design. */
+function abiNeutral(outcome: ExecutionOutcome): Record<string, unknown> {
+  if (!outcome.ok) return { ...outcome }
+  const { hostCalls: _calls, ...rest } = outcome
+  return rest
 }
 
 /**
@@ -95,7 +103,7 @@ function watched(inner: Executor, log: Dispatch[]): Executor {
       inputCid: task.inputCid.toString(),
       partitionIndex: task.partitionIndex,
       partitionCount: task.partitionCount,
-      outcome,
+      outcome: abiNeutral(outcome),
     })
     return outcome
   }
@@ -134,11 +142,26 @@ interface Observed {
   readonly shards: readonly ObservedShard[]
 }
 
-/** CIDs rendered as strings so a mismatch reports an address, not an object graph. */
+/**
+ * CIDs rendered as strings so a mismatch reports an address, not an object graph.
+ *
+ * **Host-call counts are left out, and only they.** They count crossings of the guest ABI,
+ * and the two artifacts speak two ABIs: the native echo makes three `o2` calls a run, the
+ * WASI echo four `wasi_snapshot_preview1` calls (two reads to reach end of input, a write,
+ * `proc_exit`). That difference is the artifact's, not the kernel's — the reason the clock
+ * is stopped above, for a figure that is exact rather than noisy. Each side's count is
+ * asserted on its own below, so leaving it out here hides nothing.
+ */
 function observeVerification(verification: VerificationResult): Record<string, unknown> {
-  return verification.status === 'agreed'
-    ? { ...verification, resultCid: verification.resultCid.toString() }
-    : { ...verification }
+  if (verification.status === 'agreed') {
+    const { grossHostCalls: _gross, usefulHostCalls: _useful, ...rest } = verification
+    return { ...rest, resultCid: verification.resultCid.toString() }
+  }
+  if (verification.status === 'disagreed') {
+    const { grossHostCalls: _gross, ...rest } = verification
+    return { ...rest }
+  }
+  return { ...verification }
 }
 
 /**
@@ -264,6 +287,15 @@ describe('a translated artifact reaches the fabric through the public entry poin
     // The claim, one line: the translated run and the source-compiled run are the
     // same job as far as anything downstream of `submitJob` can tell.
     expect(observe(fromTranslation.job)).toEqual(observe(fromSource.job))
+
+    // The one figure left out of that equality, each side on its own: four shards at
+    // redundancy 2 is eight runs, three `o2` calls each natively and four WASI calls each
+    // translated. Memory is in the equality above — one page on both sides.
+    expect(fromSource.job.grossHostCalls).toBe(8 * 3)
+    expect(fromSource.job.usefulHostCalls).toBe(4 * 3)
+    expect(fromTranslation.job.grossHostCalls).toBe(8 * 4)
+    expect(fromTranslation.job.usefulHostCalls).toBe(4 * 4)
+    expect(fromTranslation.job.grossPeakMemoryPages).toBe(8)
 
     // The converse: the kernel also fed them the same work. Four shards at
     // redundancy 2 is eight dispatches, and each must match its counterpart in the
