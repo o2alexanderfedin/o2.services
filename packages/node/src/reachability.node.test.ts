@@ -731,7 +731,22 @@ describe('each edge class is load-bearing — one ablation per class', () => {
     // is not one. Promoting a helper to a shared export is what puts it in the corpus, so the
     // list growing here is the cost of the deduplication being visible — which is the shape
     // this case exists to make visible.
+    //
+    // ## Six became eleven on 2026-09-30, all five from `@o2/core`'s guest executors
+    //
+    // `core/countingHostCalls` and `core/memoryPages` arrived with the host-call and peak-memory
+    // counts (PR #44) and reddened this case on develop unnoticed; `core/checkMemoryCap`,
+    // `core/describeMemoryRefusal` and `core/readDeclaredMemories` arrived with the node's memory
+    // cap. The door is the one the note above names for the libp2p pair: each is a plain call by
+    // name, but only from inside `execute()` / `run()` on `WasmExecutor` and `WasiExecutor`, and a
+    // method is reached only through a member call. Take member edges away and the method bodies
+    // are unreached, so nothing they call is.
     expect(lost.toSorted()).toStrictEqual([
+      'core/checkMemoryCap',
+      'core/countingHostCalls',
+      'core/describeMemoryRefusal',
+      'core/memoryPages',
+      'core/readDeclaredMemories',
       'libp2p/holdsReservations',
       'libp2p/publishRecords',
       'libp2p/reservedPeerIds',

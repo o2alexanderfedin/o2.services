@@ -293,3 +293,41 @@ export const MODULE_IMPORTS_CLOCK: Uint8Array<ArrayBuffer> = new Uint8Array([
   ...TYPES,
   ...section(2, [0x01, ...utf8('env'), ...utf8('now'), 0x00, 0x00]),
 ])
+
+/** `MODULE_ECHOES_INPUT`'s body, with whatever memory section the caller declares. */
+const ECHO_BODY = [
+  ...i32(0), 0x10, 0x00, 0x10, 0x01, ...LOCAL_SET_0, ...i32(0), ...LOCAL_GET_0, 0x10, 0x02,
+]
+
+/**
+ * The echo guest with its memory declared as `min` pages and a maximum of `max` pages,
+ * or **no maximum at all** when `max` is `null` — the declaration a node refuses.
+ */
+export function moduleEchoWithMemory(min: number, max: number | null): Uint8Array<ArrayBuffer> {
+  const limits = max === null ? [0x00, ...uleb(min)] : [0x01, ...uleb(min), ...uleb(max)]
+  return build(ECHO_BODY, 1, section(5, [0x01, ...limits]))
+}
+
+/**
+ * The echo guest with **no memory of its own**: it imports `o2.memory` with the given
+ * limits instead, and re-exports it. The host supplies no such import, so even a capped
+ * one cannot link; an uncapped one must be refused before linking is attempted.
+ */
+export function moduleEchoImportingMemory(min: number, max: number | null): Uint8Array<ArrayBuffer> {
+  const limits = max === null ? [0x00, ...uleb(min)] : [0x01, ...uleb(min), ...uleb(max)]
+  return new Uint8Array([
+    ...HEADER,
+    ...TYPES,
+    ...section(2, [
+      0x05,
+      ...utf8('o2'), ...utf8('input_len'), 0x00, 0x00,
+      ...utf8('o2'), ...utf8('input_read'), 0x00, 0x01,
+      ...utf8('o2'), ...utf8('output_write'), 0x00, 0x02,
+      ...utf8('o2'), ...utf8('partition'), 0x00, 0x00,
+      ...utf8('o2'), ...utf8('memory'), 0x02, ...limits,
+    ]),
+    ...FUNCS,
+    ...EXPORTS,
+    ...code(ECHO_BODY, 1),
+  ])
+}

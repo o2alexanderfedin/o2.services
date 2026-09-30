@@ -40,6 +40,8 @@ export interface WorkerTaskRequest {
   readonly partitionIndex: number
   readonly partitionCount: number
   readonly maxOutputBytes?: number
+  /** The node's memory cap in pages — `WasmExecutorOptions.maxMemoryPages`. Absent means the default. */
+  readonly maxMemoryPages?: number
 }
 
 /**
@@ -94,6 +96,7 @@ export async function runTask(
       nodeId: 'worker',
       blockstore: store,
       ...(request.maxOutputBytes === undefined ? {} : { maxOutputBytes: request.maxOutputBytes }),
+      ...(request.maxMemoryPages === undefined ? {} : { maxMemoryPages: request.maxMemoryPages }),
       // `WasmExecutor`'s own monotonic default unless a test states the time.
       ...(now === undefined ? {} : { now }),
     })

@@ -580,6 +580,18 @@ describe('the pool runs as many tasks at once as the host has cores, and no more
     expect(outcome.peakMemoryPages).toBe(4)
   })
 
+  it('sends the memory cap it was configured with to the thread that runs the guest', async () => {
+    // The thread builds its own `WasmExecutor`, so a cap set here and not posted would
+    // quietly become the default there.
+    const { blockstore, task } = await seeded()
+    const thread = fakeThread()
+    const executor = new WorkerExecutor({ nodeId: 'tab', blockstore, createThread: () => thread, maxMemoryPages: 7 })
+    void executor.execute(task)
+    await until('the task to reach the thread', () => thread.posted.length === 1)
+    expect(thread.posted[0]?.maxMemoryPages).toBe(7)
+    executor.terminate()
+  })
+
   it('refuses a bound that is not a number of threads', () => {
     // The same guard `LocalCapacity` applies to `maxConcurrent`, and for the same
     // reason: a pool of zero accepts no work at all, which is a node that has left the

@@ -15,6 +15,8 @@ import {
   MODULE_TRAPS,
   MODULE_COUNTS_INPUT_BYTES,
   MODULE_WRITES_PARTITION,
+  moduleEchoImportingMemory,
+  moduleEchoWithMemory,
 } from './fixtures.ts'
 import { WasmExecutor } from './wasm.ts'
 
@@ -208,6 +210,68 @@ describe('WasmExecutor — a refused output is reported as refused', () => {
     const out = await runCapped(MODULE_OUTPUT_OVER_CAP)
     expect(out.ok).toBe(false)
     if (!out.ok) expect(out.reason).toContain('output-too-large')
+  })
+})
+
+describe('WasmExecutor — a guest that could grow memory without bound is refused before it runs', () => {
+  // Each refused module here is the echo guest, which runs fine when its memory is
+  // declared `1 1`. So a refusal is the cap and nothing else: without the check every
+  // one of these would come back `ok: true` (or, for an imported memory, as a link error).
+  async function run(moduleBytes: Uint8Array<ArrayBuffer>, maxMemoryPages?: number) {
+    const { store, moduleCid, inputCid } = await setup(moduleBytes, { v: 1 })
+    const exec = new WasmExecutor({
+      nodeId: 'n1',
+      blockstore: store,
+      ...(maxMemoryPages === undefined ? {} : { maxMemoryPages }),
+    })
+    return exec.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
+  }
+
+  it('refuses a module whose memory declares no maximum, naming why', async () => {
+    const out = await run(moduleEchoWithMemory(1, null))
+    expect(out.ok).toBe(false)
+    if (!out.ok) expect(out.reason).toMatch(/^memory-uncapped: .*no maximum/)
+  })
+
+  it('refuses a module whose maximum is one page above the default 256 MiB cap', async () => {
+    const out = await run(moduleEchoWithMemory(1, 4097))
+    expect(out.ok).toBe(false)
+    if (!out.ok) expect(out.reason).toMatch(/^memory-over-cap: .*4097 pages.*cap of 4096 pages/)
+  })
+
+  it('runs a module whose maximum is exactly the cap', async () => {
+    const out = await run(moduleEchoWithMemory(1, 4096))
+    expect(out.ok).toBe(true)
+    if (out.ok) expect(out.output).toEqual({ v: 1 })
+  })
+
+  it('holds a configured cap, not only the default — at it runs, one page under it is refused', async () => {
+    // MODULE_METERED declares a maximum of 3 and grows to it.
+    const at = await run(MODULE_METERED, 3)
+    expect(at.ok).toBe(true)
+    const under = await run(MODULE_METERED, 2)
+    expect(under.ok).toBe(false)
+    if (!under.ok) expect(under.reason).toMatch(/^memory-over-cap: .*maximum of 3 pages.*cap of 2 pages/)
+  })
+
+  it('refuses an imported memory with no maximum before trying to link it', async () => {
+    const out = await run(moduleEchoImportingMemory(1, null))
+    expect(out.ok).toBe(false)
+    if (!out.ok) expect(out.reason).toMatch(/^memory-uncapped: .*imports as o2\.memory/)
+  })
+
+  it('still supplies no memory to a guest that imports a capped one — it fails to link, as before', async () => {
+    const out = await run(moduleEchoImportingMemory(1, 2))
+    expect(out.ok).toBe(false)
+    if (!out.ok) expect(out.reason).toContain('instantiation failed')
+  })
+
+  it('refuses a cap that is not a page count at construction', () => {
+    for (const maxMemoryPages of [0, 1.5, 65537]) {
+      expect(() => new WasmExecutor({ nodeId: 'n1', blockstore: new MemoryBlockstore(), maxMemoryPages })).toThrow(
+        RangeError,
+      )
+    }
   })
 })
 

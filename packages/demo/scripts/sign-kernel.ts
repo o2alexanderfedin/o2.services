@@ -62,6 +62,7 @@ import { fileURLToPath } from 'node:url'
 import { kernelBytes } from '../src/kernel.ts'
 import { piKernelBytes } from '../src/pi.ts'
 import { primesKernelBytes } from '../src/primes.ts'
+import { assertPublishable } from '../src/publish-check.ts'
 
 const SRC = fileURLToPath(new URL('../src/', import.meta.url))
 
@@ -108,6 +109,14 @@ const PRIMES_NAME = 'o2-demo-primes-kernel'
 const LIFETIME_DAYS = 400
 
 const DAY_MS = 24 * 60 * 60 * 1000
+
+// Before any key exists. A node refuses a guest whose memory declares no maximum or one
+// above its cap, so signing such a module would publish a record no stock node runs.
+// Thrown here, the run ends with nothing generated and nothing written.
+// `publish-check.node.test.ts` holds this script to calling it for all three modules.
+assertPublishable(KERNEL_NAME, kernelBytes)
+assertPublishable(PI_NAME, piKernelBytes)
+assertPublishable(PRIMES_NAME, primesKernelBytes)
 
 // Through `MemoryBlockstore.put`, not a hand-rolled `sha256` + `CID.create`. The CID
 // the runtime compares against comes from `store.put(kernelBytes)` in `demo/main.ts`,

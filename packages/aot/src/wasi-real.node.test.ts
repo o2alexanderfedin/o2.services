@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { encodeCanonical, MemoryBlockstore } from '@o2/core'
+import { DEFAULT_MAX_MEMORY_PAGES, encodeCanonical, MemoryBlockstore, readDeclaredMemories } from '@o2/core'
 import { WASI } from '@bjorn3/browser_wasi_shim'
 import { describe, expect, it } from 'vitest'
 import {
@@ -9,6 +9,7 @@ import {
   WASI_NAMESPACE,
   WasiExecutor,
 } from './wasi-executor.ts'
+import { withMemoryLimits } from './fixtures/memory-limits.ts'
 
 /**
  * The executor pointed at an artifact elfconv actually produced — AOT-04.
@@ -48,7 +49,7 @@ import {
  * (`tools/aot/fixtures/r1/`), and `git ls-files tools/aot/fixtures/` does not list it: git
  * has never known the file. The correction matters because the word "committed" is what a
  * reader would take as the assurance that the gate below is normally closed, and it is not
- * — on a fresh clone the artifact is absent and **all five cases here skip**. It is
+ * — on a fresh clone the artifact is absent and **all seven cases here skip** (five until 2026-09-30). It is
  * rebuilt with `npm run aot:lift -- tools/aot/fixtures/elf/hello_static`, or pointed at
  * with `O2_LIFTED_WASM`.
  *
@@ -74,6 +75,28 @@ function load(): Uint8Array<ArrayBuffer> | undefined {
 }
 
 const LIFTED = load()
+
+/**
+ * Added 2026-09-30, when nodes began refusing a guest whose memory has no maximum.
+ * elfconv's output declares a minimum and nothing more, so as lifted it is refused before
+ * it runs. And declaring the node's default cap is not enough either: measured on this
+ * artifact, the smallest maximum `_start` survives is **4116 pages (257.25 MiB)**, just
+ * over the default 4096 — every lift in the tree measured 4116 to 4120. Under the default
+ * it traps out of bounds.
+ *
+ * So the cases about the bridge run a copy with a maximum of {@link LIFT_PAGES} under an
+ * executor configured to allow it, which is what an operator of the translated tier would
+ * have to do today. What they prove about the bridge is unchanged.
+ */
+const LIFT_PAGES = 8192
+
+function redeclared(maximum: number): Uint8Array<ArrayBuffer> | undefined {
+  return LIFTED === undefined
+    ? undefined
+    : withMemoryLimits(LIFTED, readDeclaredMemories(LIFTED)[0]?.minimumPages ?? 1, maximum)
+}
+
+const CAPPED = redeclared(LIFT_PAGES)
 
 /**
  * Every import a real `aarch64-wasi32` artifact declares.
@@ -159,15 +182,50 @@ describe.skipIf(LIFTED === undefined)('a real elfconv artifact, as the fabric se
     expect(missing).toEqual([])
   })
 
-  it('instantiates, runs _start to completion, and is refused only by the codec', async () => {
+  it('declares no memory maximum as elfconv emits it, so a node refuses it before it runs', async () => {
     if (LIFTED === undefined) return
+    expect(readDeclaredMemories(LIFTED).map((m) => m.maximumPages)).toEqual([null])
     const blockstore = new MemoryBlockstore()
     const moduleCid = await blockstore.put(LIFTED)
     const encoded = encodeCanonical({})
     if (!encoded.ok) throw new Error('empty map does not encode')
     const inputCid = await blockstore.put(encoded.bytes)
-
     const outcome = await new WasiExecutor({ nodeId: 'real', blockstore }).run({
+      moduleCid,
+      inputCid,
+      partitionIndex: 0,
+      partitionCount: 1,
+    })
+    expect(outcome.ok ? 'ran' : outcome.failure.kind).toBe('memory-uncapped')
+  })
+
+  it('traps out of bounds when it declares only the default cap — a lift needs about 4116 pages', async () => {
+    const atDefault = redeclared(DEFAULT_MAX_MEMORY_PAGES)
+    if (atDefault === undefined) return
+    const blockstore = new MemoryBlockstore()
+    const moduleCid = await blockstore.put(atDefault)
+    const encoded = encodeCanonical({})
+    if (!encoded.ok) throw new Error('empty map does not encode')
+    const inputCid = await blockstore.put(encoded.bytes)
+    const outcome = await new WasiExecutor({ nodeId: 'real', blockstore }).run({
+      moduleCid,
+      inputCid,
+      partitionIndex: 0,
+      partitionCount: 1,
+    })
+    expect(outcome.ok ? 'ran' : outcome.failure.kind).toBe('trap')
+    if (!outcome.ok && outcome.failure.kind === 'trap') expect(outcome.failure.detail).toContain('out of bounds')
+  })
+
+  it('instantiates, runs _start to completion, and is refused only by the codec', async () => {
+    if (CAPPED === undefined) return
+    const blockstore = new MemoryBlockstore()
+    const moduleCid = await blockstore.put(CAPPED)
+    const encoded = encodeCanonical({})
+    if (!encoded.ok) throw new Error('empty map does not encode')
+    const inputCid = await blockstore.put(encoded.bytes)
+
+    const outcome = await new WasiExecutor({ nodeId: 'real', blockstore, maxMemoryPages: LIFT_PAGES }).run({
       moduleCid,
       inputCid,
       partitionIndex: 0,
@@ -186,16 +244,16 @@ describe.skipIf(LIFTED === undefined)('a real elfconv artifact, as the fabric se
   })
 
   it('fails the same way twice, on the same host', async () => {
-    if (LIFTED === undefined) return
+    if (CAPPED === undefined) return
     const blockstore = new MemoryBlockstore()
-    const moduleCid = await blockstore.put(LIFTED)
+    const moduleCid = await blockstore.put(CAPPED)
     const encoded = encodeCanonical({})
     if (!encoded.ok) throw new Error('empty map does not encode')
     const inputCid = await blockstore.put(encoded.bytes)
     const task = { moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 }
 
-    const first = await new WasiExecutor({ nodeId: 'a', blockstore }).run(task)
-    const second = await new WasiExecutor({ nodeId: 'b', blockstore }).run(task)
+    const first = await new WasiExecutor({ nodeId: 'a', blockstore, maxMemoryPages: LIFT_PAGES }).run(task)
+    const second = await new WasiExecutor({ nodeId: 'b', blockstore, maxMemoryPages: LIFT_PAGES }).run(task)
     // Weak evidence deliberately stated as weak: two runs in one process on one host.
     // It is not cross-machine reproducibility, which the lift driver reports as a
     // standing blind spot for this artifact and every other.
