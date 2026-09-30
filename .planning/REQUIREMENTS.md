@@ -421,6 +421,34 @@ itself. The work is real and the table says so; the box tracks delivery.
       `execMs` and `verificationMultiplier` are unchanged. Not done: the memory cap written
       into the module at publish time (§3 item 1's third part) — every shipped guest already
       declares `initial === maximum`, and changing one means re-signing every record.)*
+      *(**Extended 2026-09-30 — the memory cap, enforced by the node at admission rather than
+      written into the module at publish.** §3 item 1's third part. Both executors —
+      `WasmExecutor` (and so the worker pool's `runTask`, which builds one) and `@o2/aot`'s
+      `WasiExecutor` — now read the module's declared memory limits after compiling and
+      before instantiating (`checkMemoryCap`, `packages/core/src/executor/guest-memory.ts`),
+      and refuse, as a failed task naming the kind, any memory — defined **or imported** —
+      that declares no maximum (`memory-uncapped`) or a maximum above the node's cap
+      (`memory-over-cap`). The engine then holds every admitted guest to its own declared
+      maximum, identically on every host. The cap is `maxMemoryPages` on both executors and
+      on `WorkerExecutor`, which posts it to the thread; the default is
+      `DEFAULT_MAX_MEMORY_PAGES` = 4096 pages, 256 MiB, the per-task budget
+      `research/PITFALLS.md` and `research/SUMMARY.md` chose for mobile tabs. The signer
+      (`demo/scripts/sign-kernel.ts`) runs the same check on all three modules before any
+      key exists (`demo/src/publish-check.ts`), so a future publish cannot sign a module no
+      node runs. **Why at admission and not at publish:** the three shipped guests already
+      declare `initial === maximum` (4, 1 and 4 pages), so there is nothing to write into
+      them, and the only publish path generates new keys and new signed records on every
+      run — key rotation was not approved. Refusing at the node gives the same protection
+      with no signature touched. **The cost, measured:** every elfconv lift in the tree
+      declares a minimum and no maximum, so `WasiExecutor` now refuses them as lifted; and
+      even with a maximum declared, the smallest one they survive is 4116–4120 pages
+      (257.25–257.5 MiB), just over the default — the 256 MiB default and elfconv's current
+      memory layout cannot both stand, and the owner has not ruled which moves. Not done:
+      the lift pipeline declares no maximum (elfconv is `third_party`); no CLI or node config
+      sets the cap; the local-only lifted-artifact specs (`echo-guest`, `aot-dispatch`,
+      `aot-tab.e2e`, `ported-lift`) now see a refusal until the artifacts are re-lifted with
+      a maximum and run under a raised cap. The host still supplies no memory to a guest
+      that imports one, so a capped imported memory fails to link as before.)*
 - [x] **VER-08**: When an owner has two or more live nodes, a sovereignty-pinned
       task executes redundantly across the owner's own node set and the outputs
       are compared — no data leaves the owner's trust domain
