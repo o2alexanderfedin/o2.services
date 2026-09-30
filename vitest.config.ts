@@ -1140,9 +1140,21 @@ const NODE_MEASUREMENT = {
    * change touches a `skipIf`, so the condition is environmental — most of this tree's skips
    * are conditioned on a gitignored artifact being present. Not chased; recorded so the next
    * reader does not read it as a case somebody deleted.
+   *
+   * ## 2026-09-30, same day: 3980 -> 3981, one case, and `unitTests` does NOT follow
+   *
+   * `packages/node/src/vocabulary.node.test.ts` gained one case: a NUL inside a file whose
+   * extension is spelled in upper case is a declared binary, not a file that escaped the scan.
+   * `isDeclaredBinary` compared with `endsWith` against a lower-case list, so a camera's
+   * `.PNG` reddened the tree over its filename. `unitTests` stays at 3206 because that file is
+   * the first entry in `scripts/cheap-guards.sh`'s list, so the unit lane never runs it —
+   * measured, not assumed: `O2_UNIT_ONLY=1` returned `3206 passed (3206)` before and after.
+   *
+   * Measured: `npx vitest run --project node` collected `Test Files 273 passed (273)` and
+   * `Tests 3979 passed | 2 skipped (3981)`, exit 0 on the line after the command.
    */
   files: 273,
-  tests: 3980,
+  tests: 3981,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
