@@ -530,9 +530,11 @@ describe('a NUL byte cannot buy a file its way out of the scan', () => {
     // in; on this machine's own filesystem the two spellings are the same name. Nothing is
     // newly exempted by this: the class of contents skipped is unchanged, only which
     // filenames are recognised as belonging to it.
-    expect(nulVerdict('259C68F2-7F99-4370-9951-2EF20F45A702.PNG', Buffer.from(NUL))).toBe(
-      'declared-binary',
-    )
+    // A synthetic name on purpose. The case that first exposed this was a real photograph, and
+    // a test input has no business carrying the filename of a file somebody asked to have
+    // removed — the rule under test is about the extension, and nothing else about the name
+    // matters to it.
+    expect(nulVerdict('a-photograph-from-a-phone.PNG', Buffer.from(NUL))).toBe('declared-binary')
     expect(nulVerdict('tools/aot/fixtures/SUBJECT.WASM', Buffer.from(`x${NUL}y`))).toBe(
       'declared-binary',
     )
