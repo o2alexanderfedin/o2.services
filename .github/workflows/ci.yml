@@ -187,7 +187,12 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - run: npm audit --omit=dev --audit-level=high
+      # Not `npm audit --omit=dev --audit-level=high` directly, since 2026-10-05. `npm audit`
+      # has no allowlist, and an advisory with no fix turns this lane permanently red — at which
+      # point nobody reads it and the next reachable advisory hides inside the same red. The gate
+      # keeps the refusal and makes each exception a dated entry with a measured reason:
+      # `scripts/audit-allowlist.json`, read independently by `audit-gate.node.test.ts`.
+      - run: scripts/audit-gate.sh
 
   # ─────────────────────────────────────────────────────────────────────────────────────
   # THE `aot` LANE IS NOT IN CI, AND THAT IS A FINDING RATHER THAN AN OMISSION.
