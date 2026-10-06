@@ -1152,9 +1152,39 @@ const NODE_MEASUREMENT = {
    *
    * Measured: `npx vitest run --project node` collected `Test Files 273 passed (273)` and
    * `Tests 3979 passed | 2 skipped (3981)`, exit 0 on the line after the command.
+   *
+   * ## 2026-10-05: 273 -> 277 and 3981 -> 4055, and only one file of that is this pass's
+   *
+   * `packages/node/src/audit-gate.node.test.ts` arrives with 11 cases: the audit lane stopped
+   * being a bare `npm audit` and became `scripts/audit-gate.sh` over a dated allowlist, and this
+   * spec reads that allowlist independently of the gate while executing the shipped gate program
+   * against synthetic reports.
+   *
+   * **The other three files are not mine, and that is the finding worth recording.** The counts
+   * above were measured on 2026-09-30 against a tree that did not yet hold
+   * `packages/demo/src/publish-check.{ts,test.ts,node.test.ts}`, which arrived with another
+   * session's commits inside `28fd2ce2`. Those commits did not move these numbers, so the gap
+   * this pass closes is four files wide rather than one. Nothing here reproaches anybody: the
+   * convention is that a spec's arrival updates this block, and a shared tree makes a missed
+   * update invisible until the next person measures.
+   *
+   * Measured: `npx vitest run --project node` collected `Test Files 276 passed | 1 failed (277)`
+   * and `Tests 4049 passed | 3 failed | 3 skipped (4055)`; `O2_UNIT_ONLY=1` collected
+   * `194 passed (194)` and `3280 passed (3280)`, exit 0. Both read on the line immediately after
+   * the command. `unitFiles` stays exactly `files` minus 83, as it was at 273/190.
+   *
+   * **The three failures are named rather than absorbed, and they are not a host artefact.**
+   * All three are in `packages/node/src/aot-dispatch.node.test.ts`, all with
+   * `memory-uncapped: the module declares its memory with no maximum`. That rule arrived with
+   * `4fa297de`, and the pre-lifted AOT fixture this machine holds declares memory without a
+   * maximum — so the red is a census of what relied on the absent cap, not a defect in this
+   * pass. Re-running the file alone kept all three red and took 1211 ms where the full lane took
+   * 3806 ms: a timeout would have spent the same budget, so the banner's `OVERSUBSCRIBED` verdict
+   * is not what this is. **CI does not see it**: the describe is `skipIf(!MEASURABLE)` and the
+   * fixture is gitignored, so the case skips where the fixture is absent.
    */
-  files: 273,
-  tests: 3981,
+  files: 277,
+  tests: 4055,
   /**
    * Sum of the per-file costs the table below records, over **every** file of **both**
    * projects: 1 098 805 ms for the `node` project's 198 files by the accounted window, plus
@@ -1665,8 +1695,8 @@ const NODE_MEASUREMENT = {
    * WAS OVERSUBSCRIBED — load/core 21.60 before, 21.94 after (8 cores, ceiling 4.00)`.
    * Nothing failed; no duration quoted.
    */
-  unitFiles: 190,
-  unitTests: 3206,
+  unitFiles: 194,
+  unitTests: 3280,
   // 10.24 s against the 2026-08-25 layer's 6.95 s, on the same contended host as the
   // run above and for the same reason — a fast loop is where a foreign core shows most.
   unitWallClockMs: 10_240,
