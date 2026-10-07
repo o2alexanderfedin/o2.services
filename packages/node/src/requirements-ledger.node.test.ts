@@ -2013,9 +2013,16 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     // device has been asked since this entry was written: no invitation has been sent at all.
     // The witness below still exists and still measures the mechanism rather than the reading.
     // Re-recorded rather than ticked, because ticking would claim an experiment nobody ran.
+    // **RE-READ 2026-10-07 at 15 days outstanding, bound 14 — the verdict does not move.**
+    // No invitation has been sent: `39-PRE-INVITE-READING.md` still does not exist anywhere
+    // in the tree, and the only `OWNER-ACTIONS.md` commits since 2026-09-22 close rows 3b and
+    // 11 and rule on publishing peer counts — rows 13 and 14 are untouched. The live funnel
+    // was not read this time (no request was sent to the hosted node).
+    // The witness passes on a quiet host (e2e lane with `funnel-probe`, 9 of 9). No phone
+    // has opened the real link, so the row still lacks its own reading.
     id: 'RUN-06',
     because: 'experiment-not-run',
-    reread: '2026-09-22',
+    reread: '2026-10-07',
     witnesses: ['packages/node/src/embedded-webview.e2e.test.ts'],
   },
   {
@@ -2024,9 +2031,15 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     // checklist half exists and its witness passes (54 cases green across this file's two
     // node-lane witnesses on a quiet host, 2026-09-22). What is missing is unchanged: nothing
     // has been sent to anybody.
+    // **RE-READ 2026-10-07 at 15 days outstanding, bound 14 — the verdict does not move.**
+    // No invitation has been sent: `39-PRE-INVITE-READING.md` still does not exist anywhere
+    // in the tree, and the only `OWNER-ACTIONS.md` commits since 2026-09-22 close rows 3b and
+    // 11 and rule on publishing peer counts — rows 13 and 14 are untouched. The live funnel
+    // was not read this time (no request was sent to the hosted node).
+    // The checklist witness passes on a quiet host (with `switch-observation`, 54 of 54).
     id: 'RUN-01',
     because: 'experiment-not-run',
-    reread: '2026-09-22',
+    reread: '2026-10-07',
     witnesses: ['packages/node/src/go-no-go-checklist.node.test.ts'],
   },
   {
@@ -2035,9 +2048,16 @@ const REREAD_REGISTER: readonly UnreadRow[] = [
     // has not happened, and cannot until row 14 of OWNER-ACTIONS is acted on. Checked against
     // the live funnel the same day: 23 page-loads, which are development traces rather than a
     // cohort.
+    // **RE-READ 2026-10-07 at 15 days outstanding, bound 14 — the verdict does not move.**
+    // No invitation has been sent: `39-PRE-INVITE-READING.md` still does not exist anywhere
+    // in the tree, and the only `OWNER-ACTIONS.md` commits since 2026-09-22 close rows 3b and
+    // 11 and rule on publishing peer counts — rows 13 and 14 are untouched. The live funnel
+    // was not read this time (no request was sent to the hosted node).
+    // Both witnesses pass on a quiet host (node lane 54 of 54 with the checklist; e2e lane
+    // 9 of 9 with `embedded-webview`). No stage has been sent.
     id: 'RUN-07',
     because: 'experiment-not-run',
-    reread: '2026-09-22',
+    reread: '2026-10-07',
     witnesses: [
       'packages/node/src/funnel-probe.e2e.test.ts',
       'packages/node/src/switch-observation.node.test.ts',
