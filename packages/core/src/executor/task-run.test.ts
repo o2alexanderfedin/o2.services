@@ -178,11 +178,10 @@ describe('runTask — the thread counts the guest’s host calls and memory and 
   })
 })
 
-describe('runTask — the thread refuses a guest whose memory has no bound', () => {
-  it('refuses a module declaring no maximum, as a failed task and not a thrown error', async () => {
+describe('runTask — the thread holds a declared maximum to the cap', () => {
+  it('runs a module declaring no maximum, as it did before the cap (#47)', async () => {
     const response = await runTask({ ...SUCCEEDS, moduleBytes: moduleEchoWithMemory(1, null) })
-    expect(response.ok).toBe(false)
-    if (!response.ok) expect(response.reason).toMatch(/^memory-uncapped: /)
+    expect(response.ok ? 'ran' : response.reason).toBe('ran')
   })
 
   it('holds the cap the calling thread sent, not only the default', async () => {

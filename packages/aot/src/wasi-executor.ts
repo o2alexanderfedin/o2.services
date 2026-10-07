@@ -659,8 +659,9 @@ export type WasiFailure =
   | { readonly kind: 'no-output' }
   | { readonly kind: 'not-dag-cbor'; readonly detail: string }
   /**
-   * The module's memory has no declared maximum, or one above this node's cap — refused
-   * before instantiation. Core's `MemoryRefusal`, carried whole, so `WasmExecutor` and
+   * The module's memory declares a maximum above this node's cap — refused before
+   * instantiation. (`memory-uncapped` stays in the union because the signer still uses
+   * it; this executor admits a memory with no maximum, #47.) Core's `MemoryRefusal`, carried whole, so `WasmExecutor` and
    * this executor refuse with the same kinds and the same words.
    */
   | MemoryRefusal
@@ -768,13 +769,13 @@ export interface WasiExecutorOptions {
   /**
    * The most linear memory a guest may declare, in 64 KiB pages. Default
    * `DEFAULT_MAX_MEMORY_PAGES` (256 MiB), as `WasmExecutor`, and refused the same way:
-   * before instantiation, as a `memory-uncapped` or `memory-over-cap` failure.
+   * before instantiation, as a `memory-over-cap` failure.
    *
    * **Every elfconv lift in the tree declares no maximum** (`hello.wasm`, the lifted
    * echo and hello guests, `lifted-subject.wasm`, `workload-lifted.wasm`: a minimum of 8
-   * to 10 pages and nothing else), so this executor refuses them as they come out of the
-   * lifter. They run again once the lift declares a maximum; `wasi-real.node.test.ts`
-   * shows the same artifact running with one.
+   * to 10 pages and nothing else). Refusing them stopped every translated program on
+   * every node (#47), so a memory with no maximum is admitted and runs unbounded, as it
+   * did before the cap; the reason is in `guest-memory.ts`.
    */
   readonly maxMemoryPages?: number
   /**
@@ -896,7 +897,7 @@ export class WasiExecutor implements Executor {
     }
     // After compiling and before instantiating — `WasmExecutor`'s place for it, and its
     // reasons: the bytes are known valid, and nothing has been allocated yet.
-    const memoryCap = checkMemoryCap(moduleBytes, this.#maxMemoryPages)
+    const memoryCap = checkMemoryCap(moduleBytes, this.#maxMemoryPages, { uncapped: 'admit' })
     if (!memoryCap.ok) return { ok: false, failure: memoryCap.refusal }
     try {
       instance = await WebAssembly.instantiate(module, imports)

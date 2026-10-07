@@ -517,7 +517,16 @@ describe.skipIf(!MEASURABLE)('a guest a translated artifact can finish a job wit
       // Weak evidence deliberately stated as weak: two runs, one process, one host. It is
       // not cross-machine reproducibility, which the lift driver reports as a standing
       // blind spot for this artifact and every other.
-      expect(first).toEqual(second)
+      //
+      // `execMs` is left out: it is the host's own clock, different on every run, and
+      // `ExecutionOutcome.execMs` says it is never compared. This case could not see that
+      // until 2026-10-06, because both runs were refused as `memory-uncapped` (#47) and
+      // two refusals are equal.
+      expect(first.ok && second.ok).toBe(true)
+      if (!first.ok || !second.ok) return
+      const { execMs: _firstMs, ...firstAnswer } = first
+      const { execMs: _secondMs, ...secondAnswer } = second
+      expect(firstAnswer).toEqual(secondAnswer)
     },
     PREPARE_TIMEOUT_MS,
   )

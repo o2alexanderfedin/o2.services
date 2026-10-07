@@ -78,8 +78,10 @@ const LIFTED = load()
 
 /**
  * Added 2026-09-30, when nodes began refusing a guest whose memory has no maximum.
- * elfconv's output declares a minimum and nothing more, so as lifted it is refused before
- * it runs. And declaring the node's default cap is not enough either: measured on this
+ * elfconv's output declares a minimum and nothing more, so as lifted it was refused before
+ * it ran — every translated program on every node (#47). Since 2026-10-06 a module with no
+ * maximum runs again, unbounded as before; only a declared maximum is held to the cap.
+ * And declaring the node's default cap is not enough for a lift: measured on this
  * artifact, the smallest maximum `_start` survives is **4116 pages (257.25 MiB)**, just
  * over the default 4096 — every lift in the tree measured 4116 to 4120. Under the default
  * it traps out of bounds.
@@ -182,7 +184,7 @@ describe.skipIf(LIFTED === undefined)('a real elfconv artifact, as the fabric se
     expect(missing).toEqual([])
   })
 
-  it('declares no memory maximum as elfconv emits it, so a node refuses it before it runs', async () => {
+  it('declares no memory maximum as elfconv emits it, and a node still runs it to the codec (#47)', async () => {
     if (LIFTED === undefined) return
     expect(readDeclaredMemories(LIFTED).map((m) => m.maximumPages)).toEqual([null])
     const blockstore = new MemoryBlockstore()
@@ -196,7 +198,9 @@ describe.skipIf(LIFTED === undefined)('a real elfconv artifact, as the fabric se
       partitionIndex: 0,
       partitionCount: 1,
     })
-    expect(outcome.ok ? 'ran' : outcome.failure.kind).toBe('memory-uncapped')
+    // Refusing an uncapped module stopped every lift on every node (#47). It runs again,
+    // so this hello-world reaches the codec, which refuses its ASCII output.
+    expect(outcome.ok ? 'ran' : outcome.failure.kind).toBe('not-dag-cbor')
   })
 
   it('traps out of bounds when it declares only the default cap — a lift needs about 4116 pages', async () => {

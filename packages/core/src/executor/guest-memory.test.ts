@@ -105,6 +105,23 @@ describe('checkMemoryCap — a node refuses a guest that could grow without boun
     expect(verdict.ok ? 'admitted' : verdict.refusal.kind).toBe('memory-unreadable')
   })
 
+  it('admits a memory with no maximum when the caller says so, defined or imported (#47)', () => {
+    expect(checkMemoryCap(moduleEchoWithMemory(1, null), DEFAULT_MAX_MEMORY_PAGES, { uncapped: 'admit' })).toEqual({
+      ok: true,
+    })
+    expect(checkMemoryCap(moduleEchoImportingMemory(1, null), DEFAULT_MAX_MEMORY_PAGES, { uncapped: 'admit' })).toEqual(
+      { ok: true },
+    )
+  })
+
+  it('still refuses above the cap and an unreadable declaration when uncapped memory is admitted', () => {
+    const admit = { uncapped: 'admit' } as const
+    const over = checkMemoryCap(moduleEchoWithMemory(1, 4097), 4096, admit)
+    expect(over.ok ? 'admitted' : over.refusal.kind).toBe('memory-over-cap')
+    const unreadable = checkMemoryCap(moduleEchoWithMemory(1, 2).subarray(0, 40), 4096, admit)
+    expect(unreadable.ok ? 'admitted' : unreadable.refusal.kind).toBe('memory-unreadable')
+  })
+
   it('opens every refusal with its kind, so one grep finds it from either executor', () => {
     const uncapped = checkMemoryCap(moduleEchoWithMemory(1, null))
     const over = checkMemoryCap(moduleEchoWithMemory(1, 4097))

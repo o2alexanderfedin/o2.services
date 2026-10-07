@@ -57,10 +57,11 @@ export interface WasmExecutorOptions {
    * The most linear memory a guest may declare, in 64 KiB pages. Default
    * {@link DEFAULT_MAX_MEMORY_PAGES} (256 MiB).
    *
-   * A module whose memory — defined or imported — declares no maximum, or a maximum above
-   * this, is refused before it is instantiated, so the engine never allocates for it. The
-   * engine then holds every admitted guest to its own declared maximum, exactly and the
-   * same way on every host. Per node, with the same caveat as `maxOutputBytes`: two nodes
+   * A module whose memory — defined or imported — declares a maximum above this is
+   * refused before it is instantiated, so the engine never allocates for it. The engine
+   * then holds every admitted guest to its own declared maximum, exactly and the same way
+   * on every host. A memory that declares **no** maximum is admitted and runs unbounded,
+   * as it did before the cap (#47; the reason is in `guest-memory.ts`). Per node, with the same caveat as `maxOutputBytes`: two nodes
    * with different caps can reach different verdicts on one module, and the refusal names
    * both numbers so that is diagnosable.
    */
@@ -206,7 +207,7 @@ export class WasmExecutor implements Executor {
     // are then known to be a valid module, so a declaration the reader cannot follow is a
     // refusal rather than a malformed module's error. Before instantiating, because that is
     // where the engine allocates the memory and runs any start function.
-    const memoryCap = checkMemoryCap(moduleBytes, this.#maxMemoryPages)
+    const memoryCap = checkMemoryCap(moduleBytes, this.#maxMemoryPages, { uncapped: 'admit' })
     if (!memoryCap.ok) return { ok: false, reason: describeMemoryRefusal(memoryCap.refusal) }
     try {
       instance = await WebAssembly.instantiate(module, { o2: counted.imports })
