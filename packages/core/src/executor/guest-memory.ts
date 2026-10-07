@@ -7,10 +7,21 @@
  * no, which in a browser tab is the tab crashing and on a volunteer's machine is the
  * machine swapping. Nothing about the guest's cost or its answer is worth that. The
  * engine enforces a *declared* maximum exactly and identically on every host, so the
- * whole defence is to refuse any module whose declaration is missing or too large, before
- * the engine allocates anything. See
+ * defence is to refuse any module whose declaration is too large, before the engine
+ * allocates anything. See
  * `.planning/consults/2026-09-29-what-a-browser-node-can-measure-about-a-guest.md` §3
  * item 1 for why this is checked here rather than written into the module at publish.
+ *
+ * ## A missing maximum: refused by the signer, admitted by the executors (#47)
+ *
+ * The executors also refused a module with no maximum at all, from 2026-09-30 until
+ * 2026-10-06. Every elfconv lift declares none, so that stopped every translated program
+ * on every node, and raising the cap does not help: a lift needs 4116 to 4120 pages, just
+ * over the default, and the owner has not ruled whether the cap or the lift's memory
+ * layout moves. So the executors pass `{ uncapped: 'admit' }` and such a module runs
+ * unbounded, as it did before the cap; the signer keeps the default and refuses one. The
+ * proper fix, where each node states the memory it gives a guest and writes that into a
+ * module with no maximum, is issue #46.
  *
  * ## Why the bytes are read by hand
  *
@@ -85,6 +96,14 @@ export type MemoryRefusal =
     }
 
 export type MemoryCapVerdict = { readonly ok: true } | { readonly ok: false; readonly refusal: MemoryRefusal }
+
+/**
+ * What {@link checkMemoryCap} does with a memory that declares no maximum: `refuse` it as
+ * `memory-uncapped`, or `admit` it and let it grow until the engine stops it.
+ */
+export interface MemoryCapPolicy {
+  readonly uncapped: 'admit' | 'refuse'
+}
 
 /** Unsigned LEB128, up to 2^53 — past that no page count is meaningful anyway. */
 class Reader {
@@ -206,17 +225,22 @@ export function readDeclaredMemories(bytes: Uint8Array): DeclaredMemory[] {
 /**
  * Whether a node that allows at most `capPages` of memory may run `bytes`.
  *
- * Every memory the module defines **or imports** must declare a maximum, and that
- * maximum must be no larger than the cap. A module with no memory at all passes: it
- * cannot grow anything, and each executor already has its own, older answer for a guest
- * that exports no memory.
+ * Every memory the module defines **or imports** that declares a maximum must declare
+ * one no larger than the cap. A memory with no maximum is refused unless `policy` admits
+ * it — the executors do, the signer does not; see "A missing maximum" above. A module with
+ * no memory at all passes: it cannot grow anything, and each executor already has its
+ * own, older answer for a guest that exports no memory.
  *
  * An imported memory is held to the same rule because its declared maximum is the only
  * bound the guest states. Neither executor supplies a memory today — an importing module
  * fails to link — so this is what stands between a future host that does supply one and
  * a guest that asks for an unbounded one.
  */
-export function checkMemoryCap(bytes: Uint8Array, capPages: number = DEFAULT_MAX_MEMORY_PAGES): MemoryCapVerdict {
+export function checkMemoryCap(
+  bytes: Uint8Array,
+  capPages: number = DEFAULT_MAX_MEMORY_PAGES,
+  policy: MemoryCapPolicy = { uncapped: 'refuse' },
+): MemoryCapVerdict {
   let memories: DeclaredMemory[]
   try {
     memories = readDeclaredMemories(bytes)
@@ -227,7 +251,10 @@ export function checkMemoryCap(bytes: Uint8Array, capPages: number = DEFAULT_MAX
     }
   }
   for (const memory of memories) {
-    if (memory.maximumPages === null) return { ok: false, refusal: { kind: 'memory-uncapped', memory } }
+    if (memory.maximumPages === null) {
+      if (policy.uncapped === 'refuse') return { ok: false, refusal: { kind: 'memory-uncapped', memory } }
+      continue
+    }
     if (memory.maximumPages > capPages) {
       return { ok: false, refusal: { kind: 'memory-over-cap', memory, capPages } }
     }

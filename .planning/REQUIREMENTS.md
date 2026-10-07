@@ -449,6 +449,22 @@ itself. The work is real and the table says so; the box tracks delivery.
       `aot-tab.e2e`, `ported-lift`) now see a refusal until the artifacts are re-lifted with
       a maximum and run under a raised cap. The host still supplies no memory to a guest
       that imports one, so a capped imported memory fails to link as before.)*
+      *(**Amended 2026-10-06 — the executors admit a memory with no maximum again (#47).**
+      Refusing `memory-uncapped` at admission stopped every elfconv-lifted program on every
+      node, tabs included, because the browser node uses the same `WasiExecutor`; it was
+      seen only locally, since the lifted artifacts are gitignored and `aot-dispatch`'s
+      cases skip in CI. Both executors now call `checkMemoryCap` with
+      `{ uncapped: 'admit' }`: a module with no maximum runs unbounded, as before
+      2026-09-30, and only a declared maximum is held to the cap (`memory-over-cap`
+      unchanged). The signer keeps the default `{ uncapped: 'refuse' }`, so a module with
+      no maximum still cannot be signed. **This reopens what the cap closed for uncapped
+      modules:** such a guest can again grow until the engine stops it, on every node. The
+      proper fix — each node states the memory it gives a guest, writes that into a module
+      with no maximum, and placement uses it — is #46, and the owner's ruling on whether the
+      256 MiB default or the lift's memory layout moves is still open. Guarded in CI by
+      `wasm.test.ts`, `task-run.test.ts` and `wasi-executor.test.ts`, which run a
+      hand-built echo module with no maximum and fail with `memory-uncapped` if the refusal
+      returns.)*
 - [x] **VER-08**: When an owner has two or more live nodes, a sovereignty-pinned
       task executes redundantly across the owner's own node set and the outputs
       are compared — no data leaves the owner's trust domain

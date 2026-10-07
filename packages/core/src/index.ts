@@ -77,7 +77,7 @@ export {
   MAX_WASM32_PAGES,
   readDeclaredMemories,
 } from './executor/guest-memory.ts'
-export type { DeclaredMemory, MemoryCapVerdict, MemoryRefusal } from './executor/guest-memory.ts'
+export type { DeclaredMemory, MemoryCapPolicy, MemoryCapVerdict, MemoryRefusal } from './executor/guest-memory.ts'
 // The cross-thread ABI both tiers speak, and the executor that bounds it.
 export { runTask, runTaskAndPost } from './executor/task-run.ts'
 export type { WorkerTaskRequest, WorkerTaskResponse } from './executor/task-run.ts'

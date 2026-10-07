@@ -74,6 +74,11 @@ budget, the module trapped at the same point on every run.
    every run — rotating them was not approved. Refusal at admission protects the same tab
    and the same volunteer machine without touching a signature. Ledger: VER-06, note of
    2026-09-30.
+   **Amended 2026-10-06 — the "no maximum" half is withdrawn at the node (#47).** It
+   refused every elfconv lift on every node. The executors now admit a memory with no
+   maximum and hold only a declared maximum to the cap; the signer still refuses one with
+   none. Until #46 lets each node state its memory and write it into such a module, an
+   uncapped guest is again unbounded. Ledger: VER-06, note of 2026-10-06.
 2. **Next: the per-block counter as the primary, verifiable cost unit.** Bytes across the ABI remain the
    I/O part.
    - **Where the rewrite happens:** once per module at publish time, by the build authority that already

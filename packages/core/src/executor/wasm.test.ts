@@ -213,10 +213,10 @@ describe('WasmExecutor — a refused output is reported as refused', () => {
   })
 })
 
-describe('WasmExecutor — a guest that could grow memory without bound is refused before it runs', () => {
-  // Each refused module here is the echo guest, which runs fine when its memory is
-  // declared `1 1`. So a refusal is the cap and nothing else: without the check every
-  // one of these would come back `ok: true` (or, for an imported memory, as a link error).
+describe('WasmExecutor — a declared maximum above the cap is refused before it runs', () => {
+  // Each module here is the echo guest, which runs fine when its memory is declared
+  // `1 1`. So a refusal is the cap and nothing else: without the check every one of
+  // these would come back `ok: true` (or, for an imported memory, as a link error).
   async function run(moduleBytes: Uint8Array<ArrayBuffer>, maxMemoryPages?: number) {
     const { store, moduleCid, inputCid } = await setup(moduleBytes, { v: 1 })
     const exec = new WasmExecutor({
@@ -227,10 +227,12 @@ describe('WasmExecutor — a guest that could grow memory without bound is refus
     return exec.execute({ moduleCid, inputCid, partitionIndex: 0, partitionCount: 1 })
   }
 
-  it('refuses a module whose memory declares no maximum, naming why', async () => {
+  it('runs a module whose memory declares no maximum, as it did before the cap (#47)', async () => {
+    // Every elfconv lift declares no maximum. Refusing them stopped every translated
+    // program on every node; until a node can state its own memory (#46) they run as
+    // they did before the cap, and only a declared maximum is held to it.
     const out = await run(moduleEchoWithMemory(1, null))
-    expect(out.ok).toBe(false)
-    if (!out.ok) expect(out.reason).toMatch(/^memory-uncapped: .*no maximum/)
+    expect(out.ok ? out.output : out.reason).toEqual({ v: 1 })
   })
 
   it('refuses a module whose maximum is one page above the default 256 MiB cap', async () => {
@@ -254,10 +256,10 @@ describe('WasmExecutor — a guest that could grow memory without bound is refus
     if (!under.ok) expect(under.reason).toMatch(/^memory-over-cap: .*maximum of 3 pages.*cap of 2 pages/)
   })
 
-  it('refuses an imported memory with no maximum before trying to link it', async () => {
+  it('supplies no memory to a guest that imports one with no maximum — it fails to link, not to the cap', async () => {
     const out = await run(moduleEchoImportingMemory(1, null))
     expect(out.ok).toBe(false)
-    if (!out.ok) expect(out.reason).toMatch(/^memory-uncapped: .*imports as o2\.memory/)
+    if (!out.ok) expect(out.reason).toContain('instantiation failed')
   })
 
   it('still supplies no memory to a guest that imports a capped one — it fails to link, as before', async () => {
